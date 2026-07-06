@@ -1,0 +1,21 @@
+# Node / Electron
+node_modules/
+dist/
+out/
+.vite/
+*.log
+.env
+
+# CLAUDE
+CLAUDE.md
+.claude/
+
+# ANTIGRAVITY
+AGENTS.md
+
+# Docs
+docs/
+CONTEXT.md
+
+# Superpowers
+.superpowers/
