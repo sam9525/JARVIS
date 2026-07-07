@@ -17,11 +17,14 @@ export function startListener(
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       res.writeHead(200).end(); // ack immediately — never make Claude Code wait
+      let event: ToolEvent | null = null;
       try {
-        const event = mapHookEvent(JSON.parse(body) as RawHookEvent);
-        if (event) onEvent(event);
+        event = mapHookEvent(JSON.parse(body) as RawHookEvent);
       } catch {
         // malformed hook payload → ignore
+      }
+      if (event) {
+        onEvent(event);
       }
     });
   });
