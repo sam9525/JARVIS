@@ -27,9 +27,20 @@ const settings = existsSync(settingsPath)
 settings.hooks ??= {};
 for (const event of ["PreToolUse", "PostToolUse"]) {
   const list = (settings.hooks[event] ??= []);
-  if (!list.some((h) => JSON.stringify(h) === JSON.stringify(hook))) {
+  const hasHook = list.some((h) => {
+    if (!h || !Array.isArray(h.hooks)) return false;
+    return h.hooks.some(
+      (sh) =>
+        sh &&
+        sh.type === "command" &&
+        typeof sh.command === "string" &&
+        (sh.command === `node "${forward}"` ||
+          sh.command.includes("forward.mjs")),
+    );
+  });
+  if (!hasHook) {
     list.push(hook);
   }
 }
-writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log(`hooks installed -> ${settingsPath}`);
