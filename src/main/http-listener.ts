@@ -25,6 +25,9 @@ export function startListener(
       }
     });
   });
+  server.on("error", (err) => {
+    console.error("HTTP listener error:", err);
+  });
   server.listen(port, "127.0.0.1"); // localhost only, never exposed
   return server;
 }
