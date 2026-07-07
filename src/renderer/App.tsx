@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import Graph from "./Graph";
-// import Preview from './Preview'; // ← uncomment in Task 4
+import Preview from "./Preview";
 import { applyEvent, emptyState } from "./highlight-store";
 import type { VaultGraph } from "../shared/types";
 
 export default function App() {
   const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
   const [previewNode, setPreviewNode] = useState<string | null>(null);
-  void previewNode;
   const stateRef = useRef(emptyState());
 
   useEffect(() => {
@@ -24,9 +23,9 @@ export default function App() {
   return (
     <>
       <Graph graph={graph} stateRef={stateRef} onNodeClick={setPreviewNode} />
-      {/* {previewNode && (
+      {previewNode && (
         <Preview nodeId={previewNode} onClose={() => setPreviewNode(null)} />
-      )} */}
+      )}
     </>
   );
 }
