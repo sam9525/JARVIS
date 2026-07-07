@@ -53,6 +53,7 @@ export function nodeDisplay(
   const h = state.nodes.get(nodeId);
   if (!h) return null;
   if (h.kind === "modified") return "modified";
+  if (now - h.at < 0) return null;
   return now - h.at < FLARE_MS ? "read-bright" : "read-dim";
 }
 
@@ -60,7 +61,7 @@ export function pulseProgress(
   state: HighlightState,
   now: number,
 ): number | null {
-  if (!state.pulseAt) return null;
+  if (!state.pulseAt || now < state.pulseAt) return null;
   const t = (now - state.pulseAt) / PULSE_MS;
   return t >= 1 ? null : t;
 }

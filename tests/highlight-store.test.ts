@@ -50,4 +50,16 @@ describe("highlight-store", () => {
     applyEvent(s, ev({ sessionId: "s2", tool: "Grep", phase: "pre" }), 1);
     expect(nodeDisplay(s, "a", 2)).toBeNull();
   });
+
+  it("handles future event timestamps gracefully (clock drift / negative duration)", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Read", phase: "pre", nodeIds: ["a"] }), 1000);
+    expect(nodeDisplay(s, "a", 500)).toBeNull();
+  });
+
+  it("handles future pulse timestamps gracefully (clock drift / negative duration)", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "pre", pattern: "x" }), 1000);
+    expect(pulseProgress(s, 500)).toBeNull();
+  });
 });
