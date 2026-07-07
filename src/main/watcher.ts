@@ -8,6 +8,9 @@ export function watchVault(
   onGraph: (g: VaultGraph) => void,
 ): FSWatcher {
   let timer: NodeJS.Timeout | null = null;
+  let activeScanId = 0;
+  let isClosed = false;
+
   const watcher = watch(rootPath, {
     ignoreInitial: true,
     // skip dot-dirs relative to the vault (.obsidian, .git, .claude)
@@ -20,10 +23,16 @@ export function watchVault(
   watcher.on("all", (_event, p) => {
     if (!p.toLowerCase().endsWith(".md")) return;
     if (timer) clearTimeout(timer);
+    activeScanId++;
+    const scanId = activeScanId;
     // ponytail: debounced full rescan per change; incremental parse if vaults get huge
     timer = setTimeout(() => {
       scanVault(rootPath)
-        .then(onGraph)
+        .then((g) => {
+          if (!isClosed && scanId === activeScanId) {
+            onGraph(g);
+          }
+        })
         .catch(() => {
           // ignore scan errors
         });
@@ -32,6 +41,7 @@ export function watchVault(
 
   const originalClose = watcher.close.bind(watcher);
   watcher.close = async () => {
+    isClosed = true;
     if (timer) clearTimeout(timer);
     return originalClose();
   };
