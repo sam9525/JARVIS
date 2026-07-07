@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { ToolEvent, VaultGraph } from "../shared/types";
 
 const api = {
+  getGraph: (): Promise<VaultGraph> => ipcRenderer.invoke("get-graph"),
   onGraph: (cb: (g: VaultGraph) => void) => {
     ipcRenderer.on("graph", (_e, g: VaultGraph) => cb(g));
   },

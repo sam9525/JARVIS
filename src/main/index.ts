@@ -5,7 +5,6 @@ import started from "electron-squirrel-startup";
 import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
-import type { Workspace } from "../shared/types";
 
 if (started) app.quit();
 
@@ -24,11 +23,8 @@ function resolveRootPath(): string {
 
 app.whenReady().then(async () => {
   const rootPath = resolveRootPath();
-  const workspace: Workspace = {
-    id: "vault",
-    name: path.basename(rootPath),
-    rootPath,
-  };
+  let graph = scanVault(rootPath);
+  ipcMain.handle("get-graph", () => graph);
 
   const win = new BrowserWindow({
     width: 1400,
@@ -47,15 +43,13 @@ app.whenReady().then(async () => {
   const send = (channel: string, payload: unknown) =>
     win.webContents.send(channel, payload);
 
-  win.webContents.on("did-finish-load", async () => {
-    send("workspace", workspace);
-    send("graph", await scanVault(rootPath));
-  });
-
   startListener(Number(process.env.JARVIS_PORT ?? DEFAULT_PORT), (e) =>
     send("tool-event", e),
   );
-  watchVault(rootPath, (g) => send("graph", g));
+  watchVault(rootPath, (g) => {
+    graph = Promise.resolve(g); // keep 'get-graph' fresh for reloads
+    send("graph", g);
+  });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

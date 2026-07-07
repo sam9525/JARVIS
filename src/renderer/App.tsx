@@ -6,6 +6,7 @@ export default function App() {
   const [lastEvent, setLastEvent] = useState<ToolEvent | null>(null);
 
   useEffect(() => {
+    window.jarvis.getGraph().then(setGraph);
     window.jarvis.onGraph(setGraph);
     window.jarvis.onToolEvent(setLastEvent);
   }, []);
