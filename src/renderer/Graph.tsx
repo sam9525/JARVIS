@@ -77,7 +77,9 @@ export default function Graph({
         ctx.fill();
 
         const label =
-          node.type === "tag" ? id.replace(/^tag:/, "#") : id.split("/").pop() || id;
+          node.type === "tag"
+            ? id.replace(/^tag:/, "#")
+            : id.split("/").pop() || id;
         const fontSize = 12 / globalScale;
         ctx.font = `${fontSize}px system-ui, sans-serif`;
         ctx.textAlign = "center";
