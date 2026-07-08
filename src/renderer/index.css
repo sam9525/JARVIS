@@ -42,3 +42,81 @@ body,
   padding: 1px 4px;
   border-radius: 3px;
 }
+.hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font:
+    13px system-ui,
+    sans-serif;
+}
+.section-toggle {
+  display: flex;
+  background: #161b26;
+  border: 1px solid #2b3345;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.section-toggle button {
+  background: none;
+  border: none;
+  color: #7a869c;
+  padding: 6px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+.section-toggle button.active {
+  background: #2b3345;
+  color: #d7dce6;
+}
+.gear {
+  background: #161b26;
+  border: 1px solid #2b3345;
+  border-radius: 999px;
+  color: #7a869c;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+}
+.settings-panel {
+  width: min(420px, 80vw);
+  max-height: 70vh;
+  overflow: auto;
+  background: #161b26;
+  color: #d7dce6;
+  border: 1px solid #2b3345;
+  border-radius: 8px;
+  padding: 20px 24px;
+  font:
+    14px/1.6 system-ui,
+    sans-serif;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.settings-row input[type="color"] {
+  width: 28px;
+  height: 22px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.settings-row button {
+  margin-left: auto;
+  background: none;
+  border: 1px solid #2b3345;
+  border-radius: 4px;
+  color: #7a869c;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+.settings-empty {
+  color: #7a869c;
+}
