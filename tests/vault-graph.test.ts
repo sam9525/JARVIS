@@ -86,11 +86,17 @@ describe("scanVault", () => {
 
     const ids = g.nodes.map((n) => n.id).sort();
     expect(ids).toEqual([
+      "arts/Raw/painting",
       "history/raw/timeline",
       "physics/raw/note1",
       "physics/wiki/overview",
       "tag:project",
     ]);
+
+    const painting = g.nodes.find((n) => n.id === "arts/Raw/painting");
+    expect(painting?.type).toBe("note");
+    expect(painting?.domain).toBe("arts");
+    expect(painting?.section).toBe("raw");
 
     const note1 = g.nodes.find((n) => n.id === "physics/raw/note1");
     expect(note1?.type).toBe("note");
@@ -117,6 +123,7 @@ describe("scanVault", () => {
         "physics/raw/note1>tag:project",
         "physics/wiki/overview>tag:project",
         "history/raw/timeline>physics/raw/note1",
+        "arts/Raw/painting>tag:project",
       ].sort(),
     );
   });

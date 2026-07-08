@@ -91,13 +91,25 @@ export async function scanVault(rootPath: string): Promise<VaultGraph> {
 type MdFile = { abs: string; domain: string; section: Section };
 
 // only <domain>/raw/**.md and <domain>/wiki/**.md are graph nodes
+// section folder name is matched case-insensitively, but the real on-disk
+// casing is preserved in the path so node ids match hook-reported paths.
 async function collectMdFiles(rootPath: string): Promise<MdFile[]> {
   const out: MdFile[] = [];
   const top = await fs.readdir(rootPath, { withFileTypes: true });
   for (const d of top) {
     if (!d.isDirectory() || d.name.startsWith(".")) continue;
-    for (const section of ["raw", "wiki"] as Section[]) {
-      const dir = path.join(rootPath, d.name, section);
+    const domainDir = path.join(rootPath, d.name);
+    let entries;
+    try {
+      entries = await fs.readdir(domainDir, { withFileTypes: true });
+    } catch {
+      continue; // domain dir unreadable — contributes nothing
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const section = e.name.toLowerCase() as Section;
+      if (section !== "raw" && section !== "wiki") continue;
+      const dir = path.join(domainDir, e.name);
       for (const abs of await walkMd(dir)) {
         out.push({ abs, domain: d.name, section });
       }
