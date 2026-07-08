@@ -30,7 +30,7 @@ export default function App() {
 
   const updateSettings = (s: Settings) => {
     setSettings(s); // renderer owns live state; main just persists
-    void window.jarvis.setSettings(s);
+    window.jarvis.setSettings(s).catch(console.error);
   };
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
