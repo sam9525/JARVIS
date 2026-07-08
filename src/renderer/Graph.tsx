@@ -6,24 +6,43 @@ import {
   pulseProgress,
   type HighlightState,
 } from "./highlight-store";
+import { colorFor } from "./domain-colors";
 
 const COLORS = {
   bg: "#0d1017",
-  note: "#4a5568",
   tag: "#2f3a4d",
   link: "#232a38",
+  label: "#8b93a7",
   "read-bright": "#7ef9ff",
   "read-dim": "#2b6a70",
   modified: "#ff8c42",
 } as const;
 
+const NODE_R = 5; // keep in sync with nodeRelSize
+
+type NodeObj = {
+  id?: string | number;
+  type?: string;
+  domain?: string;
+  x?: number;
+  y?: number;
+};
+
 type GraphProps = {
-  graph: VaultGraph;
+  graph: VaultGraph; // may be section-filtered
+  domains: string[]; // from the FULL graph — keeps palette indices stable
+  domainColors: Record<string, string>;
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
 };
 
-export default function Graph({ graph, stateRef, onNodeClick }: GraphProps) {
+export default function Graph({
+  graph,
+  domains,
+  domainColors,
+  stateRef,
+  onNodeClick,
+}: GraphProps) {
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean
   const data = useMemo(
     () => ({
@@ -38,19 +57,36 @@ export default function Graph({ graph, stateRef, onNodeClick }: GraphProps) {
       graphData={data}
       backgroundColor={COLORS.bg}
       autoPauseRedraw={false} // keep repainting so flares fade and pulses ripple
-      nodeRelSize={5}
+      nodeRelSize={NODE_R}
       nodeLabel="id"
-      nodeColor={(node: { id?: string | number; type?: string }) => {
-        const d = nodeDisplay(
-          stateRef.current,
-          String(node.id),
-          performance.now(),
-        );
-        if (d) return COLORS[d];
-        return node.type === "tag" ? COLORS.tag : COLORS.note;
+      nodeCanvasObject={(
+        node: NodeObj,
+        ctx: CanvasRenderingContext2D,
+        globalScale: number,
+      ) => {
+        if (node.x === undefined || node.y === undefined) return;
+        const id = String(node.id);
+        const d = nodeDisplay(stateRef.current, id, performance.now());
+        const base =
+          node.type === "tag"
+            ? COLORS.tag
+            : colorFor(node.domain, domains, domainColors);
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, NODE_R, 0, 2 * Math.PI);
+        ctx.fillStyle = d ? COLORS[d] : base; // highlights always win
+        ctx.fill();
+
+        const label =
+          node.type === "tag" ? id.replace(/^tag:/, "#") : id.split("/").pop() || id;
+        const fontSize = 12 / globalScale;
+        ctx.font = `${fontSize}px system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = COLORS.label;
+        ctx.fillText(label, node.x, node.y + NODE_R + 2 / globalScale);
       }}
       linkColor={() => COLORS.link}
-      onNodeClick={(node: { id?: string | number; type?: string }) => {
+      onNodeClick={(node: NodeObj) => {
         if (node.type === "note") onNodeClick(String(node.id));
       }}
       onRenderFramePost={(

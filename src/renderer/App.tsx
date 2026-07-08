@@ -3,6 +3,7 @@ import Graph from "./Graph";
 import Preview from "./Preview";
 import { applyEvent, emptyState } from "./highlight-store";
 import type { VaultGraph } from "../shared/types";
+import { domainsOf } from "./domain-colors";
 
 export default function App() {
   const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
@@ -22,7 +23,13 @@ export default function App() {
 
   return (
     <>
-      <Graph graph={graph} stateRef={stateRef} onNodeClick={setPreviewNode} />
+      <Graph
+        graph={graph}
+        domains={domainsOf(graph)}
+        domainColors={{}}
+        stateRef={stateRef}
+        onNodeClick={setPreviewNode}
+      />
       {previewNode && (
         <Preview nodeId={previewNode} onClose={() => setPreviewNode(null)} />
       )}
