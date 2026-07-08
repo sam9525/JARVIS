@@ -81,23 +81,42 @@ describe("resolveMdLink", () => {
 });
 
 describe("scanVault", () => {
-  it("builds nodes and edges from wikilinks, md links, and tags", async () => {
+  it("indexes only md under <domain>/raw|wiki, stamping domain and section", async () => {
     const g = await scanVault(FIXTURE);
 
     const ids = g.nodes.map((n) => n.id).sort();
-    expect(ids).toEqual(["Alpha", "index", "notes/beta", "tag:project"]);
+    expect(ids).toEqual([
+      "history/raw/timeline",
+      "physics/raw/note1",
+      "physics/wiki/overview",
+      "tag:project",
+    ]);
 
-    expect(g.nodes.find((n) => n.id === "tag:project")?.type).toBe("tag");
-    expect(g.nodes.find((n) => n.id === "Alpha")?.type).toBe("note");
+    const note1 = g.nodes.find((n) => n.id === "physics/raw/note1");
+    expect(note1?.type).toBe("note");
+    expect(note1?.domain).toBe("physics");
+    expect(note1?.section).toBe("raw");
+
+    const overview = g.nodes.find((n) => n.id === "physics/wiki/overview");
+    expect(overview?.domain).toBe("physics");
+    expect(overview?.section).toBe("wiki");
+
+    const timeline = g.nodes.find((n) => n.id === "history/raw/timeline");
+    expect(timeline?.domain).toBe("history");
+    expect(timeline?.section).toBe("raw");
+
+    const tag = g.nodes.find((n) => n.id === "tag:project");
+    expect(tag?.type).toBe("tag");
+    expect(tag?.domain).toBeUndefined();
+    expect(tag?.section).toBeUndefined();
 
     const edges = g.edges.map((e) => `${e.source}>${e.target}`).sort();
     expect(edges).toEqual(
       [
-        "Alpha>tag:project",
-        "index>Alpha",
-        "index>notes/beta",
-        "index>tag:project",
-        "notes/beta>Alpha",
+        "physics/raw/note1>physics/wiki/overview",
+        "physics/raw/note1>tag:project",
+        "physics/wiki/overview>tag:project",
+        "history/raw/timeline>physics/raw/note1",
       ].sort(),
     );
   });

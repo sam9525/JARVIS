@@ -1,6 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { VaultGraph, GraphNode, GraphEdge } from "../shared/types";
+import type {
+  VaultGraph,
+  GraphNode,
+  GraphEdge,
+  Section,
+} from "../shared/types";
 
 // [[target]], [[target#heading]], [[target|alias]]
 const WIKILINK = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
@@ -20,7 +25,7 @@ export function toNodeId(rootPath: string, absPath: string): string {
 
 export async function scanVault(rootPath: string): Promise<VaultGraph> {
   const files = await collectMdFiles(rootPath);
-  const noteIds = files.map((f) => toNodeId(rootPath, f));
+  const noteIds = files.map((f) => toNodeId(rootPath, f.abs));
 
   const byPath = new Set(noteIds);
   // Initialize a case-insensitive path lookup map
@@ -38,7 +43,12 @@ export async function scanVault(rootPath: string): Promise<VaultGraph> {
     if (!byBasename.has(base)) byBasename.set(base, id);
   }
 
-  const nodes: GraphNode[] = noteIds.map((id) => ({ id, type: "note" }));
+  const nodes: GraphNode[] = files.map((f, i) => ({
+    id: noteIds[i],
+    type: "note",
+    domain: f.domain,
+    section: f.section,
+  }));
   const edges: GraphEdge[] = [];
   const edgeKeys = new Set<string>();
   const tagIds = new Set<string>();
@@ -52,7 +62,7 @@ export async function scanVault(rootPath: string): Promise<VaultGraph> {
 
   for (let i = 0; i < files.length; i++) {
     const sourceId = noteIds[i];
-    const text = await fs.readFile(files[i], "utf8");
+    const text = await fs.readFile(files[i].abs, "utf8");
 
     for (const m of text.matchAll(WIKILINK)) {
       const target = resolveWikilink(
@@ -78,13 +88,36 @@ export async function scanVault(rootPath: string): Promise<VaultGraph> {
   return { nodes, edges };
 }
 
-async function collectMdFiles(dir: string): Promise<string[]> {
+type MdFile = { abs: string; domain: string; section: Section };
+
+// only <domain>/raw/**.md and <domain>/wiki/**.md are graph nodes
+async function collectMdFiles(rootPath: string): Promise<MdFile[]> {
+  const out: MdFile[] = [];
+  const top = await fs.readdir(rootPath, { withFileTypes: true });
+  for (const d of top) {
+    if (!d.isDirectory() || d.name.startsWith(".")) continue;
+    for (const section of ["raw", "wiki"] as Section[]) {
+      const dir = path.join(rootPath, d.name, section);
+      for (const abs of await walkMd(dir)) {
+        out.push({ abs, domain: d.name, section });
+      }
+    }
+  }
+  return out;
+}
+
+async function walkMd(dir: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return []; // domain has no raw/ or wiki/ folder — contributes nothing
+  }
   const out: string[] = [];
-  const entries = await fs.readdir(dir, { withFileTypes: true });
   for (const e of entries) {
-    if (e.name.startsWith(".")) continue; // .obsidian, .git, .claude
+    if (e.name.startsWith(".")) continue;
     const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...(await collectMdFiles(full)));
+    if (e.isDirectory()) out.push(...(await walkMd(full)));
     else if (e.name.toLowerCase().endsWith(".md")) out.push(full);
   }
   return out;

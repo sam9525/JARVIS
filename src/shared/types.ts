@@ -11,10 +11,15 @@ export interface ToolEvent {
   ts: number;
 }
 
+export type Section = "raw" | "wiki";
+export type SectionFilter = Section | "both";
+
 export interface GraphNode {
   // note: vault-relative POSIX path without .md; tag: "tag:<name>"
   id: string;
   type: "note" | "tag";
+  domain?: string; // note nodes only: top-level vault folder name
+  section?: Section; // note nodes only
 }
 
 export interface GraphEdge {
@@ -37,4 +42,13 @@ export interface Session {
   id: string;
   workspaceId: string;
   startedAt: number;
+}
+
+export interface Settings {
+  sectionFilter: SectionFilter;
+  domainColors: Record<string, string>; // domain → "#rrggbb"
+}
+
+export function defaultSettings(): Settings {
+  return { sectionFilter: "both", domainColors: {} };
 }
