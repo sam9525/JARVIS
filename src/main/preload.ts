@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ToolEvent, VaultGraph } from "../shared/types";
+import type { Settings, ToolEvent, VaultGraph } from "../shared/types";
 
 const api = {
   getGraph: (): Promise<VaultGraph> => ipcRenderer.invoke("get-graph"),
@@ -11,6 +11,9 @@ const api = {
   },
   readNote: (nodeId: string): Promise<string | null> =>
     ipcRenderer.invoke("read-note", nodeId),
+  getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),
+  setSettings: (s: Settings): Promise<void> =>
+    ipcRenderer.invoke("set-settings", s),
 };
 
 contextBridge.exposeInMainWorld("jarvis", api);

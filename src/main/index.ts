@@ -5,6 +5,8 @@ import started from "electron-squirrel-startup";
 import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
+import { loadSettings, saveSettings } from "./settings";
+import type { Settings } from "../shared/types";
 
 if (started) app.quit();
 
@@ -25,6 +27,16 @@ app.whenReady().then(async () => {
   const rootPath = resolveRootPath();
   let graph = scanVault(rootPath);
   ipcMain.handle("get-graph", () => graph);
+  const settingsPath = path.join(
+    app.getPath("userData"),
+    "jarvis-settings.json",
+  );
+  let settings = await loadSettings(settingsPath);
+  ipcMain.handle("get-settings", () => settings);
+  ipcMain.handle("set-settings", async (_e, s: Settings) => {
+    settings = s;
+    await saveSettings(settingsPath, s);
+  });
 
   const win = new BrowserWindow({
     width: 1400,
