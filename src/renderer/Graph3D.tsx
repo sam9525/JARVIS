@@ -63,6 +63,19 @@ export default function Graph3D({
     return () => clearInterval(id);
   }, [stateRef]);
 
+  // Node size / link thickness / group colors are baked into 3D geometry, so a
+  // slider change only takes effect on refresh(). Forces re-settle on their own
+  // via useForceTuning's reheat. Skip the mount run — the first build already
+  // reads current values. refresh() re-reads accessors without moving nodes.
+  const didRefresh = useRef(false);
+  useEffect(() => {
+    if (!didRefresh.current) {
+      didRefresh.current = true;
+      return;
+    }
+    fgRef.current?.refresh();
+  }, [display, groups]);
+
   return (
     <ForceGraph3D
       ref={fgRef}
