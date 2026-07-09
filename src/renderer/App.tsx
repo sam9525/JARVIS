@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Graph from "./Graph";
+import Graph3D from "./Graph3D";
 import Preview from "./Preview";
 import GraphSettingsPanel from "./GraphSettingsPanel";
 import { applyEvent, emptyState } from "./highlight-store";
@@ -47,15 +48,27 @@ export default function App() {
 
   return (
     <>
-      <Graph
-        graph={visible}
-        domains={domains}
-        groups={settings.groups}
-        display={settings.display}
-        forces={settings.forces}
-        stateRef={stateRef}
-        onNodeClick={setPreviewNode}
-      />
+      {settings.dimensions === "3d" ? (
+        <Graph3D
+          graph={visible}
+          domains={domains}
+          groups={settings.groups}
+          display={settings.display}
+          forces={settings.forces}
+          stateRef={stateRef}
+          onNodeClick={setPreviewNode}
+        />
+      ) : (
+        <Graph
+          graph={visible}
+          domains={domains}
+          groups={settings.groups}
+          display={settings.display}
+          forces={settings.forces}
+          stateRef={stateRef}
+          onNodeClick={setPreviewNode}
+        />
+      )}
       <div className="hud">
         <button
           className="gear"
