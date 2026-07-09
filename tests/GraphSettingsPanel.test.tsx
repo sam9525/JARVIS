@@ -60,4 +60,15 @@ describe("GraphSettingsPanel", () => {
     expect(calls.settings[0].groups[0].query).toBe("");
     expect(calls.settings[0].groups[0].color).toMatch(/^#/);
   });
+
+  it("3D toggle switches dimensions", () => {
+    const { el, calls } = render();
+    // top-level children: [header, Filters, Groups, Display, Forces]
+    const display = el.props.children[3];
+    // Display children: [summary, 3D label, ...three Sliders]
+    const label = display.props.children[1];
+    const input = label.props.children[1]; // label children: ["3D", <input>]
+    input.props.onChange({ target: { checked: true } });
+    expect(calls.settings[0].dimensions).toBe("3d");
+  });
 });

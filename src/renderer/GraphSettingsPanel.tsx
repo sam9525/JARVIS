@@ -127,6 +127,17 @@ export default function GraphSettingsPanel({
 
       <details open>
         <summary>Display</summary>
+        <label className="gs-row">
+          3D
+          <input
+            type="checkbox"
+            className="gs-switch"
+            checked={settings.dimensions === "3d"}
+            onChange={(e) =>
+              set({ dimensions: e.target.checked ? "3d" : "2d" })
+            }
+          />
+        </label>
         <Slider
           label="Text fade threshold"
           min={2}
