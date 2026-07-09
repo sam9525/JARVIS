@@ -5,7 +5,7 @@ import type { VaultGraph } from "../src/shared/types";
 
 // Mock React before any other code or dynamic imports run
 vi.mock("react", async () => {
-  const actual = await vi.importActual("react") as any;
+  const actual = (await vi.importActual("react")) as any;
   return {
     ...actual,
     useMemo: (fn: any) => fn(),
@@ -14,7 +14,9 @@ vi.mock("react", async () => {
 });
 
 // Define minimal browser globals before any dynamic imports
-const noop = () => { return; };
+const noop = () => {
+  return;
+};
 const mockHead = {
   appendChild: noop,
   insertBefore: noop,
@@ -45,7 +47,7 @@ const mockHead = {
 Object.defineProperty(global, "navigator", {
   value: { userAgent: "node" },
   writable: true,
-  configurable: true
+  configurable: true,
 });
 
 describe("Graph component", () => {
@@ -58,27 +60,29 @@ describe("Graph component", () => {
         { id: "a", type: "note", domain: "physics", section: "raw" },
         { id: "b", type: "note", domain: "physics", section: "wiki" },
       ],
-      edges: [
-        { source: "a", target: "b" },
-      ],
+      edges: [{ source: "a", target: "b" }],
     };
-    const stateRef = { current: { read: new Map(), modified: new Set(), search: null as any } };
+    const stateRef = {
+      current: { read: new Map(), modified: new Set(), search: null as any },
+    };
 
     const element = Graph({
       graph,
       domains: ["physics"],
       domainColors: { physics: "#ff0000" },
       stateRef: stateRef as any,
-      onNodeClick: () => { return; },
+      onNodeClick: () => {
+        return;
+      },
     });
 
     // Check that we got a valid React element
     expect(element).toBeDefined();
     expect(element.props).toBeDefined();
-    
+
     // In the new implementation, nodeRelSize should be 1 (in the old it's 5)
     expect(element.props.nodeRelSize).toBe(1);
-    
+
     // In the new implementation, nodes should have calculated r and val.
     // In the old implementation, nodes don't have r and val.
     const nodes = element.props.graphData.nodes;
