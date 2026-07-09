@@ -1,7 +1,7 @@
 import type { VaultGraph } from "../shared/types";
 
 export function nodeRadius(degree: number): number {
-  return 2 + 1.5 * Math.sqrt(degree);
+  return 4 + 1.5 * Math.sqrt(degree);
 }
 
 export function graphMetrics(graph: VaultGraph): {

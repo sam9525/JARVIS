@@ -18,11 +18,11 @@ const g: VaultGraph = {
 };
 
 describe("nodeRadius", () => {
-  it("is 2 for degree 0 and grows with sqrt(degree)", () => {
-    expect(nodeRadius(0)).toBe(2);
-    expect(nodeRadius(1)).toBeCloseTo(3.5);
-    expect(nodeRadius(4)).toBeCloseTo(5);
-    expect(nodeRadius(9)).toBeCloseTo(6.5);
+  it("is 4 for degree 0 and grows with sqrt(degree)", () => {
+    expect(nodeRadius(0)).toBe(4);
+    expect(nodeRadius(1)).toBeCloseTo(5.5);
+    expect(nodeRadius(4)).toBeCloseTo(7);
+    expect(nodeRadius(9)).toBeCloseTo(8.5);
   });
 });
 
@@ -31,7 +31,7 @@ describe("graphMetrics", () => {
     const m = graphMetrics(g);
     expect(m.radius.get("physics/raw/a")).toBeCloseTo(nodeRadius(3));
     expect(m.radius.get("physics/wiki/b")).toBeCloseTo(nodeRadius(1));
-    expect(m.radius.get("lonely")).toBe(2);
+    expect(m.radius.get("lonely")).toBe(4);
     expect(m.radius.size).toBe(g.nodes.length);
   });
 
@@ -42,7 +42,9 @@ describe("graphMetrics", () => {
       "physics/wiki/b",
       "tag:shared",
     ]);
-    expect([...(m.neighbors.get("tag:shared") ?? [])]).toEqual(["physics/raw/a"]);
+    expect([...(m.neighbors.get("tag:shared") ?? [])]).toEqual([
+      "physics/raw/a",
+    ]);
     expect(m.neighbors.get("lonely")?.size).toBe(0);
   });
 });

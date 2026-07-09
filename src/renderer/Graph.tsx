@@ -20,7 +20,7 @@ const COLORS = {
   modified: "#ff8c42",
 } as const;
 
-const LABEL_MIN_SCREEN_R = 5; // hide labels when node draws smaller than this (screen px)
+const LABEL_MIN_SCREEN_R = 10; // hide labels when node draws smaller than this (screen px)
 
 type NodeObj = {
   id?: string | number;
@@ -63,7 +63,7 @@ export default function Graph({
     return {
       data: {
         nodes: graph.nodes.map((n) => {
-          const r = m.radius.get(n.id) ?? 2;
+          const r = m.radius.get(n.id) ?? 4;
           return { ...n, r, val: r * r }; // nodeRelSize=1 → hit radius = sqrt(val) = r
         }),
         links: graph.edges.map((e) => ({ source: e.source, target: e.target })),
@@ -91,7 +91,7 @@ export default function Graph({
       ) => {
         if (node.x === undefined || node.y === undefined) return;
         const id = String(node.id);
-        const r = node.r ?? 2;
+        const r = node.r ?? 4;
         const d = nodeDisplay(stateRef.current, id, performance.now());
         const base =
           node.type === "tag"

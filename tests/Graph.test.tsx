@@ -87,7 +87,7 @@ describe("Graph component", () => {
     // In the old implementation, nodes don't have r and val.
     const nodes = element.props.graphData.nodes;
     expect(nodes).toBeDefined();
-    expect(nodes[0].r).toBeCloseTo(3.5); // degree 1 => radius 3.5
-    expect(nodes[0].val).toBeCloseTo(3.5 * 3.5);
+    expect(nodes[0].r).toBeCloseTo(5.5); // degree 1 => radius 5.5
+    expect(nodes[0].val).toBeCloseTo(5.5 * 5.5);
   });
 });
