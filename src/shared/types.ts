@@ -50,6 +50,7 @@ export interface GraphGroup {
 }
 
 export interface Settings {
+  dimensions: "2d" | "3d"; // 2d canvas vs 3d WebGL graph
   sectionFilter: SectionFilter;
   showTags: boolean;
   showOrphans: boolean;
@@ -70,6 +71,7 @@ export interface Settings {
 // force defaults equal the d3 defaults so an untouched panel matches today's layout
 export function defaultSettings(): Settings {
   return {
+    dimensions: "2d",
     sectionFilter: "wiki",
     showTags: true,
     showOrphans: true,

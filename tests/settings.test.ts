@@ -75,4 +75,16 @@ describe("settings", () => {
     expected.forces.linkDistance = 80;
     expect(await loadSettings(file)).toEqual(expected);
   });
+
+  it("loads a persisted 3d dimension", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(file, JSON.stringify({ dimensions: "3d" }), "utf8");
+    expect((await loadSettings(file)).dimensions).toBe("3d");
+  });
+
+  it("falls back to 2d for a bad dimension value", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(file, JSON.stringify({ dimensions: "4d" }), "utf8");
+    expect((await loadSettings(file)).dimensions).toBe("2d");
+  });
 });

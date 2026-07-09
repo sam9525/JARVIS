@@ -8,6 +8,9 @@ export async function loadSettings(file: string): Promise<Settings> {
     const parsed: unknown = JSON.parse(await fs.readFile(file, "utf8"));
     if (typeof parsed !== "object" || parsed === null) return s;
     const p = parsed as Record<string, unknown>;
+    if (p.dimensions === "2d" || p.dimensions === "3d") {
+      s.dimensions = p.dimensions;
+    }
     if (
       p.sectionFilter === "raw" ||
       p.sectionFilter === "wiki" ||
