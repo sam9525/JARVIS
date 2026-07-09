@@ -10,6 +10,9 @@ vi.mock("react", async () => {
     ...actual,
     useMemo: (fn: any) => fn(),
     useRef: (initial: any) => ({ current: initial }),
+    useEffect: () => {
+      return;
+    },
   };
 });
 
@@ -69,6 +72,14 @@ describe("Graph component", () => {
     const element = Graph({
       graph,
       domains: ["physics"],
+      groups: [],
+      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      forces: {
+        centerStrength: 1,
+        repelStrength: 30,
+        linkStrength: 1,
+        linkDistance: 30,
+      },
       stateRef: stateRef as any,
       onNodeClick: () => {
         return;
@@ -82,11 +93,12 @@ describe("Graph component", () => {
     // In the new implementation, nodeRelSize should be 1 (in the old it's 5)
     expect(element.props.nodeRelSize).toBe(1);
 
-    // In the new implementation, nodes should have calculated r and val.
-    // In the old implementation, nodes don't have r and val.
+    // nodes carry the BASE radius; multipliers apply via accessors, not in the
+    // graphData memo (rebuilding nodes on slider drag would restart the sim)
     const nodes = element.props.graphData.nodes;
     expect(nodes).toBeDefined();
-    expect(nodes[0].r).toBeCloseTo(5.5); // degree 1 => radius 5.5
-    expect(nodes[0].val).toBeCloseTo(5.5 * 5.5);
+    expect(nodes[0].r).toBeCloseTo(5.5); // degree 1 => base radius 5.5
+    expect(element.props.nodeVal(nodes[0])).toBeCloseTo((5.5 * 2) ** 2); // nodeSize=2
+    expect(element.props.linkWidth({})).toBe(3); // non-hovered × linkThickness=3
   });
 });
