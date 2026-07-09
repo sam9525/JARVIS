@@ -166,7 +166,7 @@ export default function GraphSettingsPanel({
         <Slider
           label="Repel force"
           min={0}
-          max={100}
+          max={20}
           step={1}
           value={settings.forces.repelStrength}
           onChange={(v) => setForces({ repelStrength: v })}
@@ -174,7 +174,7 @@ export default function GraphSettingsPanel({
         <Slider
           label="Link force"
           min={0}
-          max={2}
+          max={1}
           step={0.1}
           value={settings.forces.linkStrength}
           onChange={(v) => setForces({ linkStrength: v })}

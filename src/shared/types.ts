@@ -70,16 +70,16 @@ export interface Settings {
 // force defaults equal the d3 defaults so an untouched panel matches today's layout
 export function defaultSettings(): Settings {
   return {
-    sectionFilter: "both",
+    sectionFilter: "wiki",
     showTags: true,
     showOrphans: true,
     groups: [],
-    display: { textFadeThreshold: 10, nodeSize: 1, linkThickness: 1 },
+    display: { textFadeThreshold: 15, nodeSize: 1, linkThickness: 1 },
     forces: {
-      centerStrength: 1,
-      repelStrength: 30,
+      centerStrength: 0.5,
+      repelStrength: 10,
       linkStrength: 1,
-      linkDistance: 30,
+      linkDistance: 50,
     },
   };
 }

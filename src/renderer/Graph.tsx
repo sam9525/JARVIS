@@ -22,7 +22,7 @@ const COLORS = {
   modified: "#ff8c42",
 } as const;
 
-const ZOOM = { min: 0.3, max: 8 } as const;
+const ZOOM = { min: 0.5, max: 15 } as const;
 const COLLIDE_PADDING = 6; // min gap between any two nodes, linked or not
 
 type NodeObj = {
@@ -72,6 +72,7 @@ export default function Graph({
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
   const fgRef = useRef<ForceGraphMethods>();
+  const didFit = useRef(false); // fit-to-screen once, not on every re-settle
   // d3's default link strength is per-link (1/min(degree)); capture it once so
   // the Link force slider multiplies it instead of flattening it to a constant
   const baseLinkStrength = useRef<LinkStrengthFn | null>(null);
@@ -109,9 +110,9 @@ export default function Graph({
       forceCollide<NodeObj>((n) => (n.r ?? 4) + COLLIDE_PADDING),
     );
     // ponytail: gravity toward origin rounds the layout into a blob; scale with
-    // centerStrength so the slider still controls compactness. 0.05 is the knob.
-    fg.d3Force("x", forceX(0).strength(forces.centerStrength * 0.05));
-    fg.d3Force("y", forceY(0).strength(forces.centerStrength * 0.05));
+    // centerStrength so the slider still controls compactness. 0.02 is the knob.
+    fg.d3Force("x", forceX(0).strength(forces.centerStrength * 0.02));
+    fg.d3Force("y", forceY(0).strength(forces.centerStrength * 0.02));
     fg.d3ReheatSimulation(); // visible re-settle while dragging a force slider
   }, [forces]);
 
@@ -129,6 +130,12 @@ export default function Graph({
       nodeRelSize={1}
       minZoom={ZOOM.min}
       maxZoom={ZOOM.max}
+      cooldownTicks={200} // settle in ~1-2s instead of the default 15s so the fit fires promptly
+      onEngineStop={() => {
+        if (didFit.current) return;
+        didFit.current = true;
+        fgRef.current?.zoomToFit(200, 40);
+      }}
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
       nodeCanvasObject={(
