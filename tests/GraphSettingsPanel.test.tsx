@@ -1,0 +1,63 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect } from "vitest";
+import GraphSettingsPanel from "../src/renderer/GraphSettingsPanel";
+import { defaultSettings } from "../src/shared/types";
+import type { Settings } from "../src/shared/types";
+
+function render(overrides: Partial<Settings> = {}) {
+  const calls: { settings: Settings[]; search: string[]; closed: boolean } = {
+    settings: [],
+    search: [],
+    closed: false,
+  };
+  const el = GraphSettingsPanel({
+    settings: { ...defaultSettings(), ...overrides },
+    search: "abc",
+    onSearchChange: (s) => calls.search.push(s),
+    onSettingsChange: (s) => calls.settings.push(s),
+    onClose: () => {
+      calls.closed = true;
+    },
+  }) as any;
+  return { el, calls };
+}
+
+describe("GraphSettingsPanel", () => {
+  it("renders header + four sections, Forces collapsed by default", () => {
+    const { el } = render();
+    // [header, Filters, Groups, Display, Forces]
+    expect(el.props.children).toHaveLength(5);
+    const forces = el.props.children[4];
+    expect(forces.type).toBe("details");
+    expect(forces.props.open).toBeUndefined();
+    expect(el.props.children[1].props.open).toBe(true); // Filters open
+  });
+
+  it("reset button restores defaults and clears search", () => {
+    const { el, calls } = render({ showTags: false });
+    const header = el.props.children[0];
+    const resetBtn = header.props.children[0];
+    resetBtn.props.onClick();
+    expect(calls.settings[0]).toEqual(defaultSettings());
+    expect(calls.search[0]).toBe("");
+  });
+
+  it("close button calls onClose", () => {
+    const { el, calls } = render();
+    const closeBtn = el.props.children[0].props.children[1];
+    closeBtn.props.onClick();
+    expect(calls.closed).toBe(true);
+  });
+
+  it("new group gets the next palette color and empty query", () => {
+    const { el, calls } = render();
+    const groupsSection = el.props.children[2];
+    // children: [summary, ...groupRows, newGroupButton]
+    const kids = groupsSection.props.children;
+    const newGroupBtn = kids[kids.length - 1];
+    newGroupBtn.props.onClick();
+    expect(calls.settings[0].groups).toHaveLength(1);
+    expect(calls.settings[0].groups[0].query).toBe("");
+    expect(calls.settings[0].groups[0].color).toMatch(/^#/);
+  });
+});
