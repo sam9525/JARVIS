@@ -63,7 +63,7 @@ describe("Graph component", () => {
       edges: [{ source: "a", target: "b" }],
     };
     const stateRef = {
-      current: { read: new Map(), modified: new Set(), search: null as any },
+      current: { sessionId: null, nodes: new Map(), pulseAt: 0 },
     };
 
     const element = Graph({
