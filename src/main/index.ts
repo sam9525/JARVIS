@@ -10,8 +10,22 @@ import type { Settings } from "../shared/types";
 
 if (started) app.quit();
 
-function resolveRootPath(): string {
+async function resolveRootPath(): Promise<string> {
   if (process.env.VAULT_PATH) return process.env.VAULT_PATH;
+
+  const store = path.join(app.getPath("userData"), "jarvis-vault");
+  const saved = await fs.readFile(store, "utf8").catch(() => null);
+  // reuse the saved vault only if the folder is still there
+  if (
+    saved &&
+    (await fs.stat(saved).then(
+      (s) => s.isDirectory(),
+      () => false,
+    ))
+  ) {
+    return saved;
+  }
+
   const picked = dialog.showOpenDialogSync({
     title: "Pick your vault folder",
     properties: ["openDirectory"],
@@ -20,11 +34,12 @@ function resolveRootPath(): string {
     app.quit();
     process.exit(0);
   }
+  await fs.writeFile(store, picked[0], "utf8");
   return picked[0];
 }
 
 app.whenReady().then(async () => {
-  const rootPath = resolveRootPath();
+  const rootPath = await resolveRootPath();
   let graph = scanVault(rootPath);
   ipcMain.handle("get-graph", () => graph);
   const settingsPath = path.join(
