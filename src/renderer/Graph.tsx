@@ -9,7 +9,7 @@ import {
 } from "./highlight-store";
 import { colorFor, groupColor } from "./domain-colors";
 import { graphMetrics } from "./graph-metrics";
-import { forceCollide } from "d3-force-3d";
+import { forceCollide, forceX, forceY } from "d3-force-3d";
 
 const COLORS = {
   bg: "#0d1017",
@@ -108,6 +108,10 @@ export default function Graph({
       "collide",
       forceCollide<NodeObj>((n) => (n.r ?? 4) + COLLIDE_PADDING),
     );
+    // ponytail: gravity toward origin rounds the layout into a blob; scale with
+    // centerStrength so the slider still controls compactness. 0.05 is the knob.
+    fg.d3Force("x", forceX(0).strength(forces.centerStrength * 0.05));
+    fg.d3Force("y", forceY(0).strength(forces.centerStrength * 0.05));
     fg.d3ReheatSimulation(); // visible re-settle while dragging a force slider
   }, [forces]);
 
