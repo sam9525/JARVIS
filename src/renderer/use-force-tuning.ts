@@ -26,6 +26,12 @@ export function useForceTuning(
   // d3's default link strength is per-link (1/min(degree)); capture it once so
   // the Link force slider multiplies it instead of flattening it to a constant.
   const baseLinkStrength = useRef<LinkStrengthFn | null>(null);
+  // Reheat only re-settles after a live change. Skipping it on the first run
+  // avoids flipping engineRunning=true before react-force-graph-3d's async
+  // graphData flush has created the layout — otherwise its animation loop ticks
+  // an undefined layout and throws "Cannot read properties of undefined
+  // (reading 'tick')". 2D flushes synchronously so it never hit this.
+  const didInit = useRef(false);
 
   useEffect(() => {
     const fg = fgRef.current;
@@ -52,6 +58,8 @@ export function useForceTuning(
     fg.d3Force("x", forceX(0).strength(g));
     fg.d3Force("y", forceY(0).strength(g));
     fg.d3Force("z", forceZ(0).strength(g));
-    fg.d3ReheatSimulation(); // visible re-settle while dragging a force slider
+    // skip on mount (see didInit note); reheat only for live slider re-settle
+    if (didInit.current) fg.d3ReheatSimulation();
+    else didInit.current = true;
   }, [forces]);
 }
