@@ -35,8 +35,14 @@ export default function App() {
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
   const visible = useMemo(
-    () => filterGraph(graph, settings.sectionFilter),
-    [graph, settings.sectionFilter],
+    () =>
+      filterGraph(graph, {
+        sectionFilter: settings.sectionFilter,
+        search: "",
+        showTags: settings.showTags,
+        showOrphans: settings.showOrphans,
+      }),
+    [graph, settings],
   );
 
   return (
