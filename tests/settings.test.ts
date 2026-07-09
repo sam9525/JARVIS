@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { loadSettings, saveSettings } from "../src/main/settings";
 import { defaultSettings } from "../src/shared/types";
+import type { Settings } from "../src/shared/types";
 
 async function tmpFile(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-settings-"));
@@ -13,17 +14,31 @@ async function tmpFile(): Promise<string> {
 describe("settings", () => {
   it("round-trips save → load", async () => {
     const file = await tmpFile();
-    const s = {
+    const s: Settings = {
       ...defaultSettings(),
-      sectionFilter: "raw" as const,
+      dimensions: "3d",
+      sectionFilter: "raw",
       showTags: false,
       groups: [{ query: "tech", color: "#aa00ff" }],
-      display: { textFadeThreshold: 5, nodeSize: 2, linkThickness: 1.5 },
-      forces: {
-        centerStrength: 0.5,
-        repelStrength: 60,
-        linkStrength: 1.2,
-        linkDistance: 50,
+      views: {
+        "2d": {
+          display: { textFadeThreshold: 5, nodeSize: 2, linkThickness: 1.5 },
+          forces: {
+            centerStrength: 0.5,
+            repelStrength: 60,
+            linkStrength: 1.2,
+            linkDistance: 50,
+          },
+        },
+        "3d": {
+          display: { textFadeThreshold: 8, nodeSize: 3, linkThickness: 0.8 },
+          forces: {
+            centerStrength: 0.2,
+            repelStrength: 12,
+            linkStrength: 0.9,
+            linkDistance: 90,
+          },
+        },
       },
     };
     await saveSettings(file, s);
@@ -71,9 +86,44 @@ describe("settings", () => {
     );
     const expected = defaultSettings();
     expected.groups = [{ query: "ok", color: "#123456" }];
-    expected.display.nodeSize = 2;
-    expected.forces.linkDistance = 80;
+    // legacy flat display/forces migrate into BOTH views
+    expected.views["2d"].display.nodeSize = 2;
+    expected.views["3d"].display.nodeSize = 2;
+    expected.views["2d"].forces.linkDistance = 80;
+    expected.views["3d"].forces.linkDistance = 80;
     expect(await loadSettings(file)).toEqual(expected);
+  });
+
+  it("migrates a legacy flat display/forces into both views", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(
+      file,
+      JSON.stringify({
+        display: { nodeSize: 2.5 },
+        forces: { linkDistance: 77 },
+      }),
+      "utf8",
+    );
+    const loaded = await loadSettings(file);
+    expect(loaded.views["2d"].display.nodeSize).toBe(2.5);
+    expect(loaded.views["3d"].display.nodeSize).toBe(2.5);
+    expect(loaded.views["2d"].forces.linkDistance).toBe(77);
+    expect(loaded.views["3d"].forces.linkDistance).toBe(77);
+  });
+
+  it("keeps per-view values independent, with per-view winning over legacy flat", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(
+      file,
+      JSON.stringify({
+        display: { nodeSize: 2 }, // legacy flat seeds both views…
+        views: { "3d": { display: { nodeSize: 3 } } }, // …but 3d overrides
+      }),
+      "utf8",
+    );
+    const loaded = await loadSettings(file);
+    expect(loaded.views["2d"].display.nodeSize).toBe(2);
+    expect(loaded.views["3d"].display.nodeSize).toBe(3);
   });
 
   it("loads a persisted 3d dimension", async () => {

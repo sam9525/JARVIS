@@ -1,6 +1,12 @@
 import React from "react";
 import { defaultSettings } from "../shared/types";
-import type { GraphGroup, Settings } from "../shared/types";
+import type {
+  DisplaySettings,
+  ForceSettings,
+  GraphGroup,
+  Settings,
+  ViewSettings,
+} from "../shared/types";
 import { PALETTE } from "./domain-colors";
 import SectionToggle from "./SectionToggle";
 
@@ -21,10 +27,19 @@ export default function GraphSettingsPanel({
 }: Props) {
   const set = (patch: Partial<Settings>) =>
     onSettingsChange({ ...settings, ...patch });
-  const setDisplay = (patch: Partial<Settings["display"]>) =>
-    set({ display: { ...settings.display, ...patch } });
-  const setForces = (patch: Partial<Settings["forces"]>) =>
-    set({ forces: { ...settings.forces, ...patch } });
+  // display + forces edit the active view (2d/3d); the toggle below swaps which
+  const view = settings.views[settings.dimensions];
+  const setView = (patch: Partial<ViewSettings>) =>
+    set({
+      views: {
+        ...settings.views,
+        [settings.dimensions]: { ...view, ...patch },
+      },
+    });
+  const setDisplay = (patch: Partial<DisplaySettings>) =>
+    setView({ display: { ...view.display, ...patch } });
+  const setForces = (patch: Partial<ForceSettings>) =>
+    setView({ forces: { ...view.forces, ...patch } });
   const setGroup = (i: number, patch: Partial<GraphGroup>) =>
     set({
       groups: settings.groups.map((g, j) => (j === i ? { ...g, ...patch } : g)),
@@ -126,7 +141,7 @@ export default function GraphSettingsPanel({
       </details>
 
       <details open>
-        <summary>Display</summary>
+        <summary>Display ({settings.dimensions.toUpperCase()})</summary>
         <label className="gs-row">
           3D
           <input
@@ -143,7 +158,7 @@ export default function GraphSettingsPanel({
           min={2}
           max={30}
           step={1}
-          value={settings.display.textFadeThreshold}
+          value={view.display.textFadeThreshold}
           onChange={(v) => setDisplay({ textFadeThreshold: v })}
         />
         <Slider
@@ -151,7 +166,7 @@ export default function GraphSettingsPanel({
           min={0.5}
           max={3}
           step={0.1}
-          value={settings.display.nodeSize}
+          value={view.display.nodeSize}
           onChange={(v) => setDisplay({ nodeSize: v })}
         />
         <Slider
@@ -159,19 +174,19 @@ export default function GraphSettingsPanel({
           min={0.5}
           max={4}
           step={0.1}
-          value={settings.display.linkThickness}
+          value={view.display.linkThickness}
           onChange={(v) => setDisplay({ linkThickness: v })}
         />
       </details>
 
       <details>
-        <summary>Forces</summary>
+        <summary>Forces ({settings.dimensions.toUpperCase()})</summary>
         <Slider
           label="Center force"
           min={0}
           max={1}
           step={0.05}
-          value={settings.forces.centerStrength}
+          value={view.forces.centerStrength}
           onChange={(v) => setForces({ centerStrength: v })}
         />
         <Slider
@@ -179,7 +194,7 @@ export default function GraphSettingsPanel({
           min={0}
           max={20}
           step={1}
-          value={settings.forces.repelStrength}
+          value={view.forces.repelStrength}
           onChange={(v) => setForces({ repelStrength: v })}
         />
         <Slider
@@ -187,7 +202,7 @@ export default function GraphSettingsPanel({
           min={0}
           max={1}
           step={0.1}
-          value={settings.forces.linkStrength}
+          value={view.forces.linkStrength}
           onChange={(v) => setForces({ linkStrength: v })}
         />
         <Slider
@@ -195,7 +210,7 @@ export default function GraphSettingsPanel({
           min={10}
           max={100}
           step={1}
-          value={settings.forces.linkDistance}
+          value={view.forces.linkDistance}
           onChange={(v) => setForces({ linkDistance: v })}
         />
       </details>

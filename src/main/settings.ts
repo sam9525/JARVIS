@@ -29,12 +29,27 @@ export async function loadSettings(file: string): Promise<Settings> {
           typeof (g as Record<string, unknown>).color === "string",
       );
     }
-    mergeFiniteNumbers(s.display, p.display);
-    mergeFiniteNumbers(s.forces, p.forces);
+    // per-view display/forces (new format). A legacy flat display/forces from
+    // an older settings file seeds BOTH modes first, then any per-view values
+    // present in the file win.
+    const views = asRecord(p.views);
+    for (const mode of ["2d", "3d"] as const) {
+      mergeFiniteNumbers(s.views[mode].display, p.display);
+      mergeFiniteNumbers(s.views[mode].forces, p.forces);
+      const v = asRecord(views[mode]);
+      mergeFiniteNumbers(s.views[mode].display, v.display);
+      mergeFiniteNumbers(s.views[mode].forces, v.forces);
+    }
   } catch {
     // missing or unreadable file → defaults; rewritten on next save
   }
   return s;
+}
+
+function asRecord(u: unknown): Record<string, unknown> {
+  return typeof u === "object" && u !== null
+    ? (u as Record<string, unknown>)
+    : {};
 }
 
 // shallow per-group merge: unknown/bad values keep their defaults

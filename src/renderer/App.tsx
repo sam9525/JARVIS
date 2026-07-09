@@ -46,6 +46,8 @@ export default function App() {
     [graph, settings, search],
   );
 
+  const view = settings.views[settings.dimensions];
+
   return (
     <>
       {settings.dimensions === "3d" ? (
@@ -53,8 +55,8 @@ export default function App() {
           graph={visible}
           domains={domains}
           groups={settings.groups}
-          display={settings.display}
-          forces={settings.forces}
+          display={view.display}
+          forces={view.forces}
           stateRef={stateRef}
           onNodeClick={setPreviewNode}
         />
@@ -63,8 +65,8 @@ export default function App() {
           graph={visible}
           domains={domains}
           groups={settings.groups}
-          display={settings.display}
-          forces={settings.forces}
+          display={view.display}
+          forces={view.forces}
           stateRef={stateRef}
           onNodeClick={setPreviewNode}
         />

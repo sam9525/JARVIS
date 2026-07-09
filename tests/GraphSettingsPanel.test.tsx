@@ -71,4 +71,14 @@ describe("GraphSettingsPanel", () => {
     input.props.onChange({ target: { checked: true } });
     expect(calls.settings[0].dimensions).toBe("3d");
   });
+
+  it("display sliders edit the active view only", () => {
+    const { el, calls } = render({ dimensions: "3d" });
+    const display = el.props.children[3];
+    // Display children: [summary, 3D label, textFade, nodeSize, linkThickness]
+    const nodeSizeSlider = display.props.children[3];
+    nodeSizeSlider.props.onChange(2.5);
+    expect(calls.settings[0].views["3d"].display.nodeSize).toBe(2.5);
+    expect(calls.settings[0].views["2d"].display.nodeSize).toBe(1); // untouched
+  });
 });

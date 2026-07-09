@@ -49,33 +49,40 @@ export interface GraphGroup {
   color: string; // "#rrggbb"
 }
 
+export type Dimensions = "2d" | "3d";
+
+export interface DisplaySettings {
+  textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
+  nodeSize: number; // multiplier on degree-based radius
+  linkThickness: number; // multiplier on link width
+}
+
+export interface ForceSettings {
+  centerStrength: number;
+  repelStrength: number; // applied as charge strength -repelStrength
+  linkStrength: number; // multiplier on d3's per-link default
+  linkDistance: number;
+}
+
+// display + forces are tuned per view (2d/3d) since the same values lay out
+// differently in each; filters, groups, and dimension stay shared.
+export interface ViewSettings {
+  display: DisplaySettings;
+  forces: ForceSettings;
+}
+
 export interface Settings {
-  dimensions: "2d" | "3d"; // 2d canvas vs 3d WebGL graph
+  dimensions: Dimensions; // 2d canvas vs 3d WebGL graph
   sectionFilter: SectionFilter;
   showTags: boolean;
   showOrphans: boolean;
   groups: GraphGroup[]; // first matching group wins
-  display: {
-    textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
-    nodeSize: number; // multiplier on degree-based radius
-    linkThickness: number; // multiplier on link width
-  };
-  forces: {
-    centerStrength: number;
-    repelStrength: number; // applied as charge strength -repelStrength
-    linkStrength: number; // multiplier on d3's per-link default
-    linkDistance: number;
-  };
+  views: Record<Dimensions, ViewSettings>;
 }
 
 // force defaults equal the d3 defaults so an untouched panel matches today's layout
-export function defaultSettings(): Settings {
+function defaultView(): ViewSettings {
   return {
-    dimensions: "2d",
-    sectionFilter: "wiki",
-    showTags: true,
-    showOrphans: true,
-    groups: [],
     display: { textFadeThreshold: 15, nodeSize: 1, linkThickness: 1 },
     forces: {
       centerStrength: 0.5,
@@ -83,5 +90,16 @@ export function defaultSettings(): Settings {
       linkStrength: 1,
       linkDistance: 50,
     },
+  };
+}
+
+export function defaultSettings(): Settings {
+  return {
+    dimensions: "2d",
+    sectionFilter: "wiki",
+    showTags: true,
+    showOrphans: true,
+    groups: [],
+    views: { "2d": defaultView(), "3d": defaultView() },
   };
 }
