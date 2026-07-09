@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Graph from "./Graph";
 import Preview from "./Preview";
-import SectionToggle from "./SectionToggle";
-import SettingsDialog from "./SettingsDialog";
+import GraphSettingsPanel from "./GraphSettingsPanel";
 import { applyEvent, emptyState } from "./highlight-store";
 import { filterGraph } from "./graph-filter";
 import { domainsOf } from "./domain-colors";
@@ -13,6 +12,7 @@ export default function App() {
   const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
   const [previewNode, setPreviewNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
+  const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
   const stateRef = useRef(emptyState());
 
@@ -38,11 +38,11 @@ export default function App() {
     () =>
       filterGraph(graph, {
         sectionFilter: settings.sectionFilter,
-        search: "",
+        search,
         showTags: settings.showTags,
         showOrphans: settings.showOrphans,
       }),
-    [graph, settings],
+    [graph, settings, search],
   );
 
   return (
@@ -57,28 +57,20 @@ export default function App() {
         onNodeClick={setPreviewNode}
       />
       <div className="hud">
-        <SectionToggle
-          value={settings.sectionFilter}
-          onChange={(f) => updateSettings({ ...settings, sectionFilter: f })}
-        />
         <button
           className="gear"
-          title="Domain colors"
-          onClick={() => setShowSettings(true)}
+          title="Graph settings"
+          onClick={() => setShowSettings((v) => !v)}
         >
           ⚙
         </button>
       </div>
       {showSettings && (
-        <SettingsDialog
-          domains={domains}
-          colors={settings.domainColors}
-          onColorChange={(d, c) => {
-            const domainColors = { ...settings.domainColors };
-            if (c === null) delete domainColors[d];
-            else domainColors[d] = c;
-            updateSettings({ ...settings, domainColors });
-          }}
+        <GraphSettingsPanel
+          settings={settings}
+          search={search}
+          onSearchChange={setSearch}
+          onSettingsChange={updateSettings}
           onClose={() => setShowSettings(false)}
         />
       )}

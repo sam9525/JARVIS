@@ -51,7 +51,6 @@ export interface GraphGroup {
 
 export interface Settings {
   sectionFilter: SectionFilter;
-  domainColors: Record<string, string>; // domain → "#rrggbb"
   showTags: boolean;
   showOrphans: boolean;
   groups: GraphGroup[]; // first matching group wins
@@ -72,7 +71,6 @@ export interface Settings {
 export function defaultSettings(): Settings {
   return {
     sectionFilter: "both",
-    domainColors: {},
     showTags: true,
     showOrphans: true,
     groups: [],

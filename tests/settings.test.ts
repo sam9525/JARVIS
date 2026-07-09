@@ -16,7 +16,6 @@ describe("settings", () => {
     const s = {
       ...defaultSettings(),
       sectionFilter: "raw" as const,
-      domainColors: { physics: "#ff0000" },
       showTags: false,
       groups: [{ query: "tech", color: "#aa00ff" }],
       display: { textFadeThreshold: 5, nodeSize: 2, linkThickness: 1.5 },
@@ -49,10 +48,10 @@ describe("settings", () => {
       JSON.stringify({ sectionFilter: "raw", domainColors: { a: "#111111" } }),
       "utf8",
     );
+    // stray keys from old settings files (domainColors) are ignored entirely
     expect(await loadSettings(file)).toEqual({
       ...defaultSettings(),
       sectionFilter: "raw",
-      domainColors: { a: "#111111" },
     });
   });
 

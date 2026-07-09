@@ -15,13 +15,6 @@ export async function loadSettings(file: string): Promise<Settings> {
     ) {
       s.sectionFilter = p.sectionFilter;
     }
-    if (typeof p.domainColors === "object" && p.domainColors !== null) {
-      const colors = p.domainColors as Record<string, unknown>;
-      for (const key of Object.keys(colors)) {
-        const v = colors[key];
-        if (typeof v === "string") s.domainColors[key] = v;
-      }
-    }
     if (typeof p.showTags === "boolean") s.showTags = p.showTags;
     if (typeof p.showOrphans === "boolean") s.showOrphans = p.showOrphans;
     if (Array.isArray(p.groups)) {
