@@ -44,11 +44,44 @@ export interface Session {
   startedAt: number;
 }
 
+export interface GraphGroup {
+  query: string; // case-insensitive substring matched against node id (path)
+  color: string; // "#rrggbb"
+}
+
 export interface Settings {
   sectionFilter: SectionFilter;
   domainColors: Record<string, string>; // domain → "#rrggbb"
+  showTags: boolean;
+  showOrphans: boolean;
+  groups: GraphGroup[]; // first matching group wins
+  display: {
+    textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
+    nodeSize: number; // multiplier on degree-based radius
+    linkThickness: number; // multiplier on link width
+  };
+  forces: {
+    centerStrength: number;
+    repelStrength: number; // applied as charge strength -repelStrength
+    linkStrength: number; // multiplier on d3's per-link default
+    linkDistance: number;
+  };
 }
 
+// force defaults equal the d3 defaults so an untouched panel matches today's layout
 export function defaultSettings(): Settings {
-  return { sectionFilter: "both", domainColors: {} };
+  return {
+    sectionFilter: "both",
+    domainColors: {},
+    showTags: true,
+    showOrphans: true,
+    groups: [],
+    display: { textFadeThreshold: 10, nodeSize: 1, linkThickness: 1 },
+    forces: {
+      centerStrength: 1,
+      repelStrength: 30,
+      linkStrength: 1,
+      linkDistance: 30,
+    },
+  };
 }
