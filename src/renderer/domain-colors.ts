@@ -1,4 +1,4 @@
-import type { VaultGraph } from "../shared/types";
+import type { GraphGroup, VaultGraph } from "../shared/types";
 
 // categorical hues that read on the #0d1017 background and stay distinct
 // from the highlight colors (cyan #7ef9ff, orange #ff8c42)
@@ -26,11 +26,21 @@ export function domainsOf(g: VaultGraph): string[] {
 export function colorFor(
   domain: string | undefined,
   domains: string[],
-  custom: Record<string, string>,
 ): string {
   if (!domain) return FALLBACK;
-  const customColor = custom[domain];
-  if (customColor) return customColor;
   const i = domains.indexOf(domain);
   return i === -1 ? FALLBACK : PALETTE[i % PALETTE.length];
+}
+
+// first group whose non-empty query is a case-insensitive substring of the id
+export function groupColor(
+  id: string,
+  groups: GraphGroup[],
+): string | undefined {
+  const lower = id.toLowerCase();
+  for (const g of groups) {
+    const q = g.query.trim().toLowerCase();
+    if (q !== "" && lower.includes(q)) return g.color;
+  }
+  return undefined;
 }

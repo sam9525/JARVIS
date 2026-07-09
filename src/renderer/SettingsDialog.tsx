@@ -26,7 +26,7 @@ export default function SettingsDialog({
           <div key={d} className="settings-row">
             <input
               type="color"
-              value={colors[d] ?? colorFor(d, domains, {})}
+              value={colors[d] ?? colorFor(d, domains)}
               onChange={(e) => onColorChange(d, e.target.value)}
             />
             <span className="settings-domain">{d}</span>

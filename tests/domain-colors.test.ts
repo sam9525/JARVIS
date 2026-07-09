@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { colorFor, domainsOf, PALETTE } from "../src/renderer/domain-colors";
+import {
+  colorFor,
+  domainsOf,
+  groupColor,
+  PALETTE,
+} from "../src/renderer/domain-colors";
 import type { VaultGraph } from "../src/shared/types";
 
 const g: VaultGraph = {
@@ -22,25 +27,44 @@ describe("colorFor", () => {
   const domains = ["history", "physics"];
 
   it("assigns palette colors by sorted index", () => {
-    expect(colorFor("history", domains, {})).toBe(PALETTE[0]);
-    expect(colorFor("physics", domains, {})).toBe(PALETTE[1]);
-  });
-
-  it("custom color overrides the palette", () => {
-    expect(colorFor("physics", domains, { physics: "#123456" })).toBe(
-      "#123456",
-    );
+    expect(colorFor("history", domains)).toBe(PALETTE[0]);
+    expect(colorFor("physics", domains)).toBe(PALETTE[1]);
   });
 
   it("wraps past the palette length", () => {
     const many = Array.from({ length: PALETTE.length + 1 }, (_, i) =>
       String(i).padStart(3, "0"),
     );
-    expect(colorFor(many[PALETTE.length], many, {})).toBe(PALETTE[0]);
+    expect(colorFor(many[PALETTE.length], many)).toBe(PALETTE[0]);
   });
 
   it("falls back to grey for undefined or unknown domains", () => {
-    expect(colorFor(undefined, domains, {})).toBe("#4a5568");
-    expect(colorFor("nope", domains, {})).toBe("#4a5568");
+    expect(colorFor(undefined, domains)).toBe("#4a5568");
+    expect(colorFor("nope", domains)).toBe("#4a5568");
+  });
+});
+
+describe("groupColor", () => {
+  const groups = [
+    { query: "Tech", color: "#aa00ff" },
+    { query: "tech/ai", color: "#00ff00" },
+  ];
+
+  it("first matching group wins", () => {
+    expect(groupColor("tech/ai/note", groups)).toBe("#aa00ff");
+  });
+
+  it("matches case-insensitively", () => {
+    expect(groupColor("TECH/x", groups)).toBe("#aa00ff");
+  });
+
+  it("ignores groups with empty or whitespace queries", () => {
+    expect(
+      groupColor("anything", [{ query: "  ", color: "#ffffff" }]),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when nothing matches", () => {
+    expect(groupColor("history/a", groups)).toBeUndefined();
   });
 });

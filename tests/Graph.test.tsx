@@ -69,7 +69,6 @@ describe("Graph component", () => {
     const element = Graph({
       graph,
       domains: ["physics"],
-      domainColors: { physics: "#ff0000" },
       stateRef: stateRef as any,
       onNodeClick: () => {
         return;

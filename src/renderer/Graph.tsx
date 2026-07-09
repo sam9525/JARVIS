@@ -42,7 +42,6 @@ function endId(end: LinkEnd | undefined): string {
 type GraphProps = {
   graph: VaultGraph; // may be section-filtered
   domains: string[]; // from the FULL graph — keeps palette indices stable
-  domainColors: Record<string, string>;
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
 };
@@ -50,7 +49,6 @@ type GraphProps = {
 export default function Graph({
   graph,
   domains,
-  domainColors,
   stateRef,
   onNodeClick,
 }: GraphProps) {
@@ -94,9 +92,7 @@ export default function Graph({
         const r = node.r ?? 4;
         const d = nodeDisplay(stateRef.current, id, performance.now());
         const base =
-          node.type === "tag"
-            ? COLORS.tag
-            : colorFor(node.domain, domains, domainColors);
+          node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
         ctx.fillStyle = d ? COLORS[d] : base; // highlights always win

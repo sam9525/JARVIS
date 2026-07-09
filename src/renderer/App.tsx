@@ -50,7 +50,6 @@ export default function App() {
       <Graph
         graph={visible}
         domains={domains}
-        domainColors={settings.domainColors}
         stateRef={stateRef}
         onNodeClick={setPreviewNode}
       />
