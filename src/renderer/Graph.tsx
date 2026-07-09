@@ -9,6 +9,7 @@ import {
 } from "./highlight-store";
 import { colorFor, groupColor } from "./domain-colors";
 import { graphMetrics } from "./graph-metrics";
+import { forceCollide } from "d3-force-3d";
 
 const COLORS = {
   bg: "#0d1017",
@@ -20,6 +21,9 @@ const COLORS = {
   "read-dim": "#2b6a70",
   modified: "#ff8c42",
 } as const;
+
+const ZOOM = { min: 0.3, max: 8 } as const;
+const COLLIDE_PADDING = 6; // min gap between any two nodes, linked or not
 
 type NodeObj = {
   id?: string | number;
@@ -100,6 +104,10 @@ export default function Graph({
       .distance(forces.linkDistance)
       .strength((l) => base(l) * forces.linkStrength);
     center.strength(forces.centerStrength);
+    fg.d3Force(
+      "collide",
+      forceCollide<NodeObj>((n) => (n.r ?? 4) + COLLIDE_PADDING),
+    );
     fg.d3ReheatSimulation(); // visible re-settle while dragging a force slider
   }, [forces]);
 
@@ -115,6 +123,8 @@ export default function Graph({
       backgroundColor={COLORS.bg}
       autoPauseRedraw={false} // keep repainting so flares fade, pulses ripple, hover tracks
       nodeRelSize={1}
+      minZoom={ZOOM.min}
+      maxZoom={ZOOM.max}
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
       nodeCanvasObject={(
