@@ -51,7 +51,13 @@ export default function GraphSettingsPanel({
         <button
           title="Restore defaults"
           onClick={() => {
-            onSettingsChange(defaultSettings());
+            // reset re-tunes values; it must not eject the user from the 3D
+            // view or wipe their (auto-seeded) groups
+            onSettingsChange({
+              ...defaultSettings(),
+              dimensions: settings.dimensions,
+              groups: settings.groups,
+            });
             onSearchChange("");
           }}
         >

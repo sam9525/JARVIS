@@ -92,4 +92,11 @@ describe("Graph3D component", () => {
     expect(element.props.nodeThreeObjectExtend).toBe(true);
     expect(typeof element.props.nodeThreeObject).toBe("function");
   });
+
+  it("fits the graph to view once the engine settles", async () => {
+    const { default: Graph3D } = await import("../src/renderer/Graph3D");
+    const element = Graph3D(makeProps(sampleGraph) as any) as any;
+    expect(element.props.cooldownTicks).toBe(200);
+    expect(typeof element.props.onEngineStop).toBe("function");
+  });
 });

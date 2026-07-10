@@ -33,12 +33,17 @@ describe("GraphSettingsPanel", () => {
     expect(el.props.children[1].props.open).toBe(true); // Filters open
   });
 
-  it("reset button restores defaults and clears search", () => {
-    const { el, calls } = render({ showTags: false });
+  it("reset restores defaults but keeps dimensions and groups", () => {
+    const groups = [{ query: "tech/", color: "#aa00ff" }];
+    const { el, calls } = render({ showTags: false, dimensions: "3d", groups });
     const header = el.props.children[0];
     const resetBtn = header.props.children[0];
     resetBtn.props.onClick();
-    expect(calls.settings[0]).toEqual(defaultSettings());
+    expect(calls.settings[0]).toEqual({
+      ...defaultSettings(),
+      dimensions: "3d",
+      groups,
+    });
     expect(calls.search[0]).toBe("");
   });
 

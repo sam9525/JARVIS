@@ -47,6 +47,7 @@ export default function Graph3D({
   onNodeClick,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
+  const didFit = useRef(false); // fit-to-screen once, not on every re-settle
   // node id → its label sprite, so the visibility sweep can toggle them.
   // Entries for removed nodes go stale but are never visited (sweep iterates
   // current data.nodes) — harmless.
@@ -145,6 +146,12 @@ export default function Graph3D({
       graphData={data}
       backgroundColor={COLORS.bg}
       nodeResolution={16}
+      cooldownTicks={200} // settle in ~1-2s instead of the default 15s so the fit fires promptly
+      onEngineStop={() => {
+        if (didFit.current) return;
+        didFit.current = true;
+        fgRef.current?.zoomToFit(200, 40);
+      }}
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
       nodeThreeObjectExtend={true}
