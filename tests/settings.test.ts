@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { loadSettings, saveSettings } from "../src/main/settings";
+import { autoGroups, loadSettings, saveSettings } from "../src/main/settings";
 import { defaultSettings } from "../src/shared/types";
 import type { Settings } from "../src/shared/types";
 
@@ -162,5 +162,25 @@ describe("settings", () => {
     expect(defaultSettings().views["3d"].display).not.toBe(
       defaultSettings().views["3d"].display,
     );
+  });
+
+  it("autoGroups builds one randomly-colored group per top-level folder", () => {
+    const graph = {
+      nodes: [
+        {
+          id: "physics/wiki/overview",
+          type: "note" as const,
+          domain: "physics",
+        },
+        { id: "physics/raw/note1", type: "note" as const, domain: "physics" },
+        { id: "arts/Raw/painting", type: "note" as const, domain: "arts" },
+        { id: "stray", type: "note" as const }, // root-level file: no domain
+        { id: "tag:todo", type: "tag" as const }, // tags have no domain
+      ],
+      edges: [],
+    };
+    const groups = autoGroups(graph);
+    expect(groups.map((g) => g.query)).toEqual(["physics/", "arts/"]);
+    for (const g of groups) expect(g.color).toMatch(/^#[0-9a-f]{6}$/);
   });
 });

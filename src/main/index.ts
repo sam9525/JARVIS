@@ -5,7 +5,7 @@ import started from "electron-squirrel-startup";
 import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
-import { loadSettings, saveSettings } from "./settings";
+import { autoGroups, loadSettings, saveSettings } from "./settings";
 import type { Settings } from "../shared/types";
 
 if (started) app.quit();
@@ -47,6 +47,11 @@ app.whenReady().then(async () => {
     "jarvis-settings.json",
   );
   let settings = await loadSettings(settingsPath);
+  // first run (or user cleared every group): seed one group per top-level folder
+  if (settings.groups.length === 0) {
+    settings.groups = autoGroups(await graph);
+    await saveSettings(settingsPath, settings);
+  }
   ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
     settings = s;

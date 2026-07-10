@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { defaultSettings } from "../shared/types";
-import type { GraphGroup, Settings } from "../shared/types";
+import { randomColor } from "../shared/random-color";
+import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
 
 export async function loadSettings(file: string): Promise<Settings> {
   const s = defaultSettings();
@@ -67,4 +68,12 @@ function mergeFiniteNumbers(
 
 export async function saveSettings(file: string, s: Settings): Promise<void> {
   await fs.writeFile(file, JSON.stringify(s, null, 2) + "\n", "utf8");
+}
+
+// one group per top-level vault folder; trailing slash keeps the substring
+// matcher (groupColor) from hitting folder names embedded mid-path
+export function autoGroups(graph: VaultGraph): GraphGroup[] {
+  const domains = new Set<string>();
+  for (const n of graph.nodes) if (n.domain) domains.add(n.domain);
+  return [...domains].map((d) => ({ query: `${d}/`, color: randomColor() }));
 }
