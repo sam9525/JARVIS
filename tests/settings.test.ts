@@ -137,4 +137,30 @@ describe("settings", () => {
     await fs.writeFile(file, JSON.stringify({ dimensions: "4d" }), "utf8");
     expect((await loadSettings(file)).dimensions).toBe("2d");
   });
+
+  it("defaults the 3d view to the tuned layout, 2d unchanged", () => {
+    const s = defaultSettings();
+    expect(s.views["3d"]).toEqual({
+      display: { textFadeThreshold: 15, nodeSize: 0.5, linkThickness: 0.5 },
+      forces: {
+        centerStrength: 0,
+        repelStrength: 20,
+        linkStrength: 0.4,
+        linkDistance: 60,
+      },
+    });
+    expect(s.views["2d"]).toEqual({
+      display: { textFadeThreshold: 15, nodeSize: 1, linkThickness: 1 },
+      forces: {
+        centerStrength: 0.5,
+        repelStrength: 10,
+        linkStrength: 1,
+        linkDistance: 50,
+      },
+    });
+    // fresh objects every call — loadSettings mutates these in place
+    expect(defaultSettings().views["3d"].display).not.toBe(
+      defaultSettings().views["3d"].display,
+    );
+  });
 });

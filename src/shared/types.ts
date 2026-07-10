@@ -80,17 +80,28 @@ export interface Settings {
   views: Record<Dimensions, ViewSettings>;
 }
 
-// force defaults equal the d3 defaults so an untouched panel matches today's layout
-function defaultView(): ViewSettings {
-  return {
-    display: { textFadeThreshold: 15, nodeSize: 1, linkThickness: 1 },
-    forces: {
-      centerStrength: 0.5,
-      repelStrength: 10,
-      linkStrength: 1,
-      linkDistance: 50,
-    },
-  };
+// force defaults equal the d3 defaults in 2d; 3d values are the hand-tuned
+// layout (docs/superpowers/specs/2026-07-10-3d-graph-polish-design.md)
+function defaultView(mode: Dimensions): ViewSettings {
+  return mode === "2d"
+    ? {
+        display: { textFadeThreshold: 15, nodeSize: 1, linkThickness: 1 },
+        forces: {
+          centerStrength: 0.5,
+          repelStrength: 10,
+          linkStrength: 1,
+          linkDistance: 50,
+        },
+      }
+    : {
+        display: { textFadeThreshold: 15, nodeSize: 0.5, linkThickness: 0.5 },
+        forces: {
+          centerStrength: 0,
+          repelStrength: 20,
+          linkStrength: 0.4,
+          linkDistance: 60,
+        },
+      };
 }
 
 export function defaultSettings(): Settings {
@@ -100,6 +111,6 @@ export function defaultSettings(): Settings {
     showTags: true,
     showOrphans: true,
     groups: [],
-    views: { "2d": defaultView(), "3d": defaultView() },
+    views: { "2d": defaultView("2d"), "3d": defaultView("3d") },
   };
 }
