@@ -84,4 +84,11 @@ describe("Graph3D component", () => {
     const element = Graph3D(makeProps(sampleGraph) as any) as any;
     expect(element.props.nodeResolution).toBe(16);
   });
+
+  it("extends nodes with label sprites instead of replacing them", async () => {
+    const { default: Graph3D } = await import("../src/renderer/Graph3D");
+    const element = Graph3D(makeProps(sampleGraph) as any) as any;
+    expect(element.props.nodeThreeObjectExtend).toBe(true);
+    expect(typeof element.props.nodeThreeObject).toBe("function");
+  });
 });

@@ -7,15 +7,24 @@ import { colorFor, groupColor } from "./domain-colors";
 import { graphMetrics } from "./graph-metrics";
 import { COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
+import SpriteText from "three-spritetext";
+import { nodeLabelText } from "./node-label";
 
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
+
+// slider (2–30) → max camera distance at which labels show; higher threshold
+// hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
+const LABEL_DISTANCE_SCALE = 4500;
 
 type NodeObj = {
   id?: string | number;
   type?: string;
   domain?: string;
   r?: number;
+  x?: number;
+  y?: number;
+  z?: number;
 };
 
 type GraphProps = {
@@ -38,6 +47,10 @@ export default function Graph3D({
   onNodeClick,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
+  // node id → its label sprite, so the visibility sweep can toggle them.
+  // Entries for removed nodes go stale but are never visited (sweep iterates
+  // current data.nodes) — harmless.
+  const sprites = useRef(new Map<string, SpriteText>());
 
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time
   // so a slider tick doesn't re-bind data and restart the simulation.
@@ -75,6 +88,26 @@ export default function Graph3D({
     return () => clearInterval(id);
   }, [stateRef]);
 
+  // ponytail: label visibility is a 4×/s distance sweep, not per-frame
+  // projection math like 2D. Ceiling: hook onEngineTick if the interval lags.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const cam = fgRef.current?.camera();
+      if (!cam) return;
+      const maxDist = LABEL_DISTANCE_SCALE / display.textFadeThreshold;
+      const maxSq = maxDist * maxDist;
+      for (const n of data.nodes as NodeObj[]) {
+        const s = sprites.current.get(String(n.id));
+        if (!s) continue;
+        const dx = (n.x ?? 0) - cam.position.x;
+        const dy = (n.y ?? 0) - cam.position.y;
+        const dz = (n.z ?? 0) - cam.position.z;
+        s.visible = dx * dx + dy * dy + dz * dz < maxSq;
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [data, display.textFadeThreshold]);
+
   // Node size / link thickness / group colors are baked into 3D geometry, so a
   // slider change only takes effect on refresh(). Forces re-settle on their own
   // via useForceTuning's reheat. Skip the mount run — the first build already
@@ -96,6 +129,18 @@ export default function Graph3D({
       nodeResolution={16}
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
+      nodeThreeObjectExtend={true}
+      nodeThreeObject={(node: NodeObj) => {
+        const id = String(node.id);
+        const sprite = new SpriteText(nodeLabelText(id, node.type));
+        sprite.color = COLORS.label;
+        sprite.textHeight = 4;
+        // sit just below the sphere; re-created on refresh() so a nodeSize
+        // slider change re-derives the offset
+        sprite.position.set(0, -((node.r ?? 4) * display.nodeSize + 4), 0);
+        sprites.current.set(id, sprite);
+        return sprite;
+      }}
       nodeColor={(node: NodeObj) => {
         const id = String(node.id);
         // highlights always win, then group color, then domain palette

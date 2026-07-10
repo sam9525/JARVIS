@@ -11,6 +11,7 @@ import { colorFor, groupColor } from "./domain-colors";
 import { graphMetrics } from "./graph-metrics";
 import { COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
+import { nodeLabelText } from "./node-label";
 
 const ZOOM = { min: 0.5, max: 15 } as const;
 
@@ -125,10 +126,7 @@ export default function Graph({
 
         // labels hide on small nodes; hover overrides so neighbors stay readable
         if (r * globalScale < display.textFadeThreshold && !inHover) return;
-        const label =
-          node.type === "tag"
-            ? id.replace(/^tag:/, "#")
-            : id.split("/").pop() || id;
+        const label = nodeLabelText(id, node.type);
         const fontSize = 12 / globalScale;
         ctx.font = `${fontSize}px system-ui, sans-serif`;
         ctx.textAlign = "center";
