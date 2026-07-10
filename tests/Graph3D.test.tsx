@@ -10,6 +10,7 @@ vi.mock("react", async () => {
     ...actual,
     useMemo: (fn: any) => fn(),
     useRef: (initial: any) => ({ current: initial }),
+    useCallback: (fn: any) => fn,
     useEffect: () => {
       return;
     },

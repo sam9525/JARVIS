@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import type { ForceGraphMethods } from "react-force-graph-3d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
@@ -121,6 +121,24 @@ export default function Graph3D({
     fgRef.current?.refresh();
   }, [display, groups]);
 
+  const nodeThreeObject = useCallback(
+    (node: NodeObj) => {
+      const id = String(node.id);
+      const sprite = new SpriteText(nodeLabelText(id, node.type));
+      sprite.color = COLORS.label;
+      sprite.textHeight = 4;
+      // sit just below the sphere; re-created on refresh() so a nodeSize
+      // slider change re-derives the offset
+      sprite.position.set(0, -((node.r ?? 4) * display.nodeSize + 4), 0);
+      // refresh() recreates sprites with visible=true; inherit the previous
+      // visibility so far labels don't strobe between distance sweeps
+      sprite.visible = sprites.current.get(id)?.visible ?? true;
+      sprites.current.set(id, sprite);
+      return sprite;
+    },
+    [display.nodeSize],
+  );
+
   return (
     <ForceGraph3D
       ref={fgRef}
@@ -130,17 +148,7 @@ export default function Graph3D({
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
       nodeThreeObjectExtend={true}
-      nodeThreeObject={(node: NodeObj) => {
-        const id = String(node.id);
-        const sprite = new SpriteText(nodeLabelText(id, node.type));
-        sprite.color = COLORS.label;
-        sprite.textHeight = 4;
-        // sit just below the sphere; re-created on refresh() so a nodeSize
-        // slider change re-derives the offset
-        sprite.position.set(0, -((node.r ?? 4) * display.nodeSize + 4), 0);
-        sprites.current.set(id, sprite);
-        return sprite;
-      }}
+      nodeThreeObject={nodeThreeObject}
       nodeColor={(node: NodeObj) => {
         const id = String(node.id);
         // highlights always win, then group color, then domain palette

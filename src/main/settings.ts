@@ -70,8 +70,8 @@ export async function saveSettings(file: string, s: Settings): Promise<void> {
   await fs.writeFile(file, JSON.stringify(s, null, 2) + "\n", "utf8");
 }
 
-// one group per top-level vault folder; trailing slash keeps the substring
-// matcher (groupColor) from hitting folder names embedded mid-path
+// one group per top-level vault folder; the trailing slash keeps false
+// substring matches rare (e.g. a note merely named "physics" won't match)
 export function autoGroups(graph: VaultGraph): GraphGroup[] {
   const domains = new Set<string>();
   for (const n of graph.nodes) if (n.domain) domains.add(n.domain);
