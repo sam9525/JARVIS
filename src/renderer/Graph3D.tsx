@@ -8,6 +8,9 @@ import { graphMetrics } from "./graph-metrics";
 import { COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 
+// camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
+const CAM = { min: 20, max: 3000 } as const;
+
 type NodeObj = {
   id?: string | number;
   type?: string;
@@ -51,6 +54,15 @@ export default function Graph3D({
     forces,
   );
 
+  useEffect(() => {
+    const controls = fgRef.current?.controls() as
+      { minDistance: number; maxDistance: number } | undefined;
+    if (controls) {
+      controls.minDistance = CAM.min;
+      controls.maxDistance = CAM.max;
+    }
+  }, []);
+
   // ponytail: 3D node materials are baked, not repainted every frame like the
   // 2D canvas, so highlight changes need a nudge. Re-run the color accessors
   // 2×/s while any node is highlighted so Read flares fade and Edit marks land.
@@ -81,6 +93,7 @@ export default function Graph3D({
       ref={fgRef}
       graphData={data}
       backgroundColor={COLORS.bg}
+      nodeResolution={16}
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
       nodeColor={(node: NodeObj) => {
