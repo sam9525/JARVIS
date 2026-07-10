@@ -49,8 +49,10 @@ app.whenReady().then(async () => {
   let settings = await loadSettings(settingsPath);
   // first run (or user cleared every group): seed one group per top-level folder
   if (settings.groups.length === 0) {
-    settings.groups = autoGroups(await graph);
-    await saveSettings(settingsPath, settings);
+    // a failed vault scan must not stop the window from opening — skip seeding
+    const g = await graph.catch(() => null);
+    if (g) settings.groups = autoGroups(g);
+    if (settings.groups.length > 0) await saveSettings(settingsPath, settings);
   }
   ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
