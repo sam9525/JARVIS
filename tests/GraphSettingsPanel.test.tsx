@@ -49,7 +49,7 @@ describe("GraphSettingsPanel", () => {
     expect(calls.closed).toBe(true);
   });
 
-  it("new group gets the next palette color and empty query", () => {
+  it("new group gets a random hex color and empty query", () => {
     const { el, calls } = render();
     const groupsSection = el.props.children[2];
     // children: [summary, ...groupRows, newGroupButton]
@@ -58,7 +58,7 @@ describe("GraphSettingsPanel", () => {
     newGroupBtn.props.onClick();
     expect(calls.settings[0].groups).toHaveLength(1);
     expect(calls.settings[0].groups[0].query).toBe("");
-    expect(calls.settings[0].groups[0].color).toMatch(/^#/);
+    expect(calls.settings[0].groups[0].color).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it("3D toggle switches dimensions", () => {

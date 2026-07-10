@@ -7,7 +7,7 @@ import type {
   Settings,
   ViewSettings,
 } from "../shared/types";
-import { PALETTE } from "./domain-colors";
+import { randomColor } from "../shared/random-color";
 import SectionToggle from "./SectionToggle";
 
 type Props = {
@@ -126,13 +126,7 @@ export default function GraphSettingsPanel({
           className="gs-new-group"
           onClick={() =>
             set({
-              groups: [
-                ...settings.groups,
-                {
-                  query: "",
-                  color: PALETTE[settings.groups.length % PALETTE.length],
-                },
-              ],
+              groups: [...settings.groups, { query: "", color: randomColor() }],
             })
           }
         >
