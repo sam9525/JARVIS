@@ -56,7 +56,7 @@ const CAM = { min: 20, max: 3000 } as const;
 
 // idle auto-rotation: resume this long after the last interaction
 const IDLE_ROTATE_MS = 5000;
-const ROTATE_SPEED = 0.4;
+const ROTATE_SPEED = 0.7;
 
 // slider (2–30) → max camera distance at which labels show; higher threshold
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
@@ -129,7 +129,7 @@ export default function Graph3D({
     const m = new LineMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.25,
     });
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     m.dispose = () => {};
@@ -294,7 +294,7 @@ export default function Graph3D({
         map: glowTexture.current,
         color,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.5,
         depthWrite: false,
         blending: AdditiveBlending,
       });
@@ -323,7 +323,7 @@ export default function Graph3D({
       // sphere radius matches the lib's nodeRelSize(4) * nodeVal^(1/3)
       const sphereR = 4 * Math.cbrt(((node.r ?? 4) * display.nodeSize) ** 2);
       const glow = new Sprite(glowMaterial(displayColor(node)));
-      glow.scale.setScalar(sphereR * 5);
+      glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
       const sprite = new SpriteText(nodeLabelText(id, node.type));
       sprite.color = COLORS.label;
@@ -348,11 +348,11 @@ export default function Graph3D({
       backgroundColor={COLORS.bg}
       controlType="orbit"
       nodeResolution={16}
-      cooldownTicks={200} // settle in ~1-2s instead of the default 15s so the fit fires promptly
+      cooldownTicks={300} // settle in ~1-2s instead of the default 15s so the fit fires promptly
       onEngineStop={() => {
         if (didFit.current) return;
         didFit.current = true;
-        fgRef.current?.zoomToFit(200, 40);
+        fgRef.current?.zoomToFit(300, -400);
       }}
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}

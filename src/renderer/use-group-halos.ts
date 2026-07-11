@@ -4,7 +4,7 @@ import type { GraphGroup } from "../shared/types";
 import { groupOf } from "./domain-colors";
 
 // huge-but-light halo: radial gradient that fades out like a CSS box shadow
-const HALO = { pad: 1.15, base: 10, intervalMs: 500 } as const;
+const HALO = { pad: 1.1, base: 10, intervalMs: 200 } as const;
 
 // center → edge alpha stops for the radial gradient (8-digit hex suffixes)
 const HALO_STOPS: ReadonlyArray<readonly [number, string]> = [
