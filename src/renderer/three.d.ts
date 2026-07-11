@@ -13,6 +13,12 @@ declare module "three" {
     b: number;
   }
 
+  export const AdditiveBlending: number;
+
+  export class Group extends Object3D {
+    add(obj: Object3D): void;
+  }
+
   export class Object3D {
     position: { set(x: number, y: number, z: number): void };
     scale: { setScalar(s: number): void };
@@ -60,8 +66,11 @@ declare module "three" {
   export class SpriteMaterial {
     constructor(params?: {
       map?: Texture;
+      color?: string;
       transparent?: boolean;
+      opacity?: number;
       depthWrite?: boolean;
+      blending?: number;
     });
     map: Texture;
     dispose(): void;
@@ -70,19 +79,6 @@ declare module "three" {
   export class Sprite extends Object3D {
     constructor(material?: SpriteMaterial);
     material: SpriteMaterial;
-  }
-}
-
-declare module "three/examples/jsm/postprocessing/UnrealBloomPass.js" {
-  import { Vector2 } from "three";
-  export class UnrealBloomPass {
-    constructor(
-      resolution: Vector2,
-      strength: number,
-      radius: number,
-      threshold: number,
-    );
-    dispose(): void;
   }
 }
 
@@ -115,12 +111,5 @@ declare module "three/examples/jsm/lines/Line2.js" {
   export class Line2 {
     constructor(geometry?: LineGeometry, material?: LineMaterial);
     geometry: LineGeometry;
-  }
-}
-
-declare module "three/examples/jsm/postprocessing/OutputPass.js" {
-  export class OutputPass {
-    constructor();
-    dispose(): void;
   }
 }

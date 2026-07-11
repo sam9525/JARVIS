@@ -10,16 +10,46 @@ import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
-import { Color, Vector2 } from "three";
+import {
+  AdditiveBlending,
+  CanvasTexture,
+  Color,
+  Group,
+  Sprite,
+  SpriteMaterial,
+  Texture,
+} from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 // links hold node objects after graph init but raw ids before it
 const endpointId = (end: LinkEnd | undefined): string =>
   typeof end === "object" && end !== null ? String(end.id) : String(end);
+
+// white radial falloff shared by every node glow sprite; tinted per node
+// via material.color so one texture serves all colors
+function makeGlowTexture(): CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  const g = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.4, "rgba(255,255,255,0.35)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new CanvasTexture(canvas);
+}
 
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
@@ -27,9 +57,6 @@ const CAM = { min: 20, max: 3000 } as const;
 // idle auto-rotation: resume this long after the last interaction
 const IDLE_ROTATE_MS = 5000;
 const ROTATE_SPEED = 0.4;
-
-// soft glow on node spheres against the dark bg — the 3D "box shadow"
-const BLOOM = { strength: 1.6, radius: 0.4, threshold: 0.1 } as const;
 
 // slider (2–30) → max camera distance at which labels show; higher threshold
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
@@ -190,39 +217,6 @@ export default function Graph3D({
     };
   }, []);
 
-  // one bloom pass makes every bright object glow in its own color; highlight
-  // flares (cyan/orange) pop harder for free
-  useEffect(() => {
-    const composer = (
-      fgRef.current as unknown as
-        | {
-            postProcessingComposer: () => {
-              addPass(pass: unknown): void;
-              removePass(pass: unknown): void;
-            };
-          }
-        | undefined
-    )?.postProcessingComposer();
-    if (!composer) return;
-    const pass = new UnrealBloomPass(
-      new Vector2(window.innerWidth, window.innerHeight),
-      BLOOM.strength,
-      BLOOM.radius,
-      BLOOM.threshold,
-    );
-    // bloom alone leaves the composer output in linear space, washing the
-    // background out vs the 2D canvas — OutputPass restores sRGB output
-    const output = new OutputPass();
-    composer.addPass(pass);
-    composer.addPass(output);
-    return () => {
-      composer.removePass(output);
-      composer.removePass(pass);
-      pass.dispose();
-      output.dispose();
-    };
-  }, []);
-
   // ponytail: 3D node materials are baked, not repainted every frame like the
   // 2D canvas, so highlight changes need a nudge. Re-run the color accessors
   // 2×/s while any node is highlighted so Read flares fade and Edit marks land.
@@ -269,9 +263,68 @@ export default function Graph3D({
     fgRef.current?.refresh();
   }, [display, groups, linkMaterial]);
 
+  // highlights always win, then group color, then domain palette
+  const displayColor = useCallback(
+    (node: NodeObj): string => {
+      const id = String(node.id);
+      const d = nodeDisplay(stateRef.current, id, performance.now());
+      if (d) return COLORS[d];
+      return baseNodeColor(
+        { id, type: node.type, domain: node.domain },
+        domains,
+        groups,
+      );
+    },
+    [stateRef, domains, groups],
+  );
+
+  // glow materials are shared per color and component-owned — no-op the
+  // library's flush disposals (like linkMaterial) and dispose on unmount
+  const glowTexture = useRef<CanvasTexture>();
+  const glowMats = useRef(new Map<string, SpriteMaterial>());
+  const glowMaterial = useCallback((color: string): SpriteMaterial => {
+    if (!glowTexture.current) {
+      glowTexture.current = makeGlowTexture();
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      glowTexture.current.dispose = () => {};
+    }
+    let m = glowMats.current.get(color);
+    if (!m) {
+      m = new SpriteMaterial({
+        map: glowTexture.current,
+        color,
+        transparent: true,
+        opacity: 0.6,
+        depthWrite: false,
+        blending: AdditiveBlending,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      m.dispose = () => {};
+      glowMats.current.set(color, m);
+    }
+    return m;
+  }, []);
+
+  useEffect(() => {
+    const mats = glowMats.current;
+    const texture = glowTexture;
+    return () => {
+      for (const m of mats.values()) SpriteMaterial.prototype.dispose.call(m);
+      mats.clear();
+      if (texture.current) Texture.prototype.dispose.call(texture.current);
+    };
+  }, []);
+
   const nodeThreeObject = useCallback(
     (node: NodeObj) => {
       const id = String(node.id);
+      const obj = new Group();
+      // soft radial "box shadow" behind the sphere, in the node's color;
+      // sphere radius matches the lib's nodeRelSize(4) * nodeVal^(1/3)
+      const sphereR = 4 * Math.cbrt(((node.r ?? 4) * display.nodeSize) ** 2);
+      const glow = new Sprite(glowMaterial(displayColor(node)));
+      glow.scale.setScalar(sphereR * 5);
+      obj.add(glow);
       const sprite = new SpriteText(nodeLabelText(id, node.type));
       sprite.color = COLORS.label;
       sprite.textHeight = 4;
@@ -282,9 +335,10 @@ export default function Graph3D({
       // visibility so far labels don't strobe between distance sweeps
       sprite.visible = sprites.current.get(id)?.visible ?? true;
       sprites.current.set(id, sprite);
-      return sprite;
+      obj.add(sprite as unknown as Sprite);
+      return obj;
     },
-    [display.nodeSize],
+    [display.nodeSize, glowMaterial, displayColor],
   );
 
   return (
@@ -304,17 +358,7 @@ export default function Graph3D({
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
       nodeThreeObjectExtend={true}
       nodeThreeObject={nodeThreeObject}
-      nodeColor={(node: NodeObj) => {
-        const id = String(node.id);
-        // highlights always win, then group color, then domain palette
-        const d = nodeDisplay(stateRef.current, id, performance.now());
-        if (d) return COLORS[d];
-        return baseNodeColor(
-          { id, type: node.type, domain: node.domain },
-          domains,
-          groups,
-        );
-      }}
+      nodeColor={displayColor}
       linkThreeObject={linkThreeObject}
       linkPositionUpdate={(
         obj: Line2,

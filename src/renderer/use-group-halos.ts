@@ -8,8 +8,8 @@ const HALO = { pad: 1.15, base: 10, intervalMs: 500 } as const;
 
 // center → edge alpha stops for the radial gradient (8-digit hex suffixes)
 const HALO_STOPS: ReadonlyArray<readonly [number, string]> = [
-  [0, "59"], // ~35% at the center
-  [0.5, "1f"], // ~12% mid-falloff
+  [0, "38"], // ~22% at the center
+  [0.5, "14"], // ~8% mid-falloff
   [1, "00"], // transparent edge
 ];
 
