@@ -59,7 +59,15 @@ export function makeProps(graph: VaultGraph) {
     graph,
     domains: ["physics"],
     groups: [],
-    display: { textFadeThreshold: 15, nodeSize: 0.5, linkThickness: 0.5 },
+    display: {
+      textFadeThreshold: 15,
+      nodeSize: 0.5,
+      linkThickness: 0.5,
+      nodeOpacity: 0.5,
+      linkOpacity: 0.25,
+      haloPad: 1.1,
+      haloBase: 10,
+    },
     forces: {
       centerStrength: 0,
       repelStrength: 20,

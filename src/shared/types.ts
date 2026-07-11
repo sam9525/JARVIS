@@ -55,6 +55,11 @@ export interface DisplaySettings {
   textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
   nodeSize: number; // multiplier on degree-based radius
   linkThickness: number; // multiplier on link width
+  // 3d-only knobs; present on both views so merge/reset stay uniform
+  nodeOpacity: number; // glow sprite opacity behind each node
+  linkOpacity: number; // link line opacity
+  haloPad: number; // group halo radius multiplier past the farthest member
+  haloBase: number; // group halo base radius added after padding
 }
 
 export interface ForceSettings {
@@ -85,7 +90,15 @@ export interface Settings {
 function defaultView(mode: Dimensions): ViewSettings {
   return mode === "2d"
     ? {
-        display: { textFadeThreshold: 15, nodeSize: 1, linkThickness: 1 },
+        display: {
+          textFadeThreshold: 15,
+          nodeSize: 1,
+          linkThickness: 1,
+          nodeOpacity: 0.5,
+          linkOpacity: 0.25,
+          haloPad: 1.1,
+          haloBase: 10,
+        },
         forces: {
           centerStrength: 0.5,
           repelStrength: 10,
@@ -94,7 +107,15 @@ function defaultView(mode: Dimensions): ViewSettings {
         },
       }
     : {
-        display: { textFadeThreshold: 15, nodeSize: 0.5, linkThickness: 0.5 },
+        display: {
+          textFadeThreshold: 15,
+          nodeSize: 0.5,
+          linkThickness: 0.5,
+          nodeOpacity: 0.5,
+          linkOpacity: 0.25,
+          haloPad: 1.1,
+          haloBase: 10,
+        },
         forces: {
           centerStrength: 0,
           repelStrength: 20,

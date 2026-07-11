@@ -6,6 +6,8 @@ import { groupOf } from "./domain-colors";
 // huge-but-light halo: radial gradient that fades out like a CSS box shadow
 const HALO = { pad: 1.1, base: 10, intervalMs: 200 } as const;
 
+export type HaloFit = { pad: number; base: number };
+
 // center → edge alpha stops for the radial gradient (8-digit hex suffixes)
 const HALO_STOPS: ReadonlyArray<readonly [number, string]> = [
   [0, "38"], // ~22% at the center
@@ -42,6 +44,7 @@ function makeHaloTexture(color: string): CanvasTexture {
 // visually contains them; undefined when the group matches nothing
 export function fitHalo(
   points: HaloPoint[],
+  { pad, base }: HaloFit = HALO,
 ): { x: number; y: number; z: number; r: number } | undefined {
   if (points.length === 0) return undefined;
   let cx = 0;
@@ -62,7 +65,7 @@ export function fitHalo(
     const dz = (p.z ?? 0) - cz;
     max = Math.max(max, Math.sqrt(dx * dx + dy * dy + dz * dz));
   }
-  return { x: cx, y: cy, z: cz, r: max * HALO.pad + HALO.base };
+  return { x: cx, y: cy, z: cz, r: max * pad + base };
 }
 
 // one gradient billboard per group, re-fit to live node positions on an
@@ -71,6 +74,7 @@ export function useGroupHalos(
   fgRef: React.MutableRefObject<HaloSceneHandle | undefined>,
   nodes: HaloNode[],
   groups: GraphGroup[],
+  fit: HaloFit = HALO,
 ): void {
   useEffect(() => {
     const scene = fgRef.current?.scene();
@@ -94,14 +98,14 @@ export function useGroupHalos(
     );
     const tick = setInterval(() => {
       sprites.forEach((sprite, i) => {
-        const fit = fitHalo(members[i]);
-        if (!fit) {
+        const f = fitHalo(members[i], fit);
+        if (!f) {
           sprite.visible = false;
           return;
         }
         sprite.visible = true;
-        sprite.position.set(fit.x, fit.y, fit.z);
-        sprite.scale.setScalar(fit.r * 2); // sprite quad is 1×1 — r is a radius
+        sprite.position.set(f.x, f.y, f.z);
+        sprite.scale.setScalar(f.r * 2); // sprite quad is 1×1 — r is a radius
       });
     }, HALO.intervalMs);
     return () => {
@@ -112,5 +116,6 @@ export function useGroupHalos(
         s.material.dispose();
       }
     };
-  }, [fgRef, nodes, groups]);
+    // dep on the numbers, not the object — callers may pass a fresh literal
+  }, [fgRef, nodes, groups, fit.pad, fit.base]);
 }

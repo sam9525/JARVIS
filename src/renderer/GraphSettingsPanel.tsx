@@ -177,6 +177,42 @@ export default function GraphSettingsPanel({
           value={view.display.linkThickness}
           onChange={(v) => setDisplay({ linkThickness: v })}
         />
+        {settings.dimensions === "3d" && (
+          <>
+            <Slider
+              label="Node opacity"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={view.display.nodeOpacity}
+              onChange={(v) => setDisplay({ nodeOpacity: v })}
+            />
+            <Slider
+              label="Link opacity"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={view.display.linkOpacity}
+              onChange={(v) => setDisplay({ linkOpacity: v })}
+            />
+            <Slider
+              label="Halo padding"
+              min={1}
+              max={2}
+              step={0.05}
+              value={view.display.haloPad}
+              onChange={(v) => setDisplay({ haloPad: v })}
+            />
+            <Slider
+              label="Halo base size"
+              min={0}
+              max={50}
+              step={1}
+              value={view.display.haloBase}
+              onChange={(v) => setDisplay({ haloBase: v })}
+            />
+          </>
+        )}
       </details>
 
       <details>

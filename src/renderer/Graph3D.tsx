@@ -129,7 +129,7 @@ export default function Graph3D({
     const m = new LineMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.25,
+      opacity: display.linkOpacity,
     });
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     m.dispose = () => {};
@@ -177,6 +177,7 @@ export default function Graph3D({
     fgRef as unknown as React.MutableRefObject<HaloSceneHandle | undefined>,
     data.nodes,
     groups,
+    { pad: display.haloPad, base: display.haloBase },
   );
 
   useEffect(() => {
@@ -260,6 +261,8 @@ export default function Graph3D({
       return;
     }
     linkMaterial.linewidth = display.linkThickness * 2;
+    linkMaterial.opacity = display.linkOpacity;
+    for (const m of glowMats.current.values()) m.opacity = display.nodeOpacity;
     fgRef.current?.refresh();
   }, [display, groups, linkMaterial]);
 
@@ -279,9 +282,13 @@ export default function Graph3D({
   );
 
   // glow materials are shared per color and component-owned — no-op the
-  // library's flush disposals (like linkMaterial) and dispose on unmount
+  // library's flush disposals (like linkMaterial) and dispose on unmount.
+  // Opacity comes through a ref so mats created after a slider change match
+  // the ones the display effect already re-tinted.
   const glowTexture = useRef<CanvasTexture>();
   const glowMats = useRef(new Map<string, SpriteMaterial>());
+  const glowOpacity = useRef(display.nodeOpacity);
+  glowOpacity.current = display.nodeOpacity;
   const glowMaterial = useCallback((color: string): SpriteMaterial => {
     if (!glowTexture.current) {
       glowTexture.current = makeGlowTexture();
@@ -294,7 +301,7 @@ export default function Graph3D({
         map: glowTexture.current,
         color,
         transparent: true,
-        opacity: 0.5,
+        opacity: glowOpacity.current,
         depthWrite: false,
         blending: AdditiveBlending,
       });

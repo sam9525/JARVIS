@@ -22,7 +22,15 @@ describe("settings", () => {
       groups: [{ query: "tech", color: "#aa00ff" }],
       views: {
         "2d": {
-          display: { textFadeThreshold: 5, nodeSize: 2, linkThickness: 1.5 },
+          display: {
+            textFadeThreshold: 5,
+            nodeSize: 2,
+            linkThickness: 1.5,
+            nodeOpacity: 0.7,
+            linkOpacity: 0.4,
+            haloPad: 1.2,
+            haloBase: 15,
+          },
           forces: {
             centerStrength: 0.5,
             repelStrength: 60,
@@ -31,7 +39,15 @@ describe("settings", () => {
           },
         },
         "3d": {
-          display: { textFadeThreshold: 8, nodeSize: 3, linkThickness: 0.8 },
+          display: {
+            textFadeThreshold: 8,
+            nodeSize: 3,
+            linkThickness: 0.8,
+            nodeOpacity: 0.3,
+            linkOpacity: 0.15,
+            haloPad: 1.5,
+            haloBase: 20,
+          },
           forces: {
             centerStrength: 0.2,
             repelStrength: 12,
@@ -141,7 +157,15 @@ describe("settings", () => {
   it("defaults the 3d view to the tuned layout, 2d unchanged", () => {
     const s = defaultSettings();
     expect(s.views["3d"]).toEqual({
-      display: { textFadeThreshold: 15, nodeSize: 0.5, linkThickness: 0.5 },
+      display: {
+        textFadeThreshold: 15,
+        nodeSize: 0.5,
+        linkThickness: 0.5,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+      },
       forces: {
         centerStrength: 0,
         repelStrength: 20,
@@ -150,7 +174,15 @@ describe("settings", () => {
       },
     });
     expect(s.views["2d"]).toEqual({
-      display: { textFadeThreshold: 15, nodeSize: 1, linkThickness: 1 },
+      display: {
+        textFadeThreshold: 15,
+        nodeSize: 1,
+        linkThickness: 1,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+      },
       forces: {
         centerStrength: 0.5,
         repelStrength: 10,
