@@ -93,15 +93,24 @@ export default function Graph3D({
     return m;
   }, [graph, domains, groups]);
 
-  // one material shared by every link line; linewidth is screen-space px
-  const linkMaterial = useMemo(
-    () =>
-      new LineMaterial({
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.35,
-      }),
-    [],
+  // one material shared by every link line; linewidth is screen-space px.
+  // refresh() flush-disposes each link object's material, but this one is
+  // shared and component-owned — no-op those disposals (they'd force a
+  // shader recompile 2×/s during highlights) and do the real one on unmount.
+  const linkMaterial = useMemo(() => {
+    const m = new LineMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.35,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    m.dispose = () => {};
+    return m;
+  }, []);
+
+  useEffect(
+    () => () => LineMaterial.prototype.dispose.call(linkMaterial),
+    [linkMaterial],
   );
 
   const linkThreeObject = useCallback(
