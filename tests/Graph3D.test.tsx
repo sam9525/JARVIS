@@ -99,4 +99,10 @@ describe("Graph3D component", () => {
     expect(element.props.cooldownTicks).toBe(200);
     expect(typeof element.props.onEngineStop).toBe("function");
   });
+
+  it("uses orbit controls so the scene can auto-rotate when idle", async () => {
+    const { default: Graph3D } = await import("../src/renderer/Graph3D");
+    const element = Graph3D(makeProps(sampleGraph) as any) as any;
+    expect(element.props.controlType).toBe("orbit");
+  });
 });

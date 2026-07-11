@@ -15,6 +15,10 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
 
+// idle auto-rotation: resume this long after the last interaction
+const IDLE_ROTATE_MS = 5000;
+const ROTATE_SPEED = 0.4;
+
 // soft glow on node spheres against the dark bg — the 3D "box shadow"
 const BLOOM = { strength: 0.9, radius: 0.4, threshold: 0.1 } as const;
 
@@ -75,11 +79,38 @@ export default function Graph3D({
 
   useEffect(() => {
     const controls = fgRef.current?.controls() as
-      { minDistance: number; maxDistance: number } | undefined;
-    if (controls) {
-      controls.minDistance = CAM.min;
-      controls.maxDistance = CAM.max;
-    }
+      | {
+          minDistance: number;
+          maxDistance: number;
+          autoRotate: boolean;
+          autoRotateSpeed: number;
+          addEventListener(type: string, fn: () => void): void;
+          removeEventListener(type: string, fn: () => void): void;
+        }
+      | undefined;
+    if (!controls) return;
+    controls.minDistance = CAM.min;
+    controls.maxDistance = CAM.max;
+    controls.autoRotateSpeed = ROTATE_SPEED;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopRotate = () => {
+      controls.autoRotate = false;
+      clearTimeout(timer);
+    };
+    const armRotate = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        controls.autoRotate = true;
+      }, IDLE_ROTATE_MS);
+    };
+    controls.addEventListener("start", stopRotate); // user grabbed the camera
+    controls.addEventListener("end", armRotate); // released — rotate in 5s
+    armRotate(); // initial load counts as an interaction
+    return () => {
+      controls.removeEventListener("start", stopRotate);
+      controls.removeEventListener("end", armRotate);
+      clearTimeout(timer);
+    };
   }, []);
 
   // one bloom pass makes every bright object glow in its own color; highlight
@@ -177,6 +208,7 @@ export default function Graph3D({
       ref={fgRef}
       graphData={data}
       backgroundColor={COLORS.bg}
+      controlType="orbit"
       nodeResolution={16}
       cooldownTicks={200} // settle in ~1-2s instead of the default 15s so the fit fires promptly
       onEngineStop={() => {
