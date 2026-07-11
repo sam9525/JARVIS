@@ -9,9 +9,14 @@ import { COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
+import { Vector2 } from "three";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
+
+// soft glow on node spheres against the dark bg — the 3D "box shadow"
+const BLOOM = { strength: 0.9, radius: 0.4, threshold: 0.1 } as const;
 
 // slider (2–30) → max camera distance at which labels show; higher threshold
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
@@ -75,6 +80,33 @@ export default function Graph3D({
       controls.minDistance = CAM.min;
       controls.maxDistance = CAM.max;
     }
+  }, []);
+
+  // one bloom pass makes every bright object glow in its own color; highlight
+  // flares (cyan/orange) pop harder for free
+  useEffect(() => {
+    const composer = (
+      fgRef.current as unknown as
+        | {
+            postProcessingComposer: () => {
+              addPass(pass: unknown): void;
+              removePass(pass: unknown): void;
+            };
+          }
+        | undefined
+    )?.postProcessingComposer();
+    if (!composer) return;
+    const pass = new UnrealBloomPass(
+      new Vector2(window.innerWidth, window.innerHeight),
+      BLOOM.strength,
+      BLOOM.radius,
+      BLOOM.threshold,
+    );
+    composer.addPass(pass);
+    return () => {
+      composer.removePass(pass);
+      pass.dispose();
+    };
   }, []);
 
   // ponytail: 3D node materials are baked, not repainted every frame like the
