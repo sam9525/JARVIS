@@ -3,7 +3,7 @@ import ForceGraph3D from "react-force-graph-3d";
 import type { ForceGraphMethods } from "react-force-graph-3d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
 import { nodeDisplay, type HighlightState } from "./highlight-store";
-import { colorFor, groupColor } from "./domain-colors";
+import { baseNodeColor } from "./domain-colors";
 import { graphMetrics } from "./graph-metrics";
 import { COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
@@ -161,9 +161,11 @@ export default function Graph3D({
         // highlights always win, then group color, then domain palette
         const d = nodeDisplay(stateRef.current, id, performance.now());
         if (d) return COLORS[d];
-        const base =
-          node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
-        return groupColor(id, groups) ?? base;
+        return baseNodeColor(
+          { id, type: node.type, domain: node.domain },
+          domains,
+          groups,
+        );
       }}
       linkColor={() => COLORS.link}
       linkWidth={() => display.linkThickness}
