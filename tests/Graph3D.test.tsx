@@ -105,4 +105,13 @@ describe("Graph3D component", () => {
     const element = Graph3D(makeProps(sampleGraph) as any) as any;
     expect(element.props.controlType).toBe("orbit");
   });
+
+  it("renders links as custom gradient objects", async () => {
+    const { default: Graph3D } = await import("../src/renderer/Graph3D");
+    const element = Graph3D(makeProps(sampleGraph) as any) as any;
+    expect(typeof element.props.linkThreeObject).toBe("function");
+    expect(typeof element.props.linkPositionUpdate).toBe("function");
+    expect(element.props.linkColor).toBeUndefined();
+    expect(element.props.linkWidth).toBeUndefined();
+  });
 });

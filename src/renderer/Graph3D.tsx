@@ -10,8 +10,15 @@ import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
-import { Vector2 } from "three";
+import { Color, Vector2 } from "three";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+
+// links hold node objects after graph init but raw ids before it
+const endpointId = (end: LinkEnd | undefined): string =>
+  typeof end === "object" && end !== null ? String(end.id) : String(end);
 
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
@@ -36,6 +43,10 @@ type NodeObj = {
   y?: number;
   z?: number;
 };
+
+type LinkEnd = string | number | NodeObj;
+type LinkObj = { source?: LinkEnd; target?: LinkEnd };
+type Coords = { x: number; y: number; z: number };
 
 type GraphProps = {
   graph: VaultGraph; // may be filtered
@@ -72,6 +83,53 @@ export default function Graph3D({
       links: graph.edges.map((e) => ({ source: e.source, target: e.target })),
     };
   }, [graph]);
+
+  // node id → base color so every link is a source→target gradient;
+  // same-group links come out solid, cross-group links blend group colors.
+  // baseNodeColor excludes highlight state so read flares don't recolor edges.
+  const linkColors = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const n of graph.nodes) m.set(n.id, baseNodeColor(n, domains, groups));
+    return m;
+  }, [graph, domains, groups]);
+
+  // one material shared by every link line; linewidth is screen-space px
+  const linkMaterial = useMemo(
+    () =>
+      new LineMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.35,
+      }),
+    [],
+  );
+
+  const linkThreeObject = useCallback(
+    (link: LinkObj) => {
+      const geometry = new LineGeometry();
+      // seed real endpoint positions when nodes are already resolved so a
+      // refresh() at rest doesn't leave lines collapsed at the origin
+      const s = typeof link.source === "object" ? link.source : undefined;
+      const t = typeof link.target === "object" ? link.target : undefined;
+      geometry.setPositions([
+        s?.x ?? 0,
+        s?.y ?? 0,
+        s?.z ?? 0,
+        t?.x ?? 0,
+        t?.y ?? 0,
+        t?.z ?? 0,
+      ]);
+      const sc = new Color(
+        linkColors.get(endpointId(link.source)) ?? COLORS.link,
+      );
+      const tc = new Color(
+        linkColors.get(endpointId(link.target)) ?? COLORS.link,
+      );
+      geometry.setColors([sc.r, sc.g, sc.b, tc.r, tc.g, tc.b]);
+      return new Line2(geometry, linkMaterial);
+    },
+    [linkColors, linkMaterial],
+  );
 
   useForceTuning(
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
@@ -113,6 +171,8 @@ export default function Graph3D({
     controls.addEventListener("start", stopRotate); // user grabbed the camera
     controls.addEventListener("end", armRotate); // released — rotate in 5s
     armRotate(); // initial load counts as an interaction
+    linkMaterial.resolution.set(window.innerWidth, window.innerHeight);
+    linkMaterial.linewidth = display.linkThickness * 2;
     return () => {
       controls.removeEventListener("start", stopRotate);
       controls.removeEventListener("end", armRotate);
@@ -189,8 +249,9 @@ export default function Graph3D({
       didRefresh.current = true;
       return;
     }
+    linkMaterial.linewidth = display.linkThickness * 2;
     fgRef.current?.refresh();
-  }, [display, groups]);
+  }, [display, groups, linkMaterial]);
 
   const nodeThreeObject = useCallback(
     (node: NodeObj) => {
@@ -238,8 +299,21 @@ export default function Graph3D({
           groups,
         );
       }}
-      linkColor={() => COLORS.link}
-      linkWidth={() => display.linkThickness}
+      linkThreeObject={linkThreeObject}
+      linkPositionUpdate={(
+        obj: Line2,
+        ends: { start: Coords; end: Coords },
+      ) => {
+        obj.geometry.setPositions([
+          ends.start.x,
+          ends.start.y,
+          ends.start.z,
+          ends.end.x,
+          ends.end.y,
+          ends.end.z,
+        ]);
+        return true; // we own positioning — skip the default handler
+      }}
       onNodeClick={(node: NodeObj) => {
         if (node.type === "note") onNodeClick(String(node.id));
       }}
