@@ -15,6 +15,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 // links hold node objects after graph init but raw ids before it
 const endpointId = (end: LinkEnd | undefined): string =>
@@ -28,7 +29,7 @@ const IDLE_ROTATE_MS = 5000;
 const ROTATE_SPEED = 0.4;
 
 // soft glow on node spheres against the dark bg — the 3D "box shadow"
-const BLOOM = { strength: 0.9, radius: 0.4, threshold: 0.1 } as const;
+const BLOOM = { strength: 1.6, radius: 0.4, threshold: 0.1 } as const;
 
 // slider (2–30) → max camera distance at which labels show; higher threshold
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
@@ -209,10 +210,16 @@ export default function Graph3D({
       BLOOM.radius,
       BLOOM.threshold,
     );
+    // bloom alone leaves the composer output in linear space, washing the
+    // background out vs the 2D canvas — OutputPass restores sRGB output
+    const output = new OutputPass();
     composer.addPass(pass);
+    composer.addPass(output);
     return () => {
+      composer.removePass(output);
       composer.removePass(pass);
       pass.dispose();
+      output.dispose();
     };
   }, []);
 

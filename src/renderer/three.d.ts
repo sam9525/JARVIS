@@ -48,6 +48,29 @@ declare module "three" {
     geometry: SphereGeometry;
     material: MeshBasicMaterial;
   }
+
+  export class Texture {
+    dispose(): void;
+  }
+
+  export class CanvasTexture extends Texture {
+    constructor(canvas: unknown);
+  }
+
+  export class SpriteMaterial {
+    constructor(params?: {
+      map?: Texture;
+      transparent?: boolean;
+      depthWrite?: boolean;
+    });
+    map: Texture;
+    dispose(): void;
+  }
+
+  export class Sprite extends Object3D {
+    constructor(material?: SpriteMaterial);
+    material: SpriteMaterial;
+  }
 }
 
 declare module "three/examples/jsm/postprocessing/UnrealBloomPass.js" {
@@ -92,5 +115,12 @@ declare module "three/examples/jsm/lines/Line2.js" {
   export class Line2 {
     constructor(geometry?: LineGeometry, material?: LineMaterial);
     geometry: LineGeometry;
+  }
+}
+
+declare module "three/examples/jsm/postprocessing/OutputPass.js" {
+  export class OutputPass {
+    constructor();
+    dispose(): void;
   }
 }

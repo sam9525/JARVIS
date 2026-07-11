@@ -1,16 +1,44 @@
 import { useEffect } from "react";
-import { Mesh, MeshBasicMaterial, Scene, SphereGeometry } from "three";
+import { CanvasTexture, Scene, Sprite, SpriteMaterial } from "three";
 import type { GraphGroup } from "../shared/types";
 import { groupOf } from "./domain-colors";
 
-// huge-but-light halo: barely-there fill that reads as a soft glow region
-const HALO = { opacity: 0.08, pad: 1.15, base: 10, intervalMs: 500 } as const;
+// huge-but-light halo: radial gradient that fades out like a CSS box shadow
+const HALO = { pad: 1.15, base: 10, intervalMs: 500 } as const;
+
+// center → edge alpha stops for the radial gradient (8-digit hex suffixes)
+const HALO_STOPS: ReadonlyArray<readonly [number, string]> = [
+  [0, "59"], // ~35% at the center
+  [0.5, "1f"], // ~12% mid-falloff
+  [1, "00"], // transparent edge
+];
 
 export type HaloPoint = { x?: number; y?: number; z?: number };
 export type HaloNode = HaloPoint & { id?: string | number };
 export type HaloSceneHandle = { scene: () => Scene };
 
-// centroid + bounding radius of a group's members, padded so the sphere
+function makeHaloTexture(color: string): CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  const g = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
+  for (const [stop, alpha] of HALO_STOPS)
+    g.addColorStop(stop, `${color}${alpha}`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return new CanvasTexture(canvas);
+}
+
+// centroid + bounding radius of a group's members, padded so the halo
 // visually contains them; undefined when the group matches nothing
 export function fitHalo(
   points: HaloPoint[],
@@ -37,7 +65,7 @@ export function fitHalo(
   return { x: cx, y: cy, z: cz, r: max * HALO.pad + HALO.base };
 }
 
-// one translucent sphere per group, re-fit to live node positions on an
+// one gradient billboard per group, re-fit to live node positions on an
 // interval since the simulation keeps drifting
 export function useGroupHalos(
   fgRef: React.MutableRefObject<HaloSceneHandle | undefined>,
@@ -47,19 +75,17 @@ export function useGroupHalos(
   useEffect(() => {
     const scene = fgRef.current?.scene();
     if (!scene) return;
-    const meshes = groups.map((g) => {
-      const mesh = new Mesh(
-        new SphereGeometry(1, 16, 16),
-        new MeshBasicMaterial({
-          color: g.color,
+    const sprites = groups.map((g) => {
+      const sprite = new Sprite(
+        new SpriteMaterial({
+          map: makeHaloTexture(g.color),
           transparent: true,
-          opacity: HALO.opacity,
           depthWrite: false,
         }),
       );
-      mesh.visible = false; // hidden until the first fit
-      scene.add(mesh);
-      return mesh;
+      sprite.visible = false; // hidden until the first fit
+      scene.add(sprite);
+      return sprite;
     });
     // membership only changes with (nodes, groups) — this effect's deps —
     // so bucket once and let the interval track positions only
@@ -67,23 +93,23 @@ export function useGroupHalos(
       nodes.filter((n) => groupOf(String(n.id), groups) === g),
     );
     const tick = setInterval(() => {
-      meshes.forEach((mesh, i) => {
+      sprites.forEach((sprite, i) => {
         const fit = fitHalo(members[i]);
         if (!fit) {
-          mesh.visible = false;
+          sprite.visible = false;
           return;
         }
-        mesh.visible = true;
-        mesh.position.set(fit.x, fit.y, fit.z);
-        mesh.scale.setScalar(fit.r);
+        sprite.visible = true;
+        sprite.position.set(fit.x, fit.y, fit.z);
+        sprite.scale.setScalar(fit.r * 2); // sprite quad is 1×1 — r is a radius
       });
     }, HALO.intervalMs);
     return () => {
       clearInterval(tick);
-      for (const m of meshes) {
-        scene.remove(m);
-        m.geometry.dispose();
-        m.material.dispose();
+      for (const s of sprites) {
+        scene.remove(s);
+        s.material.map.dispose();
+        s.material.dispose();
       }
     };
   }, [fgRef, nodes, groups]);
