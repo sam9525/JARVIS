@@ -7,6 +7,7 @@ import { baseNodeColor } from "./domain-colors";
 import { graphMetrics } from "./graph-metrics";
 import { COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
+import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
 import { Vector2 } from "three";
@@ -75,6 +76,12 @@ export default function Graph3D({
   useForceTuning(
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
     forces,
+  );
+
+  useGroupHalos(
+    fgRef as unknown as React.MutableRefObject<HaloSceneHandle | undefined>,
+    data.nodes,
+    groups,
   );
 
   useEffect(() => {
