@@ -1,6 +1,9 @@
 {
-  "extends": ["eslint:recommended", "prettier"],
-  "rules": {
-    "eol-last": ["error", "never"]
-  }
+  "env": { "browser": true, "es6": true, "node": true },
+  "parser": "@typescript-eslint/parser",
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "prettier"
+  ]
 }
