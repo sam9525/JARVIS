@@ -104,7 +104,7 @@ describe("Graph3D component", () => {
   it("fits the graph to view once the engine settles", async () => {
     const { default: Graph3D } = await import("../src/renderer/Graph3D");
     const element = Graph3D(makeProps(sampleGraph) as any) as any;
-    expect(element.props.cooldownTicks).toBe(200);
+    expect(element.props.cooldownTicks).toBe(300);
     expect(typeof element.props.onEngineStop).toBe("function");
   });
 

@@ -97,8 +97,8 @@ describe("Graph component", () => {
     // graphData memo (rebuilding nodes on slider drag would restart the sim)
     const nodes = element.props.graphData.nodes;
     expect(nodes).toBeDefined();
-    expect(nodes[0].r).toBeCloseTo(5.5); // degree 1 => base radius 5.5
-    expect(element.props.nodeVal(nodes[0])).toBeCloseTo((5.5 * 2) ** 2); // nodeSize=2
+    expect(nodes[0].r).toBeCloseTo(1.5); // degree 1 => base radius 1.5
+    expect(element.props.nodeVal(nodes[0])).toBeCloseTo((1.5 * 2) ** 2); // nodeSize=2
     expect(element.props.linkWidth({})).toBe(3); // non-hovered × linkThickness=3
   });
 });
