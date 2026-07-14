@@ -270,8 +270,9 @@ export default function Graph3D({
   const displayColor = useCallback(
     (node: NodeObj): string => {
       const id = String(node.id);
-      const d = nodeDisplay(stateRef.current, id, performance.now());
-      if (d) return COLORS[d];
+      // modified recolors the sphere; a read gets a ring sprite (Task 3)
+      if (nodeDisplay(stateRef.current, id) === "modified")
+        return COLORS.modified;
       return baseNodeColor(
         { id, type: node.type, domain: node.domain },
         domains,

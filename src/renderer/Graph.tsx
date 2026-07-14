@@ -105,14 +105,24 @@ export default function Graph({
         if (node.x === undefined || node.y === undefined) return;
         const id = String(node.id);
         const r = (node.r ?? 4) * display.nodeSize;
-        const d = nodeDisplay(stateRef.current, id, performance.now());
+        const d = nodeDisplay(stateRef.current, id);
         const base =
           node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-        // highlights always win, then group color, then domain palette
-        ctx.fillStyle = d ? COLORS[d] : (groupColor(id, groups) ?? base);
+        // modified wins, then group color, then domain palette; reads keep
+        // their base color and get a ring instead
+        ctx.fillStyle =
+          d === "modified" ? COLORS.modified : (groupColor(id, groups) ?? base);
         ctx.fill();
+
+        if (d === "ring") {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
+          ctx.strokeStyle = COLORS.ring;
+          ctx.lineWidth = 1.5 / globalScale;
+          ctx.stroke();
+        }
 
         const h = hoverRef.current;
         const inHover = h !== null && (id === h.id || h.neighbors.has(id));
