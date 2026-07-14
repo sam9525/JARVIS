@@ -51,6 +51,21 @@ function makeGlowTexture(): CanvasTexture {
   return new CanvasTexture(canvas);
 }
 
+// hollow white circle; tinted #ff8fab via material.color
+function makeRingTexture(): CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 8, 0, 2 * Math.PI);
+  ctx.stroke();
+  return new CanvasTexture(canvas);
+}
+
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
 
@@ -218,14 +233,15 @@ export default function Graph3D({
     };
   }, []);
 
-  // ponytail: 3D node materials are baked, not repainted every frame like the
-  // 2D canvas, so highlight changes need a nudge. Re-run the color accessors
-  // 2×/s while any node is highlighted so Read flares fade and Edit marks land.
-  // Ceiling: add an animating-window guard if refresh() costs too much on very
-  // large vaults.
+  // ponytail: rings/colors are baked into node objects, so poll the store's
+  // rev counter and re-run accessors once per change (covers add AND reset).
+  const lastRev = useRef(-1);
   useEffect(() => {
     const id = setInterval(() => {
-      if (stateRef.current.nodes.size > 0) fgRef.current?.refresh();
+      if (stateRef.current.rev !== lastRev.current) {
+        lastRev.current = stateRef.current.rev;
+        fgRef.current?.refresh();
+      }
     }, 500);
     return () => clearInterval(id);
   }, [stateRef]);
@@ -313,6 +329,27 @@ export default function Graph3D({
     return m;
   }, []);
 
+  // shared ring sprite material for read-highlighted nodes; same no-op-dispose
+  // pattern as glowMaterial — the library flush-disposes node objects on
+  // refresh() so a shared, component-owned material must survive that.
+  const ringMat = useRef<SpriteMaterial>();
+  const ringMaterial = useCallback((): SpriteMaterial => {
+    if (!ringMat.current) {
+      const texture = makeRingTexture();
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      texture.dispose = () => {};
+      ringMat.current = new SpriteMaterial({
+        map: texture,
+        color: COLORS.ring,
+        transparent: true,
+        depthWrite: false,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      ringMat.current.dispose = () => {};
+    }
+    return ringMat.current;
+  }, []);
+
   useEffect(() => {
     const mats = glowMats.current;
     const texture = glowTexture;
@@ -320,6 +357,11 @@ export default function Graph3D({
       for (const m of mats.values()) SpriteMaterial.prototype.dispose.call(m);
       mats.clear();
       if (texture.current) Texture.prototype.dispose.call(texture.current);
+      if (ringMat.current) {
+        if (ringMat.current.map)
+          Texture.prototype.dispose.call(ringMat.current.map);
+        SpriteMaterial.prototype.dispose.call(ringMat.current);
+      }
     };
   }, []);
 
@@ -333,6 +375,11 @@ export default function Graph3D({
       const glow = new Sprite(glowMaterial(displayColor(node)));
       glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
+      if (nodeDisplay(stateRef.current, id) === "ring") {
+        const ring = new Sprite(ringMaterial());
+        ring.scale.setScalar(sphereR * 3);
+        obj.add(ring);
+      }
       const sprite = new SpriteText(nodeLabelText(id, node.type));
       sprite.color = COLORS.label;
       sprite.textHeight = 4;
@@ -346,7 +393,7 @@ export default function Graph3D({
       obj.add(sprite as unknown as Sprite);
       return obj;
     },
-    [display.nodeSize, glowMaterial, displayColor],
+    [display.nodeSize, glowMaterial, displayColor, ringMaterial, stateRef],
   );
 
   return (
