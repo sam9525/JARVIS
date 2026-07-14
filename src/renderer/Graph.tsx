@@ -91,16 +91,28 @@ export default function Graph({
     forces,
   );
 
-  // pan so the focused node sits centered in the visible area right of the
-  // left-docked preview panel
+  // zoom in on the focused node, centered in the visible area right of the
+  // left-docked preview card; closing the preview returns to the launch fit.
+  // focusZoom in the deps makes slider drags re-apply live while a note is open.
+  const hadFocus = useRef(false);
   useEffect(() => {
-    if (!focusNode) return;
+    if (!focusNode) {
+      if (hadFocus.current) {
+        hadFocus.current = false;
+        fgRef.current?.zoomToFit(400, 40);
+      }
+      return;
+    }
+    hadFocus.current = true;
     const node = nodeById.get(focusNode);
     if (!node || node.x === undefined || node.y === undefined) return;
-    const k = fgRef.current?.zoom() ?? 1;
+    // offset uses the TARGET zoom so the node lands beside the card, not
+    // where the old zoom would have put it
+    const k = display.focusZoom;
     const panel = Math.min(560, window.innerWidth * 0.4); // matches CSS width
     fgRef.current?.centerAt(node.x - panel / 2 / k, node.y, 600);
-  }, [focusNode, nodeById]);
+    fgRef.current?.zoom(k, 600);
+  }, [focusNode, nodeById, display.focusZoom]);
 
   const linkHovered = (l: LinkObj) => {
     const h = hoverRef.current;

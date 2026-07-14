@@ -236,19 +236,38 @@ export default function Graph3D({
     };
   }, []);
 
-  // rotate the view toward the focused node without moving the camera
+  // fly the camera to focusZoom units from the focused node, looking at it;
+  // closing the preview returns to the launch fit. focusZoom in the deps
+  // makes slider drags re-apply live while a note is open.
+  const hadFocus = useRef(false);
   useEffect(() => {
-    if (!focusNode) return;
+    if (!focusNode) {
+      if (hadFocus.current) {
+        hadFocus.current = false;
+        fgRef.current?.zoomToFit(300, -400);
+      }
+      return;
+    }
+    hadFocus.current = true;
     const node = nodeById.get(focusNode);
     if (!node || node.x === undefined) return;
     const cam = fgRef.current?.camera();
     if (!cam) return;
+    const nx = node.x ?? 0;
+    const ny = node.y ?? 0;
+    const nz = node.z ?? 0;
+    const dx = cam.position.x - nx;
+    const dy = cam.position.y - ny;
+    const dz = cam.position.z - nz;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return; // camera already on the node — nothing sensible to do
+    const s = display.focusZoom / len;
     fgRef.current?.cameraPosition(
-      { x: cam.position.x, y: cam.position.y, z: cam.position.z },
-      { x: node.x ?? 0, y: node.y ?? 0, z: node.z ?? 0 },
+      { x: nx + dx * s, y: ny + dy * s, z: nz + dz * s },
+      { x: nx, y: ny, z: nz },
       800,
     );
-  }, [focusNode, nodeById]);
+  }, [focusNode, nodeById, display.focusZoom]);
 
   useEffect(() => {
     const controls = fgRef.current?.controls() as
