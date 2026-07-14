@@ -38,6 +38,14 @@ export default function App() {
     });
   }, [onPreviewEvent]);
 
+  // re-scan the vault and re-settle the layout; settings and highlights
+  // are deliberately untouched
+  const refreshGraph = useCallback(async () => {
+    const g = await window.jarvis.rescan();
+    setGraph(g);
+    setLayoutEpoch((n) => n + 1);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F5") {
@@ -53,14 +61,6 @@ export default function App() {
     setSettings(s); // renderer owns live state; main just persists
     window.jarvis.setSettings(s).catch(console.error);
   };
-
-  // re-scan the vault and re-settle the layout; settings and highlights
-  // are deliberately untouched
-  const refreshGraph = useCallback(async () => {
-    const g = await window.jarvis.rescan();
-    setGraph(g);
-    setLayoutEpoch((n) => n + 1);
-  }, []);
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
   const visible = useMemo(
