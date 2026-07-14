@@ -9,30 +9,38 @@ body,
   background: #0d1017;
 }
 
-.preview-backdrop {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.45);
-}
 .preview-panel {
-  width: min(720px, 80vw);
-  max-height: 80vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(560px, 40vw);
   overflow: auto;
   background: #161b26;
   color: #d7dce6;
-  border: 1px solid #2b3345;
-  border-radius: 8px;
-  padding: 24px 28px;
+  border-right: 1px solid #2b3345;
+  /* top padding clears the HUD buttons pinned at top-left */
+  padding: 50px 28px 24px;
   font:
     14px/1.6 system-ui,
     sans-serif;
 }
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
 .preview-title {
   font-size: 12px;
   color: #7a869c;
-  margin-bottom: 12px;
+}
+.preview-close {
+  background: none;
+  border: none;
+  color: #7a869c;
+  cursor: pointer;
+  font-size: 14px;
 }
 .preview-body a {
   color: #7ef9ff;
@@ -52,6 +60,7 @@ body,
   font:
     13px system-ui,
     sans-serif;
+  z-index: 10;
 }
 .section-toggle {
   display: flex;

@@ -7,6 +7,7 @@ import { applyEvent, emptyState } from "./highlight-store";
 import { filterGraph } from "./graph-filter";
 import { domainsOf } from "./domain-colors";
 import { defaultSettings } from "../shared/types";
+import { createPreviewOpener } from "./preview-opener";
 import type { Settings, VaultGraph } from "../shared/types";
 
 export default function App() {
@@ -17,17 +18,18 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const stateRef = useRef(emptyState());
 
+  // debounced auto-open: last-read file after reads go quiet
+  const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
+
   useEffect(() => {
     window.jarvis.getGraph().then(setGraph); // initial pull (Task 1b — no startup race)
     window.jarvis.getSettings().then(setSettings);
     window.jarvis.onGraph(setGraph); // watcher updates
     window.jarvis.onToolEvent((e) => {
       applyEvent(stateRef.current, e, performance.now());
-      if (e.tool === "Read" && e.phase === "pre" && e.nodeIds[0]) {
-        setPreviewNode(e.nodeIds[0]);
-      }
+      onPreviewEvent(e);
     });
-  }, []);
+  }, [onPreviewEvent]);
 
   const updateSettings = (s: Settings) => {
     setSettings(s); // renderer owns live state; main just persists

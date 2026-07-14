@@ -28,14 +28,17 @@ export default function Preview({ nodeId, onClose }: PreviewProps) {
   }, [onClose]);
 
   return (
-    <div className="preview-backdrop" onClick={onClose}>
-      <div className="preview-panel" onClick={(e) => e.stopPropagation()}>
+    <div className="preview-panel">
+      <div className="preview-header">
         <div className="preview-title">{nodeId}</div>
-        <div
-          className="preview-body"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <button className="preview-close" title="Close" onClick={onClose}>
+          ✕
+        </button>
       </div>
+      <div
+        className="preview-body"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     </div>
   );
 }

@@ -1,0 +1,50 @@
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import {
+  createPreviewOpener,
+  PREVIEW_QUIET_MS,
+} from "../src/renderer/preview-opener";
+import type { ToolEvent } from "../src/shared/types";
+
+const ev = (over: Partial<ToolEvent>): ToolEvent => ({
+  sessionId: "s1",
+  phase: "pre",
+  tool: "Read",
+  nodeIds: [],
+  ts: 0,
+  ...over,
+});
+
+describe("preview-opener", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("opens the LAST read file once reads go quiet", () => {
+    const opened: string[] = [];
+    const onEvent = createPreviewOpener((id) => opened.push(id));
+    onEvent(ev({ nodeIds: ["a"] }));
+    vi.advanceTimersByTime(PREVIEW_QUIET_MS - 500);
+    onEvent(ev({ nodeIds: ["b"] })); // still reading — timer restarts on b
+    vi.advanceTimersByTime(PREVIEW_QUIET_MS - 500);
+    expect(opened).toEqual([]); // never opened mid-stream
+    vi.advanceTimersByTime(500);
+    expect(opened).toEqual(["b"]);
+  });
+
+  it("a new prompt cancels the pending open", () => {
+    const opened: string[] = [];
+    const onEvent = createPreviewOpener((id) => opened.push(id));
+    onEvent(ev({ nodeIds: ["a"] }));
+    onEvent(ev({ tool: "Prompt" }));
+    vi.advanceTimersByTime(PREVIEW_QUIET_MS * 2);
+    expect(opened).toEqual([]);
+  });
+
+  it("other tool events neither schedule nor cancel", () => {
+    const opened: string[] = [];
+    const onEvent = createPreviewOpener((id) => opened.push(id));
+    onEvent(ev({ nodeIds: ["a"] }));
+    onEvent(ev({ tool: "Grep", pattern: "x" }));
+    vi.advanceTimersByTime(PREVIEW_QUIET_MS);
+    expect(opened).toEqual(["a"]);
+  });
+});
