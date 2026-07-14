@@ -40,10 +40,14 @@ export default function App() {
 
   // re-scan the vault and re-settle the layout; settings and highlights
   // are deliberately untouched
-  const refreshGraph = useCallback(async () => {
-    const g = await window.jarvis.rescan();
-    setGraph(g);
-    setLayoutEpoch((n) => n + 1);
+  const refreshGraph = useCallback(() => {
+    window.jarvis
+      .rescan()
+      .then((g) => {
+        setGraph(g);
+        setLayoutEpoch((n) => n + 1);
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {

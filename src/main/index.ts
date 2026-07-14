@@ -42,9 +42,11 @@ app.whenReady().then(async () => {
   const rootPath = await resolveRootPath();
   let graph = scanVault(rootPath);
   ipcMain.handle("get-graph", () => graph);
-  ipcMain.handle("rescan", () => {
-    graph = scanVault(rootPath); // manual refresh — same path as startup
-    return graph;
+  ipcMain.handle("rescan", async () => {
+    // assign only on success — a rejected promise must not poison get-graph
+    const g = await scanVault(rootPath);
+    graph = Promise.resolve(g);
+    return g;
   });
   const settingsPath = path.join(
     app.getPath("userData"),
