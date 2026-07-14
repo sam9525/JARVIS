@@ -11,16 +11,16 @@ body,
 
 .preview-panel {
   position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
+  top: 10px;
+  left: 10px;
+  bottom: 10px;
   width: min(560px, 40vw);
   overflow: auto;
   background: #161b26;
   color: #d7dce6;
-  border-right: 1px solid #2b3345;
-  /* top padding clears the HUD buttons pinned at top-left */
-  padding: 50px 28px 24px;
+  border: 1px solid #2b3345;
+  border-radius: 10px;
+  padding: 24px 28px;
   font:
     14px/1.6 system-ui,
     sans-serif;
@@ -53,7 +53,7 @@ body,
 .hud {
   position: fixed;
   top: 12px;
-  left: 12px;
+  right: 12px;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -92,10 +92,10 @@ body,
 }
 .graph-settings {
   position: fixed;
-  top: 12px;
+  top: 50px;
   right: 12px;
   width: 260px;
-  max-height: calc(100vh - 24px);
+  max-height: calc(100vh - 62px);
   overflow-y: auto;
   background: #161b26;
   color: #d7dce6;
