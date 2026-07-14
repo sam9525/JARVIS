@@ -1,4 +1,4 @@
-export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write";
+export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write" | "Prompt";
 
 export interface ToolEvent {
   sessionId: string;

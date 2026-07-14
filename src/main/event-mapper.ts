@@ -14,6 +14,16 @@ export interface RawHookEvent {
 // (spec "Pre vs Post → graph reaction" table); everything else → null.
 export function mapHookEvent(raw: RawHookEvent): ToolEvent | null {
   if (!raw.session_id || !raw.cwd) return null;
+  if (raw.hook_event_name === "UserPromptSubmit") {
+    // new question — the renderer resets highlights/trail on this
+    return {
+      sessionId: raw.session_id,
+      phase: "pre",
+      tool: "Prompt",
+      nodeIds: [],
+      ts: Date.now(),
+    };
+  }
   const phase =
     raw.hook_event_name === "PreToolUse"
       ? ("pre" as const)
