@@ -89,6 +89,7 @@ export default function App() {
           onNodeClick={setPreviewNode}
           focusNode={previewNode}
           layoutEpoch={layoutEpoch}
+          rotationPaused={previewNode !== null}
         />
       ) : (
         <Graph

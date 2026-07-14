@@ -105,6 +105,7 @@ type GraphProps = {
   onNodeClick: (id: string) => void;
   focusNode: string | null; // aim the camera at this node
   layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
+  rotationPaused: boolean; // preview open — no auto-rotation
 };
 
 export default function Graph3D({
@@ -117,6 +118,7 @@ export default function Graph3D({
   onNodeClick,
   focusNode,
   layoutEpoch,
+  rotationPaused,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
@@ -124,6 +126,9 @@ export default function Graph3D({
   // Entries for removed nodes go stale but are never visited (sweep iterates
   // current data.nodes) — harmless.
   const sprites = useRef(new Map<string, SpriteText>());
+  const pausedRef = useRef(rotationPaused);
+  pausedRef.current = rotationPaused;
+  const rotationCtl = useRef<{ stop: () => void; arm: () => void }>();
 
   // a rescan hands over brand-new node objects, so the simulation restarts
   // on its own; we only need to let onEngineStop re-fit the camera
@@ -252,6 +257,8 @@ export default function Graph3D({
           maxDistance: number;
           autoRotate: boolean;
           autoRotateSpeed: number;
+          enableDamping: boolean;
+          dampingFactor: number;
           addEventListener(type: string, fn: () => void): void;
           removeEventListener(type: string, fn: () => void): void;
         }
@@ -260,6 +267,11 @@ export default function Graph3D({
     controls.minDistance = CAM.min;
     controls.maxDistance = CAM.max;
     controls.autoRotateSpeed = ROTATE_SPEED;
+    // release inertia: the drag coasts and slows to a stop instead of
+    // halting dead. autoRotate already animates each frame, which proves
+    // controls.update() runs per frame — damping rides the same loop.
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopRotate = () => {
       controls.autoRotate = false;
@@ -268,12 +280,13 @@ export default function Graph3D({
     const armRotate = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        controls.autoRotate = true;
+        if (!pausedRef.current) controls.autoRotate = true;
       }, IDLE_ROTATE_MS);
     };
     controls.addEventListener("start", stopRotate); // user grabbed the camera
     controls.addEventListener("end", armRotate); // released — rotate in 5s
     armRotate(); // initial load counts as an interaction
+    rotationCtl.current = { stop: stopRotate, arm: armRotate };
     linkMaterial.resolution.set(window.innerWidth, window.innerHeight);
     linkMaterial.linewidth = display.linkThickness * 2;
     return () => {
@@ -282,6 +295,12 @@ export default function Graph3D({
       clearTimeout(timer);
     };
   }, []);
+
+  // preview open ⇒ stop now and stay stopped; close ⇒ normal idle re-arm
+  useEffect(() => {
+    if (rotationPaused) rotationCtl.current?.stop();
+    else rotationCtl.current?.arm();
+  }, [rotationPaused]);
 
   // ponytail: rings/colors are baked into node objects, so poll the store's
   // rev counter and re-run accessors once per change (covers add AND reset).
