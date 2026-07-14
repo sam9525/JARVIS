@@ -30,6 +30,7 @@ describe("settings", () => {
             linkOpacity: 0.4,
             haloPad: 1.2,
             haloBase: 15,
+            focusZoom: 2.5,
           },
           forces: {
             centerStrength: 0.5,
@@ -47,6 +48,7 @@ describe("settings", () => {
             linkOpacity: 0.15,
             haloPad: 1.5,
             haloBase: 20,
+            focusZoom: 150,
           },
           forces: {
             centerStrength: 0.2,
@@ -165,6 +167,7 @@ describe("settings", () => {
         linkOpacity: 0.25,
         haloPad: 1.1,
         haloBase: 10,
+        focusZoom: 150,
       },
       forces: {
         centerStrength: 0,
@@ -182,6 +185,7 @@ describe("settings", () => {
         linkOpacity: 0.25,
         haloPad: 1.1,
         haloBase: 10,
+        focusZoom: 2.5,
       },
       forces: {
         centerStrength: 0.5,
@@ -214,5 +218,11 @@ describe("settings", () => {
     const groups = autoGroups(graph);
     expect(groups.map((g) => g.query)).toEqual(["physics/", "arts/"]);
     for (const g of groups) expect(g.color).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("focusZoom defaults per view (2D zoom factor, 3D camera distance)", () => {
+    const d = defaultSettings();
+    expect(d.views["2d"].display.focusZoom).toBe(2.5);
+    expect(d.views["3d"].display.focusZoom).toBe(150);
   });
 });

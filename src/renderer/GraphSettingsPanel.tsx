@@ -180,6 +180,25 @@ export default function GraphSettingsPanel({
           value={view.display.linkThickness}
           onChange={(v) => setDisplay({ linkThickness: v })}
         />
+        {settings.dimensions === "3d" ? (
+          <Slider
+            label="Focus distance"
+            min={40}
+            max={600}
+            step={10}
+            value={view.display.focusZoom}
+            onChange={(v) => setDisplay({ focusZoom: v })}
+          />
+        ) : (
+          <Slider
+            label="Focus zoom"
+            min={1}
+            max={8}
+            step={0.1}
+            value={view.display.focusZoom}
+            onChange={(v) => setDisplay({ focusZoom: v })}
+          />
+        )}
         {settings.dimensions === "3d" && (
           <>
             <Slider

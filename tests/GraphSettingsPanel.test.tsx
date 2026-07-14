@@ -96,4 +96,22 @@ describe("GraphSettingsPanel", () => {
     expect(calls.settings[0].views["3d"].display.nodeSize).toBe(2.5);
     expect(calls.settings[0].views["2d"].display.nodeSize).toBe(1); // untouched
   });
+
+  it("focus slider follows the active dimension and edits only that view", () => {
+    // 2D: label "Focus zoom", sits after the linkThickness slider
+    const twoD = render();
+    const focus2d = twoD.el.props.children[3].props.children[5];
+    expect(focus2d.props.label).toBe("Focus zoom");
+    focus2d.props.onChange(4);
+    expect(twoD.calls.settings[0].views["2d"].display.focusZoom).toBe(4);
+    expect(twoD.calls.settings[0].views["3d"].display.focusZoom).toBe(150);
+
+    // 3D: label "Focus distance"
+    const threeD = render({ dimensions: "3d" });
+    const focus3d = threeD.el.props.children[3].props.children[5];
+    expect(focus3d.props.label).toBe("Focus distance");
+    focus3d.props.onChange(200);
+    expect(threeD.calls.settings[0].views["3d"].display.focusZoom).toBe(200);
+    expect(threeD.calls.settings[0].views["2d"].display.focusZoom).toBe(2.5);
+  });
 });

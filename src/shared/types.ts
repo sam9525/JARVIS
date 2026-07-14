@@ -60,6 +60,8 @@ export interface DisplaySettings {
   linkOpacity: number; // link line opacity
   haloPad: number; // group halo radius multiplier past the farthest member
   haloBase: number; // group halo base radius added after padding
+  // zoom applied when a note opens: 2d = zoom factor, 3d = camera distance
+  focusZoom: number;
 }
 
 export interface ForceSettings {
@@ -98,6 +100,7 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          focusZoom: 2.5,
         },
         forces: {
           centerStrength: 0.5,
@@ -115,6 +118,7 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          focusZoom: 150,
         },
         forces: {
           centerStrength: 0,
