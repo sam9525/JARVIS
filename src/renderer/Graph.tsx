@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods } from "react-force-graph-2d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
@@ -40,6 +40,7 @@ type GraphProps = {
   forces: Settings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
+  focusNode: string | null; // center this node in the area right of the preview
 };
 
 export default function Graph({
@@ -50,6 +51,7 @@ export default function Graph({
   forces,
   stateRef,
   onNodeClick,
+  focusNode,
 }: GraphProps) {
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
@@ -79,6 +81,17 @@ export default function Graph({
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
     forces,
   );
+
+  // pan so the focused node sits centered in the visible area right of the
+  // left-docked preview panel
+  useEffect(() => {
+    if (!focusNode) return;
+    const node = nodeById.get(focusNode);
+    if (!node || node.x === undefined || node.y === undefined) return;
+    const k = fgRef.current?.zoom() ?? 1;
+    const panel = Math.min(560, window.innerWidth * 0.4); // matches CSS width
+    fgRef.current?.centerAt(node.x - panel / 2 / k, node.y, 600);
+  }, [focusNode, nodeById]);
 
   const linkHovered = (l: LinkObj) => {
     const h = hoverRef.current;

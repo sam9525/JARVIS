@@ -103,6 +103,7 @@ type GraphProps = {
   forces: Settings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
+  focusNode: string | null; // aim the camera at this node
 };
 
 export default function Graph3D({
@@ -113,6 +114,7 @@ export default function Graph3D({
   forces,
   stateRef,
   onNodeClick,
+  focusNode,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
@@ -219,6 +221,20 @@ export default function Graph3D({
       scene.remove(g);
     };
   }, []);
+
+  // rotate the view toward the focused node without moving the camera
+  useEffect(() => {
+    if (!focusNode) return;
+    const node = nodeById.get(focusNode);
+    if (!node || node.x === undefined) return;
+    const cam = fgRef.current?.camera();
+    if (!cam) return;
+    fgRef.current?.cameraPosition(
+      { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+      { x: node.x ?? 0, y: node.y ?? 0, z: node.z ?? 0 },
+      800,
+    );
+  }, [focusNode, nodeById]);
 
   useEffect(() => {
     const controls = fgRef.current?.controls() as

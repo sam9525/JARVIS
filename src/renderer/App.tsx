@@ -61,6 +61,7 @@ export default function App() {
           forces={view.forces}
           stateRef={stateRef}
           onNodeClick={setPreviewNode}
+          focusNode={previewNode}
         />
       ) : (
         <Graph
@@ -71,6 +72,7 @@ export default function App() {
           forces={view.forces}
           stateRef={stateRef}
           onNodeClick={setPreviewNode}
+          focusNode={previewNode}
         />
       )}
       <div className="hud">
