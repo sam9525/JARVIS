@@ -5,16 +5,25 @@ import { defaultSettings } from "../src/shared/types";
 import type { Settings } from "../src/shared/types";
 
 function render(overrides: Partial<Settings> = {}) {
-  const calls: { settings: Settings[]; search: string[]; closed: boolean } = {
+  const calls: {
+    settings: Settings[];
+    search: string[];
+    closed: boolean;
+    resets: number;
+  } = {
     settings: [],
     search: [],
     closed: false,
+    resets: 0,
   };
   const el = GraphSettingsPanel({
     settings: { ...defaultSettings(), ...overrides },
     search: "abc",
     onSearchChange: (s) => calls.search.push(s),
     onSettingsChange: (s) => calls.settings.push(s),
+    onResetHighlights: () => {
+      calls.resets++;
+    },
     onClose: () => {
       calls.closed = true;
     },
@@ -45,6 +54,7 @@ describe("GraphSettingsPanel", () => {
       groups,
     });
     expect(calls.search[0]).toBe("");
+    expect(calls.resets).toBe(1);
   });
 
   it("close button calls onClose", () => {

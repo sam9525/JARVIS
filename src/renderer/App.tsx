@@ -9,7 +9,7 @@ import Graph from "./Graph";
 import Graph3D from "./Graph3D";
 import Preview from "./Preview";
 import GraphSettingsPanel from "./GraphSettingsPanel";
-import { applyEvent, emptyState } from "./highlight-store";
+import { applyEvent, emptyState, resetHighlights } from "./highlight-store";
 import { filterGraph } from "./graph-filter";
 import { domainsOf } from "./domain-colors";
 import { defaultSettings } from "../shared/types";
@@ -125,6 +125,7 @@ export default function App() {
           search={search}
           onSearchChange={setSearch}
           onSettingsChange={updateSettings}
+          onResetHighlights={() => resetHighlights(stateRef.current)}
           onClose={() => setShowSettings(false)}
         />
       )}

@@ -15,6 +15,7 @@ type Props = {
   search: string; // transient, owned by App — never persisted
   onSearchChange: (text: string) => void;
   onSettingsChange: (s: Settings) => void;
+  onResetHighlights: () => void; // ↺ also clears rings/trail
   onClose: () => void;
 };
 
@@ -23,6 +24,7 @@ export default function GraphSettingsPanel({
   search,
   onSearchChange,
   onSettingsChange,
+  onResetHighlights,
   onClose,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
@@ -59,6 +61,7 @@ export default function GraphSettingsPanel({
               groups: settings.groups,
             });
             onSearchChange("");
+            onResetHighlights();
           }}
         >
           ↺
