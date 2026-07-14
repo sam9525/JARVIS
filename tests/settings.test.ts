@@ -150,10 +150,10 @@ describe("settings", () => {
     expect((await loadSettings(file)).dimensions).toBe("3d");
   });
 
-  it("falls back to 2d for a bad dimension value", async () => {
+  it("falls back to 3d for a bad dimension value", async () => {
     const file = await tmpFile();
     await fs.writeFile(file, JSON.stringify({ dimensions: "4d" }), "utf8");
-    expect((await loadSettings(file)).dimensions).toBe("2d");
+    expect((await loadSettings(file)).dimensions).toBe("3d");
   });
 
   it("defaults the 3d view to the tuned layout, 2d unchanged", () => {
@@ -167,12 +167,12 @@ describe("settings", () => {
         linkOpacity: 0.25,
         haloPad: 1.1,
         haloBase: 10,
-        focusZoom: 150,
+        focusZoom: 180,
       },
       forces: {
-        centerStrength: 0,
+        centerStrength: 0.5,
         repelStrength: 20,
-        linkStrength: 0.4,
+        linkStrength: 1,
         linkDistance: 60,
       },
     });
@@ -185,7 +185,7 @@ describe("settings", () => {
         linkOpacity: 0.25,
         haloPad: 1.1,
         haloBase: 10,
-        focusZoom: 2.5,
+        focusZoom: 6.8,
       },
       forces: {
         centerStrength: 0.5,
@@ -222,7 +222,7 @@ describe("settings", () => {
 
   it("focusZoom defaults per view (2D zoom factor, 3D camera distance)", () => {
     const d = defaultSettings();
-    expect(d.views["2d"].display.focusZoom).toBe(2.5);
-    expect(d.views["3d"].display.focusZoom).toBe(150);
+    expect(d.views["2d"].display.focusZoom).toBe(6.8);
+    expect(d.views["3d"].display.focusZoom).toBe(180);
   });
 });

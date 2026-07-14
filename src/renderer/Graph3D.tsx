@@ -55,7 +55,7 @@ function makeGlowTexture(): CanvasTexture {
   return new CanvasTexture(canvas);
 }
 
-// hollow white circle; tinted #ff8fab via material.color
+// hollow white circle; tinted per use via material.color
 function makeRingTexture(): CanvasTexture {
   const size = 128;
   const canvas = document.createElement("canvas");
@@ -75,7 +75,7 @@ const CAM = { min: 20, max: 3000 } as const;
 
 // idle auto-rotation: resume this long after the last interaction
 const IDLE_ROTATE_MS = 5000;
-const ROTATE_SPEED = 0.7;
+const ROTATE_SPEED = 1;
 
 // slider (2–30) → max camera distance at which labels show; higher threshold
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
@@ -252,7 +252,9 @@ export default function Graph3D({
     };
   }, []);
 
-  // fly the camera to focusZoom units from the focused node, looking at it;
+  // fly the camera to focusZoom units from the focused node, looking at a
+  // point shifted left of it so the node lands in the visible area right of
+  // the left-docked preview card (3D analog of 2D's panel/2 centerAt offset);
   // closing the preview returns to the launch fit. focusZoom in the deps
   // makes slider drags re-apply live while a note is open.
   const hadFocus = useRef(false);
@@ -260,7 +262,7 @@ export default function Graph3D({
     if (!focusNode) {
       if (hadFocus.current) {
         hadFocus.current = false;
-        fgRef.current?.zoomToFit(300, -400);
+        fgRef.current?.zoomToFit(1000, -400);
       }
       return;
     }
@@ -278,10 +280,25 @@ export default function Graph3D({
     const len = Math.hypot(dx, dy, dz);
     if (len < 1e-6) return; // camera already on the node — nothing sensible to do
     const s = display.focusZoom / len;
+    const px = nx + dx * s;
+    const py = ny + dy * s;
+    const pz = nz + dz * s;
+    // camera-right at the new position; screen px → world units at the
+    // node's distance via the vertical FOV
+    const dir = new Vector3(nx - px, ny - py, nz - pz).normalize();
+    const right = new Vector3().crossVectors(dir, cam.up);
+    if (right.lengthSq() < 1e-6) right.set(1, 0, 0); // looking straight along up
+    right.normalize();
+    const fov = (cam as { fov?: number }).fov ?? 50;
+    const worldPerPx =
+      (2 * display.focusZoom * Math.tan((fov * Math.PI) / 360)) /
+      window.innerHeight;
+    const panel = Math.min(560, window.innerWidth * 0.4); // matches CSS width
+    const off = (panel / 2) * worldPerPx;
     fgRef.current?.cameraPosition(
-      { x: nx + dx * s, y: ny + dy * s, z: nz + dz * s },
-      { x: nx, y: ny, z: nz },
-      800,
+      { x: px, y: py, z: pz },
+      { x: nx - right.x * off, y: ny - right.y * off, z: nz - right.z * off },
+      1600,
     );
   }, [focusNode, nodeById, display.focusZoom]);
 
@@ -306,7 +323,7 @@ export default function Graph3D({
     // halting dead. autoRotate already animates each frame, which proves
     // controls.update() runs per frame — damping rides the same loop.
     controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    controls.dampingFactor = 0.03;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopRotate = () => {
       controls.autoRotate = false;
@@ -477,25 +494,31 @@ export default function Graph3D({
     return m;
   }, []);
 
-  // shared ring sprite material for read-highlighted nodes; same no-op-dispose
-  // pattern as glowMaterial — the library flush-disposes node objects on
-  // refresh() so a shared, component-owned material must survive that.
-  const ringMat = useRef<SpriteMaterial>();
-  const ringMaterial = useCallback((): SpriteMaterial => {
-    if (!ringMat.current) {
-      const texture = makeRingTexture();
+  // shared ring sprite materials (one per color) for read-highlighted and
+  // preview-focused nodes; same no-op-dispose pattern as glowMaterial — the
+  // library flush-disposes node objects on refresh() so shared,
+  // component-owned materials must survive that.
+  const ringTexture = useRef<CanvasTexture>();
+  const ringMats = useRef(new Map<string, SpriteMaterial>());
+  const ringMaterial = useCallback((color: string): SpriteMaterial => {
+    if (!ringTexture.current) {
+      ringTexture.current = makeRingTexture();
       // eslint-disable-next-line @typescript-eslint/no-empty-function
-      texture.dispose = () => {};
-      ringMat.current = new SpriteMaterial({
-        map: texture,
-        color: COLORS.ring,
+      ringTexture.current.dispose = () => {};
+    }
+    let m = ringMats.current.get(color);
+    if (!m) {
+      m = new SpriteMaterial({
+        map: ringTexture.current,
+        color,
         transparent: true,
         depthWrite: false,
       });
       // eslint-disable-next-line @typescript-eslint/no-empty-function
-      ringMat.current.dispose = () => {};
+      m.dispose = () => {};
+      ringMats.current.set(color, m);
     }
-    return ringMat.current;
+    return m;
   }, []);
 
   useEffect(() => {
@@ -505,11 +528,11 @@ export default function Graph3D({
       for (const m of mats.values()) SpriteMaterial.prototype.dispose.call(m);
       mats.clear();
       if (texture.current) Texture.prototype.dispose.call(texture.current);
-      if (ringMat.current) {
-        if (ringMat.current.map)
-          Texture.prototype.dispose.call(ringMat.current.map);
-        SpriteMaterial.prototype.dispose.call(ringMat.current);
-      }
+      for (const m of ringMats.current.values())
+        SpriteMaterial.prototype.dispose.call(m);
+      ringMats.current.clear();
+      if (ringTexture.current)
+        Texture.prototype.dispose.call(ringTexture.current);
     };
   }, []);
 
@@ -524,8 +547,14 @@ export default function Graph3D({
       glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
       if (nodeDisplay(stateRef.current, id) === "ring") {
-        const ring = new Sprite(ringMaterial());
+        const ring = new Sprite(ringMaterial(COLORS.ring));
         ring.scale.setScalar(sphereR * 3);
+        obj.add(ring);
+      }
+      // the node whose preview is open
+      if (id === focusNode) {
+        const ring = new Sprite(ringMaterial(COLORS.hover));
+        ring.scale.setScalar(sphereR * 3.6);
         obj.add(ring);
       }
       const sprite = new SpriteText(nodeLabelText(id, node.type));
@@ -541,7 +570,14 @@ export default function Graph3D({
       obj.add(sprite as unknown as Sprite);
       return obj;
     },
-    [display.nodeSize, glowMaterial, displayColor, ringMaterial, stateRef],
+    [
+      display.nodeSize,
+      glowMaterial,
+      displayColor,
+      ringMaterial,
+      stateRef,
+      focusNode,
+    ],
   );
 
   return (

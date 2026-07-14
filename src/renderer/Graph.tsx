@@ -99,7 +99,7 @@ export default function Graph({
     if (!focusNode) {
       if (hadFocus.current) {
         hadFocus.current = false;
-        fgRef.current?.zoomToFit(400, 40);
+        fgRef.current?.zoomToFit(1000, 40);
       }
       return;
     }
@@ -110,8 +110,8 @@ export default function Graph({
     // where the old zoom would have put it
     const k = display.focusZoom;
     const panel = Math.min(560, window.innerWidth * 0.4); // matches CSS width
-    fgRef.current?.centerAt(node.x - panel / 2 / k, node.y, 600);
-    fgRef.current?.zoom(k, 600);
+    fgRef.current?.centerAt(node.x - panel / 2 / k, node.y, 1200);
+    fgRef.current?.zoom(k, 1200);
   }, [focusNode, nodeById, display.focusZoom]);
 
   const linkHovered = (l: LinkObj) => {
@@ -160,6 +160,15 @@ export default function Graph({
           ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
           ctx.strokeStyle = COLORS.ring;
           ctx.lineWidth = 1.5 / globalScale;
+          ctx.stroke();
+        }
+
+        // the node whose preview is open
+        if (id === focusNode) {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 3 / globalScale, 0, 2 * Math.PI);
+          ctx.strokeStyle = COLORS.hover;
+          ctx.lineWidth = 2 / globalScale;
           ctx.stroke();
         }
 
