@@ -56,6 +56,15 @@ describe("install.mjs", () => {
     }
   });
 
+  it("installs a matcher-less UserPromptSubmit hook (prompt hooks take no matcher)", () => {
+    runInstall(vault);
+
+    const settings = readSettings(vault);
+    expect(settings.hooks.UserPromptSubmit).toEqual([
+      { hooks: [{ type: "command", command: COMMAND }] },
+    ]);
+  });
+
   it("is idempotent on re-run (no duplicates)", () => {
     runInstall(vault);
     runInstall(vault);
@@ -63,6 +72,7 @@ describe("install.mjs", () => {
     const settings = readSettings(vault);
     expect(settings.hooks.PreToolUse).toHaveLength(1);
     expect(settings.hooks.PostToolUse).toHaveLength(1);
+    expect(settings.hooks.UserPromptSubmit).toHaveLength(1);
   });
 
   it("preserves existing user settings and unrelated hooks", () => {
