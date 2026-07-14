@@ -12,12 +12,16 @@ import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
 import {
   AdditiveBlending,
+  ArrowHelper,
   CanvasTexture,
   Color,
   Group,
+  LineBasicMaterial,
+  MeshBasicMaterial,
   Sprite,
   SpriteMaterial,
   Texture,
+  Vector3,
 } from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
@@ -127,6 +131,11 @@ export default function Graph3D({
     };
   }, [graph]);
 
+  const nodeById = useMemo(
+    () => new Map(data.nodes.map((n) => [String(n.id), n as NodeObj])),
+    [data],
+  );
+
   // node id → base color so every link is a source→target gradient;
   // same-group links come out solid, cross-group links blend group colors.
   // baseNodeColor excludes highlight state so read flares don't recolor edges.
@@ -195,6 +204,22 @@ export default function Graph3D({
     { pad: display.haloPad, base: display.haloBase },
   );
 
+  // read-order arrows live in a component-owned group, rebuilt by the
+  // highlight interval — never part of graphData
+  const trailGroup = useRef<Group>();
+  useEffect(() => {
+    const scene = fgRef.current?.scene();
+    if (!scene) return;
+    const g = new Group();
+    scene.add(g);
+    trailGroup.current = g;
+    return () => {
+      for (const c of [...g.children]) (c as ArrowHelper).dispose();
+      g.clear();
+      scene.remove(g);
+    };
+  }, []);
+
   useEffect(() => {
     const controls = fgRef.current?.controls() as
       | {
@@ -235,16 +260,44 @@ export default function Graph3D({
 
   // ponytail: rings/colors are baked into node objects, so poll the store's
   // rev counter and re-run accessors once per change (covers add AND reset).
+  // Trail arrows rebuild every tick (cheap — dozens at most) to track drift.
   const lastRev = useRef(-1);
   useEffect(() => {
     const id = setInterval(() => {
-      if (stateRef.current.rev !== lastRev.current) {
-        lastRev.current = stateRef.current.rev;
+      const s = stateRef.current;
+      if (s.rev !== lastRev.current) {
+        lastRev.current = s.rev;
         fgRef.current?.refresh();
+      }
+      const g = trailGroup.current;
+      if (!g) return;
+      for (const c of [...g.children]) (c as ArrowHelper).dispose();
+      g.clear();
+      for (let i = 0; i < s.trail.length - 1; i++) {
+        const a = nodeById.get(s.trail[i]);
+        const b = nodeById.get(s.trail[i + 1]);
+        if (!a || !b || a.x === undefined || b.x === undefined) continue;
+        const from = new Vector3(a.x ?? 0, a.y ?? 0, a.z ?? 0);
+        const dir = new Vector3(b.x ?? 0, b.y ?? 0, b.z ?? 0).sub(from);
+        const len = dir.length();
+        if (len < 2) continue;
+        const arrow = new ArrowHelper(
+          dir.normalize(),
+          from,
+          len,
+          0xff8fab, // COLORS.ring
+          6,
+          3,
+        );
+        (arrow.line.material as LineBasicMaterial).transparent = true;
+        (arrow.line.material as LineBasicMaterial).opacity = 0.6;
+        (arrow.cone.material as MeshBasicMaterial).transparent = true;
+        (arrow.cone.material as MeshBasicMaterial).opacity = 0.6;
+        g.add(arrow);
       }
     }, 500);
     return () => clearInterval(id);
-  }, [stateRef]);
+  }, [stateRef, nodeById]);
 
   // ponytail: label visibility is a 4×/s distance sweep, not per-frame
   // projection math like 2D. Ceiling: hook onEngineTick if the interval lags.
