@@ -59,14 +59,19 @@ export default function Graph({
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean.
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time,
   // otherwise every slider tick would re-bind data and restart the simulation.
-  const { data, neighbors } = useMemo(() => {
+  const { data, neighbors, nodeById } = useMemo(() => {
     const m = graphMetrics(graph);
+    const nodes = graph.nodes.map((n) => ({
+      ...n,
+      r: m.radius.get(n.id) ?? 4,
+    }));
     return {
       data: {
-        nodes: graph.nodes.map((n) => ({ ...n, r: m.radius.get(n.id) ?? 4 })),
+        nodes,
         links: graph.edges.map((e) => ({ source: e.source, target: e.target })),
       },
       neighbors: m.neighbors,
+      nodeById: new Map(nodes.map((n) => [n.id, n as NodeObj])),
     };
   }, [graph]);
 
@@ -165,13 +170,51 @@ export default function Graph({
         globalScale: number,
       ) => {
         const t = pulseProgress(stateRef.current, performance.now());
-        if (t === null) return;
-        // searching pulse: ring expanding from the graph origin, fading out
-        ctx.beginPath();
-        ctx.arc(0, 0, t * 600, 0, 2 * Math.PI);
-        ctx.strokeStyle = `rgba(126, 249, 255, ${1 - t})`;
-        ctx.lineWidth = 3 / globalScale;
-        ctx.stroke();
+        if (t !== null) {
+          // searching pulse: ring expanding from the graph origin, fading out
+          ctx.beginPath();
+          ctx.arc(0, 0, t * 600, 0, 2 * Math.PI);
+          ctx.strokeStyle = `rgba(126, 249, 255, ${1 - t})`;
+          ctx.lineWidth = 3 / globalScale;
+          ctx.stroke();
+        }
+
+        // read-order trail: arrows between consecutively read nodes
+        const trail = stateRef.current.trail;
+        if (trail.length < 2) return;
+        ctx.strokeStyle = "rgba(255, 143, 171, 0.6)"; // COLORS.ring @ 0.6
+        ctx.fillStyle = "rgba(255, 143, 171, 0.6)";
+        ctx.lineWidth = 1.5 / globalScale;
+        for (let i = 0; i < trail.length - 1; i++) {
+          const a = nodeById.get(trail[i]);
+          const b = nodeById.get(trail[i + 1]);
+          // filtered-out nodes have no live position — skip the hop
+          if (!a || !b || a.x === undefined || b.x === undefined) continue;
+          const dx = (b.x ?? 0) - (a.x ?? 0);
+          const dy = (b.y ?? 0) - (a.y ?? 0);
+          const len = Math.hypot(dx, dy);
+          const ra = (a.r ?? 4) * display.nodeSize;
+          const rb = (b.r ?? 4) * display.nodeSize;
+          if (len < ra + rb + 2) continue; // nodes touching — no room
+          const ux = dx / len;
+          const uy = dy / len;
+          const sx = (a.x ?? 0) + ux * (ra + 1);
+          const sy = (a.y ?? 0) + uy * (ra + 1);
+          const ex = (b.x ?? 0) - ux * (rb + 1);
+          const ey = (b.y ?? 0) - uy * (rb + 1);
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+          // arrowhead at the target end
+          const h = 6 / globalScale;
+          ctx.beginPath();
+          ctx.moveTo(ex, ey);
+          ctx.lineTo(ex - ux * h - uy * (h / 2), ey - uy * h + ux * (h / 2));
+          ctx.lineTo(ex - ux * h + uy * (h / 2), ey - uy * h - ux * (h / 2));
+          ctx.closePath();
+          ctx.fill();
+        }
       }}
     />
   );
