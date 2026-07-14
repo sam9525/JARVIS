@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Graph from "./Graph";
 import Graph3D from "./Graph3D";
 import Preview from "./Preview";
@@ -16,6 +22,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(defaultSettings());
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
+  const [layoutEpoch, setLayoutEpoch] = useState(0);
   const stateRef = useRef(emptyState());
 
   // debounced auto-open: last-read file after reads go quiet
@@ -31,10 +38,29 @@ export default function App() {
     });
   }, [onPreviewEvent]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F5") {
+        e.preventDefault();
+        refreshGraph();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [refreshGraph]);
+
   const updateSettings = (s: Settings) => {
     setSettings(s); // renderer owns live state; main just persists
     window.jarvis.setSettings(s).catch(console.error);
   };
+
+  // re-scan the vault and re-settle the layout; settings and highlights
+  // are deliberately untouched
+  const refreshGraph = useCallback(async () => {
+    const g = await window.jarvis.rescan();
+    setGraph(g);
+    setLayoutEpoch((n) => n + 1);
+  }, []);
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
   const visible = useMemo(
@@ -62,6 +88,7 @@ export default function App() {
           stateRef={stateRef}
           onNodeClick={setPreviewNode}
           focusNode={previewNode}
+          layoutEpoch={layoutEpoch}
         />
       ) : (
         <Graph
@@ -73,9 +100,17 @@ export default function App() {
           stateRef={stateRef}
           onNodeClick={setPreviewNode}
           focusNode={previewNode}
+          layoutEpoch={layoutEpoch}
         />
       )}
       <div className="hud">
+        <button
+          className="gear"
+          title="Refresh graph (F5)"
+          onClick={refreshGraph}
+        >
+          ↻
+        </button>
         <button
           className="gear"
           title="Graph settings"

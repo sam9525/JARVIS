@@ -41,6 +41,7 @@ type GraphProps = {
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // center this node in the area right of the preview
+  layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
 };
 
 export default function Graph({
@@ -52,11 +53,19 @@ export default function Graph({
   stateRef,
   onNodeClick,
   focusNode,
+  layoutEpoch,
 }: GraphProps) {
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
+
+  // a rescan hands over brand-new node objects, so the simulation restarts
+  // on its own; we only need to let onEngineStop re-fit the camera
+  useEffect(() => {
+    if (layoutEpoch === 0) return;
+    didFit.current = false;
+  }, [layoutEpoch]);
 
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean.
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time,

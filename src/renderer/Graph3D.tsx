@@ -104,6 +104,7 @@ type GraphProps = {
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // aim the camera at this node
+  layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
 };
 
 export default function Graph3D({
@@ -115,6 +116,7 @@ export default function Graph3D({
   stateRef,
   onNodeClick,
   focusNode,
+  layoutEpoch,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
@@ -122,6 +124,13 @@ export default function Graph3D({
   // Entries for removed nodes go stale but are never visited (sweep iterates
   // current data.nodes) — harmless.
   const sprites = useRef(new Map<string, SpriteText>());
+
+  // a rescan hands over brand-new node objects, so the simulation restarts
+  // on its own; we only need to let onEngineStop re-fit the camera
+  useEffect(() => {
+    if (layoutEpoch === 0) return;
+    didFit.current = false;
+  }, [layoutEpoch]);
 
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time
   // so a slider tick doesn't re-bind data and restart the simulation.
