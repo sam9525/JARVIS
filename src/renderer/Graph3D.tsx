@@ -230,7 +230,23 @@ export default function Graph3D({
     scene.add(g);
     trailGroup.current = g;
     return () => {
-      for (const c of [...g.children]) (c as ArrowHelper).dispose();
+      for (const c of [...g.children]) {
+        const arrow = c as ArrowHelper;
+        if (arrow.line?.material) {
+          if (Array.isArray(arrow.line.material)) {
+            arrow.line.material.forEach((m) => m.dispose());
+          } else {
+            arrow.line.material.dispose();
+          }
+        }
+        if (arrow.cone?.material) {
+          if (Array.isArray(arrow.cone.material)) {
+            arrow.cone.material.forEach((m) => m.dispose());
+          } else {
+            arrow.cone.material.dispose();
+          }
+        }
+      }
       g.clear();
       scene.remove(g);
     };
@@ -334,7 +350,23 @@ export default function Graph3D({
       }
       const g = trailGroup.current;
       if (!g) return;
-      for (const c of [...g.children]) (c as ArrowHelper).dispose();
+      for (const c of [...g.children]) {
+        const arrow = c as ArrowHelper;
+        if (arrow.line?.material) {
+          if (Array.isArray(arrow.line.material)) {
+            arrow.line.material.forEach((m) => m.dispose());
+          } else {
+            arrow.line.material.dispose();
+          }
+        }
+        if (arrow.cone?.material) {
+          if (Array.isArray(arrow.cone.material)) {
+            arrow.cone.material.forEach((m) => m.dispose());
+          } else {
+            arrow.cone.material.dispose();
+          }
+        }
+      }
       g.clear();
       for (let i = 0; i < s.trail.length - 1; i++) {
         const a = nodeById.get(s.trail[i]);
