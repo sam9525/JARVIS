@@ -30,13 +30,14 @@ describe("preview-opener", () => {
     expect(opened).toEqual(["b"]);
   });
 
-  it("a new prompt cancels the pending open", () => {
-    const opened: string[] = [];
+  it("a new prompt cancels the pending open and closes the preview", () => {
+    const opened: (string | null)[] = [];
     const onEvent = createPreviewOpener((id) => opened.push(id));
     onEvent(ev({ nodeIds: ["a"] }));
     onEvent(ev({ tool: "Prompt" }));
+    expect(opened).toEqual([null]); // close whatever was open
     vi.advanceTimersByTime(PREVIEW_QUIET_MS * 2);
-    expect(opened).toEqual([]);
+    expect(opened).toEqual([null]); // pending open never fires
   });
 
   it("other tool events neither schedule nor cancel", () => {

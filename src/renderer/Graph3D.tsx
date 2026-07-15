@@ -392,11 +392,15 @@ export default function Graph3D({
         const from = new Vector3(a.x ?? 0, a.y ?? 0, a.z ?? 0);
         const dir = new Vector3(b.x ?? 0, b.y ?? 0, b.z ?? 0).sub(from);
         const len = dir.length();
-        if (len < 2) continue;
+        // stop at the sphere surfaces (radius formula matches nodeThreeObject)
+        const ra = 4 * Math.cbrt(((a.r ?? 4) * display.nodeSize) ** 2);
+        const rb = 4 * Math.cbrt(((b.r ?? 4) * display.nodeSize) ** 2);
+        if (len < ra + rb + 2) continue; // spheres touching — no room
+        dir.normalize();
         const arrow = new ArrowHelper(
-          dir.normalize(),
-          from,
-          len,
+          dir,
+          from.addScaledVector(dir, ra + 1),
+          len - ra - rb - 2,
           0xff8fab, // COLORS.ring
           6,
           3,
@@ -409,7 +413,7 @@ export default function Graph3D({
       }
     }, 500);
     return () => clearInterval(id);
-  }, [stateRef, nodeById]);
+  }, [stateRef, nodeById, display.nodeSize]);
 
   // ponytail: label visibility is a 4×/s distance sweep, not per-frame
   // projection math like 2D. Ceiling: hook onEngineTick if the interval lags.

@@ -38,9 +38,10 @@ export default function App() {
     });
   }, [onPreviewEvent]);
 
-  // re-scan the vault and re-settle the layout; settings and highlights
-  // are deliberately untouched
+  // re-scan the vault, clear highlights, and re-settle the layout;
+  // settings are deliberately untouched
   const refreshGraph = useCallback(() => {
+    resetHighlights(stateRef.current);
     window.jarvis
       .rescan()
       .then((g) => {
