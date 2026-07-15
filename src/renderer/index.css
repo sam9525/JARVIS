@@ -76,46 +76,6 @@
   padding: 1px 4px;
   border-radius: 3px;
 }
-.hud {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font:
-    13px system-ui,
-    sans-serif;
-  z-index: 10;
-}
-.section-toggle {
-  display: flex;
-  background: #161b26;
-  border: 1px solid #2b3345;
-  border-radius: 999px;
-  overflow: hidden;
-}
-.section-toggle button {
-  background: none;
-  border: none;
-  color: #7a869c;
-  padding: 6px 14px;
-  cursor: pointer;
-  font: inherit;
-}
-.section-toggle button.active {
-  background: #2b3345;
-  color: #d7dce6;
-}
-.gear {
-  background: #161b26;
-  border: 1px solid #2b3345;
-  border-radius: 999px;
-  color: #7a869c;
-  width: 30px;
-  height: 30px;
-  cursor: pointer;
-}
 .graph-settings {
   position: fixed;
   top: 50px;
@@ -183,9 +143,6 @@
   border: none;
   color: #7a869c;
   cursor: pointer;
-}
-.gs-row .section-toggle button {
-  padding: 4px 10px;
 }
 .gs-group-query {
   flex: 1;

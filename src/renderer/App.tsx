@@ -109,16 +109,16 @@ export default function App() {
           layoutEpoch={layoutEpoch}
         />
       )}
-      <div className="hud">
+      <div className="fixed top-3 right-3 z-10 flex items-center gap-2">
         <button
-          className="gear"
+          className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
           title="Refresh graph (F5)"
           onClick={refreshGraph}
         >
           ↻
         </button>
         <button
-          className="gear"
+          className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
           title="Graph settings"
           onClick={() => setShowSettings((v) => !v)}
         >

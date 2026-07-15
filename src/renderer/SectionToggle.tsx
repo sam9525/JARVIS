@@ -14,11 +14,16 @@ type Props = {
 
 export default function SectionToggle({ value, onChange }: Props) {
   return (
-    <div className="section-toggle">
+    <div className="flex overflow-hidden rounded-full border border-edge bg-panel">
       {OPTIONS.map((o) => (
         <button
           key={o.value}
-          className={o.value === value ? "active" : ""}
+          className={
+            "cursor-pointer px-2.5 py-1 text-[13px] transition-colors " +
+            (o.value === value
+              ? "bg-edge text-ink"
+              : "text-ink-dim hover:text-ink-muted")
+          }
           onClick={() => onChange(o.value)}
         >
           {o.label}
