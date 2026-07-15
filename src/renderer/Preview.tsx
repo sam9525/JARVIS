@@ -28,10 +28,14 @@ export default function Preview({ nodeId, onClose }: PreviewProps) {
   }, [onClose]);
 
   return (
-    <div className="preview-panel">
-      <div className="preview-header">
-        <div className="preview-title">{nodeId}</div>
-        <button className="preview-close" title="Close" onClick={onClose}>
+    <div className="fixed top-2.5 bottom-2.5 left-2.5 w-[min(560px,40vw)] overflow-auto rounded-[10px] border border-edge bg-panel px-7 py-6 font-sans text-sm leading-relaxed text-ink">
+      <div className="mb-3 flex items-baseline justify-between">
+        <div className="text-xs text-ink-dim">{nodeId}</div>
+        <button
+          className="cursor-pointer text-sm text-ink-dim hover:text-accent"
+          title="Close"
+          onClick={onClose}
+        >
           ✕
         </button>
       </div>
