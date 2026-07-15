@@ -1,12 +1,38 @@
-* {
-  margin: 0;
-  box-sizing: border-box;
+@import "tailwindcss";
+
+@theme {
+  --color-abyss: #02060b;
+  --color-panel: #081019;
+  --color-edge: #1b3a4a;
+  --color-accent: #22d3ee;
+  --color-accent-soft: #67e8f9;
+  --color-warm: #f59e0b;
+  --color-ink: #f0f7fa;
+  --color-ink-muted: #b0d2de;
+  --color-ink-dim: #5a7a8a;
 }
-html,
-body,
-#root {
-  height: 100%;
-  background: #0d1017;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    background: var(--color-abyss);
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-edge);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-edge) 40%, var(--color-accent));
+  }
 }
 
 .preview-panel {
