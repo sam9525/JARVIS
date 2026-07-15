@@ -66,6 +66,18 @@
     transform: translateX(16px);
     background: var(--color-accent);
   }
+  .preview-body {
+    overflow-wrap: break-word;
+  }
+  .preview-body pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .preview-body hr {
+    border: none;
+    border-top: 1px solid var(--color-edge);
+    margin-block: 0.8em;
+  }
   .preview-body a {
     color: var(--color-accent-soft);
   }
