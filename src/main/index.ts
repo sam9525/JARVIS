@@ -69,7 +69,7 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
-    backgroundColor: "#0d1017",
+    backgroundColor: "#02060b",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
 
