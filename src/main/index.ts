@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
@@ -72,6 +72,12 @@ app.whenReady().then(async () => {
     height: 900,
     backgroundColor: "#02060b",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
+  });
+
+  // preview links: window.open(http…) from the renderer lands here
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
   });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

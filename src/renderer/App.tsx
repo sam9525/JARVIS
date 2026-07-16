@@ -15,6 +15,7 @@ import { domainsOf } from "./domain-colors";
 import { defaultSettings } from "../shared/types";
 import { createPreviewOpener } from "./preview-opener";
 import type { Settings, VaultGraph } from "../shared/types";
+import { buildWikilinkResolver } from "../shared/wikilink";
 
 export default function App() {
   const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
@@ -68,6 +69,13 @@ export default function App() {
   };
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
+  const resolveLink = useMemo(
+    () =>
+      buildWikilinkResolver(
+        graph.nodes.filter((n) => n.type === "note").map((n) => n.id),
+      ),
+    [graph],
+  );
   const visible = useMemo(
     () =>
       filterGraph(graph, {
@@ -136,7 +144,12 @@ export default function App() {
         />
       )}
       {previewNode && (
-        <Preview nodeId={previewNode} onClose={() => setPreviewNode(null)} />
+        <Preview
+          nodeId={previewNode}
+          resolveLink={resolveLink}
+          onNavigate={setPreviewNode}
+          onClose={() => setPreviewNode(null)}
+        />
       )}
     </>
   );
