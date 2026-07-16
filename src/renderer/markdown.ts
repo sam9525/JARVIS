@@ -10,6 +10,11 @@ export type RenderDeps = {
 // vault scanner's WIKILINK, anchored for the inline tokenizer
 const WIKILINK = /^\[\[([^\]|#]+)(#[^\]|]*)?(?:\|([^\]]*))?\]\]/;
 
+// anchored (inline tokenizer) and global (pre-pass scan) embed patterns
+const EMBED = /^!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/;
+const EMBED_ALL = /!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+const MAX_EMBED_DEPTH = 5;
+
 // first <p> of a rendered blockquote: "[!type]" + optional fold +/- + title
 const CALLOUT = /^<p>\[!([a-zA-Z]+)\]([+-])?[ \t]*/;
 const CALLOUT_TYPES = new Set([
@@ -35,15 +40,63 @@ export async function renderNote(
   md: string,
   deps: RenderDeps,
 ): Promise<string> {
-  return render(md, deps.resolveLink);
+  const contents = new Map<string, string>();
+  await collectEmbeds(md, deps, contents);
+  return render(md, deps.resolveLink, contents, new Set());
+}
+
+// load every reachable embed target once; the visited map doubles as the
+// cycle-guard for loading (render-time ancestor sets handle cycle display)
+async function collectEmbeds(
+  md: string,
+  deps: RenderDeps,
+  out: Map<string, string>,
+): Promise<void> {
+  for (const m of md.matchAll(EMBED_ALL)) {
+    const id = deps.resolveLink(m[1].trim());
+    if (!id || out.has(id)) continue;
+    const content = await deps.loadNote(id);
+    if (content === null) continue; // unreadable → not-found chip at render
+    out.set(id, content);
+    await collectEmbeds(content, deps, out);
+  }
 }
 
 function render(
   md: string,
   resolveLink: (target: string) => string | null,
+  contents: Map<string, string>,
+  ancestors: Set<string>,
 ): string {
   const marked = new Marked({
     extensions: [
+      {
+        name: "embed",
+        level: "inline",
+        start: (src: string) => src.indexOf("![["),
+        tokenizer(src: string) {
+          const m = EMBED.exec(src);
+          if (!m) return undefined;
+          return { type: "embed", raw: m[0], target: m[1].trim() };
+        },
+        renderer(token) {
+          const t = token as Tokens.Generic & { target: string };
+          const id = resolveLink(t.target);
+          if (!id || !contents.has(id))
+            return `<span class="embed-chip">${escapeHtml(t.target)} (not found)</span>`;
+          if (ancestors.has(id))
+            return `<span class="embed-chip">${escapeHtml(id)} (circular embed)</span>`;
+          if (ancestors.size >= MAX_EMBED_DEPTH)
+            return `<span class="embed-chip">${escapeHtml(id)} (too deep)</span>`;
+          const inner = render(
+            contents.get(id) as string,
+            resolveLink,
+            contents,
+            new Set([...ancestors, id]),
+          );
+          return `<div class="embed"><div class="embed-title">${escapeHtml(id)}</div><div class="embed-body">${inner}</div></div>`;
+        },
+      },
       {
         name: "wikilink",
         level: "inline",

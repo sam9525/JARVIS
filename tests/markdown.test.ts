@@ -6,6 +6,10 @@ import { buildWikilinkResolver } from "../src/shared/wikilink";
 const notes: Record<string, string> = {
   "physics/wiki/alpha": "# Alpha\nplain note",
   "physics/wiki/beta": "beta content",
+  "physics/wiki/outer": "before ![[inner]] after",
+  "physics/wiki/inner": "inner text",
+  "physics/wiki/loop-a": "a embeds ![[loop-b]]",
+  "physics/wiki/loop-b": "b embeds ![[loop-a]]",
 };
 
 const deps = {
@@ -91,5 +95,39 @@ describe("renderNote — callouts", () => {
     const html = await renderNote("> just a quote", deps);
     expect(html).toContain("<blockquote>");
     expect(html).not.toContain("callout");
+  });
+});
+
+describe("renderNote — embeds", () => {
+  it("transcludes the target note inline", async () => {
+    const html = await renderNote("intro ![[inner]] outro", deps);
+    expect(html).toContain('<div class="embed">');
+    expect(html).toContain('<div class="embed-title">physics/wiki/inner</div>');
+    expect(html).toContain("inner text");
+  });
+
+  it("transcludes nested embeds", async () => {
+    const html = await renderNote("![[outer]]", deps);
+    expect(html).toContain("physics/wiki/outer");
+    expect(html).toContain("inner text"); // outer's embed rendered too
+  });
+
+  it("marks circular embeds instead of recursing forever", async () => {
+    const html = await renderNote("![[loop-a]]", deps);
+    expect(html).toContain("circular embed");
+    expect(html).toContain("a embeds"); // first level still rendered
+  });
+
+  it("marks unresolvable embeds", async () => {
+    const html = await renderNote("![[ghost]]", deps);
+    expect(html).toContain('<span class="embed-chip">');
+    expect(html).toContain("not found");
+  });
+
+  it("wikilinks inside embedded notes still resolve", async () => {
+    notes["physics/wiki/linky"] = "see [[beta]]";
+    deps.resolveLink = buildWikilinkResolver(Object.keys(notes));
+    const html = await renderNote("![[linky]]", deps);
+    expect(html).toContain('data-node="physics/wiki/beta"');
   });
 });
