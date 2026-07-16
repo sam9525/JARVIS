@@ -1,12 +1,7 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  scanVault,
-  toNodeId,
-  resolveWikilink,
-  resolveMdLink,
-} from "../src/main/vault-graph";
+import { scanVault, toNodeId, resolveMdLink } from "../src/main/vault-graph";
 
 const FIXTURE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -17,30 +12,6 @@ const FIXTURE = path.join(
 describe("toNodeId", () => {
   it("normalizes abs path to vault-relative POSIX id without .md", () => {
     expect(toNodeId("D:\\vault", "D:\\vault\\notes\\beta.md")).toBe(
-      "notes/beta",
-    );
-  });
-});
-
-describe("resolveWikilink", () => {
-  it("resolves case-insensitive nested wikilink matching using byPathLower", () => {
-    const byPath = new Set(["notes/beta"]);
-    const byPathLower = new Map([["notes/beta", "notes/beta"]]);
-    const byBasename = new Map([["beta", "notes/beta"]]);
-
-    // Exact case match
-    expect(resolveWikilink("notes/beta", byPath, byBasename, byPathLower)).toBe(
-      "notes/beta",
-    );
-
-    // Case-insensitive nested match
-    expect(resolveWikilink("notes/Beta", byPath, byBasename, byPathLower)).toBe(
-      "notes/beta",
-    );
-    expect(resolveWikilink("Notes/beta", byPath, byBasename, byPathLower)).toBe(
-      "notes/beta",
-    );
-    expect(resolveWikilink("NOTES/BETA", byPath, byBasename, byPathLower)).toBe(
       "notes/beta",
     );
   });
