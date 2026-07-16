@@ -40,9 +40,14 @@ export async function renderNote(
   md: string,
   deps: RenderDeps,
 ): Promise<string> {
-  const contents = new Map<string, string>();
-  await collectEmbeds(md, deps, contents);
-  return render(md, deps.resolveLink, contents, new Set());
+  try {
+    const contents = new Map<string, string>();
+    await collectEmbeds(md, deps, contents);
+    return render(md, deps.resolveLink, contents, new Set());
+  } catch {
+    // never-throw contract: worst case, show the raw markdown
+    return `<pre>${escapeHtml(md)}</pre>`;
+  }
 }
 
 // load every reachable embed target once; the visited map doubles as the
@@ -55,7 +60,7 @@ async function collectEmbeds(
   for (const m of md.matchAll(EMBED_ALL)) {
     const id = deps.resolveLink(m[1].trim());
     if (!id || out.has(id)) continue;
-    const content = await deps.loadNote(id);
+    const content = await deps.loadNote(id).catch(() => null);
     if (content === null) continue; // unreadable → not-found chip at render
     out.set(id, content);
     await collectEmbeds(content, deps, out);

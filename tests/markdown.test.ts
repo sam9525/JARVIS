@@ -131,3 +131,28 @@ describe("renderNote — embeds", () => {
     expect(html).toContain('data-node="physics/wiki/beta"');
   });
 });
+
+describe("renderNote — resilience", () => {
+  it("resolves instead of throwing when loadNote rejects", async () => {
+    const html = await renderNote("![[beta]] and [[beta]]", {
+      resolveLink: deps.resolveLink,
+      loadNote: async () => {
+        throw new Error("ipc exploded");
+      },
+    });
+    expect(html).toContain("not found"); // embed degrades to chip
+    expect(html).toContain("data-node"); // wikilink still renders
+  });
+
+  it("caps embed depth with a too-deep chip", async () => {
+    for (let i = 1; i <= 6; i++) {
+      notes[`physics/wiki/deep-${i}`] =
+        i < 6 ? `level ${i} ![[deep-${i + 1}]]` : "bottom";
+    }
+    deps.resolveLink = buildWikilinkResolver(Object.keys(notes));
+    const html = await renderNote("![[deep-1]]", deps);
+    expect(html).toContain("level 5");
+    expect(html).toContain("(too deep)");
+    expect(html).not.toContain("bottom");
+  });
+});

@@ -80,6 +80,9 @@ app.whenReady().then(async () => {
     return { action: "deny" };
   });
 
+  // raw note HTML must never navigate the app window itself
+  win.webContents.on("will-navigate", (e) => e.preventDefault());
+
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     // menu removal also removes Ctrl+Shift+I — keep F12 in dev
     win.webContents.on("before-input-event", (_e, input) => {
