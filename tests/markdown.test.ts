@@ -56,3 +56,40 @@ describe("renderNote — wikilinks", () => {
     expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
   });
 });
+
+describe("renderNote — callouts", () => {
+  it("renders a typed callout with title and body", async () => {
+    const html = await renderNote(
+      "> [!warning] Hot surface\n> do not touch",
+      deps,
+    );
+    expect(html).toContain('<div class="callout" data-type="warning">');
+    expect(html).toContain('<div class="callout-title">Hot surface</div>');
+    expect(html).toContain("do not touch");
+    expect(html).not.toContain("[!warning]");
+  });
+
+  it("defaults the title to the type when none given", async () => {
+    const html = await renderNote("> [!tip]\n> stay hydrated", deps);
+    expect(html).toContain('<div class="callout-title">tip</div>');
+    expect(html).toContain("stay hydrated");
+  });
+
+  it("falls back to note styling for unknown types", async () => {
+    const html = await renderNote("> [!zebra] Odd\n> body", deps);
+    expect(html).toContain('data-type="note"');
+    expect(html).toContain('<div class="callout-title">Odd</div>');
+  });
+
+  it("renders fold markers expanded (v1: no collapse)", async () => {
+    const html = await renderNote("> [!note]- Folded\n> hidden?", deps);
+    expect(html).toContain('data-type="note"');
+    expect(html).toContain("hidden?");
+  });
+
+  it("leaves plain blockquotes untouched", async () => {
+    const html = await renderNote("> just a quote", deps);
+    expect(html).toContain("<blockquote>");
+    expect(html).not.toContain("callout");
+  });
+});
