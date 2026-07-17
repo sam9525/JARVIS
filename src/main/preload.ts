@@ -14,6 +14,7 @@ const api = {
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),
   setSettings: (s: Settings): Promise<void> =>
     ipcRenderer.invoke("set-settings", s),
+  rescan: (): Promise<VaultGraph> => ipcRenderer.invoke("rescan"),
 };
 
 contextBridge.exposeInMainWorld("jarvis", api);

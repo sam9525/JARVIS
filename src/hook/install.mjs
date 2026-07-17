@@ -46,11 +46,17 @@ const referencesForward = (h) =>
     (sh) =>
       typeof sh?.command === "string" && sh.command.includes("forward.mjs"),
   );
-for (const event of ["PreToolUse", "PostToolUse"]) {
+// UserPromptSubmit resets highlights per question; prompt hooks take no matcher
+const entries = {
+  PreToolUse: hook,
+  PostToolUse: hook,
+  UserPromptSubmit: { hooks: [{ type: "command", command }] },
+};
+for (const [event, entry] of Object.entries(entries)) {
   const list = Array.isArray(settings.hooks[event])
     ? settings.hooks[event]
     : [];
-  settings.hooks[event] = [...list.filter((h) => !referencesForward(h)), hook];
+  settings.hooks[event] = [...list.filter((h) => !referencesForward(h)), entry];
 }
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log(`hooks installed -> ${settingsPath}`);

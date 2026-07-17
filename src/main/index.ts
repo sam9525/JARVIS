@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
@@ -42,6 +42,12 @@ app.whenReady().then(async () => {
   const rootPath = await resolveRootPath();
   let graph = scanVault(rootPath);
   ipcMain.handle("get-graph", () => graph);
+  ipcMain.handle("rescan", async () => {
+    // assign only on success — a rejected promise must not poison get-graph
+    const g = await scanVault(rootPath);
+    graph = Promise.resolve(g);
+    return g;
+  });
   const settingsPath = path.join(
     app.getPath("userData"),
     "jarvis-settings.json",
@@ -60,12 +66,30 @@ app.whenReady().then(async () => {
     await saveSettings(settingsPath, s);
   });
 
+  Menu.setApplicationMenu(null); // kills File/Edit/View… and their accelerators
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
-    backgroundColor: "#0d1017",
+    backgroundColor: "#02060b",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
+
+  // preview links: window.open(http…) from the renderer lands here
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+
+  // raw note HTML must never navigate the app window itself
+  win.webContents.on("will-navigate", (e) => e.preventDefault());
+
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    // menu removal also removes Ctrl+Shift+I — keep F12 in dev
+    win.webContents.on("before-input-event", (_e, input) => {
+      if (input.type === "keyDown" && input.key === "F12")
+        win.webContents.toggleDevTools();
+    });
+  }
 
   ipcMain.handle("read-note", async (_e, nodeId: string) => {
     const abs = path.resolve(rootPath, `${nodeId}.md`);

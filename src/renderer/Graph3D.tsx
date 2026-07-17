@@ -12,12 +12,16 @@ import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
 import {
   AdditiveBlending,
+  ArrowHelper,
   CanvasTexture,
   Color,
   Group,
+  LineBasicMaterial,
+  MeshBasicMaterial,
   Sprite,
   SpriteMaterial,
   Texture,
+  Vector3,
 } from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
@@ -51,12 +55,27 @@ function makeGlowTexture(): CanvasTexture {
   return new CanvasTexture(canvas);
 }
 
+// hollow white circle; tinted per use via material.color
+function makeRingTexture(): CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 8, 0, 2 * Math.PI);
+  ctx.stroke();
+  return new CanvasTexture(canvas);
+}
+
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
 
 // idle auto-rotation: resume this long after the last interaction
 const IDLE_ROTATE_MS = 5000;
-const ROTATE_SPEED = 0.7;
+const ROTATE_SPEED = 1;
 
 // slider (2–30) → max camera distance at which labels show; higher threshold
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
@@ -84,6 +103,9 @@ type GraphProps = {
   forces: Settings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
+  focusNode: string | null; // aim the camera at this node
+  layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
+  rotationPaused: boolean; // preview open — no auto-rotation
 };
 
 export default function Graph3D({
@@ -94,6 +116,9 @@ export default function Graph3D({
   forces,
   stateRef,
   onNodeClick,
+  focusNode,
+  layoutEpoch,
+  rotationPaused,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
@@ -101,6 +126,16 @@ export default function Graph3D({
   // Entries for removed nodes go stale but are never visited (sweep iterates
   // current data.nodes) — harmless.
   const sprites = useRef(new Map<string, SpriteText>());
+  const pausedRef = useRef(rotationPaused);
+  pausedRef.current = rotationPaused;
+  const rotationCtl = useRef<{ stop: () => void; arm: () => void }>();
+
+  // a rescan hands over brand-new node objects, so the simulation restarts
+  // on its own; we only need to let onEngineStop re-fit the camera
+  useEffect(() => {
+    if (layoutEpoch === 0) return;
+    didFit.current = false;
+  }, [layoutEpoch]);
 
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time
   // so a slider tick doesn't re-bind data and restart the simulation.
@@ -111,6 +146,11 @@ export default function Graph3D({
       links: graph.edges.map((e) => ({ source: e.source, target: e.target })),
     };
   }, [graph]);
+
+  const nodeById = useMemo(
+    () => new Map(data.nodes.map((n) => [String(n.id), n as NodeObj])),
+    [data],
+  );
 
   // node id → base color so every link is a source→target gradient;
   // same-group links come out solid, cross-group links blend group colors.
@@ -180,6 +220,88 @@ export default function Graph3D({
     { pad: display.haloPad, base: display.haloBase },
   );
 
+  // read-order arrows live in a component-owned group, rebuilt by the
+  // highlight interval — never part of graphData
+  const trailGroup = useRef<Group>();
+  useEffect(() => {
+    const scene = fgRef.current?.scene();
+    if (!scene) return;
+    const g = new Group();
+    scene.add(g);
+    trailGroup.current = g;
+    return () => {
+      for (const c of [...g.children]) {
+        const arrow = c as ArrowHelper;
+        if (arrow.line?.material) {
+          if (Array.isArray(arrow.line.material)) {
+            arrow.line.material.forEach((m) => m.dispose());
+          } else {
+            arrow.line.material.dispose();
+          }
+        }
+        if (arrow.cone?.material) {
+          if (Array.isArray(arrow.cone.material)) {
+            arrow.cone.material.forEach((m) => m.dispose());
+          } else {
+            arrow.cone.material.dispose();
+          }
+        }
+      }
+      g.clear();
+      scene.remove(g);
+    };
+  }, []);
+
+  // fly the camera to focusZoom units from the focused node, looking at a
+  // point shifted left of it so the node lands in the visible area right of
+  // the left-docked preview card (3D analog of 2D's panel/2 centerAt offset);
+  // closing the preview returns to the launch fit. focusZoom in the deps
+  // makes slider drags re-apply live while a note is open.
+  const hadFocus = useRef(false);
+  useEffect(() => {
+    if (!focusNode) {
+      if (hadFocus.current) {
+        hadFocus.current = false;
+        fgRef.current?.zoomToFit(1000, -400);
+      }
+      return;
+    }
+    hadFocus.current = true;
+    const node = nodeById.get(focusNode);
+    if (!node || node.x === undefined) return;
+    const cam = fgRef.current?.camera();
+    if (!cam) return;
+    const nx = node.x ?? 0;
+    const ny = node.y ?? 0;
+    const nz = node.z ?? 0;
+    const dx = cam.position.x - nx;
+    const dy = cam.position.y - ny;
+    const dz = cam.position.z - nz;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return; // camera already on the node — nothing sensible to do
+    const s = display.focusZoom / len;
+    const px = nx + dx * s;
+    const py = ny + dy * s;
+    const pz = nz + dz * s;
+    // camera-right at the new position; screen px → world units at the
+    // node's distance via the vertical FOV
+    const dir = new Vector3(nx - px, ny - py, nz - pz).normalize();
+    const right = new Vector3().crossVectors(dir, cam.up);
+    if (right.lengthSq() < 1e-6) right.set(1, 0, 0); // looking straight along up
+    right.normalize();
+    const fov = (cam as { fov?: number }).fov ?? 50;
+    const worldPerPx =
+      (2 * display.focusZoom * Math.tan((fov * Math.PI) / 360)) /
+      window.innerHeight;
+    const panel = Math.min(560, window.innerWidth * 0.4); // matches CSS width
+    const off = (panel / 2) * worldPerPx;
+    fgRef.current?.cameraPosition(
+      { x: px, y: py, z: pz },
+      { x: nx - right.x * off, y: ny - right.y * off, z: nz - right.z * off },
+      1600,
+    );
+  }, [focusNode, nodeById, display.focusZoom]);
+
   useEffect(() => {
     const controls = fgRef.current?.controls() as
       | {
@@ -187,6 +309,8 @@ export default function Graph3D({
           maxDistance: number;
           autoRotate: boolean;
           autoRotateSpeed: number;
+          enableDamping: boolean;
+          dampingFactor: number;
           addEventListener(type: string, fn: () => void): void;
           removeEventListener(type: string, fn: () => void): void;
         }
@@ -195,6 +319,11 @@ export default function Graph3D({
     controls.minDistance = CAM.min;
     controls.maxDistance = CAM.max;
     controls.autoRotateSpeed = ROTATE_SPEED;
+    // release inertia: the drag coasts and slows to a stop instead of
+    // halting dead. autoRotate already animates each frame, which proves
+    // controls.update() runs per frame — damping rides the same loop.
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.03;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopRotate = () => {
       controls.autoRotate = false;
@@ -203,12 +332,13 @@ export default function Graph3D({
     const armRotate = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        controls.autoRotate = true;
+        if (!pausedRef.current) controls.autoRotate = true;
       }, IDLE_ROTATE_MS);
     };
     controls.addEventListener("start", stopRotate); // user grabbed the camera
     controls.addEventListener("end", armRotate); // released — rotate in 5s
     armRotate(); // initial load counts as an interaction
+    rotationCtl.current = { stop: stopRotate, arm: armRotate };
     linkMaterial.resolution.set(window.innerWidth, window.innerHeight);
     linkMaterial.linewidth = display.linkThickness * 2;
     return () => {
@@ -218,17 +348,72 @@ export default function Graph3D({
     };
   }, []);
 
-  // ponytail: 3D node materials are baked, not repainted every frame like the
-  // 2D canvas, so highlight changes need a nudge. Re-run the color accessors
-  // 2×/s while any node is highlighted so Read flares fade and Edit marks land.
-  // Ceiling: add an animating-window guard if refresh() costs too much on very
-  // large vaults.
+  // preview open ⇒ stop now and stay stopped; close ⇒ normal idle re-arm
+  useEffect(() => {
+    if (rotationPaused) rotationCtl.current?.stop();
+    else rotationCtl.current?.arm();
+  }, [rotationPaused]);
+
+  // ponytail: rings/colors are baked into node objects, so poll the store's
+  // rev counter and re-run accessors once per change (covers add AND reset).
+  // Trail arrows rebuild every tick (cheap — dozens at most) to track drift.
+  const lastRev = useRef(-1);
   useEffect(() => {
     const id = setInterval(() => {
-      if (stateRef.current.nodes.size > 0) fgRef.current?.refresh();
+      const s = stateRef.current;
+      if (s.rev !== lastRev.current) {
+        lastRev.current = s.rev;
+        fgRef.current?.refresh();
+      }
+      const g = trailGroup.current;
+      if (!g) return;
+      for (const c of [...g.children]) {
+        const arrow = c as ArrowHelper;
+        if (arrow.line?.material) {
+          if (Array.isArray(arrow.line.material)) {
+            arrow.line.material.forEach((m) => m.dispose());
+          } else {
+            arrow.line.material.dispose();
+          }
+        }
+        if (arrow.cone?.material) {
+          if (Array.isArray(arrow.cone.material)) {
+            arrow.cone.material.forEach((m) => m.dispose());
+          } else {
+            arrow.cone.material.dispose();
+          }
+        }
+      }
+      g.clear();
+      for (let i = 0; i < s.trail.length - 1; i++) {
+        const a = nodeById.get(s.trail[i]);
+        const b = nodeById.get(s.trail[i + 1]);
+        if (!a || !b || a.x === undefined || b.x === undefined) continue;
+        const from = new Vector3(a.x ?? 0, a.y ?? 0, a.z ?? 0);
+        const dir = new Vector3(b.x ?? 0, b.y ?? 0, b.z ?? 0).sub(from);
+        const len = dir.length();
+        // stop at the sphere surfaces (radius formula matches nodeThreeObject)
+        const ra = 4 * Math.cbrt(((a.r ?? 4) * display.nodeSize) ** 2);
+        const rb = 4 * Math.cbrt(((b.r ?? 4) * display.nodeSize) ** 2);
+        if (len < ra + rb + 2) continue; // spheres touching — no room
+        dir.normalize();
+        const arrow = new ArrowHelper(
+          dir,
+          from.addScaledVector(dir, ra + 1),
+          len - ra - rb - 2,
+          COLORS.trail,
+          6,
+          3,
+        );
+        (arrow.line.material as LineBasicMaterial).transparent = true;
+        (arrow.line.material as LineBasicMaterial).opacity = 0.6;
+        (arrow.cone.material as MeshBasicMaterial).transparent = true;
+        (arrow.cone.material as MeshBasicMaterial).opacity = 0.6;
+        g.add(arrow);
+      }
     }, 500);
     return () => clearInterval(id);
-  }, [stateRef]);
+  }, [stateRef, nodeById, display.nodeSize]);
 
   // ponytail: label visibility is a 4×/s distance sweep, not per-frame
   // projection math like 2D. Ceiling: hook onEngineTick if the interval lags.
@@ -270,8 +455,9 @@ export default function Graph3D({
   const displayColor = useCallback(
     (node: NodeObj): string => {
       const id = String(node.id);
-      const d = nodeDisplay(stateRef.current, id, performance.now());
-      if (d) return COLORS[d];
+      // modified recolors the sphere; a read gets a ring sprite (Task 3)
+      if (nodeDisplay(stateRef.current, id) === "modified")
+        return COLORS.modified;
       return baseNodeColor(
         { id, type: node.type, domain: node.domain },
         domains,
@@ -312,6 +498,33 @@ export default function Graph3D({
     return m;
   }, []);
 
+  // shared ring sprite materials (one per color) for read-highlighted and
+  // preview-focused nodes; same no-op-dispose pattern as glowMaterial — the
+  // library flush-disposes node objects on refresh() so shared,
+  // component-owned materials must survive that.
+  const ringTexture = useRef<CanvasTexture>();
+  const ringMats = useRef(new Map<string, SpriteMaterial>());
+  const ringMaterial = useCallback((color: string): SpriteMaterial => {
+    if (!ringTexture.current) {
+      ringTexture.current = makeRingTexture();
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      ringTexture.current.dispose = () => {};
+    }
+    let m = ringMats.current.get(color);
+    if (!m) {
+      m = new SpriteMaterial({
+        map: ringTexture.current,
+        color,
+        transparent: true,
+        depthWrite: false,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      m.dispose = () => {};
+      ringMats.current.set(color, m);
+    }
+    return m;
+  }, []);
+
   useEffect(() => {
     const mats = glowMats.current;
     const texture = glowTexture;
@@ -319,6 +532,11 @@ export default function Graph3D({
       for (const m of mats.values()) SpriteMaterial.prototype.dispose.call(m);
       mats.clear();
       if (texture.current) Texture.prototype.dispose.call(texture.current);
+      for (const m of ringMats.current.values())
+        SpriteMaterial.prototype.dispose.call(m);
+      ringMats.current.clear();
+      if (ringTexture.current)
+        Texture.prototype.dispose.call(ringTexture.current);
     };
   }, []);
 
@@ -332,6 +550,17 @@ export default function Graph3D({
       const glow = new Sprite(glowMaterial(displayColor(node)));
       glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
+      if (nodeDisplay(stateRef.current, id) === "ring") {
+        const ring = new Sprite(ringMaterial(COLORS.ring));
+        ring.scale.setScalar(sphereR * 3);
+        obj.add(ring);
+      }
+      // the node whose preview is open
+      if (id === focusNode) {
+        const ring = new Sprite(ringMaterial(COLORS.hover));
+        ring.scale.setScalar(sphereR * 3.6);
+        obj.add(ring);
+      }
       const sprite = new SpriteText(nodeLabelText(id, node.type));
       sprite.color = COLORS.label;
       sprite.textHeight = 4;
@@ -345,7 +574,14 @@ export default function Graph3D({
       obj.add(sprite as unknown as Sprite);
       return obj;
     },
-    [display.nodeSize, glowMaterial, displayColor],
+    [
+      display.nodeSize,
+      glowMaterial,
+      displayColor,
+      ringMaterial,
+      stateRef,
+      focusNode,
+    ],
   );
 
   return (

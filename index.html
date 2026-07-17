@@ -2,6 +2,14 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <!-- Blocks exfiltration from unsanitized note HTML (Preview renders
+         marked output raw). ws://localhost:* is for Vite HMR in dev.
+         ponytail: 'unsafe-inline' styles + local ws stay allowed in prod;
+         tighten via a dev/prod template if that ever matters. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://localhost:*"
+    />
     <title>JARVIS</title>
   </head>
   <body>

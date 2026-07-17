@@ -6,6 +6,7 @@ import type {
   GraphEdge,
   Section,
 } from "../shared/types";
+import { resolveWikilink } from "../shared/wikilink";
 
 // [[target]], [[target#heading]], [[target|alias]]
 const WIKILINK = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
@@ -133,24 +134,6 @@ async function walkMd(dir: string): Promise<string[]> {
     else if (e.name.toLowerCase().endsWith(".md")) out.push(full);
   }
   return out;
-}
-
-export function resolveWikilink(
-  target: string,
-  byPath: Set<string>,
-  byBasename: Map<string, string>,
-  byPathLower: Map<string, string>,
-): string | null {
-  const clean = target.replace(/\.md$/i, "");
-  if (byPath.has(clean)) return clean;
-
-  const cleanLower = clean.toLowerCase();
-  const caseInsensitivePath = byPathLower.get(cleanLower);
-  if (caseInsensitivePath) return caseInsensitivePath;
-
-  const parts = cleanLower.split("/");
-  const base = parts[parts.length - 1] || "";
-  return byBasename.get(base) ?? null;
 }
 
 export function resolveMdLink(

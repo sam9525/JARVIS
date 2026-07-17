@@ -1,4 +1,4 @@
-export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write";
+export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write" | "Prompt";
 
 export interface ToolEvent {
   sessionId: string;
@@ -60,6 +60,8 @@ export interface DisplaySettings {
   linkOpacity: number; // link line opacity
   haloPad: number; // group halo radius multiplier past the farthest member
   haloBase: number; // group halo base radius added after padding
+  // zoom applied when a note opens: 2d = zoom factor, 3d = camera distance
+  focusZoom: number;
 }
 
 export interface ForceSettings {
@@ -98,6 +100,7 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          focusZoom: 6.8,
         },
         forces: {
           centerStrength: 0.5,
@@ -115,11 +118,12 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          focusZoom: 180,
         },
         forces: {
-          centerStrength: 0,
+          centerStrength: 0.5,
           repelStrength: 20,
-          linkStrength: 0.4,
+          linkStrength: 1,
           linkDistance: 60,
         },
       };
@@ -127,7 +131,7 @@ function defaultView(mode: Dimensions): ViewSettings {
 
 export function defaultSettings(): Settings {
   return {
-    dimensions: "2d",
+    dimensions: "3d",
     sectionFilter: "wiki",
     showTags: true,
     showOrphans: true,

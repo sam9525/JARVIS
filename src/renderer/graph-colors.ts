@@ -1,12 +1,13 @@
-// Shared by Graph (2D canvas) and Graph3D (WebGL). Keys "read-bright" /
-// "read-dim" / "modified" match NodeDisplay values from highlight-store.
+// Shared by Graph (2D canvas) and Graph3D (WebGL). "modified" matches the
+// NodeDisplay value from highlight-store; "ring" is the read-highlight ring,
+// "trail" is the read-order arrows between consecutively read nodes.
 export const COLORS = {
-  bg: "#0d1017",
-  tag: "#2f3a4d",
-  link: "#232a38",
-  label: "#8b93a7",
-  hover: "#7ef9ff",
-  "read-bright": "#7ef9ff",
-  "read-dim": "#2b6a70",
-  modified: "#ff8c42",
+  bg: "#02060b",
+  tag: "#1d4356",
+  link: "#12283a",
+  label: "#7fa3b5",
+  hover: "#22d3ee",
+  ring: "#67e8f9",
+  modified: "#f59e0b",
+  trail: "#ff8fab",
 } as const;

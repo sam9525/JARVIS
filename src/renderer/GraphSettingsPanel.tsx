@@ -15,6 +15,7 @@ type Props = {
   search: string; // transient, owned by App — never persisted
   onSearchChange: (text: string) => void;
   onSettingsChange: (s: Settings) => void;
+  onResetHighlights: () => void; // ↺ also clears rings/trail
   onClose: () => void;
 };
 
@@ -23,6 +24,7 @@ export default function GraphSettingsPanel({
   search,
   onSearchChange,
   onSettingsChange,
+  onResetHighlights,
   onClose,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
@@ -46,9 +48,10 @@ export default function GraphSettingsPanel({
     });
 
   return (
-    <div className="graph-settings">
-      <div className="graph-settings-header">
+    <div className="fixed top-[50px] right-3 max-h-[calc(100vh-62px)] w-[260px] overflow-y-auto rounded-lg border border-edge bg-panel px-3 py-2.5 font-sans text-[13px] text-ink">
+      <div className="flex justify-end gap-1.5">
         <button
+          className="cursor-pointer text-sm text-ink-dim hover:text-accent"
           title="Restore defaults"
           onClick={() => {
             // reset re-tunes values; it must not eject the user from the 3D
@@ -59,24 +62,31 @@ export default function GraphSettingsPanel({
               groups: settings.groups,
             });
             onSearchChange("");
+            onResetHighlights();
           }}
         >
           ↺
         </button>
-        <button title="Close" onClick={onClose}>
+        <button
+          className="cursor-pointer text-sm text-ink-dim hover:text-accent"
+          title="Close"
+          onClick={onClose}
+        >
           ✕
         </button>
       </div>
 
-      <details open>
-        <summary>Filters</summary>
+      <details open className="border-t border-edge py-2">
+        <summary className="mb-1.5 cursor-pointer font-semibold">
+          Filters
+        </summary>
         <input
-          className="gs-search"
+          className="mb-2 w-full rounded-md border border-edge bg-abyss px-2 py-1.5 text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
           placeholder="Search files…"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
         />
-        <label className="gs-row">
+        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
           Tags
           <input
             type="checkbox"
@@ -85,7 +95,7 @@ export default function GraphSettingsPanel({
             onChange={(e) => set({ showTags: e.target.checked })}
           />
         </label>
-        <label className="gs-row">
+        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
           Orphans
           <input
             type="checkbox"
@@ -94,7 +104,7 @@ export default function GraphSettingsPanel({
             onChange={(e) => set({ showOrphans: e.target.checked })}
           />
         </label>
-        <div className="gs-row">
+        <div className="flex items-center justify-between gap-2 py-1 text-ink-muted">
           Sections
           <SectionToggle
             value={settings.sectionFilter}
@@ -103,22 +113,29 @@ export default function GraphSettingsPanel({
         </div>
       </details>
 
-      <details open>
-        <summary>Groups</summary>
+      <details open className="border-t border-edge py-2">
+        <summary className="mb-1.5 cursor-pointer font-semibold">
+          Groups
+        </summary>
         {settings.groups.map((g, i) => (
-          <div className="gs-row" key={i}>
+          <div
+            className="flex items-center justify-between gap-2 py-1 text-ink-muted"
+            key={i}
+          >
             <input
-              className="gs-group-query"
+              className="min-w-0 flex-1 rounded-md border border-edge bg-abyss px-1.5 py-1 text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
               placeholder="path or text…"
               value={g.query}
               onChange={(e) => setGroup(i, { query: e.target.value })}
             />
             <input
               type="color"
+              className="h-[22px] w-[26px] cursor-pointer border-none bg-transparent p-0"
               value={g.color}
               onChange={(e) => setGroup(i, { color: e.target.value })}
             />
             <button
+              className="cursor-pointer text-ink-dim hover:text-warm"
               title="Remove group"
               onClick={() =>
                 set({ groups: settings.groups.filter((_, j) => j !== i) })
@@ -129,7 +146,7 @@ export default function GraphSettingsPanel({
           </div>
         ))}
         <button
-          className="gs-new-group"
+          className="mt-1.5 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
           onClick={() =>
             set({
               groups: [...settings.groups, { query: "", color: randomColor() }],
@@ -140,9 +157,11 @@ export default function GraphSettingsPanel({
         </button>
       </details>
 
-      <details open>
-        <summary>Display ({settings.dimensions.toUpperCase()})</summary>
-        <label className="gs-row">
+      <details open className="border-t border-edge py-2">
+        <summary className="mb-1.5 cursor-pointer font-semibold">
+          Display ({settings.dimensions.toUpperCase()})
+        </summary>
+        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
           3D
           <input
             type="checkbox"
@@ -177,6 +196,25 @@ export default function GraphSettingsPanel({
           value={view.display.linkThickness}
           onChange={(v) => setDisplay({ linkThickness: v })}
         />
+        {settings.dimensions === "3d" ? (
+          <Slider
+            label="Focus distance"
+            min={40}
+            max={600}
+            step={10}
+            value={view.display.focusZoom}
+            onChange={(v) => setDisplay({ focusZoom: v })}
+          />
+        ) : (
+          <Slider
+            label="Focus zoom"
+            min={1}
+            max={8}
+            step={0.1}
+            value={view.display.focusZoom}
+            onChange={(v) => setDisplay({ focusZoom: v })}
+          />
+        )}
         {settings.dimensions === "3d" && (
           <>
             <Slider
@@ -215,8 +253,10 @@ export default function GraphSettingsPanel({
         )}
       </details>
 
-      <details>
-        <summary>Forces ({settings.dimensions.toUpperCase()})</summary>
+      <details className="border-t border-edge py-2">
+        <summary className="mb-1.5 cursor-pointer font-semibold">
+          Forces ({settings.dimensions.toUpperCase()})
+        </summary>
         <Slider
           label="Center force"
           min={0}
@@ -270,10 +310,11 @@ function Slider({
   onChange: (v: number) => void;
 }) {
   return (
-    <label className="gs-slider">
+    <label className="block py-1 text-ink-muted">
       {label}
       <input
         type="range"
+        className="w-full accent-accent"
         min={min}
         max={max}
         step={step}

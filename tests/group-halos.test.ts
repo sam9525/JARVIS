@@ -15,12 +15,12 @@ describe("fitHalo", () => {
     });
   });
 
-  it("covers the farthest member plus 15% padding", () => {
+  it("covers the farthest member plus 10% padding", () => {
     const fit = fitHalo([
       { x: -10, y: 0, z: 0 },
       { x: 10, y: 0, z: 0 },
     ]);
-    expect(fit).toEqual({ x: 0, y: 0, z: 0, r: 10 * 1.15 + 10 });
+    expect(fit).toEqual({ x: 0, y: 0, z: 0, r: 10 * 1.1 + 10 });
   });
 
   it("treats missing coordinates as origin", () => {

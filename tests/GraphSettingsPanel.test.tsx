@@ -5,16 +5,25 @@ import { defaultSettings } from "../src/shared/types";
 import type { Settings } from "../src/shared/types";
 
 function render(overrides: Partial<Settings> = {}) {
-  const calls: { settings: Settings[]; search: string[]; closed: boolean } = {
+  const calls: {
+    settings: Settings[];
+    search: string[];
+    closed: boolean;
+    resets: number;
+  } = {
     settings: [],
     search: [],
     closed: false,
+    resets: 0,
   };
   const el = GraphSettingsPanel({
     settings: { ...defaultSettings(), ...overrides },
     search: "abc",
     onSearchChange: (s) => calls.search.push(s),
     onSettingsChange: (s) => calls.settings.push(s),
+    onResetHighlights: () => {
+      calls.resets++;
+    },
     onClose: () => {
       calls.closed = true;
     },
@@ -45,6 +54,7 @@ describe("GraphSettingsPanel", () => {
       groups,
     });
     expect(calls.search[0]).toBe("");
+    expect(calls.resets).toBe(1);
   });
 
   it("close button calls onClose", () => {
@@ -85,5 +95,23 @@ describe("GraphSettingsPanel", () => {
     nodeSizeSlider.props.onChange(2.5);
     expect(calls.settings[0].views["3d"].display.nodeSize).toBe(2.5);
     expect(calls.settings[0].views["2d"].display.nodeSize).toBe(1); // untouched
+  });
+
+  it("focus slider follows the active dimension and edits only that view", () => {
+    // 2D: label "Focus zoom", sits after the linkThickness slider
+    const twoD = render({ dimensions: "2d" });
+    const focus2d = twoD.el.props.children[3].props.children[5];
+    expect(focus2d.props.label).toBe("Focus zoom");
+    focus2d.props.onChange(4);
+    expect(twoD.calls.settings[0].views["2d"].display.focusZoom).toBe(4);
+    expect(twoD.calls.settings[0].views["3d"].display.focusZoom).toBe(180);
+
+    // 3D: label "Focus distance"
+    const threeD = render({ dimensions: "3d" });
+    const focus3d = threeD.el.props.children[3].props.children[5];
+    expect(focus3d.props.label).toBe("Focus distance");
+    focus3d.props.onChange(200);
+    expect(threeD.calls.settings[0].views["3d"].display.focusZoom).toBe(200);
+    expect(threeD.calls.settings[0].views["2d"].display.focusZoom).toBe(6.8);
   });
 });

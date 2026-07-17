@@ -130,4 +130,18 @@ describe("mapHookEvent", () => {
     ).toBeNull();
     expect(mapHookEvent({})).toBeNull();
   });
+
+  it("UserPromptSubmit → Prompt reset event", () => {
+    const e = mapHookEvent({
+      ...base,
+      hook_event_name: "UserPromptSubmit",
+    });
+    expect(e).toMatchObject({
+      sessionId: "s1",
+      phase: "pre",
+      tool: "Prompt",
+      nodeIds: [],
+    });
+    expect(typeof e?.ts).toBe("number");
+  });
 });
