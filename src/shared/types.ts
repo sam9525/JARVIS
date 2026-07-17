@@ -32,10 +32,14 @@ export interface VaultGraph {
   edges: GraphEdge[];
 }
 
+export type WorkspaceKind = "vault" | "code";
+
 export interface Workspace {
-  id: string;
+  id: string; // normalized absolute root path (lowercased, POSIX separators)
   name: string;
   rootPath: string;
+  kind: WorkspaceKind;
+  staleIndex?: boolean; // code only: gitnexus index behind repo HEAD
 }
 
 export interface Session {
