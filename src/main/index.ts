@@ -135,8 +135,10 @@ app.whenReady().then(async () => {
     },
   );
 
-  const send = (channel: string, payload: unknown, ...rest: unknown[]) =>
+  const send = (channel: string, payload: unknown, ...rest: unknown[]) => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return;
     win.webContents.send(channel, payload, ...rest);
+  };
 
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),

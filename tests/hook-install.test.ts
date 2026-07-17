@@ -56,4 +56,10 @@ describe("ensureHooks", () => {
     expect(await ensureHooks(dir, "C:\\app\\forward.mjs")).toBe(false);
     expect(readFileSync(settingsPath, "utf8")).toBe("{broken");
   });
+
+  it("resolves false instead of rejecting when .claude exists as a file", async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), "jarvis-hooks-"));
+    writeFileSync(path.join(dir, ".claude"), "i am a file");
+    await expect(ensureHooks(dir, "C:\\app\\forward.mjs")).resolves.toBe(false);
+  });
 });

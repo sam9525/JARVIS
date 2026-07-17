@@ -38,6 +38,9 @@ export default function App() {
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
+  // true while getGraph is in flight, so the "no graph" notice doesn't flash
+  // during the gap between clearing the graph and the fetch resolving
+  const [graphLoading, setGraphLoading] = useState(false);
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
   // so retargeting .current on switch is all a switch needs
@@ -69,13 +72,16 @@ export default function App() {
       if (cached) {
         setGraph(cached);
         setLayoutEpoch((n) => n + 1);
+        setGraphLoading(false);
       } else {
         setGraph({ nodes: [], edges: [] });
+        setGraphLoading(true);
         window.jarvis.getGraph(ws.id).then((g) => {
           graphCacheRef.current.set(ws.id, g);
           if (activeIdRef.current === ws.id) {
             setGraph(g);
             setLayoutEpoch((n) => n + 1);
+            setGraphLoading(false);
           }
         });
       }
@@ -119,6 +125,7 @@ export default function App() {
         graphCacheRef.current.set(ws.id, g);
         setGraph(g);
         setLayoutEpoch((n) => n + 1);
+        if (ws.kind === "code") setGraphLoading(false);
       })
       .catch(console.error);
   }, [active]);
@@ -195,7 +202,7 @@ export default function App() {
         activeId={active?.id ?? null}
         onSelect={openWorkspace}
       />
-      {active?.kind === "code" && graph.nodes.length === 0 && (
+      {active?.kind === "code" && !graphLoading && graph.nodes.length === 0 && (
         <div className="fixed top-3 left-16 z-10 text-[12px] text-ink-dim">
           no graph — GitNexus index missing or unreadable for this project
         </div>
