@@ -21,6 +21,11 @@ export default function App() {
   const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
   const [previewNode, setPreviewNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
+  // Graphs mount only after settings load: swapping the forces/display prop
+  // identities while react-force-graph-3d's first async graphData flush is
+  // still pending reheats an engine whose layout doesn't exist yet — the
+  // animation loop throws and dies, leaving a permanent black screen.
+  const [settingsReady, setSettingsReady] = useState(false);
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
@@ -31,7 +36,11 @@ export default function App() {
 
   useEffect(() => {
     window.jarvis.getGraph().then(setGraph); // initial pull (Task 1b — no startup race)
-    window.jarvis.getSettings().then(setSettings);
+    window.jarvis
+      .getSettings()
+      .then(setSettings)
+      .catch(console.error)
+      .finally(() => setSettingsReady(true)); // defaults still render on failure
     window.jarvis.onGraph(setGraph); // watcher updates
     window.jarvis.onToolEvent((e) => {
       applyEvent(stateRef.current, e, performance.now());
@@ -91,7 +100,7 @@ export default function App() {
 
   return (
     <>
-      {settings.dimensions === "3d" ? (
+      {!settingsReady ? null : settings.dimensions === "3d" ? (
         <Graph3D
           graph={visible}
           domains={domains}
