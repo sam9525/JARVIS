@@ -225,8 +225,8 @@ export default function Graph({
         // read-order trail: arrows between consecutively read nodes
         const trail = stateRef.current.trail;
         if (trail.length < 2) return;
-        ctx.strokeStyle = "rgba(255, 143, 171, 0.6)"; // COLORS.ring @ 0.6
-        ctx.fillStyle = "rgba(255, 143, 171, 0.6)";
+        ctx.strokeStyle = `${COLORS.trail}99`; // 99 hex = 60% alpha
+        ctx.fillStyle = `${COLORS.trail}99`;
         ctx.lineWidth = 1.5 / globalScale;
         for (let i = 0; i < trail.length - 1; i++) {
           const a = nodeById.get(trail[i]);

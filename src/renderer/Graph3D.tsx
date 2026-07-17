@@ -401,7 +401,7 @@ export default function Graph3D({
           dir,
           from.addScaledVector(dir, ra + 1),
           len - ra - rb - 2,
-          0xff8fab, // COLORS.ring
+          COLORS.trail,
           6,
           3,
         );
