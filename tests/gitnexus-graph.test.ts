@@ -1,10 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  buildCodeGraph,
-  parseCypherTable,
-} from "../src/main/gitnexus-graph";
+import { buildCodeGraph, parseCypherTable } from "../src/main/gitnexus-graph";
 
 const fixture = (name: string) =>
   readFileSync(path.join(__dirname, "fixtures", "gitnexus", name), "utf8");
@@ -29,9 +26,9 @@ describe("parseCypherTable", () => {
         JSON.stringify({ markdown: "| f.filePath |\n| --- |", row_count: 0 }),
       ),
     ).toEqual([]);
-    expect(() =>
-      parseCypherTable(JSON.stringify({ error: "boom" })),
-    ).toThrow("boom");
+    expect(() => parseCypherTable(JSON.stringify({ error: "boom" }))).toThrow(
+      "boom",
+    );
     expect(() => parseCypherTable("not json")).toThrow();
   });
 });

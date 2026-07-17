@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mergeHooks } from "./merge.mjs";
 
 const vault = process.argv[2];
 if (!vault) {
@@ -19,10 +20,6 @@ const forward = path.resolve(
   "forward.mjs",
 );
 const command = `node "${forward}"`;
-const hook = {
-  matcher: "Read|Grep|Glob|Edit|Write",
-  hooks: [{ type: "command", command }],
-};
 
 const settingsPath = path.join(vault, ".claude", "settings.json");
 mkdirSync(path.dirname(settingsPath), { recursive: true });
@@ -37,26 +34,6 @@ if (existsSync(settingsPath)) {
     process.exit(1);
   }
 }
-settings.hooks ??= {};
-// Any entry already pointing at forward.mjs is ours (possibly stale from an
-// older checkout path or matcher) — replace it with the canonical entry.
-const referencesForward = (h) =>
-  Array.isArray(h?.hooks) &&
-  h.hooks.some(
-    (sh) =>
-      typeof sh?.command === "string" && sh.command.includes("forward.mjs"),
-  );
-// UserPromptSubmit resets highlights per question; prompt hooks take no matcher
-const entries = {
-  PreToolUse: hook,
-  PostToolUse: hook,
-  UserPromptSubmit: { hooks: [{ type: "command", command }] },
-};
-for (const [event, entry] of Object.entries(entries)) {
-  const list = Array.isArray(settings.hooks[event])
-    ? settings.hooks[event]
-    : [];
-  settings.hooks[event] = [...list.filter((h) => !referencesForward(h)), entry];
-}
+settings = mergeHooks(settings, command);
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log(`hooks installed -> ${settingsPath}`);
