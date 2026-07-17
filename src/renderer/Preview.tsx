@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderNote } from "./markdown";
+import type { Workspace } from "../shared/types";
 
 type PreviewProps = {
   nodeId: string;
+  workspace: Workspace;
   resolveLink: (target: string) => string | null;
   onNavigate: (nodeId: string) => void;
   onClose: () => void;
@@ -10,33 +12,39 @@ type PreviewProps = {
 
 export default function Preview({
   nodeId,
+  workspace,
   resolveLink,
   onNavigate,
   onClose,
 }: PreviewProps) {
   const [html, setHtml] = useState("");
+  const [text, setText] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let stale = false;
-    window.jarvis.readNote(nodeId).then(async (md) => {
+    window.jarvis.readNote(workspace.id, nodeId).then(async (md) => {
       // ponytail: no sanitizer — it's the user's own vault in a sandboxed
       // renderer; add DOMPurify if untrusted vaults ever become a thing
       const rendered =
         md === null
           ? "<em>file not found</em>"
-          : await renderNote(md, {
-              resolveLink,
-              loadNote: window.jarvis.readNote,
-            });
+          : workspace.kind === "code"
+            ? null // code mode renders plain text below, not markdown
+            : await renderNote(md, {
+                resolveLink,
+                loadNote: (id: string) =>
+                  window.jarvis.readNote(workspace.id, id),
+              });
       if (stale) return;
-      setHtml(rendered);
+      setText(workspace.kind === "code" ? md : null);
+      setHtml(rendered ?? "");
       panelRef.current?.scrollTo(0, 0); // wikilink nav starts at the top
     });
     return () => {
       stale = true;
     };
-  }, [nodeId, resolveLink]);
+  }, [nodeId, workspace, resolveLink]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -67,11 +75,17 @@ export default function Preview({
           ✕
         </button>
       </div>
-      <div
-        className="preview-body"
-        onClick={onBodyClick}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {text !== null ? (
+        <pre className="overflow-x-auto whitespace-pre p-4 text-[12px] leading-relaxed">
+          {text}
+        </pre>
+      ) : (
+        <div
+          className="preview-body"
+          onClick={onBodyClick}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
     </div>
   );
 }

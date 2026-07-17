@@ -27,6 +27,7 @@ function render(overrides: Partial<Settings> = {}) {
     onClose: () => {
       calls.closed = true;
     },
+    showSections: true,
   }) as any;
   return { el, calls };
 }

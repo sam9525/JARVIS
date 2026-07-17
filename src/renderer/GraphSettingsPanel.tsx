@@ -17,6 +17,7 @@ type Props = {
   onSettingsChange: (s: Settings) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
   onClose: () => void;
+  showSections: boolean; // code workspaces have no raw/wiki sections
 };
 
 export default function GraphSettingsPanel({
@@ -26,6 +27,7 @@ export default function GraphSettingsPanel({
   onSettingsChange,
   onResetHighlights,
   onClose,
+  showSections,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
     onSettingsChange({ ...settings, ...patch });
@@ -104,13 +106,15 @@ export default function GraphSettingsPanel({
             onChange={(e) => set({ showOrphans: e.target.checked })}
           />
         </label>
-        <div className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-          Sections
-          <SectionToggle
-            value={settings.sectionFilter}
-            onChange={(f) => set({ sectionFilter: f })}
-          />
-        </div>
+        {showSections && (
+          <div className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+            Sections
+            <SectionToggle
+              value={settings.sectionFilter}
+              onChange={(f) => set({ sectionFilter: f })}
+            />
+          </div>
+        )}
       </details>
 
       <details open className="border-t border-edge py-2">

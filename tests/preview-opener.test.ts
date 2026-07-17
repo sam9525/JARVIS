@@ -49,4 +49,22 @@ describe("preview-opener", () => {
     vi.advanceTimersByTime(PREVIEW_QUIET_MS);
     expect(opened).toEqual(["a"]);
   });
+
+  it("cancel() drops a pending open (workspace switch)", () => {
+    vi.useFakeTimers();
+    const open = vi.fn();
+    const opener = createPreviewOpener(open);
+    opener({
+      sessionId: "s",
+      workspaceId: "w1",
+      phase: "pre",
+      tool: "Read",
+      nodeIds: ["a"],
+      ts: 0,
+    });
+    opener.cancel();
+    vi.advanceTimersByTime(10_000);
+    expect(open).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });

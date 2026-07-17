@@ -9,15 +9,23 @@ import Graph from "./Graph";
 import Graph3D from "./Graph3D";
 import Preview from "./Preview";
 import GraphSettingsPanel from "./GraphSettingsPanel";
-import { applyEvent, emptyState, resetHighlights } from "./highlight-store";
+import WorkspaceRail from "./WorkspaceRail";
+import {
+  applyEvent,
+  emptyState,
+  resetHighlights,
+  type HighlightState,
+} from "./highlight-store";
 import { filterGraph } from "./graph-filter";
 import { domainsOf } from "./domain-colors";
 import { defaultSettings } from "../shared/types";
 import { createPreviewOpener } from "./preview-opener";
-import type { Settings, VaultGraph } from "../shared/types";
+import type { Settings, VaultGraph, Workspace } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
 
 export default function App() {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [active, setActive] = useState<Workspace | null>(null);
   const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
   const [previewNode, setPreviewNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
@@ -29,37 +37,90 @@ export default function App() {
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
+
+  // one highlight store per workspace; Graph reads stateRef.current per frame,
+  // so retargeting .current on switch is all a switch needs
+  const storesRef = useRef(new Map<string, HighlightState>());
   const stateRef = useRef(emptyState());
+  const activeIdRef = useRef<string | null>(null);
+  const graphCacheRef = useRef(new Map<string, VaultGraph>());
+
+  const storeFor = (id: string): HighlightState => {
+    let s = storesRef.current.get(id);
+    if (!s) {
+      s = emptyState();
+      storesRef.current.set(id, s);
+    }
+    return s;
+  };
 
   // debounced auto-open: last-read file after reads go quiet
   const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
 
+  const openWorkspace = useCallback(
+    (ws: Workspace) => {
+      onPreviewEvent.cancel(); // pending open from the old workspace must die
+      setPreviewNode(null);
+      setActive(ws);
+      activeIdRef.current = ws.id;
+      stateRef.current = storeFor(ws.id);
+      const cached = graphCacheRef.current.get(ws.id);
+      if (cached) {
+        setGraph(cached);
+        setLayoutEpoch((n) => n + 1);
+      } else {
+        setGraph({ nodes: [], edges: [] });
+        window.jarvis.getGraph(ws.id).then((g) => {
+          graphCacheRef.current.set(ws.id, g);
+          if (activeIdRef.current === ws.id) {
+            setGraph(g);
+            setLayoutEpoch((n) => n + 1);
+          }
+        });
+      }
+    },
+    [onPreviewEvent],
+  );
+
   useEffect(() => {
-    window.jarvis.getGraph().then(setGraph); // initial pull (Task 1b — no startup race)
+    window.jarvis.getWorkspaces().then((list) => {
+      setWorkspaces(list);
+      if (list.length === 0) return;
+      openWorkspace(list[0]); // vault first
+      const vaultId = list[0].id;
+      // watcher only feeds the vault — cache under its id, show if on screen
+      window.jarvis.onGraph((g) => {
+        graphCacheRef.current.set(vaultId, g);
+        if (activeIdRef.current === vaultId) setGraph(g);
+      });
+    });
     window.jarvis
       .getSettings()
       .then(setSettings)
       .catch(console.error)
       .finally(() => setSettingsReady(true)); // defaults still render on failure
-    window.jarvis.onGraph(setGraph); // watcher updates
     window.jarvis.onToolEvent((e) => {
-      applyEvent(stateRef.current, e, performance.now());
-      onPreviewEvent(e);
+      applyEvent(storeFor(e.workspaceId), e, performance.now());
+      if (e.workspaceId === activeIdRef.current) onPreviewEvent(e);
     });
-  }, [onPreviewEvent]);
+    // registered once — do not re-register on workspace switch
+  }, []);
 
-  // re-scan the vault, clear highlights, and re-settle the layout;
+  // re-scan the active workspace, clear highlights, and re-settle the layout;
   // settings are deliberately untouched
   const refreshGraph = useCallback(() => {
+    const ws = active;
+    if (!ws) return;
     resetHighlights(stateRef.current);
     window.jarvis
-      .rescan()
+      .rescan(ws.id)
       .then((g) => {
+        graphCacheRef.current.set(ws.id, g);
         setGraph(g);
         setLayoutEpoch((n) => n + 1);
       })
       .catch(console.error);
-  }, []);
+  }, [active]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -85,15 +146,17 @@ export default function App() {
       ),
     [graph],
   );
+  // code workspaces have no sections; force "both" so nothing vanishes
   const visible = useMemo(
     () =>
       filterGraph(graph, {
-        sectionFilter: settings.sectionFilter,
+        sectionFilter:
+          active?.kind === "code" ? "both" : settings.sectionFilter,
         search,
         showTags: settings.showTags,
         showOrphans: settings.showOrphans,
       }),
-    [graph, settings, search],
+    [graph, settings, search, active],
   );
 
   const view = settings.views[settings.dimensions];
@@ -126,6 +189,16 @@ export default function App() {
           layoutEpoch={layoutEpoch}
         />
       )}
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId={active?.id ?? null}
+        onSelect={openWorkspace}
+      />
+      {active?.kind === "code" && graph.nodes.length === 0 && (
+        <div className="fixed top-3 left-16 z-10 text-[12px] text-ink-dim">
+          no graph — GitNexus index missing or unreadable for this project
+        </div>
+      )}
       <div className="fixed top-3 right-3 z-10 flex items-center gap-2">
         <button
           className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
@@ -150,11 +223,13 @@ export default function App() {
           onSettingsChange={updateSettings}
           onResetHighlights={() => resetHighlights(stateRef.current)}
           onClose={() => setShowSettings(false)}
+          showSections={active?.kind !== "code"}
         />
       )}
-      {previewNode && (
+      {previewNode && active && (
         <Preview
           nodeId={previewNode}
+          workspace={active}
           resolveLink={resolveLink}
           onNavigate={setPreviewNode}
           onClose={() => setPreviewNode(null)}

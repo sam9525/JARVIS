@@ -94,4 +94,24 @@ describe("highlight-store", () => {
     applyEvent(s, ev({ tool: "Grep", pattern: "x" }), 1000);
     expect(pulseProgress(s, 500)).toBeNull();
   });
+
+  it("stores are independent — events in one workspace never touch another", () => {
+    const a = emptyState();
+    const b = emptyState();
+    applyEvent(
+      a,
+      {
+        sessionId: "s",
+        workspaceId: "wa",
+        phase: "pre",
+        tool: "Read",
+        nodeIds: ["x"],
+        ts: 0,
+      },
+      100,
+    );
+    resetHighlights(a);
+    expect(b.nodes.size).toBe(0);
+    expect(b.rev).toBe(0); // untouched by a's event and reset
+  });
 });
