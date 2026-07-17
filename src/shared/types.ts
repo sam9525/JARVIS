@@ -2,10 +2,11 @@ export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write" | "Prompt";
 
 export interface ToolEvent {
   sessionId: string;
+  workspaceId: string; // which workspace's graph/highlights this event drives
   phase: "pre" | "post";
   tool: ToolName;
-  // vault-relative POSIX path without .md; v1 emits 0 or 1 entries.
-  // Stays an array for Phase 2 multi-file matches — free.
+  // vault: relative POSIX path without .md; code: relative POSIX path with
+  // extension. v1 emits 0 or 1 entries; stays an array for multi-file matches.
   nodeIds: string[];
   pattern?: string; // Grep/Glob only
   ts: number;

@@ -1,12 +1,13 @@
 import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
-import type { ToolEvent } from "../shared/types";
+import type { ToolEvent, Workspace } from "../shared/types";
 
 export const DEFAULT_PORT = 4599;
 
 export function startListener(
   port: number,
   onEvent: (e: ToolEvent) => void,
+  getWorkspaces: () => Workspace[],
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/event") {
@@ -19,7 +20,7 @@ export function startListener(
       res.writeHead(200).end(); // ack immediately — never make Claude Code wait
       let event: ToolEvent | null = null;
       try {
-        event = mapHookEvent(JSON.parse(body) as RawHookEvent);
+        event = mapHookEvent(JSON.parse(body) as RawHookEvent, getWorkspaces());
       } catch {
         // malformed hook payload → ignore
       }

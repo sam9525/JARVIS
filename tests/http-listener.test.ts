@@ -1,10 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import { startListener } from "../src/main/http-listener";
-import type { ToolEvent } from "../src/shared/types";
+import type { ToolEvent, Workspace } from "../src/shared/types";
+import { buildWorkspaces } from "../src/main/workspaces";
+
+const workspaces: Workspace[] = buildWorkspaces("D:\\vault", []);
 
 async function listen(onEvent: (e: ToolEvent) => void) {
-  const server = startListener(0, onEvent);
+  const server = startListener(0, onEvent, () => workspaces);
   await new Promise((r) => server.once("listening", r));
   const { port } = server.address() as AddressInfo;
   return { server, url: `http://127.0.0.1:${port}/event` };

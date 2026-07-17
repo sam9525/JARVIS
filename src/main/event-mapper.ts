@@ -1,5 +1,6 @@
 import path from "node:path";
-import type { ToolEvent } from "../shared/types";
+import type { ToolEvent, Workspace } from "../shared/types";
+import { resolveWorkspace } from "./workspaces";
 
 export interface RawHookEvent {
   session_id?: string;
@@ -7,22 +8,27 @@ export interface RawHookEvent {
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  // tool_response exists on PostToolUse but v1 never reads it (tech-spec lock)
+  // tool_response exists on PostToolUse but is never read (tech-spec lock)
 }
 
-// Emits exactly the three combos the graph reacts to
-// (spec "Pre vs Post → graph reaction" table); everything else → null.
-export function mapHookEvent(raw: RawHookEvent): ToolEvent | null {
+// Emits exactly the combos the graph reacts to; everything else → null.
+// Events route to the workspace whose root is the longest prefix of cwd.
+export function mapHookEvent(
+  raw: RawHookEvent,
+  workspaces: Workspace[],
+): ToolEvent | null {
   if (!raw.session_id || !raw.cwd) return null;
+  const ws = resolveWorkspace(workspaces, raw.cwd);
+  if (!ws) return null; // Claude running somewhere we don't track
+  const common = {
+    sessionId: raw.session_id,
+    workspaceId: ws.id,
+    ts: Date.now(),
+  };
+
   if (raw.hook_event_name === "UserPromptSubmit") {
-    // new question — the renderer resets highlights/trail on this
-    return {
-      sessionId: raw.session_id,
-      phase: "pre",
-      tool: "Prompt",
-      nodeIds: [],
-      ts: Date.now(),
-    };
+    // new question — the renderer resets that workspace's highlights/trail
+    return { ...common, phase: "pre", tool: "Prompt", nodeIds: [] };
   }
   const phase =
     raw.hook_event_name === "PreToolUse"
@@ -32,7 +38,6 @@ export function mapHookEvent(raw: RawHookEvent): ToolEvent | null {
         : null;
   if (!phase) return null;
   const input = raw.tool_input ?? {};
-  const common = { sessionId: raw.session_id, phase, ts: Date.now() };
 
   if (
     phase === "pre" &&
@@ -40,33 +45,42 @@ export function mapHookEvent(raw: RawHookEvent): ToolEvent | null {
   ) {
     return {
       ...common,
+      phase,
       tool: raw.tool_name,
       nodeIds: [],
       pattern: String(input.pattern ?? ""),
     };
   }
   if (phase === "pre" && raw.tool_name === "Read") {
-    const nodeId = toNode(raw.cwd, input.file_path);
-    return nodeId ? { ...common, tool: "Read", nodeIds: [nodeId] } : null;
+    const nodeId = toNode(ws, raw.cwd, input.file_path);
+    return nodeId
+      ? { ...common, phase, tool: "Read", nodeIds: [nodeId] }
+      : null;
   }
   if (
     phase === "post" &&
     (raw.tool_name === "Edit" || raw.tool_name === "Write")
   ) {
-    const nodeId = toNode(raw.cwd, input.file_path);
+    const nodeId = toNode(ws, raw.cwd, input.file_path);
     return nodeId
-      ? { ...common, tool: raw.tool_name, nodeIds: [nodeId] }
+      ? { ...common, phase, tool: raw.tool_name, nodeIds: [nodeId] }
       : null;
   }
   return null;
 }
 
-function toNode(cwd: string, filePath: unknown): string | null {
-  if (typeof filePath !== "string" || !/\.md$/i.test(filePath)) return null;
+// vault: node id = root-relative POSIX path without .md (non-.md → drop).
+// code: node id = root-relative POSIX path, extension kept.
+function toNode(ws: Workspace, cwd: string, filePath: unknown): string | null {
+  if (typeof filePath !== "string") return null;
   const absPath = path.isAbsolute(filePath)
     ? filePath
     : path.resolve(cwd, filePath);
-  const rel = path.relative(cwd, absPath);
+  const rel = path.relative(ws.rootPath, absPath);
   if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // outside workspace
-  return rel.split(path.sep).join("/").replace(/\.md$/i, "");
+  const posix = rel.split(path.sep).join("/");
+  if (ws.kind === "vault") {
+    return /\.md$/i.test(posix) ? posix.replace(/\.md$/i, "") : null;
+  }
+  return posix;
 }
