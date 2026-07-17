@@ -10,6 +10,7 @@ import Graph3D from "./Graph3D";
 import Preview from "./Preview";
 import GraphSettingsPanel from "./GraphSettingsPanel";
 import WorkspaceRail from "./WorkspaceRail";
+import TerminalPanel from "./TerminalPanel";
 import {
   applyEvent,
   emptyState,
@@ -235,6 +236,7 @@ export default function App() {
           onClose={() => setPreviewNode(null)}
         />
       )}
+      {active && <TerminalPanel workspace={active} />}
     </>
   );
 }
