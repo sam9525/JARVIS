@@ -225,18 +225,21 @@
     font-size: 0.85em;
   }
 
-  /* syntax-highlighted code preview (Shiki dark-plus). Shiki emits
-     <pre class="shiki dark-plus" style="background:…;color:…">; lines scroll
-     horizontally rather than wrap so code alignment is preserved. */
+  /* syntax-highlighted code preview (Shiki dark-plus). Shiki sets its own
+     theme background as an inline style on <pre> — override it (needs
+     !important to beat an inline style) so the panel's own background
+     shows through instead of Shiki's separate dark box. Token colors stay
+     untouched: those are per-<span> inline styles, this only targets <pre>. */
   .code-preview pre.shiki {
     margin: 0;
     padding: 12px;
     border-radius: 6px;
-    overflow-x: auto;
     font-size: 12px;
     line-height: 1.5;
     font-family: Consolas, "Courier New", monospace;
-    white-space: pre;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background-color: transparent !important;
   }
   .code-preview pre.shiki code {
     white-space: inherit;
