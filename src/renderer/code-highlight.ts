@@ -61,14 +61,38 @@ function getHighlighter(): Promise<Highlighter> {
   return highlighterPromise;
 }
 
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (m) => {
+    switch (m) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return m;
+    }
+  });
+}
+
 export async function highlightCode(
   code: string,
   path: string,
 ): Promise<string> {
-  const lang = langForPath(path) ?? "text"; // "text" is a special always-loaded lang
-  const hl = await getHighlighter();
-  if (lang !== "text" && !hl.getLoadedLanguages().includes(lang)) {
-    await hl.loadLanguage(lang as BundledLanguage);
+  try {
+    const lang = langForPath(path) ?? "text"; // "text" is a special always-loaded lang
+    const hl = await getHighlighter();
+    if (lang !== "text" && !hl.getLoadedLanguages().includes(lang)) {
+      await hl.loadLanguage(lang as BundledLanguage);
+    }
+    return hl.codeToHtml(code, { lang, theme: THEME });
+  } catch (error) {
+    const escaped = escapeHtml(code);
+    return `<pre class="shiki dark-plus" style="background-color:#1e1e1e;color:#d4d4d4;"><code>${escaped}</code></pre>`;
   }
-  return hl.codeToHtml(code, { lang, theme: THEME });
 }

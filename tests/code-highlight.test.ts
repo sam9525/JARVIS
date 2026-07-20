@@ -1,5 +1,27 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { langForPath, highlightCode } from "../src/renderer/code-highlight";
+
+let mockShouldThrow = false;
+
+vi.mock("shiki", async (importOriginal) => {
+  const original = await importOriginal<typeof import("shiki")>();
+  return {
+    ...original,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createHighlighter: async (options: any) => {
+      const hl = await original.createHighlighter(options);
+      const originalCodeToHtml = hl.codeToHtml.bind(hl);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      hl.codeToHtml = (code: string, opt: any) => {
+        if (mockShouldThrow) {
+          throw new Error("Simulated Shiki runtime error");
+        }
+        return originalCodeToHtml(code, opt);
+      };
+      return hl;
+    },
+  };
+});
 
 describe("langForPath", () => {
   it("maps TypeScript / JavaScript family extensions", () => {
@@ -73,4 +95,20 @@ describe("highlightCode", () => {
     expect(html).toContain("shiki");
     expect(html).toContain("some random data");
   });
+
+  it("never throws and returns fallback HTML if highlighter throws", async () => {
+    mockShouldThrow = true;
+    const code = 'const x = "hello" & "world"; <tag>';
+    const html = await highlightCode(code, "test.ts");
+    expect(html).toContain("pre");
+    expect(html).toContain("shiki");
+    expect(html).toContain("dark-plus");
+    expect(html).toContain(
+      "const x = &quot;hello&quot; &amp; &quot;world&quot;; &lt;tag&gt;",
+    );
+  });
+});
+
+afterEach(() => {
+  mockShouldThrow = false;
 });
