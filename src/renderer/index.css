@@ -224,4 +224,22 @@
     padding: 0 6px;
     font-size: 0.85em;
   }
+
+  /* syntax-highlighted code preview (Shiki dark-plus). Shiki emits
+     <pre class="shiki dark-plus" style="background:…;color:…">; lines scroll
+     horizontally rather than wrap so code alignment is preserved. */
+  .code-preview pre.shiki {
+    margin: 0;
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+    line-height: 1.5;
+    font-family: Consolas, "Courier New", monospace;
+    white-space: pre;
+  }
+  .code-preview pre.shiki code {
+    white-space: inherit;
+    font-family: inherit;
+  }
 }

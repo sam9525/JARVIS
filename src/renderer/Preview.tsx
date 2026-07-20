@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderNote } from "./markdown";
+import { highlightCode } from "./code-highlight";
 import type { Workspace } from "../shared/types";
 
 type PreviewProps = {
@@ -18,27 +19,27 @@ export default function Preview({
   onClose,
 }: PreviewProps) {
   const [html, setHtml] = useState("");
-  const [text, setText] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const isCode = workspace.kind === "code";
 
   useEffect(() => {
     let stale = false;
     window.jarvis.readNote(workspace.id, nodeId).then(async (md) => {
-      // ponytail: no sanitizer — it's the user's own vault in a sandboxed
-      // renderer; add DOMPurify if untrusted vaults ever become a thing
-      const rendered =
-        md === null
-          ? "<em>file not found</em>"
-          : workspace.kind === "code"
-            ? null // code mode renders plain text below, not markdown
-            : await renderNote(md, {
-                resolveLink,
-                loadNote: (id: string) =>
-                  window.jarvis.readNote(workspace.id, id),
-              });
+      // ponytail: no sanitizer — it's the user's own vault/repo in a sandboxed
+      // renderer; add DOMPurify if untrusted sources ever become a thing
+      let rendered: string;
+      if (md === null) {
+        rendered = "<em>file not found</em>";
+      } else if (workspace.kind === "code") {
+        rendered = await highlightCode(md, nodeId);
+      } else {
+        rendered = await renderNote(md, {
+          resolveLink,
+          loadNote: (id: string) => window.jarvis.readNote(workspace.id, id),
+        });
+      }
       if (stale) return;
-      setText(workspace.kind === "code" ? md : null);
-      setHtml(rendered ?? "");
+      setHtml(rendered);
       panelRef.current?.scrollTo(0, 0); // wikilink nav starts at the top
     });
     return () => {
@@ -75,10 +76,11 @@ export default function Preview({
           ✕
         </button>
       </div>
-      {text !== null ? (
-        <pre className="overflow-x-auto whitespace-pre p-4 text-[12px] leading-relaxed">
-          {text}
-        </pre>
+      {isCode ? (
+        <div
+          className="code-preview"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       ) : (
         <div
           className="preview-body"
