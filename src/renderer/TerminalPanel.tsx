@@ -50,7 +50,7 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [statuses, setStatuses] = useState<Record<string, Status>>({});
   const [width, setWidth] = useState(480);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const status: Status = statuses[workspace.id] ?? { kind: "idle" };
 
   useEffect(() => {
