@@ -106,6 +106,8 @@ type GraphProps = {
   focusNode: string | null; // aim the camera at this node
   layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
   rotationPaused: boolean; // preview open — no auto-rotation
+  width: number; // measured graph-slot size from GraphSlot's ResizeObserver
+  height: number;
 };
 
 export default function Graph3D({
@@ -119,6 +121,8 @@ export default function Graph3D({
   focusNode,
   layoutEpoch,
   rotationPaused,
+  width,
+  height,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
@@ -280,24 +284,11 @@ export default function Graph3D({
     const len = Math.hypot(dx, dy, dz);
     if (len < 1e-6) return; // camera already on the node — nothing sensible to do
     const s = display.focusZoom / len;
-    const px = nx + dx * s;
-    const py = ny + dy * s;
-    const pz = nz + dz * s;
-    // camera-right at the new position; screen px → world units at the
-    // node's distance via the vertical FOV
-    const dir = new Vector3(nx - px, ny - py, nz - pz).normalize();
-    const right = new Vector3().crossVectors(dir, cam.up);
-    if (right.lengthSq() < 1e-6) right.set(1, 0, 0); // looking straight along up
-    right.normalize();
-    const fov = (cam as { fov?: number }).fov ?? 50;
-    const worldPerPx =
-      (2 * display.focusZoom * Math.tan((fov * Math.PI) / 360)) /
-      window.innerHeight;
-    const panel = Math.min(560, window.innerWidth * 0.4); // matches CSS width
-    const off = (panel / 2) * worldPerPx;
+    // preview is a layout sibling now, so the slot already excludes it —
+    // look straight at the node with no camera-right screen-space offset
     fgRef.current?.cameraPosition(
-      { x: px, y: py, z: pz },
-      { x: nx - right.x * off, y: ny - right.y * off, z: nz - right.z * off },
+      { x: nx + dx * s, y: ny + dy * s, z: nz + dz * s },
+      { x: nx, y: ny, z: nz },
       1600,
     );
   }, [focusNode, nodeById, display.focusZoom]);
@@ -339,7 +330,6 @@ export default function Graph3D({
     controls.addEventListener("end", armRotate); // released — rotate in 5s
     armRotate(); // initial load counts as an interaction
     rotationCtl.current = { stop: stopRotate, arm: armRotate };
-    linkMaterial.resolution.set(window.innerWidth, window.innerHeight);
     linkMaterial.linewidth = display.linkThickness * 2;
     return () => {
       controls.removeEventListener("start", stopRotate);
@@ -347,6 +337,12 @@ export default function Graph3D({
       clearTimeout(timer);
     };
   }, []);
+
+  // keep the line material's resolution matched to the canvas so screen-space
+  // linewidth stays correct across resizes (panel open/close, window resize)
+  useEffect(() => {
+    linkMaterial.resolution.set(width, height);
+  }, [width, height, linkMaterial]);
 
   // preview open ⇒ stop now and stay stopped; close ⇒ normal idle re-arm
   useEffect(() => {
@@ -588,6 +584,8 @@ export default function Graph3D({
     <ForceGraph3D
       ref={fgRef}
       graphData={data}
+      width={width}
+      height={height}
       backgroundColor={COLORS.bg}
       controlType="orbit"
       nodeResolution={16}

@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import Graph from "./Graph";
 import Graph3D from "./Graph3D";
+import GraphSlot from "./GraphSlot";
 import Preview from "./Preview";
 import GraphSettingsPanel from "./GraphSettingsPanel";
 import WorkspaceRail from "./WorkspaceRail";
@@ -170,38 +171,56 @@ export default function App() {
   const view = settings.views[settings.dimensions];
 
   return (
-    <>
-      {!settingsReady ? null : settings.dimensions === "3d" ? (
-        <Graph3D
-          graph={visible}
-          domains={domains}
-          groups={settings.groups}
-          display={view.display}
-          forces={view.forces}
-          stateRef={stateRef}
-          onNodeClick={setPreviewNode}
-          focusNode={previewNode}
-          layoutEpoch={layoutEpoch}
-          rotationPaused={previewNode !== null}
-        />
-      ) : (
-        <Graph
-          graph={visible}
-          domains={domains}
-          groups={settings.groups}
-          display={view.display}
-          forces={view.forces}
-          stateRef={stateRef}
-          onNodeClick={setPreviewNode}
-          focusNode={previewNode}
-          layoutEpoch={layoutEpoch}
-        />
-      )}
+    <div className="flex h-full w-full">
       <WorkspaceRail
         workspaces={workspaces}
         activeId={active?.id ?? null}
         onSelect={openWorkspace}
       />
+      {previewNode && active && (
+        <Preview
+          nodeId={previewNode}
+          workspace={active}
+          resolveLink={resolveLink}
+          onNavigate={setPreviewNode}
+          onClose={() => setPreviewNode(null)}
+        />
+      )}
+      <GraphSlot>
+        {({ width, height }) =>
+          !settingsReady ? null : settings.dimensions === "3d" ? (
+            <Graph3D
+              graph={visible}
+              domains={domains}
+              groups={settings.groups}
+              display={view.display}
+              forces={view.forces}
+              stateRef={stateRef}
+              onNodeClick={setPreviewNode}
+              focusNode={previewNode}
+              layoutEpoch={layoutEpoch}
+              rotationPaused={previewNode !== null}
+              width={width}
+              height={height}
+            />
+          ) : (
+            <Graph
+              graph={visible}
+              domains={domains}
+              groups={settings.groups}
+              display={view.display}
+              forces={view.forces}
+              stateRef={stateRef}
+              onNodeClick={setPreviewNode}
+              focusNode={previewNode}
+              layoutEpoch={layoutEpoch}
+              width={width}
+              height={height}
+            />
+          )
+        }
+      </GraphSlot>
+      {active && <TerminalPanel workspace={active} />}
       {active?.kind === "code" && !graphLoading && graph.nodes.length === 0 && (
         <div className="fixed top-3 left-16 z-10 text-[12px] text-ink-dim">
           no graph — GitNexus index missing or unreadable for this project
@@ -234,16 +253,6 @@ export default function App() {
           showSections={active?.kind !== "code"}
         />
       )}
-      {previewNode && active && (
-        <Preview
-          nodeId={previewNode}
-          workspace={active}
-          resolveLink={resolveLink}
-          onNavigate={setPreviewNode}
-          onClose={() => setPreviewNode(null)}
-        />
-      )}
-      {active && <TerminalPanel workspace={active} />}
-    </>
+    </div>
   );
 }

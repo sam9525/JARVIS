@@ -15,7 +15,7 @@ export default function WorkspaceRail({
   onSelect,
 }: WorkspaceRailProps) {
   return (
-    <div className="fixed top-0 bottom-0 left-0 z-20 flex w-12 flex-col items-center gap-2 border-r border-edge bg-panel pt-3">
+    <div className="flex w-12 flex-none flex-col items-center gap-2 border-r border-edge bg-panel pt-3">
       {workspaces.map((ws) => (
         <button
           key={ws.id}
