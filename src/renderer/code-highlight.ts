@@ -1,4 +1,4 @@
-import { createHighlighter } from "shiki";
+import { createHighlighter, createJavaScriptRegexEngine } from "shiki";
 import type { BundledLanguage, Highlighter } from "shiki";
 
 const THEME = "dark-plus";
@@ -56,7 +56,15 @@ let highlighterPromise: Promise<Highlighter> | null = null;
 
 function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({ themes: [THEME], langs: [] });
+    // shiki's default engine loads a WASM oniguruma binary, which the
+    // renderer's CSP (script-src 'self', no 'wasm-unsafe-eval') silently
+    // blocks — falling through to the colorless fallback below. The JS
+    // regex engine gets the same grammars with no WASM involved.
+    highlighterPromise = createHighlighter({
+      themes: [THEME],
+      langs: [],
+      engine: createJavaScriptRegexEngine(),
+    });
   }
   return highlighterPromise;
 }

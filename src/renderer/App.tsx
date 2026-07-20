@@ -187,61 +187,70 @@ export default function App() {
         />
       )}
       <GraphSlot>
-        {({ width, height }) =>
-          !settingsReady ? null : settings.dimensions === "3d" ? (
-            <Graph3D
-              graph={visible}
-              domains={domains}
-              groups={settings.groups}
-              display={view.display}
-              forces={view.forces}
-              stateRef={stateRef}
-              onNodeClick={setPreviewNode}
-              focusNode={previewNode}
-              layoutEpoch={layoutEpoch}
-              rotationPaused={previewNode !== null}
-              width={width}
-              height={height}
-            />
-          ) : (
-            <Graph
-              graph={visible}
-              domains={domains}
-              groups={settings.groups}
-              display={view.display}
-              forces={view.forces}
-              stateRef={stateRef}
-              onNodeClick={setPreviewNode}
-              focusNode={previewNode}
-              layoutEpoch={layoutEpoch}
-              width={width}
-              height={height}
-            />
-          )
-        }
+        {({ width, height }) => (
+          <>
+            {!settingsReady ? null : settings.dimensions === "3d" ? (
+              <Graph3D
+                graph={visible}
+                domains={domains}
+                groups={settings.groups}
+                display={view.display}
+                forces={view.forces}
+                stateRef={stateRef}
+                onNodeClick={setPreviewNode}
+                focusNode={previewNode}
+                layoutEpoch={layoutEpoch}
+                rotationPaused={previewNode !== null}
+                width={width}
+                height={height}
+              />
+            ) : (
+              <Graph
+                graph={visible}
+                domains={domains}
+                groups={settings.groups}
+                display={view.display}
+                forces={view.forces}
+                stateRef={stateRef}
+                onNodeClick={setPreviewNode}
+                focusNode={previewNode}
+                layoutEpoch={layoutEpoch}
+                width={width}
+                height={height}
+              />
+            )}
+            {active?.kind === "code" &&
+              !graphLoading &&
+              graph.nodes.length === 0 && (
+                <div className="absolute top-3 left-3 z-10 text-[12px] text-ink-dim">
+                  no graph — GitNexus index missing or unreadable for this
+                  project
+                </div>
+              )}
+            {/* absolute within the graph slot, not fixed to the viewport —
+                so this sits at the slot's own right edge (left of the
+                terminal panel, whatever its current width) instead of
+                overlapping the terminal when it's open */}
+            <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+              <button
+                className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+                title="Refresh graph (F5)"
+                onClick={refreshGraph}
+              >
+                ↻
+              </button>
+              <button
+                className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+                title="Graph settings"
+                onClick={() => setShowSettings((v) => !v)}
+              >
+                ⚙
+              </button>
+            </div>
+          </>
+        )}
       </GraphSlot>
       {active && <TerminalPanel workspace={active} />}
-      {active?.kind === "code" && !graphLoading && graph.nodes.length === 0 && (
-        <div className="fixed top-3 left-16 z-10 text-[12px] text-ink-dim">
-          no graph — GitNexus index missing or unreadable for this project
-        </div>
-      )}
-      <div className="fixed top-3 right-3 z-10 flex items-center gap-2">
-        <button
-          className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
-          title="Refresh graph (F5)"
-          onClick={refreshGraph}
-        >
-          ↻
-        </button>
-        <button
-          className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
-          title="Graph settings"
-          onClick={() => setShowSettings((v) => !v)}
-        >
-          ⚙
-        </button>
-      </div>
       {showSettings && (
         <GraphSettingsPanel
           settings={settings}
