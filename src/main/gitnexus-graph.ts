@@ -42,9 +42,16 @@ export function buildCodeGraph(
   };
 }
 
+// registry.json is hand-editable, so the name is untrusted input for the
+// quoted argument below. Matches what gitnexus actually allows in a repo name.
+const SAFE_REPO_NAME = /^[\w.@-]+$/;
+
 function runCypher(repoName: string, query: string): Promise<string> {
   // exec (not execFile): `gitnexus` is a .cmd shim on Windows, which needs a
-  // shell. repoName/query contain no double quotes — safe to wrap.
+  // shell — so the name has to be validated rather than passed as an argv entry.
+  if (!SAFE_REPO_NAME.test(repoName)) {
+    return Promise.reject(new Error(`unsafe repo name: ${repoName}`));
+  }
   const cmd = `gitnexus cypher -r "${repoName}" "${query}"`;
   return new Promise((resolve, reject) => {
     exec(

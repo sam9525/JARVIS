@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildCodeGraph, parseCypherTable } from "../src/main/gitnexus-graph";
+import {
+  buildCodeGraph,
+  loadCodeGraph,
+  parseCypherTable,
+} from "../src/main/gitnexus-graph";
 
 const fixture = (name: string) =>
   readFileSync(path.join(__dirname, "fixtures", "gitnexus", name), "utf8");
@@ -48,5 +52,18 @@ describe("buildCodeGraph", () => {
       { id: "root.ts", type: "note", domain: "." },
     ]);
     expect(g.edges).toEqual([{ source: "src/a.ts", target: "src/b.ts" }]);
+  });
+});
+
+describe("loadCodeGraph", () => {
+  it("rejects a repo name that could break out of the quoted shell argument", async () => {
+    // registry.json is user-editable; this must fail before exec is reached
+    await expect(loadCodeGraph('a" & echo pwned "')).rejects.toThrow(
+      "unsafe repo name",
+    );
+    await expect(loadCodeGraph("has space")).rejects.toThrow(
+      "unsafe repo name",
+    );
+    await expect(loadCodeGraph("")).rejects.toThrow("unsafe repo name");
   });
 });
