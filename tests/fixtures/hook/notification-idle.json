@@ -1,0 +1,12 @@
+{
+  "session_id": "567afd7d-b628-48fd-8238-dd8ce95205c2",
+  "cwd": "D:\\data\\Program\\JARVIS",
+  "prompt_id": "bf44bde5-23f3-477a-9786-a0c5eb6bb57e",
+  "permission_mode": "default",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "Notification",
+  "notification_type": "idle_prompt",
+  "message": "Awaiting your next prompt"
+}
