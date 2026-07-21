@@ -58,14 +58,15 @@ export function createStatusStore(): StatusStore {
   return {
     applyStatus(ev) {
       const e = entry(ev.workspaceId, ev.ts);
-      if (ev.sessionId !== e.sessionId) {
+      const sessionChanged = ev.sessionId !== e.sessionId;
+      if (sessionChanged) {
         e.sessionId = ev.sessionId;
         resetCounts(e);
       }
       // a permission prompt carries no call of its own; the pending PreToolUse
       // call is exactly what the user needs to see, so keep it
       const call = ev.call || e.call;
-      const changed = e.kind !== ev.kind || e.call !== call;
+      const changed = sessionChanged || e.kind !== ev.kind || e.call !== call;
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
       e.call = call;

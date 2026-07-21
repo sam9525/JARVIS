@@ -72,6 +72,19 @@ describe("status store", () => {
     );
   });
 
+  it("reports change when session changes even if kind and call are identical", () => {
+    const s = createStatusStore();
+    expect(
+      s.applyStatus(ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" })),
+    ).toBe(true);
+    expect(
+      s.applyStatus(ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" })),
+    ).toBe(false);
+    expect(
+      s.applyStatus(ev({ sessionId: "s2", kind: "running", call: "Read(a.ts)" })),
+    ).toBe(true);
+  });
+
   it("counts distinct read and edited files", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "running" }));
