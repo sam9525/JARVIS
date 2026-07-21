@@ -3,6 +3,8 @@ import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods } from "react-force-graph-2d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
 import {
+  expireMatches,
+  matchProgress,
   nodeDisplay,
   pulseProgress,
   type HighlightState,
@@ -227,6 +229,28 @@ export default function Graph({
           ctx.strokeStyle = `rgba(126, 249, 255, ${1 - t})`;
           ctx.lineWidth = 3 / globalScale;
           ctx.stroke();
+        }
+
+        // matched files: a soft ring that fades over MATCH_MS. Drawn here
+        // rather than in nodeCanvasObject so the alpha is a per-frame value
+        // instead of something baked into each node.
+        const mt = matchProgress(stateRef.current, performance.now());
+        if (mt !== null) {
+          ctx.strokeStyle = COLORS.match;
+          ctx.globalAlpha = 1 - mt;
+          ctx.lineWidth = 2 / globalScale;
+          for (const id of stateRef.current.matched) {
+            const n = nodeById.get(id);
+            // filtered-out nodes have no live position — skip
+            if (!n || n.x === undefined || n.y === undefined) continue;
+            const r = (n.r ?? 4) * display.nodeSize;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + 4 / globalScale, 0, 2 * Math.PI);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        } else {
+          expireMatches(stateRef.current, performance.now());
         }
 
         // read-order trail: arrows between consecutively read nodes
