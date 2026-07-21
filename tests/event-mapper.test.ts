@@ -328,6 +328,30 @@ describe("mapHookEvent", () => {
     expect(e?.nodeIds.length).toBeGreaterThan(0);
     expect(e?.nodeIds).toContain("src/renderer/highlight-store.ts");
   });
+
+  // content mode is the shape with no `filenames` — the paths exist only inside
+  // the `content` blob, so pin the exact ids: a drift in Claude Code's output
+  // should fail here loudly rather than quietly highlighting nothing.
+  it("the captured Grep content payload maps to exact node ids", () => {
+    const raw = JSON.parse(
+      readFileSync(
+        path.join(__dirname, "fixtures", "hook", "grep-content.json"),
+        "utf8",
+      ),
+    ) as Parameters<typeof mapHookEvent>[0];
+    const ws = buildWorkspaces("D:\\vault", [
+      { name: "jarvis", path: raw.cwd as string },
+    ]);
+    expect(mapHookEvent(raw, ws)?.nodeIds).toEqual([
+      "src/main/event-mapper.ts",
+      "src/main/http-listener.ts",
+      "src/main/gitnexus-graph.ts",
+      "src/main/pty-manager.ts",
+      "src/main/settings.ts",
+      "src/main/watcher.ts",
+      "src/main/vault-graph.ts",
+    ]);
+  });
 });
 
 describe("multi-workspace routing", () => {
