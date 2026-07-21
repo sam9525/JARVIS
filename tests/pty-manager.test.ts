@@ -51,14 +51,12 @@ describe("pty-manager", () => {
     mgr.launch(ws("a"), 80, 24);
     mgr.launch(ws("a"), 80, 24); // second launch while running = no-op
     expect(spawned).toHaveLength(1);
-    expect(mgr.isRunning("a")).toBe(true);
 
     spawned[0].emitData("hello");
     expect(onData).toHaveBeenCalledWith("a", "hello");
 
     spawned[0].emitExit(0);
     expect(onExit).toHaveBeenCalledWith("a", 0);
-    expect(mgr.isRunning("a")).toBe(false);
 
     mgr.launch(ws("a"), 80, 24); // relaunch after exit spawns again
     expect(spawned).toHaveLength(2);

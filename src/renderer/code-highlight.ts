@@ -64,6 +64,11 @@ function getHighlighter(): Promise<Highlighter> {
       themes: [THEME],
       langs: [],
       engine: createJavaScriptRegexEngine(),
+    }).catch((err) => {
+      // don't memoize a rejection — one bad init would mean colorless
+      // previews for the rest of the session
+      highlighterPromise = null;
+      throw err;
     });
   }
   return highlighterPromise;
@@ -96,6 +101,9 @@ export async function highlightCode(
     const lang = langForPath(path) ?? "text"; // "text" is a special always-loaded lang
     const hl = await getHighlighter();
     if (lang !== "text" && !hl.getLoadedLanguages().includes(lang)) {
+      // dynamic grammar chunk import — unverified under a packaged file://
+      // origin, where CSP 'self' matching is unreliable; the catch below
+      // degrades it to plaintext rather than breaking the preview
       await hl.loadLanguage(lang as BundledLanguage);
     }
     return hl.codeToHtml(code, { lang, theme: THEME });

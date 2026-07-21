@@ -60,9 +60,6 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
     resize(id: string, cols: number, rows: number): void {
       ptys.get(id)?.resize(cols, rows);
     },
-    isRunning(id: string): boolean {
-      return ptys.has(id);
-    },
     killAll(): void {
       for (const p of ptys.values()) p.kill();
       ptys.clear();

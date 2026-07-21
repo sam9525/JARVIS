@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { langForPath, highlightCode } from "../src/renderer/code-highlight";
 
 let mockShouldThrow = false;
+let mockCreateShouldThrow = false;
 
 vi.mock("shiki", async (importOriginal) => {
   const original = await importOriginal<typeof import("shiki")>();
@@ -9,6 +10,9 @@ vi.mock("shiki", async (importOriginal) => {
     ...original,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createHighlighter: async (options: any) => {
+      if (mockCreateShouldThrow) {
+        throw new Error("Simulated Shiki init failure");
+      }
       const hl = await original.createHighlighter(options);
       const originalCodeToHtml = hl.codeToHtml.bind(hl);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,6 +82,17 @@ describe("langForPath", () => {
 });
 
 describe("highlightCode", () => {
+  it("retries the highlighter after a failed init instead of staying plaintext", async () => {
+    mockCreateShouldThrow = true;
+    const first = await highlightCode("const x = 1;", "test.ts");
+    expect(first).toContain("pre"); // fallback, no color
+    expect(first).not.toContain('style="color:');
+
+    mockCreateShouldThrow = false;
+    const second = await highlightCode("const x = 1;", "test.ts");
+    expect(second).toContain('style="color:'); // recovered
+  });
+
   it("highlights code using the matching language grammar", async () => {
     const code = "const x: number = 42;";
     const html = await highlightCode(code, "test.ts");
@@ -111,4 +126,5 @@ describe("highlightCode", () => {
 
 afterEach(() => {
   mockShouldThrow = false;
+  mockCreateShouldThrow = false;
 });

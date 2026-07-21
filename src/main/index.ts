@@ -52,7 +52,9 @@ app.whenReady().then(async () => {
   const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
     ws.kind === "vault"
       ? scanVault(ws.rootPath)
-      : loadCodeGraph(ws.name).catch((err) => {
+      : // keyed by registry name, not path: two registry entries sharing a
+        // name resolve to the same gitnexus index
+        loadCodeGraph(ws.name).catch((err) => {
           // gitnexus missing/format drift → terminal-only workspace, no crash
           console.error(`code graph failed for ${ws.name}:`, err);
           return { nodes: [], edges: [] };
