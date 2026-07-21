@@ -35,6 +35,15 @@ function render(el: any) {
 
 function walk(node: any, fn: (n: any) => boolean): any {
   if (!node || typeof node !== "object") return null;
+  // a mapped list sits inside its parent's children as a nested array, so an
+  // array is a node to descend into, never a node to match
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = walk(item, fn);
+      if (found) return found;
+    }
+    return null;
+  }
   if (fn(node)) return node;
   const children = node.props?.children;
   if (Array.isArray(children)) {

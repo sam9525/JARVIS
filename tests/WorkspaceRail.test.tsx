@@ -31,6 +31,15 @@ function render(el: any) {
 
 function walk(node: any, fn: (n: any) => boolean): any {
   if (!node || typeof node !== "object") return null;
+  // a mapped list sits inside its parent's children as a nested array, so an
+  // array is a node to descend into, never a node to match
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = walk(item, fn);
+      if (found) return found;
+    }
+    return null;
+  }
   if (fn(node)) return node;
   const children = node.props?.children;
   if (Array.isArray(children)) {
@@ -94,6 +103,8 @@ describe("WorkspaceRail badges", () => {
           status({ workspaceId: "w1", kind: "running" }),
           status({ workspaceId: "w2", kind: "waiting" }),
         ]}
+        homeActive={false}
+        onHome={() => {}}
         onSelect={() => {}}
       />,
     );
@@ -107,6 +118,8 @@ describe("WorkspaceRail badges", () => {
         workspaces={workspaces}
         activeId="w1"
         statuses={[status({ workspaceId: "w1", kind: "none" })]}
+        homeActive={false}
+        onHome={() => {}}
         onSelect={() => {}}
       />,
     );
@@ -119,6 +132,8 @@ describe("WorkspaceRail badges", () => {
         workspaces={workspaces}
         activeId="w1"
         statuses={[]}
+        homeActive={false}
+        onHome={() => {}}
         onSelect={() => {}}
       />,
     );
@@ -137,11 +152,53 @@ describe("WorkspaceRail badges", () => {
             call: "Bash(npm test)",
           }),
         ]}
+        homeActive={false}
+        onHome={() => {}}
         onSelect={() => {}}
       />,
     );
     expect(
       screen.getByTitle(/waiting on you — Bash\(npm test\)/i),
     ).toBeTruthy();
+  });
+
+  it("renders a home button that fires onHome", () => {
+    let fired = false;
+    render(
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId="w1"
+        statuses={[]}
+        homeActive={false}
+        onHome={() => {
+          fired = true;
+        }}
+        onSelect={() => {}}
+      />,
+    );
+    screen.getByTestId("rail-home").props.onClick();
+    expect(fired).toBe(true);
+  });
+
+  it("marks the home button active and no workspace active when home is open", () => {
+    render(
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId="w1"
+        statuses={[]}
+        homeActive={true}
+        onHome={() => {}}
+        onSelect={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("rail-home").className).toContain(
+      "border-accent",
+    );
+    // the open workspace must not also look selected while home is showing.
+    // Checking for the inactive class, not the absence of "border-accent" —
+    // every button carries "hover:border-accent" and would match a substring.
+    expect(screen.getByTitle(/^vault/).props.className).toContain(
+      "border-edge",
+    );
   });
 });

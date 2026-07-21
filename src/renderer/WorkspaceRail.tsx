@@ -5,6 +5,8 @@ type WorkspaceRailProps = {
   workspaces: Workspace[];
   activeId: string | null;
   statuses: WorkspaceStatus[];
+  homeActive: boolean;
+  onHome: () => void;
   onSelect: (ws: Workspace) => void;
 };
 
@@ -30,11 +32,26 @@ export default function WorkspaceRail({
   workspaces,
   activeId,
   statuses,
+  homeActive,
+  onHome,
   onSelect,
 }: WorkspaceRailProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
   return (
     <div className="flex w-12 flex-none flex-col items-center gap-2 border-r border-edge bg-panel pt-3">
+      <button
+        data-testid="rail-home"
+        title="Mission control — all workspaces"
+        onClick={onHome}
+        className={
+          "mb-1 h-9 w-9 cursor-pointer rounded-lg border text-[13px] transition-colors " +
+          (homeActive
+            ? "border-accent text-accent"
+            : "border-edge text-ink-dim hover:border-accent hover:text-accent")
+        }
+      >
+        ⌂
+      </button>
       {workspaces.map((ws) => {
         const st = byId.get(ws.id);
         const badge = st ? BADGE[st.kind] : null;
@@ -49,7 +66,7 @@ export default function WorkspaceRail({
             onClick={() => onSelect(ws)}
             className={
               "relative h-9 w-9 cursor-pointer rounded-lg border text-[11px] uppercase transition-colors " +
-              (ws.id === activeId
+              (!homeActive && ws.id === activeId
                 ? "border-accent text-accent"
                 : "border-edge text-ink-dim hover:border-accent hover:text-accent")
             }

@@ -11,6 +11,7 @@ import GraphSlot from "./GraphSlot";
 import Preview from "./Preview";
 import GraphSettingsPanel from "./GraphSettingsPanel";
 import WorkspaceRail from "./WorkspaceRail";
+import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
 import {
   applyEvent,
@@ -48,6 +49,11 @@ export default function App() {
   // true while getGraph is in flight, so the "no graph" notice doesn't flash
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
+  const [showHome, setShowHome] = useState(false);
+  const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
+  // MissionControl is hook-free so it stays testable without a DOM — the
+  // clock that keeps its "40s ago" honest therefore lives here.
+  const [cardNow, setCardNow] = useState(() => Date.now());
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
   // so retargeting .current on switch is all a switch needs
@@ -121,6 +127,41 @@ export default function App() {
     // registered once — do not re-register on workspace switch
   }, []);
 
+  // Card graphs load one at a time, reusing whatever normal use already
+  // cached. Cards render their frame and status immediately and fill in.
+  useEffect(() => {
+    if (!showHome) return;
+    let cancelled = false;
+    (async () => {
+      for (const ws of workspaces) {
+        if (cancelled) return;
+        try {
+          const cached = graphCacheRef.current.get(ws.id);
+          const g = cached ?? (await window.jarvis.getGraph(ws.id));
+          if (cancelled) return;
+          graphCacheRef.current.set(ws.id, g);
+          setCardGraphs((prev) => new Map(prev).set(ws.id, g));
+        } catch (err) {
+          // one unreadable GitNexus index must not stop the remaining cards
+          // from loading — that card simply keeps its empty canvas
+          console.error("card graph failed for", ws.id, err);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showHome, workspaces]);
+
+  // status pushes are the usual repaint trigger, but an all-idle fleet would
+  // otherwise freeze every card's age at whatever it read when home opened
+  useEffect(() => {
+    if (!showHome) return;
+    const id = setInterval(() => setCardNow(Date.now()), 15000);
+    setCardNow(Date.now());
+    return () => clearInterval(id);
+  }, [showHome]);
+
   // re-scan the active workspace, clear highlights, and re-settle the layout;
   // settings are deliberately untouched
   const refreshGraph = useCallback(() => {
@@ -183,9 +224,14 @@ export default function App() {
         workspaces={workspaces}
         activeId={active?.id ?? null}
         statuses={statuses}
-        onSelect={openWorkspace}
+        homeActive={showHome}
+        onHome={() => setShowHome(true)}
+        onSelect={(ws) => {
+          setShowHome(false);
+          openWorkspace(ws);
+        }}
       />
-      {previewNode && active && (
+      {!showHome && previewNode && active && (
         <Preview
           nodeId={previewNode}
           workspace={active}
@@ -195,68 +241,82 @@ export default function App() {
         />
       )}
       <GraphSlot>
-        {({ width, height }) => (
-          <>
-            {!settingsReady ? null : settings.dimensions === "3d" ? (
-              <Graph3D
-                graph={visible}
-                domains={domains}
-                groups={settings.groups}
-                display={view.display}
-                forces={view.forces}
-                stateRef={stateRef}
-                onNodeClick={setPreviewNode}
-                focusNode={previewNode}
-                layoutEpoch={layoutEpoch}
-                rotationPaused={previewNode !== null}
-                width={width}
-                height={height}
-              />
-            ) : (
-              <Graph
-                graph={visible}
-                domains={domains}
-                groups={settings.groups}
-                display={view.display}
-                forces={view.forces}
-                stateRef={stateRef}
-                onNodeClick={setPreviewNode}
-                focusNode={previewNode}
-                layoutEpoch={layoutEpoch}
-                width={width}
-                height={height}
-              />
-            )}
-            {active?.kind === "code" &&
-              !graphLoading &&
-              graph.nodes.length === 0 && (
-                <div className="absolute top-3 left-3 z-10 text-[12px] text-ink-dim">
-                  no graph — GitNexus index missing or unreadable for this
-                  project
-                </div>
+        {({ width, height }) =>
+          showHome ? (
+            <MissionControl
+              workspaces={workspaces}
+              statuses={statuses}
+              graphs={cardGraphs}
+              getStore={storeFor}
+              now={cardNow}
+              onSelect={(ws) => {
+                setShowHome(false);
+                openWorkspace(ws);
+              }}
+            />
+          ) : (
+            <>
+              {!settingsReady ? null : settings.dimensions === "3d" ? (
+                <Graph3D
+                  graph={visible}
+                  domains={domains}
+                  groups={settings.groups}
+                  display={view.display}
+                  forces={view.forces}
+                  stateRef={stateRef}
+                  onNodeClick={setPreviewNode}
+                  focusNode={previewNode}
+                  layoutEpoch={layoutEpoch}
+                  rotationPaused={previewNode !== null}
+                  width={width}
+                  height={height}
+                />
+              ) : (
+                <Graph
+                  graph={visible}
+                  domains={domains}
+                  groups={settings.groups}
+                  display={view.display}
+                  forces={view.forces}
+                  stateRef={stateRef}
+                  onNodeClick={setPreviewNode}
+                  focusNode={previewNode}
+                  layoutEpoch={layoutEpoch}
+                  width={width}
+                  height={height}
+                />
               )}
-            {/* absolute within the graph slot, not fixed to the viewport —
+              {active?.kind === "code" &&
+                !graphLoading &&
+                graph.nodes.length === 0 && (
+                  <div className="absolute top-3 left-3 z-10 text-[12px] text-ink-dim">
+                    no graph — GitNexus index missing or unreadable for this
+                    project
+                  </div>
+                )}
+              {/* absolute within the graph slot, not fixed to the viewport —
                 so this sits at the slot's own right edge (left of the
                 terminal panel, whatever its current width) instead of
                 overlapping the terminal when it's open */}
-            <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-              <button
-                className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
-                title="Refresh graph (F5)"
-                onClick={refreshGraph}
-              >
-                ↻
-              </button>
-              <button
-                className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
-                title="Graph settings"
-                onClick={() => setShowSettings((v) => !v)}
-              >
-                ⚙
-              </button>
-            </div>
-          </>
-        )}
+              <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+                <button
+                  className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+                  title="Refresh graph (F5)"
+                  onClick={refreshGraph}
+                >
+                  ↻
+                </button>
+                <button
+                  className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+                  title="Graph settings"
+                  onClick={() => setShowSettings((v) => !v)}
+                >
+                  ⚙
+                </button>
+              </div>
+            </>
+          )
+        }
       </GraphSlot>
       {active && <TerminalPanel workspace={active} />}
       {showSettings && (
