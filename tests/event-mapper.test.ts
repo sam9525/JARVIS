@@ -319,9 +319,14 @@ describe("mapHookEvent", () => {
         "utf8",
       ),
     ) as Parameters<typeof mapHookEvent>[0];
-    const ws = buildWorkspaces(raw.cwd as string, []);
+    // the capture came from this repo, so register it as a CODE workspace —
+    // as a vault it would (correctly) drop every non-.md path and match nothing
+    const ws = buildWorkspaces("D:\\vault", [
+      { name: "jarvis", path: raw.cwd as string },
+    ]);
     const e = mapHookEvent(raw, ws);
     expect(e?.nodeIds.length).toBeGreaterThan(0);
+    expect(e?.nodeIds).toContain("src/renderer/highlight-store.ts");
   });
 });
 
