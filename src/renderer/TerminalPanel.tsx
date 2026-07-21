@@ -63,17 +63,26 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
     };
   }, []);
 
-  // attach the active workspace's terminal element to the panel
+  // Attach the active workspace's terminal element to the panel and keep the
+  // pty's cols/rows in step with it. One ResizeObserver covers all three ways
+  // the element can change size — window resize, splitter drag, collapse —
+  // which is why `width` is deliberately not a dependency here.
   useEffect(() => {
     if (collapsed) return;
     const host = hostRef.current;
     if (!host) return;
     const e = entryFor(workspace.id);
     host.replaceChildren(e.el);
-    e.fit.fit();
-    window.jarvis.ptyResize(workspace.id, e.term.cols, e.term.rows);
+    const refit = () => {
+      e.fit.fit();
+      window.jarvis.ptyResize(workspace.id, e.term.cols, e.term.rows);
+    };
+    refit();
     e.term.focus();
-  }, [workspace.id, collapsed, width]);
+    const observer = new ResizeObserver(refit);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [workspace.id, collapsed]);
 
   const launch = () => {
     const e = entryFor(workspace.id);
