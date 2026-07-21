@@ -59,9 +59,8 @@ describe("settleLayout", () => {
 
   it("gives higher-degree nodes a larger radius", () => {
     const l = settleLayout(graph(20), 200, 100);
-    const hub = l.nodes.find((n) => n.id === "h0")!;
-    const spoke = l.nodes.find((n) => n.id === "n5")!;
-    expect(hub.r).toBeGreaterThan(spoke.r);
+    const radiusOf = (id: string) => l.nodes.find((n) => n.id === id)?.r ?? 0;
+    expect(radiusOf("h0")).toBeGreaterThan(radiusOf("n5"));
   });
 
   it("handles an empty graph without throwing", () => {
