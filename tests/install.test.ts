@@ -24,10 +24,16 @@ function runInstall(vault: string) {
   return spawnSync(process.execPath, [INSTALL, vault], { encoding: "utf8" });
 }
 
+function localSettingsPath(vault: string) {
+  return path.join(vault, ".claude", "settings.local.json");
+}
+
+function sharedSettingsPath(vault: string) {
+  return path.join(vault, ".claude", "settings.json");
+}
+
 function readSettings(vault: string) {
-  return JSON.parse(
-    readFileSync(path.join(vault, ".claude", "settings.json"), "utf8"),
-  );
+  return JSON.parse(readFileSync(localSettingsPath(vault), "utf8"));
 }
 
 describe("install.mjs", () => {
@@ -82,29 +88,40 @@ describe("install.mjs", () => {
       matcher: "Bash",
       hooks: [{ type: "command", command: "echo hi" }],
     };
-    writeFileSync(
-      path.join(claudeDir, "settings.json"),
-      JSON.stringify({
-        permissions: { allow: ["Read"] },
-        hooks: { PreToolUse: [userHook] },
-      }),
-    );
+    // this seed contains none of our hooks, so it's a foreign tracked file —
+    // stripHooks must return null and leave it byte-identical
+    const original = JSON.stringify({
+      permissions: { allow: ["Read"] },
+      hooks: { PreToolUse: [userHook] },
+    });
+    writeFileSync(sharedSettingsPath(vault), original);
 
     runInstall(vault);
 
+    expect(readFileSync(sharedSettingsPath(vault), "utf8")).toBe(original);
     const settings = readSettings(vault);
-    expect(settings.permissions).toEqual({ allow: ["Read"] });
     expect(settings.hooks.PreToolUse).toEqual([
-      userHook,
-      expect.objectContaining({ matcher: "Read|Grep|Glob|Edit|Write" }),
+      {
+        matcher: "Read|Grep|Glob|Edit|Write",
+        hooks: [{ type: "command", command: COMMAND }],
+      },
+    ]);
+    expect(settings.hooks.PostToolUse).toEqual([
+      {
+        matcher: "Read|Grep|Glob|Edit|Write",
+        hooks: [{ type: "command", command: COMMAND }],
+      },
+    ]);
+    expect(settings.hooks.UserPromptSubmit).toEqual([
+      { hooks: [{ type: "command", command: COMMAND }] },
     ]);
   });
 
-  it("replaces stale forward.mjs entries instead of skipping", () => {
+  it("migrates v1 hooks out of the shared settings.json", () => {
     const claudeDir = path.join(vault, ".claude");
     mkdirSync(claudeDir, { recursive: true });
     writeFileSync(
-      path.join(claudeDir, "settings.json"),
+      sharedSettingsPath(vault),
       JSON.stringify({
         hooks: {
           PreToolUse: [
@@ -124,6 +141,8 @@ describe("install.mjs", () => {
 
     runInstall(vault);
 
+    const shared = JSON.parse(readFileSync(sharedSettingsPath(vault), "utf8"));
+    expect(JSON.stringify(shared)).not.toContain("forward.mjs");
     const settings = readSettings(vault);
     expect(settings.hooks.PreToolUse).toEqual([
       {
@@ -136,7 +155,7 @@ describe("install.mjs", () => {
   it("exits 1 on malformed settings.json without touching the file", () => {
     const claudeDir = path.join(vault, ".claude");
     mkdirSync(claudeDir, { recursive: true });
-    const settingsPath = path.join(claudeDir, "settings.json");
+    const settingsPath = localSettingsPath(vault);
     writeFileSync(settingsPath, "{ not json");
 
     const result = runInstall(vault);
@@ -151,5 +170,19 @@ describe("install.mjs", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("vault directory not found");
+  });
+
+  it("does not fail install when the shared settings.json is malformed", () => {
+    const claudeDir = path.join(vault, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    const sharedPath = sharedSettingsPath(vault);
+    writeFileSync(sharedPath, "{ not json");
+
+    const result = runInstall(vault);
+
+    expect(result.status).toBe(0);
+    const settings = readSettings(vault);
+    expect(JSON.stringify(settings.hooks)).toContain("forward.mjs");
+    expect(readFileSync(sharedPath, "utf8")).toBe("{ not json");
   });
 });

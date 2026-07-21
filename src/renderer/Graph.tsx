@@ -40,8 +40,10 @@ type GraphProps = {
   forces: Settings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
-  focusNode: string | null; // center this node in the area right of the preview
+  focusNode: string | null; // center this node in the graph slot
   layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
+  width: number; // measured graph-slot size from GraphSlot's ResizeObserver
+  height: number;
 };
 
 export default function Graph({
@@ -54,6 +56,8 @@ export default function Graph({
   onNodeClick,
   focusNode,
   layoutEpoch,
+  width,
+  height,
 }: GraphProps) {
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
@@ -109,8 +113,9 @@ export default function Graph({
     // offset uses the TARGET zoom so the node lands beside the card, not
     // where the old zoom would have put it
     const k = display.focusZoom;
-    const panel = Math.min(560, window.innerWidth * 0.4); // matches CSS width
-    fgRef.current?.centerAt(node.x - panel / 2 / k, node.y, 1200);
+    // preview is a layout sibling now, so the slot already excludes it —
+    // center the node in the slot with no horizontal offset
+    fgRef.current?.centerAt(node.x, node.y, 1200);
     fgRef.current?.zoom(k, 1200);
   }, [focusNode, nodeById, display.focusZoom]);
 
@@ -123,6 +128,8 @@ export default function Graph({
     <ForceGraph2D
       ref={fgRef}
       graphData={data}
+      width={width}
+      height={height}
       backgroundColor={COLORS.bg}
       autoPauseRedraw={false} // keep repainting so flares fade, pulses ripple, hover tracks
       nodeRelSize={1}

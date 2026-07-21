@@ -2,15 +2,17 @@ import type { ToolEvent } from "../shared/types";
 
 export const PREVIEW_QUIET_MS = 2500;
 
+export type PreviewOpener = ((e: ToolEvent) => void) & { cancel(): void };
+
 // Open the LAST file Claude read once reads go quiet — not every read.
-// The app can't judge relevance (passive observer); last-before-quiet is
-// the heuristic. A new prompt cancels any pending open and closes the
-// preview left over from the previous question.
+// A new prompt cancels any pending open and closes the leftover preview.
+// cancel() exists for workspace switches: a pending open from the old
+// workspace must not fire into the new one.
 export function createPreviewOpener(
   open: (id: string | null) => void,
-): (e: ToolEvent) => void {
+): PreviewOpener {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return (e) => {
+  const handler = ((e: ToolEvent) => {
     if (e.tool === "Prompt") {
       clearTimeout(timer);
       open(null);
@@ -21,5 +23,7 @@ export function createPreviewOpener(
       const id = e.nodeIds[0];
       timer = setTimeout(() => open(id), PREVIEW_QUIET_MS);
     }
-  };
+  }) as PreviewOpener;
+  handler.cancel = () => clearTimeout(timer);
+  return handler;
 }

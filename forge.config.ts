@@ -11,7 +11,9 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
   },
-  rebuildConfig: {},
+  // node-pty (the only native dep) is N-API with shipped prebuilds — rebuild
+  // nothing; node-gyp would need a Windows SDK this machine doesn't have.
+  rebuildConfig: { onlyModules: [] },
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ["darwin"]),

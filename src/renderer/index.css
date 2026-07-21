@@ -1,3 +1,4 @@
+@import "@xterm/xterm/css/xterm.css";
 @import "tailwindcss";
 
 @theme {
@@ -222,5 +223,26 @@
     border-radius: 4px;
     padding: 0 6px;
     font-size: 0.85em;
+  }
+
+  /* syntax-highlighted code preview (Shiki dark-plus). Shiki sets its own
+     theme background as an inline style on <pre> — override it (needs
+     !important to beat an inline style) so the panel's own background
+     shows through instead of Shiki's separate dark box. Token colors stay
+     untouched: those are per-<span> inline styles, this only targets <pre>. */
+  .code-preview pre.shiki {
+    margin: 0;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    font-family: Consolas, "Courier New", monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background-color: transparent !important;
+  }
+  .code-preview pre.shiki code {
+    white-space: inherit;
+    font-family: inherit;
   }
 }

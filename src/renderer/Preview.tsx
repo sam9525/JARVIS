@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderNote } from "./markdown";
+import { highlightCode } from "./code-highlight";
+import type { Workspace } from "../shared/types";
 
 type PreviewProps = {
   nodeId: string;
+  workspace: Workspace;
   resolveLink: (target: string) => string | null;
   onNavigate: (nodeId: string) => void;
   onClose: () => void;
@@ -10,25 +13,31 @@ type PreviewProps = {
 
 export default function Preview({
   nodeId,
+  workspace,
   resolveLink,
   onNavigate,
   onClose,
 }: PreviewProps) {
   const [html, setHtml] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
+  const isCode = workspace.kind === "code";
 
   useEffect(() => {
     let stale = false;
-    window.jarvis.readNote(nodeId).then(async (md) => {
-      // ponytail: no sanitizer — it's the user's own vault in a sandboxed
-      // renderer; add DOMPurify if untrusted vaults ever become a thing
-      const rendered =
-        md === null
-          ? "<em>file not found</em>"
-          : await renderNote(md, {
-              resolveLink,
-              loadNote: window.jarvis.readNote,
-            });
+    window.jarvis.readNote(workspace.id, nodeId).then(async (md) => {
+      // ponytail: no sanitizer — it's the user's own vault/repo in a sandboxed
+      // renderer; add DOMPurify if untrusted sources ever become a thing
+      let rendered: string;
+      if (md === null) {
+        rendered = "<em>file not found</em>";
+      } else if (workspace.kind === "code") {
+        rendered = await highlightCode(md, nodeId);
+      } else {
+        rendered = await renderNote(md, {
+          resolveLink,
+          loadNote: (id: string) => window.jarvis.readNote(workspace.id, id),
+        });
+      }
       if (stale) return;
       setHtml(rendered);
       panelRef.current?.scrollTo(0, 0); // wikilink nav starts at the top
@@ -36,7 +45,7 @@ export default function Preview({
     return () => {
       stale = true;
     };
-  }, [nodeId, resolveLink]);
+  }, [nodeId, workspace, resolveLink]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -55,7 +64,7 @@ export default function Preview({
   return (
     <div
       ref={panelRef}
-      className="fixed top-2.5 bottom-2.5 left-2.5 w-[min(560px,40vw)] overflow-y-auto overflow-x-hidden rounded-[10px] border border-edge bg-panel px-4 py-3 font-sans text-sm leading-relaxed text-ink"
+      className="my-2.5 ml-2.5 w-[min(560px,40vw)] flex-none overflow-y-auto overflow-x-hidden rounded-[10px] border border-edge bg-panel px-4 py-3 font-sans text-sm leading-relaxed text-ink"
     >
       <div className="sticky -top-3 -mx-4 mb-3 flex items-baseline justify-between bg-panel px-4 py-2">
         <div className="text-xs text-ink-dim">{nodeId}</div>
@@ -67,11 +76,18 @@ export default function Preview({
           ✕
         </button>
       </div>
-      <div
-        className="preview-body"
-        onClick={onBodyClick}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {isCode ? (
+        <div
+          className="code-preview"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ) : (
+        <div
+          className="preview-body"
+          onClick={onBodyClick}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
     </div>
   );
 }

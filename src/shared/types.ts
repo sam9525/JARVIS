@@ -2,10 +2,11 @@ export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write" | "Prompt";
 
 export interface ToolEvent {
   sessionId: string;
+  workspaceId: string; // which workspace's graph/highlights this event drives
   phase: "pre" | "post";
   tool: ToolName;
-  // vault-relative POSIX path without .md; v1 emits 0 or 1 entries.
-  // Stays an array for Phase 2 multi-file matches — free.
+  // vault: relative POSIX path without .md; code: relative POSIX path with
+  // extension. v1 emits 0 or 1 entries; stays an array for multi-file matches.
   nodeIds: string[];
   pattern?: string; // Grep/Glob only
   ts: number;
@@ -32,10 +33,14 @@ export interface VaultGraph {
   edges: GraphEdge[];
 }
 
+export type WorkspaceKind = "vault" | "code";
+
 export interface Workspace {
-  id: string;
+  id: string; // normalized absolute root path (lowercased, POSIX separators)
   name: string;
   rootPath: string;
+  kind: WorkspaceKind;
+  staleIndex?: boolean; // code only: gitnexus index behind repo HEAD
 }
 
 export interface Session {
