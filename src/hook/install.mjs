@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mergeHooks } from "./merge.mjs";
+import { mergeHooks, stripHooks } from "./merge.mjs";
 
 const vault = process.argv[2];
 if (!vault) {
@@ -21,7 +21,7 @@ const forward = path.resolve(
 );
 const command = `node "${forward}"`;
 
-const settingsPath = path.join(vault, ".claude", "settings.json");
+const settingsPath = path.join(vault, ".claude", "settings.local.json");
 mkdirSync(path.dirname(settingsPath), { recursive: true });
 let settings = {};
 if (existsSync(settingsPath)) {
@@ -36,4 +36,18 @@ if (existsSync(settingsPath)) {
 }
 settings = mergeHooks(settings, command);
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+
+// a vault installed by v1 has our hooks in the shared settings.json too
+const sharedPath = path.join(vault, ".claude", "settings.json");
+if (existsSync(sharedPath)) {
+  try {
+    const stripped = stripHooks(JSON.parse(readFileSync(sharedPath, "utf8")));
+    if (stripped) {
+      writeFileSync(sharedPath, JSON.stringify(stripped, null, 2) + "\n");
+      console.log(`removed v1 hooks <- ${sharedPath}`);
+    }
+  } catch {
+    // unparseable shared settings — leave it alone
+  }
+}
 console.log(`hooks installed -> ${settingsPath}`);

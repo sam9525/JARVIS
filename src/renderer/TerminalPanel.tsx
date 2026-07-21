@@ -84,7 +84,7 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
         if (!ok) return;
         if (!hooksOk)
           e.term.writeln(
-            "\x1b[33m[jarvis] .claude/settings.json unparseable — hooks not installed; the graph won't highlight\x1b[0m",
+            "\x1b[33m[jarvis] .claude/settings.local.json unparseable — hooks not installed; the graph won't highlight\x1b[0m",
           );
         setStatuses((m) => ({
           ...m,
