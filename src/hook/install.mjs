@@ -1,5 +1,6 @@
 // usage: node src/hook/install.mjs <vault-path>
-// Merges the JARVIS forwarding hooks into <vault>/.claude/settings.json.
+// Merges the JARVIS forwarding hooks into <vault>/.claude/settings.local.json,
+// and strips any hooks a v1 install left in the shared settings.json.
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

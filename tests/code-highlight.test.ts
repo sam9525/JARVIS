@@ -82,6 +82,13 @@ describe("langForPath", () => {
 });
 
 describe("highlightCode", () => {
+  // MUST stay the first test in this block. `highlighterPromise` is a
+  // module-level singleton that only the failure path clears, and afterEach
+  // resets the mock flags but not the module. Any earlier test that resolves a
+  // real highlighter memoizes it, `createHighlighter` is never called again,
+  // the simulated init failure can't happen, and this fails on the very first
+  // assertion — looking like a Shiki regression rather than a test-order bug.
+  // Add new cases below it, never above.
   it("retries the highlighter after a failed init instead of staying plaintext", async () => {
     mockCreateShouldThrow = true;
     const first = await highlightCode("const x = 1;", "test.ts");
