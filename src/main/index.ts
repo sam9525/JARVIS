@@ -1,7 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { spawn as ptySpawn } from "node-pty";
 import started from "electron-squirrel-startup";
 import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
@@ -152,8 +151,19 @@ app.whenReady().then(async () => {
   });
 
   // --- PTY ---
+  // node-pty is a native module loaded on first launch, never at boot: a bad
+  // ABI or a missing prebuild must degrade to "no terminal", not "no app".
+  let ptySpawn: SpawnFn | null = null;
+  const loadPtySpawn = (): SpawnFn => {
+    if (!ptySpawn) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const nodePty = require("node-pty") as { spawn: SpawnFn };
+      ptySpawn = (file, args, opts) => nodePty.spawn(file, args, opts);
+    }
+    return ptySpawn;
+  };
   const ptyManager = createPtyManager(
-    ((file, args, opts) => ptySpawn(file, args, opts)) as SpawnFn,
+    (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
       onData: (id, data) => send("pty-data", id, data),
       onExit: (id, code) => send("pty-exit", id, code),
@@ -166,7 +176,13 @@ app.whenReady().then(async () => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
-      ptyManager.launch(ws, cols, rows);
+      try {
+        ptyManager.launch(ws, cols, rows);
+      } catch (err) {
+        // native load or spawn failure — the terminal reports it, app lives on
+        console.error("pty launch failed:", err);
+        return { ok: false, hooksOk };
+      }
       return { ok: true, hooksOk };
     },
   );

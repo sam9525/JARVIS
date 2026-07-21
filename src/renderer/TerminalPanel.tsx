@@ -81,7 +81,12 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
     window.jarvis
       .ptyLaunch(workspace.id, e.term.cols, e.term.rows)
       .then(({ ok, hooksOk }) => {
-        if (!ok) return;
+        if (!ok) {
+          e.term.writeln(
+            "\x1b[31m[jarvis] could not start a terminal — is the claude CLI on PATH?\x1b[0m",
+          );
+          return;
+        }
         if (!hooksOk)
           e.term.writeln(
             "\x1b[33m[jarvis] .claude/settings.local.json unparseable — hooks not installed; the graph won't highlight\x1b[0m",
