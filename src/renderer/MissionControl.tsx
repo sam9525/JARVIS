@@ -1,5 +1,6 @@
 import React from "react";
 import type {
+  GraphGroup,
   StatusKind,
   VaultGraph,
   Workspace,
@@ -38,6 +39,7 @@ type MissionControlProps = {
   statuses: WorkspaceStatus[];
   graphs: Map<string, VaultGraph>; // only the workspaces loaded so far
   getStore: (workspaceId: string) => HighlightState;
+  groups: GraphGroup[]; // so thumbnails colour like the 2D view
   now: number; // passed in, not read — keeps this component hook-free
   onSelect: (ws: Workspace) => void;
 };
@@ -49,6 +51,7 @@ export default function MissionControl({
   statuses,
   graphs,
   getStore,
+  groups,
   now,
   onSelect,
 }: MissionControlProps) {
@@ -115,6 +118,7 @@ export default function MissionControl({
               <MiniGraph
                 graph={graphs.get(ws.id) ?? null}
                 state={getStore(ws.id)}
+                groups={groups}
                 width={CARD_W}
                 height={CARD_H}
               />

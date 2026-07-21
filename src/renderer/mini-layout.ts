@@ -14,6 +14,9 @@ export interface MiniNode {
   x: number;
   y: number;
   r: number;
+  // carried so a card can colour by the same rules as the 2D view
+  type?: string;
+  domain?: string;
 }
 
 export interface MiniLayout {
@@ -54,6 +57,8 @@ export function settleLayout(
     x: 8 + rnd() * Math.max(1, w - 16),
     y: 8 + rnd() * Math.max(1, h - 16),
     r: radius.get(n.id) ?? 1,
+    type: n.type,
+    domain: n.domain,
   }));
 
   const edges: [number, number][] = [];

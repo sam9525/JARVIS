@@ -248,6 +248,7 @@ export default function App() {
               statuses={statuses}
               graphs={cardGraphs}
               getStore={storeFor}
+              groups={settings.groups}
               now={cardNow}
               onSelect={(ws) => {
                 setShowHome(false);

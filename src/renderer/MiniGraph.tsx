@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import type { VaultGraph } from "../shared/types";
+import React, { useEffect, useMemo, useRef } from "react";
+import type { GraphGroup, VaultGraph } from "../shared/types";
 import {
   matchProgress,
   nodeDisplay,
@@ -7,11 +7,13 @@ import {
   type HighlightState,
 } from "./highlight-store";
 import { layoutFor } from "./mini-layout";
+import { baseNodeColor, domainsOf } from "./domain-colors";
 import { COLORS } from "./graph-colors";
 
 type MiniGraphProps = {
   graph: VaultGraph | null; // null while the workspace's graph is still loading
   state: HighlightState;
+  groups: GraphGroup[];
   width: number;
   height: number;
 };
@@ -21,11 +23,15 @@ type MiniGraphProps = {
 export default function MiniGraph({
   graph,
   state,
+  groups,
   width,
   height,
 }: MiniGraphProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const lastRev = useRef(-1);
+  // each card's palette indices come from its own graph, so a workspace's
+  // thumbnail matches that workspace's 2D view
+  const domains = useMemo(() => (graph ? domainsOf(graph) : []), [graph]);
 
   useEffect(() => {
     const cv = ref.current;
@@ -53,7 +59,11 @@ export default function MiniGraph({
         const d = nodeDisplay(state, n.id);
         c.beginPath();
         c.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        c.fillStyle = d === "modified" ? COLORS.modified : COLORS.tag;
+        // same rules as the 2D view: modified wins, then group, tag, domain
+        c.fillStyle =
+          d === "modified"
+            ? COLORS.modified
+            : baseNodeColor(n, domains, groups);
         c.fill();
         if (d === "ring") {
           c.beginPath();
@@ -112,7 +122,7 @@ export default function MiniGraph({
 
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [graph, state, width, height]);
+  }, [graph, state, groups, domains, width, height]);
 
   return (
     <canvas

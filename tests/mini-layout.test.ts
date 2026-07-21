@@ -63,6 +63,23 @@ describe("settleLayout", () => {
     expect(radiusOf("h0")).toBeGreaterThan(radiusOf("n5"));
   });
 
+  it("carries type and domain through so cards can colour like the 2D view", () => {
+    const g: VaultGraph = {
+      nodes: [
+        { id: "notes/a", type: "note", domain: "notes" },
+        { id: "tag:x", type: "tag" },
+      ],
+      edges: [{ source: "notes/a", target: "tag:x" }],
+    };
+    const l = settleLayout(g, 200, 100);
+    const note = l.nodes.find((n) => n.id === "notes/a");
+    const tag = l.nodes.find((n) => n.id === "tag:x");
+    expect(note?.type).toBe("note");
+    expect(note?.domain).toBe("notes");
+    expect(tag?.type).toBe("tag");
+    expect(tag?.domain).toBeUndefined();
+  });
+
   it("handles an empty graph without throwing", () => {
     const l = settleLayout({ nodes: [], edges: [] }, 200, 100);
     expect(l.nodes).toEqual([]);

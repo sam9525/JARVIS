@@ -86,6 +86,7 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   statuses: [] as WorkspaceStatus[],
   graphs: new Map<string, VaultGraph>(),
   getStore: () => emptyState(),
+  groups: [],
   now: 1_700_000_000_000,
   onSelect: () => {},
   ...over,
