@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import type { ForceGraphMethods } from "react-force-graph-3d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
-import { nodeDisplay, type HighlightState } from "./highlight-store";
+import {
+  expireMatches,
+  nodeDisplay,
+  type HighlightState,
+} from "./highlight-store";
 import { baseNodeColor } from "./domain-colors";
 import { graphMetrics } from "./graph-metrics";
 import { COLORS } from "./graph-colors";
@@ -357,6 +361,7 @@ export default function Graph3D({
   useEffect(() => {
     const id = setInterval(() => {
       const s = stateRef.current;
+      expireMatches(s, performance.now());
       if (s.rev !== lastRev.current) {
         lastRev.current = s.rev;
         fgRef.current?.refresh();
@@ -549,6 +554,14 @@ export default function Graph3D({
       if (nodeDisplay(stateRef.current, id) === "ring") {
         const ring = new Sprite(ringMaterial(COLORS.ring));
         ring.scale.setScalar(sphereR * 3);
+        obj.add(ring);
+      }
+      // matched by the last search — binary on/off, not a fade: node
+      // appearance here is baked and only re-runs on a rev change, and
+      // re-baking every frame is the cost this design avoids
+      if (stateRef.current.matched.has(id)) {
+        const ring = new Sprite(ringMaterial(COLORS.match));
+        ring.scale.setScalar(sphereR * 3.3);
         obj.add(ring);
       }
       // the node whose preview is open
