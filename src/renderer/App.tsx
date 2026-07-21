@@ -22,12 +22,18 @@ import { filterGraph } from "./graph-filter";
 import { domainsOf } from "./domain-colors";
 import { defaultSettings } from "../shared/types";
 import { createPreviewOpener } from "./preview-opener";
-import type { Settings, VaultGraph, Workspace } from "../shared/types";
+import type {
+  Settings,
+  VaultGraph,
+  Workspace,
+  WorkspaceStatus,
+} from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [active, setActive] = useState<Workspace | null>(null);
+  const [statuses, setStatuses] = useState<WorkspaceStatus[]>([]);
   const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
   const [previewNode, setPreviewNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
@@ -111,6 +117,7 @@ export default function App() {
       applyEvent(storeFor(e.workspaceId), e, performance.now());
       if (e.workspaceId === activeIdRef.current) onPreviewEvent(e);
     });
+    window.jarvis.onStatus(setStatuses);
     // registered once — do not re-register on workspace switch
   }, []);
 
@@ -175,6 +182,7 @@ export default function App() {
       <WorkspaceRail
         workspaces={workspaces}
         activeId={active?.id ?? null}
+        statuses={statuses}
         onSelect={openWorkspace}
       />
       {previewNode && active && (
