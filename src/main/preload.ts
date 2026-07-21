@@ -28,8 +28,9 @@ const api = {
     workspaceId: string,
     cols: number,
     rows: number,
+    dangerous = false,
   ): Promise<{ ok: boolean; hooksOk: boolean }> =>
-    ipcRenderer.invoke("pty-launch", workspaceId, cols, rows),
+    ipcRenderer.invoke("pty-launch", workspaceId, cols, rows, dangerous),
   ptyInput: (workspaceId: string, data: string): void => {
     ipcRenderer.send("pty-input", workspaceId, data);
   },

@@ -84,11 +84,11 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
     return () => observer.disconnect();
   }, [workspace.id, collapsed]);
 
-  const launch = () => {
+  const launch = (dangerous = false) => {
     const e = entryFor(workspace.id);
     e.fit.fit();
     window.jarvis
-      .ptyLaunch(workspace.id, e.term.cols, e.term.rows)
+      .ptyLaunch(workspace.id, e.term.cols, e.term.rows, dangerous)
       .then(({ ok, hooksOk }) => {
         if (!ok) {
           e.term.writeln(
@@ -178,12 +178,19 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
       <div className="relative min-h-0 flex-1">
         <div ref={hostRef} className="h-full w-full" />
         {status.kind !== "running" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-panel/80">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
             <button
               className="cursor-pointer rounded-md border border-edge px-4 py-2 text-[13px] text-ink-dim hover:border-accent hover:text-accent"
-              onClick={launch}
+              onClick={() => launch()}
             >
               {status.kind === "exited" ? "Relaunch Claude" : "Launch Claude"}
+            </button>
+            <button
+              className="cursor-pointer rounded-md border border-amber-500/40 px-4 py-2 text-[13px] text-amber-400 hover:border-amber-400 hover:text-amber-300"
+              title="claude --dangerously-skip-permissions"
+              onClick={() => launch(true)}
+            >
+              Launch (dangerous)
             </button>
           </div>
         )}

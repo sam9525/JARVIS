@@ -174,12 +174,18 @@ app.whenReady().then(async () => {
   const forwardPath = path.join(app.getAppPath(), "src", "hook", "forward.mjs");
   ipcMain.handle(
     "pty-launch",
-    async (_e, workspaceId: string, cols: number, rows: number) => {
+    async (
+      _e,
+      workspaceId: string,
+      cols: number,
+      rows: number,
+      dangerous: boolean,
+    ) => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
       try {
-        ptyManager.launch(ws, cols, rows);
+        ptyManager.launch(ws, cols, rows, dangerous);
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
         console.error("pty launch failed:", err);
