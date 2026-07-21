@@ -1,12 +1,14 @@
 import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
-import type { ToolEvent, Workspace } from "../shared/types";
+import { mapStatusEvent } from "./status-mapper";
+import type { StatusEvent, ToolEvent, Workspace } from "../shared/types";
 
 export const DEFAULT_PORT = 4599;
 
 export function startListener(
   port: number,
   onEvent: (e: ToolEvent) => void,
+  onStatus: (e: StatusEvent) => void,
   getWorkspaces: () => Workspace[],
 ): http.Server {
   const server = http.createServer((req, res) => {
@@ -18,14 +20,26 @@ export function startListener(
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       res.writeHead(200).end(); // ack immediately — never make Claude Code wait
-      let event: ToolEvent | null = null;
+      let raw: RawHookEvent;
       try {
-        event = mapHookEvent(JSON.parse(body) as RawHookEvent, getWorkspaces());
+        raw = JSON.parse(body) as RawHookEvent;
       } catch {
-        // malformed hook payload → ignore
+        return; // malformed hook payload → ignore
       }
-      if (event) {
-        onEvent(event);
+      const ws = getWorkspaces();
+      // the two mappers are independent: one rejecting must not affect the
+      // other, so they get a try each rather than sharing one
+      try {
+        const e = mapHookEvent(raw, ws);
+        if (e) onEvent(e);
+      } catch {
+        /* highlight mapping failed — status may still be fine */
+      }
+      try {
+        const s = mapStatusEvent(raw, ws);
+        if (s) onStatus(s);
+      } catch {
+        /* status mapping failed — highlights already went out */
       }
     });
   });

@@ -4,6 +4,7 @@ import type {
   ToolEvent,
   VaultGraph,
   Workspace,
+  WorkspaceStatus,
 } from "../shared/types";
 
 const api = {
@@ -16,6 +17,9 @@ const api = {
   },
   onToolEvent: (cb: (e: ToolEvent) => void) => {
     ipcRenderer.on("tool-event", (_e, t: ToolEvent) => cb(t));
+  },
+  onStatus: (cb: (s: WorkspaceStatus[]) => void) => {
+    ipcRenderer.on("status", (_e, s: WorkspaceStatus[]) => cb(s));
   },
   readNote: (workspaceId: string, nodeId: string): Promise<string | null> =>
     ipcRenderer.invoke("read-note", workspaceId, nodeId),

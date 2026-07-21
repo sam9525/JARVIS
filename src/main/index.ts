@@ -10,6 +10,7 @@ import { loadWorkspaces } from "./workspaces";
 import { loadCodeGraph } from "./gitnexus-graph";
 import { ensureHooks } from "./hook-install";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
+import { createStatusStore, STALE_MS } from "./workspace-status";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
@@ -141,11 +142,28 @@ app.whenReady().then(async () => {
     win.webContents.send(channel, payload, ...rest);
   };
 
+  const status = createStatusStore();
+  const pushStatus = (changed: boolean) => {
+    if (changed) send("status", status.snapshot());
+  };
+
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
-    (e) => send("tool-event", e),
+    (e) => {
+      send("tool-event", e);
+      pushStatus(status.countTool(e));
+    },
+    (s) => pushStatus(status.applyStatus(s)),
     () => workspaces,
   );
+
+  // one sweep for every workspace — Esc leaves "running" with no Stop to end it
+  const sweepTimer = setInterval(
+    () => pushStatus(status.sweep(Date.now())),
+    STALE_MS / 4,
+  );
+  app.on("before-quit", () => clearInterval(sweepTimer));
+
   // file-watching stays vault-only; code graphs refresh via rescan
   watchVault(vault.rootPath, (g) => {
     graphs.set(vault.id, Promise.resolve(g));
@@ -168,7 +186,10 @@ app.whenReady().then(async () => {
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
       onData: (id, data) => send("pty-data", id, data),
-      onExit: (id, code) => send("pty-exit", id, code),
+      onExit: (id, code) => {
+        send("pty-exit", id, code);
+        pushStatus(status.ptyExited(id));
+      },
     },
   );
   const forwardPath = path.join(app.getAppPath(), "src", "hook", "forward.mjs");
@@ -186,6 +207,7 @@ app.whenReady().then(async () => {
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
       try {
         ptyManager.launch(ws, cols, rows, dangerous);
+        pushStatus(status.ptyLaunched(ws.id, Date.now()));
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
         console.error("pty launch failed:", err);
