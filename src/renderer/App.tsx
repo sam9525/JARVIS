@@ -325,7 +325,9 @@ export default function App() {
           )
         }
       </GraphSlot>
-      {active && <TerminalPanel workspace={active} />}
+      {/* terminals live in a module-level map, so unmounting here costs no
+          session and no scrollback — it only takes the tab off the home screen */}
+      {!showHome && active && <TerminalPanel workspace={active} />}
       {showSettings && (
         <GraphSettingsPanel
           settings={settings}

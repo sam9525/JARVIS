@@ -1,8 +1,9 @@
 // Shared by install.mjs (manual CLI) and src/main/hook-install.ts (auto-install
 // before first terminal launch). Pure: takes parsed settings, returns merged.
-// PostToolUse stays narrow on purpose: a widened Post would ship every Bash
-// command's entire output over HTTP. PreToolUse matches everything because the
-// status call line ("what is it doing") must cover Bash and Task too.
+// Pre at "*" does ship every Write's content and every Task's prompt; that
+// cost is accepted because the call line needs Bash and Task, and the
+// listener is localhost-only. Post stays narrow because its payloads are
+// unbounded tool OUTPUT, which nothing in the UI reads.
 const POST_MATCHER = "Read|Grep|Glob|Edit|Write";
 const PRE_MATCHER = "*";
 const EVENTS = [
