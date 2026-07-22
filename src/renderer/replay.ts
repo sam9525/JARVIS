@@ -32,3 +32,39 @@ export function foldTo(log: ToolEvent[], index: number): HighlightState {
   s.rev = nextRev();
   return s;
 }
+
+// Appends to the workspace's log, starting a fresh one when the session
+// changes — the past a scrubber was showing no longer exists. Returns true when
+// it started fresh, so the caller can snap out of replay.
+//
+// ponytail: uncapped. A ToolEvent is a handful of strings, so a long session
+// costs little; make it a ring buffer if one ever shows up in a memory profile.
+export function appendEvent(
+  logs: Map<string, ToolEvent[]>,
+  e: ToolEvent,
+): boolean {
+  const prev = logs.get(e.workspaceId);
+  if (!prev?.length || prev[prev.length - 1].sessionId !== e.sessionId) {
+    logs.set(e.workspaceId, [e]);
+    return true;
+  }
+  prev.push(e);
+  return false;
+}
+
+// Prompt events divide a session into turns — the timeline's chapter ticks.
+export function chaptersOf(log: ToolEvent[]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < log.length; i++) if (log[i].tool === "Prompt") out.push(i);
+  return out;
+}
+
+// One line describing an event, for the label under the scrubber handle. Main's
+// callSignature is not reused: it reads raw hook payloads, not ToolEvent.
+export function labelOf(e: ToolEvent): string {
+  if (e.tool === "Prompt") return "— your message —";
+  if (e.pattern) return `${e.tool} "${e.pattern}"`;
+  if (e.nodeIds.length === 1) return `${e.tool} ${e.nodeIds[0]}`;
+  if (e.nodeIds.length > 1) return `${e.tool} ${e.nodeIds.length} files`;
+  return e.tool;
+}

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { foldTo, nextRev } from "../src/renderer/replay";
+import {
+  foldTo,
+  nextRev,
+  appendEvent,
+  chaptersOf,
+  labelOf,
+} from "../src/renderer/replay";
 import {
   applyEvent,
   emptyState,
@@ -86,5 +92,71 @@ describe("foldTo", () => {
     const b = foldTo(LOG, 1).rev;
     expect(b).toBeGreaterThan(a);
     expect(nextRev()).toBeGreaterThan(b);
+  });
+});
+
+describe("appendEvent", () => {
+  it("appends within a session and keeps workspaces separate", () => {
+    const logs = new Map<string, ToolEvent[]>();
+    expect(appendEvent(logs, ev({ nodeIds: ["a"] }))).toBe(true); // first = fresh
+    expect(appendEvent(logs, ev({ nodeIds: ["b"] }))).toBe(false);
+    appendEvent(logs, ev({ workspaceId: "w2", nodeIds: ["z"] }));
+    expect(logs.get("w1")!.length).toBe(2);
+    expect(logs.get("w2")!.length).toBe(1);
+  });
+
+  it("wipes the log when the session changes", () => {
+    const logs = new Map<string, ToolEvent[]>();
+    appendEvent(logs, ev({ nodeIds: ["a"] }));
+    appendEvent(logs, ev({ nodeIds: ["b"] }));
+    expect(appendEvent(logs, ev({ sessionId: "s2", nodeIds: ["c"] }))).toBe(
+      true,
+    );
+    expect(logs.get("w1")!.map((e) => e.nodeIds[0])).toEqual(["c"]);
+  });
+
+  it("keeps Prompt events — they are the chapter marks", () => {
+    const logs = new Map<string, ToolEvent[]>();
+    appendEvent(logs, ev({ nodeIds: ["a"] }));
+    appendEvent(logs, ev({ tool: "Prompt" }));
+    expect(logs.get("w1")!.length).toBe(2);
+  });
+});
+
+describe("chaptersOf", () => {
+  it("returns the indices of the Prompt events", () => {
+    expect(chaptersOf(LOG)).toEqual([0, 6]);
+  });
+
+  it("returns nothing for a log with no prompts", () => {
+    expect(chaptersOf([ev({ nodeIds: ["a"] })])).toEqual([]);
+  });
+});
+
+describe("labelOf", () => {
+  it("names a prompt as a divider", () => {
+    expect(labelOf(ev({ tool: "Prompt" }))).toBe("— your message —");
+  });
+
+  it("quotes a search pattern", () => {
+    expect(labelOf(ev({ tool: "Grep", pattern: "applyEvent" }))).toBe(
+      'Grep "applyEvent"',
+    );
+  });
+
+  it("names the single file a tool touched", () => {
+    expect(labelOf(ev({ tool: "Read", nodeIds: ["src/main/index.ts"] }))).toBe(
+      "Read src/main/index.ts",
+    );
+  });
+
+  it("counts multiple files rather than listing them", () => {
+    expect(
+      labelOf(ev({ tool: "Grep", phase: "post", nodeIds: ["a", "b", "c"] })),
+    ).toBe("Grep 3 files");
+  });
+
+  it("falls back to the bare tool name when there is nothing to name", () => {
+    expect(labelOf(ev({ tool: "Glob" }))).toBe("Glob");
   });
 });
