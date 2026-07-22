@@ -75,13 +75,19 @@ describe("status store", () => {
   it("reports change when session changes even if kind and call are identical", () => {
     const s = createStatusStore();
     expect(
-      s.applyStatus(ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" })),
+      s.applyStatus(
+        ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" }),
+      ),
     ).toBe(true);
     expect(
-      s.applyStatus(ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" })),
+      s.applyStatus(
+        ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" }),
+      ),
     ).toBe(false);
     expect(
-      s.applyStatus(ev({ sessionId: "s2", kind: "running", call: "Read(a.ts)" })),
+      s.applyStatus(
+        ev({ sessionId: "s2", kind: "running", call: "Read(a.ts)" }),
+      ),
     ).toBe(true);
   });
 
@@ -140,14 +146,14 @@ describe("status store", () => {
     s.ptyLaunched("w1", 500);
     expect(kindOf(s)).toBe("idle");
     s.applyStatus(ev({ kind: "running", ts: 600 }));
-    expect(s.ptyExited("w1")).toBe(true);
+    expect(s.ptyExited("w1", 700)).toBe(true);
     expect(kindOf(s)).toBe("none");
   });
 
   it("a status event for a dead pty revives it — the user relaunched", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 0);
-    s.ptyExited("w1");
+    s.ptyExited("w1", 500);
     s.applyStatus(ev({ kind: "running", ts: 900 }));
     expect(kindOf(s)).toBe("running");
   });
@@ -158,5 +164,18 @@ describe("status store", () => {
     s.applyStatus(ev({ workspaceId: "w2", kind: "running" }));
     expect(kindOf(s, "w1")).toBe("waiting");
     expect(kindOf(s, "w2")).toBe("running");
+  });
+
+  it("stamps since on every kind change, exit included", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 100);
+    expect(s.snapshot()[0].since).toBe(100); // none -> idle
+
+    s.applyStatus(ev({ kind: "running", ts: 200 }));
+    expect(s.snapshot()[0].since).toBe(200); // idle -> running
+
+    s.ptyExited("w1", 300);
+    expect(kindOf(s)).toBe("none");
+    expect(s.snapshot()[0].since).toBe(300); // running -> none
   });
 });

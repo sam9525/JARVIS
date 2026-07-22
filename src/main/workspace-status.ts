@@ -24,7 +24,7 @@ export interface StatusStore {
   applyStatus(e: StatusEvent): boolean;
   countTool(e: ToolEvent): boolean;
   ptyLaunched(workspaceId: string, now: number): boolean;
-  ptyExited(workspaceId: string): boolean;
+  ptyExited(workspaceId: string, now: number): boolean;
   sweep(now: number): boolean;
   snapshot(): WorkspaceStatus[];
 }
@@ -110,12 +110,13 @@ export function createStatusStore(): StatusStore {
       return false;
     },
 
-    ptyExited(id) {
+    ptyExited(id, now) {
       const e = entries.get(id);
       if (!e || e.kind === "none") return false;
       e.ptyAlive = false;
       e.kind = "none";
       e.call = "";
+      e.since = now; // types.ts documents since as the last KIND change
       return true;
     },
 
