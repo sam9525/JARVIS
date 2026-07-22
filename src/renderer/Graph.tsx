@@ -4,14 +4,15 @@ import type { ForceGraphMethods } from "react-force-graph-2d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
 import {
   expireMatches,
+  heatOf,
   matchProgress,
   nodeDisplay,
   pulseProgress,
   type HighlightState,
 } from "./highlight-store";
 import { colorFor, groupColor } from "./domain-colors";
-import { graphMetrics } from "./graph-metrics";
-import { COLORS } from "./graph-colors";
+import { displayRadius, graphMetrics } from "./graph-metrics";
+import { brighten, COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { nodeLabelText } from "./node-label";
 
@@ -173,7 +174,13 @@ export default function Graph({
         fgRef.current?.zoomToFit(200, fitPadding);
       }}
       nodeLabel="id"
-      nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
+      nodeVal={(node: NodeObj) =>
+        displayRadius(
+          node.r ?? 4,
+          display.nodeSize,
+          heatOf(stateRef.current, String(node.id)),
+        ) ** 2
+      }
       nodeCanvasObject={(
         node: NodeObj,
         ctx: CanvasRenderingContext2D,
@@ -181,16 +188,19 @@ export default function Graph({
       ) => {
         if (node.x === undefined || node.y === undefined) return;
         const id = String(node.id);
-        const r = (node.r ?? 4) * display.nodeSize;
+        const t = heatOf(stateRef.current, id);
+        const r = displayRadius(node.r ?? 4, display.nodeSize, t);
         const d = nodeDisplay(stateRef.current, id);
         const base =
           node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
         // modified wins, then group color, then domain palette; reads keep
-        // their base color and get a ring instead
-        ctx.fillStyle =
-          d === "modified" ? COLORS.modified : (groupColor(id, groups) ?? base);
+        // their base color and get a ring instead. heat brightens whichever won.
+        ctx.fillStyle = brighten(
+          d === "modified" ? COLORS.modified : (groupColor(id, groups) ?? base),
+          t,
+        );
         ctx.fill();
 
         if (d === "ring") {
