@@ -3,10 +3,12 @@ import {
   applyEvent,
   emptyState,
   expireMatches,
+  heatOf,
   matchProgress,
   nodeDisplay,
   pulseProgress,
   resetHighlights,
+  HEAT_CAP,
   MATCH_MS,
   PULSE_MS,
 } from "../src/renderer/highlight-store";
@@ -178,5 +180,70 @@ describe("highlight-store", () => {
     applyEvent(s, ev({ tool: "Prompt", nodeIds: [] }), 10);
     expect(s.matched.size).toBe(0);
     expect(s.matchAt).toBe(0);
+  });
+
+  it("counts every read as heat, including consecutive repeats the trail skips", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ nodeIds: ["a"] }), 1); // trail skips this; heat must not
+    applyEvent(s, ev({ nodeIds: ["b"] }), 2);
+    expect(s.heat.get("a")).toBe(2);
+    expect(s.heat.get("b")).toBe(1);
+  });
+
+  it("counts edits and writes as heat alongside reads", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ tool: "Edit", phase: "post", nodeIds: ["a"] }), 1);
+    applyEvent(s, ev({ tool: "Write", phase: "post", nodeIds: ["a"] }), 2);
+    expect(s.heat.get("a")).toBe(3);
+  });
+
+  it("adds no heat for searches, on either phase", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", pattern: "x" }), 0);
+    applyEvent(
+      s,
+      ev({ tool: "Grep", phase: "post", nodeIds: ["a", "b"], pattern: "x" }),
+      1,
+    );
+    applyEvent(s, ev({ tool: "Glob", phase: "post", nodeIds: ["c"] }), 2);
+    expect(s.heat.size).toBe(0);
+  });
+
+  it("heatOf is absolute and capped, and 0 for an unseen node", () => {
+    const s = emptyState();
+    expect(heatOf(s, "nope")).toBe(0);
+    for (let i = 0; i < 3; i++) applyEvent(s, ev({ nodeIds: ["a"] }), i);
+    expect(heatOf(s, "a")).toBeCloseTo(0.5); // 3 of HEAT_CAP=6
+    for (let i = 0; i < 20; i++) applyEvent(s, ev({ nodeIds: ["a"] }), 100 + i);
+    expect(s.heat.get("a")).toBe(23); // raw count keeps climbing
+    expect(heatOf(s, "a")).toBe(1); // ...but the ramp saturates
+    expect(HEAT_CAP).toBe(6);
+  });
+
+  it("a new prompt clears heat", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ tool: "Prompt" }), 1);
+    expect(heatOf(s, "a")).toBe(0);
+  });
+
+  it("a new session clears heat", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ sessionId: "s2", nodeIds: ["b"] }), 1);
+    expect(heatOf(s, "a")).toBe(0);
+    expect(s.heat.get("b")).toBe(1);
+  });
+
+  it("heat is per-store — a reset in one workspace leaves another alone", () => {
+    const a = emptyState();
+    const b = emptyState();
+    applyEvent(a, ev({ nodeIds: ["x"] }), 0);
+    applyEvent(b, ev({ workspaceId: "w2", nodeIds: ["x"] }), 0);
+    resetHighlights(a);
+    expect(heatOf(a, "x")).toBe(0);
+    expect(heatOf(b, "x")).toBeCloseTo(1 / 6);
   });
 });
