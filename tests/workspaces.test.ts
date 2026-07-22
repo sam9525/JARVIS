@@ -26,6 +26,34 @@ describe("buildWorkspaces", () => {
     expect(list).toHaveLength(1);
     expect(list[0].kind).toBe("vault");
   });
+
+  it("appends extra project paths as code workspaces named by folder", () => {
+    const list = buildWorkspaces("D:\\Vault", [], ["D:\\data\\Program\\fresh"]);
+    expect(list.map((w) => w.name)).toEqual(["Vault", "fresh"]);
+    expect(list[1].kind).toBe("code");
+    expect(list[1].id).toBe(normalizeId("D:\\data\\Program\\fresh"));
+    expect(list[1].rootPath).toBe("D:\\data\\Program\\fresh");
+  });
+
+  it("lets a registry entry win over an extra at the same path", () => {
+    // gitnexus names a repo itself, and that name need not match the folder —
+    // the registry entry is the one that can load a graph.
+    const list = buildWorkspaces(
+      "D:\\Vault",
+      [{ name: "AeroGraph", path: "D:\\data\\Program\\aerograph" }],
+      ["d:/data/program/AEROGRAPH"],
+    );
+    expect(list.map((w) => w.name)).toEqual(["Vault", "AeroGraph"]);
+  });
+
+  it("drops an extra that points at the vault, and dedupes repeated extras", () => {
+    const list = buildWorkspaces("D:\\Vault", [], [
+      "D:\\Vault",
+      "D:\\proj\\a",
+      "d:\\PROJ\\a",
+    ]);
+    expect(list.map((w) => w.name)).toEqual(["Vault", "a"]);
+  });
 });
 
 describe("resolveWorkspace", () => {

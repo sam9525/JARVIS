@@ -18,6 +18,7 @@ export function normalizeId(p: string): string {
 export function buildWorkspaces(
   vaultPath: string,
   entries: RegistryEntry[],
+  extraPaths: string[] = [],
 ): Workspace[] {
   const vault: Workspace = {
     id: normalizeId(vaultPath),
@@ -39,7 +40,19 @@ export function buildWorkspaces(
       rootPath: e.path,
       kind: "code" as const,
     }));
-  return [vault, ...code];
+
+  // Registry entries win: gitnexus picks the registered name itself, and only
+  // that name can load a graph. An extra at the same path is the same project.
+  const taken = new Set([vault.id, ...code.map((w) => w.id)]);
+  const extra: Workspace[] = [];
+  for (const p of extraPaths) {
+    const id = normalizeId(p);
+    if (taken.has(id)) continue;
+    taken.add(id);
+    extra.push({ id, name: path.basename(p), rootPath: p, kind: "code" });
+  }
+
+  return [vault, ...code, ...extra];
 }
 
 export function resolveWorkspace(
