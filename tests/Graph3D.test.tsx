@@ -74,7 +74,14 @@ export function makeProps(graph: VaultGraph) {
       linkStrength: 0.4,
       linkDistance: 60,
     },
-    stateRef: { current: { sessionId: null, nodes: new Map(), pulseAt: 0 } },
+    stateRef: {
+      current: {
+        sessionId: null,
+        nodes: new Map(),
+        pulseAt: 0,
+        heat: new Map(),
+      },
+    },
     onNodeClick: noop,
   };
 }
@@ -121,5 +128,38 @@ describe("Graph3D component", () => {
     expect(typeof element.props.linkPositionUpdate).toBe("function");
     expect(element.props.linkColor).toBeUndefined();
     expect(element.props.linkWidth).toBeUndefined();
+  });
+
+  it("grows a hot node through nodeVal, leaving node.r for forceCollide", async () => {
+    const { default: Graph3D } = await import("../src/renderer/Graph3D");
+
+    const props = makeProps(sampleGraph) as any;
+    props.stateRef.current.heat = new Map([["physics/a", 6]]); // full heat
+    const element = Graph3D(props) as any;
+
+    const nodes = element.props.graphData.nodes;
+    const hot = nodes.find((n: any) => n.id === "physics/a");
+    const cold = nodes.find((n: any) => n.id === "physics/b");
+
+    expect(hot.r).toBeCloseTo(1.5); // untouched — forceCollide reads this
+    expect(element.props.nodeVal(hot)).toBeCloseTo((1.5 * 0.5 * 1.8) ** 2);
+    expect(element.props.nodeVal(cold)).toBeCloseTo((1.5 * 0.5) ** 2);
+  });
+
+  it("brightens a hot node's colour without discarding its base colour", async () => {
+    const { default: Graph3D } = await import("../src/renderer/Graph3D");
+
+    const props = makeProps(sampleGraph) as any;
+    props.stateRef.current.heat = new Map([["physics/a", 6]]);
+    const element = Graph3D(props) as any;
+
+    const cold = element.props.nodeColor({
+      id: "physics/b",
+      domain: "physics",
+    });
+    const hot = element.props.nodeColor({ id: "physics/a", domain: "physics" });
+    expect(cold).toBe("#e06c75"); // domain palette index 0
+    expect(hot).not.toBe(cold);
+    expect(hot).toMatch(/^#[0-9a-f]{6}$/);
   });
 });

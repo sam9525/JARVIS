@@ -4,12 +4,13 @@ import type { ForceGraphMethods } from "react-force-graph-3d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
 import {
   expireMatches,
+  heatOf,
   nodeDisplay,
   type HighlightState,
 } from "./highlight-store";
 import { baseNodeColor } from "./domain-colors";
-import { graphMetrics } from "./graph-metrics";
-import { COLORS } from "./graph-colors";
+import { displayRadius, graphMetrics } from "./graph-metrics";
+import { brighten, COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import SpriteText from "three-spritetext";
@@ -452,17 +453,22 @@ export default function Graph3D({
     fgRef.current?.refresh();
   }, [display, groups, linkMaterial]);
 
-  // highlights always win, then group color, then domain palette
+  // highlights always win, then group color, then domain palette; heat
+  // brightens whichever won rather than replacing it
   const displayColor = useCallback(
     (node: NodeObj): string => {
       const id = String(node.id);
+      const t = heatOf(stateRef.current, id);
       // modified recolors the sphere; a read gets a ring sprite (Task 3)
       if (nodeDisplay(stateRef.current, id) === "modified")
-        return COLORS.modified;
-      return baseNodeColor(
-        { id, type: node.type, domain: node.domain },
-        domains,
-        groups,
+        return brighten(COLORS.modified, t);
+      return brighten(
+        baseNodeColor(
+          { id, type: node.type, domain: node.domain },
+          domains,
+          groups,
+        ),
+        t,
       );
     },
     [stateRef, domains, groups],
@@ -547,7 +553,12 @@ export default function Graph3D({
       const obj = new Group();
       // soft radial "box shadow" behind the sphere, in the node's color;
       // sphere radius matches the lib's nodeRelSize(4) * nodeVal^(1/3)
-      const sphereR = 4 * Math.cbrt(((node.r ?? 4) * display.nodeSize) ** 2);
+      const r = displayRadius(
+        node.r ?? 4,
+        display.nodeSize,
+        heatOf(stateRef.current, id),
+      );
+      const sphereR = 4 * Math.cbrt(r ** 2);
       const glow = new Sprite(glowMaterial(displayColor(node)));
       glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
@@ -575,7 +586,7 @@ export default function Graph3D({
       sprite.textHeight = 4;
       // sit just below the sphere; re-created on refresh() so a nodeSize
       // slider change re-derives the offset
-      sprite.position.set(0, -((node.r ?? 4) * display.nodeSize + 4), 0);
+      sprite.position.set(0, -(r + 4), 0);
       // refresh() recreates sprites with visible=true; inherit the previous
       // visibility so far labels don't strobe between distance sweeps
       sprite.visible = sprites.current.get(id)?.visible ?? true;
@@ -609,7 +620,13 @@ export default function Graph3D({
         fgRef.current?.zoomToFit(300, -400);
       }}
       nodeLabel="id"
-      nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
+      nodeVal={(node: NodeObj) =>
+        displayRadius(
+          node.r ?? 4,
+          display.nodeSize,
+          heatOf(stateRef.current, String(node.id)),
+        ) ** 2
+      }
       nodeThreeObjectExtend={true}
       nodeThreeObject={nodeThreeObject}
       nodeColor={displayColor}
