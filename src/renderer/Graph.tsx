@@ -78,6 +78,23 @@ export default function Graph({
     didFit.current = false;
   }, [layoutEpoch]);
 
+  // A parked card never runs onRenderFramePost, which is where the open view
+  // expires matches and repaints. Poll the store's rev counter instead and
+  // refresh on change — the same trick Graph3D uses for its baked-in accessors.
+  const lastRev = useRef(-1);
+  useEffect(() => {
+    if (!thumbnail) return;
+    const id = setInterval(() => {
+      const s = stateRef.current;
+      expireMatches(s, performance.now());
+      if (s.rev !== lastRev.current) {
+        lastRev.current = s.rev;
+        fgRef.current?.refresh();
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [thumbnail, stateRef]);
+
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean.
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time,
   // otherwise every slider tick would re-bind data and restart the simulation.
@@ -138,7 +155,9 @@ export default function Graph({
       width={width}
       height={height}
       backgroundColor={COLORS.bg}
-      autoPauseRedraw={false} // keep repainting so flares fade, pulses ripple, hover tracks
+      // the open view repaints so flares fade, pulses ripple and hover tracks;
+      // a card has none of those, so let it park and nudge it from the effect below
+      autoPauseRedraw={thumbnail}
       nodeRelSize={1}
       minZoom={thumbnail ? ZOOM.thumbnail : ZOOM.min}
       maxZoom={ZOOM.max}

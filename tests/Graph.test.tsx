@@ -101,4 +101,39 @@ describe("Graph component", () => {
     expect(element.props.nodeVal(nodes[0])).toBeCloseTo((1.5 * 2) ** 2); // nodeSize=2
     expect(element.props.linkWidth({})).toBe(3); // non-hovered × linkThickness=3
   });
+
+  it("lets thumbnail canvases park but keeps the full view repainting", async () => {
+    const { default: Graph } = await import("../src/renderer/Graph");
+
+    const graph: VaultGraph = {
+      nodes: [{ id: "a", type: "note", domain: "physics", section: "raw" }],
+      edges: [],
+    };
+    const stateRef = {
+      current: { sessionId: null, nodes: new Map(), pulseAt: 0, rev: 0 },
+    };
+    const props = {
+      graph,
+      domains: ["physics"],
+      groups: [],
+      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      forces: {
+        centerStrength: 1,
+        repelStrength: 30,
+        linkStrength: 1,
+        linkDistance: 30,
+      },
+      stateRef: stateRef as any,
+      onNodeClick: () => {
+        return;
+      },
+    };
+
+    // the open workspace animates fades, pulses and hover — never park it
+    expect(Graph({ ...props } as any).props.autoPauseRedraw).toBe(false);
+    // a card has none of those; parking is what stops N idle canvases burning frames
+    expect(
+      Graph({ ...props, thumbnail: true } as any).props.autoPauseRedraw,
+    ).toBe(true);
+  });
 });
