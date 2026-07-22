@@ -10,6 +10,7 @@ import type {
 import type { HighlightState } from "./highlight-store";
 import type { GraphFilters } from "./graph-filter";
 import MiniGraph from "./MiniGraph";
+import EmptyGraph, { type IndexState } from "./EmptyGraph";
 import { relativeTime } from "./relative-time";
 
 const CARD_W = 220;
@@ -46,6 +47,9 @@ type MissionControlProps = {
   filters: Omit<GraphFilters, "search">; // cards hide what the view hides
   now: number; // passed in, not read — keeps this component hook-free
   onSelect: (ws: Workspace) => void;
+  // keyed by workspace id; absent means idle
+  indexing: Record<string, { state: IndexState; error?: string }>;
+  onIndex: (workspaceId: string) => void;
 };
 
 // Every workspace at a glance. Presentation only — the status array arrives
@@ -60,6 +64,8 @@ export default function MissionControl({
   filters,
   now,
   onSelect,
+  indexing,
+  onIndex,
 }: MissionControlProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
 
@@ -81,14 +87,31 @@ export default function MissionControl({
         {workspaces.map((ws) => {
           const st = byId.get(ws.id);
           const kind: StatusKind = st?.kind ?? "none";
+          const g = graphs.get(ws.id);
+          // absent from the map = still loading; empty = analyzed to nothing,
+          // or never analyzed at all. Only the second earns the button.
+          const needsIndex = ws.kind === "code" && !!g && g.nodes.length === 0;
+          const idx = indexing[ws.id];
+
           return (
-            <button
+            <div
               key={ws.id}
               data-testid={`card-${ws.id}`}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelect(ws)}
+              // a div is not a button, so Enter/Space have to be wired by hand.
+              // It has to be a div: a <button> cannot legally contain the index
+              // button inside the thumbnail below.
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(ws);
+                }
+              }}
               style={{ width: CARD_W + 26 }}
               className={
-                "flex flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:border-accent " +
+                "flex cursor-pointer flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:border-accent " +
                 (kind === "waiting" ? "border-warm" : "border-edge")
               }
             >
@@ -121,16 +144,30 @@ export default function MissionControl({
                 {st?.call || " "}
               </div>
 
-              <MiniGraph
-                graph={graphs.get(ws.id) ?? null}
-                kind={ws.kind}
-                state={getStore(ws.id)}
-                groups={groups}
-                view={view}
-                filters={filters}
-                width={CARD_W}
-                height={CARD_H}
-              />
+              {needsIndex ? (
+                <div
+                  style={{ width: CARD_W, height: CARD_H }}
+                  className="overflow-hidden rounded border border-dashed border-edge"
+                >
+                  <EmptyGraph
+                    state={idx?.state ?? "idle"}
+                    error={idx?.error}
+                    onIndex={() => onIndex(ws.id)}
+                    compact
+                  />
+                </div>
+              ) : (
+                <MiniGraph
+                  graph={g ?? null}
+                  kind={ws.kind}
+                  state={getStore(ws.id)}
+                  groups={groups}
+                  view={view}
+                  filters={filters}
+                  width={CARD_W}
+                  height={CARD_H}
+                />
+              )}
 
               <div
                 data-testid={`counts-${ws.id}`}
@@ -152,7 +189,7 @@ export default function MissionControl({
                   {relativeTime(st?.since ?? 0, now)}
                 </span>
               </div>
-            </button>
+            </div>
           );
         })}
       </div>
