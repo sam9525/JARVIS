@@ -51,6 +51,9 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
   const [statuses, setStatuses] = useState<Record<string, Status>>({});
   const [width, setWidth] = useState(480);
   const [collapsed, setCollapsed] = useState(true);
+  // a permission-free session is the one action here with no undo, so it costs
+  // two clicks and the second one says what it does
+  const [armed, setArmed] = useState(false);
   const status: Status = statuses[workspace.id] ?? { kind: "idle" };
 
   useEffect(() => {
@@ -188,9 +191,18 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
             <button
               className="cursor-pointer rounded-md border border-amber-500/40 px-4 py-2 text-[13px] text-amber-400 hover:border-amber-400 hover:text-amber-300"
               title="claude --dangerously-skip-permissions"
-              onClick={() => launch(true)}
+              onClick={() => {
+                if (!armed) {
+                  setArmed(true);
+                  return;
+                }
+                setArmed(false);
+                launch(true);
+              }}
             >
-              Launch (dangerous)
+              {armed
+                ? "Click again — edits and shell run unprompted"
+                : "Launch without permission prompts"}
             </button>
           </div>
         )}
