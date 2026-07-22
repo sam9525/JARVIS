@@ -104,6 +104,10 @@ export default function MissionControl({
               // It has to be a div: a <button> cannot legally contain the index
               // button inside the thumbnail below.
               onKeyDown={(e) => {
+                // the index button inside sits in this bubble path: its own
+                // Enter fires keydown here before its click, so without this
+                // guard keying it would navigate instead of indexing
+                if (e.target !== e.currentTarget) return;
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   onSelect(ws);

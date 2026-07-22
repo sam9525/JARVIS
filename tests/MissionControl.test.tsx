@@ -202,7 +202,9 @@ describe("MissionControl", () => {
     render(
       <MissionControl
         {...(props({
-          graphs: new Map<string, VaultGraph>([["w2", { nodes: [], edges: [] }]]),
+          graphs: new Map<string, VaultGraph>([
+            ["w2", { nodes: [], edges: [] }],
+          ]),
         }) as any)}
       />,
     );
@@ -219,7 +221,9 @@ describe("MissionControl", () => {
     render(
       <MissionControl
         {...(props({
-          graphs: new Map<string, VaultGraph>([["w1", { nodes: [], edges: [] }]]),
+          graphs: new Map<string, VaultGraph>([
+            ["w1", { nodes: [], edges: [] }],
+          ]),
         }) as any)}
       />,
     );
@@ -231,7 +235,10 @@ describe("MissionControl", () => {
       <MissionControl
         {...(props({
           graphs: new Map<string, VaultGraph>([
-            ["w2", { nodes: [{ id: "a.ts", type: "note" as const }], edges: [] }],
+            [
+              "w2",
+              { nodes: [{ id: "a.ts", type: "note" as const }], edges: [] },
+            ],
           ]),
         }) as any)}
       />,
@@ -245,13 +252,17 @@ describe("MissionControl", () => {
     render(
       <MissionControl
         {...(props({
-          graphs: new Map<string, VaultGraph>([["w2", { nodes: [], edges: [] }]]),
+          graphs: new Map<string, VaultGraph>([
+            ["w2", { nodes: [], edges: [] }],
+          ]),
           onIndex,
           onSelect,
         }) as any)}
       />,
     );
-    screen.byTestId("index-button").props.onClick({ stopPropagation: () => {} });
+    screen
+      .byTestId("index-button")
+      .props.onClick({ stopPropagation: () => {} });
     expect(onIndex).toHaveBeenCalledWith("w2");
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -260,7 +271,9 @@ describe("MissionControl", () => {
     render(
       <MissionControl
         {...(props({
-          graphs: new Map<string, VaultGraph>([["w2", { nodes: [], edges: [] }]]),
+          graphs: new Map<string, VaultGraph>([
+            ["w2", { nodes: [], edges: [] }],
+          ]),
           indexing: { w2: { state: "running" } },
         }) as any)}
       />,
@@ -283,6 +296,21 @@ describe("MissionControl", () => {
     render(<MissionControl {...(props({ onSelect }) as any)} />);
     screen.byTestId("card-w2").props.onKeyDown({
       key: "a",
+      preventDefault: () => {},
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  // the index button lives inside the card, so its own Enter bubbles up here
+  // first — keying it must index, not navigate away from the thing being indexed
+  it("leaves Enter alone when it came from a control inside the card", () => {
+    const onSelect = vi.fn();
+    render(<MissionControl {...(props({ onSelect }) as any)} />);
+    const card = screen.byTestId("card-w2");
+    card.props.onKeyDown({
+      key: "Enter",
+      target: { name: "the index button" },
+      currentTarget: { name: "the card" },
       preventDefault: () => {},
     });
     expect(onSelect).not.toHaveBeenCalled();
