@@ -15,6 +15,53 @@ export function normalizeId(p: string): string {
   return path.resolve(p).split(path.sep).join("/").toLowerCase();
 }
 
+// Added projects live in their own file rather than jarvis-settings.json: the
+// renderer owns settings as live state and writes the whole object back, so
+// anything main appended there would be clobbered by the next save.
+export async function readProjects(file: string): Promise<string[]> {
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(file, "utf8"));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((p): p is string => typeof p === "string");
+  } catch {
+    return []; // missing or unreadable → no extras; rewritten on next add
+  }
+}
+
+export async function saveProjects(
+  file: string,
+  paths: string[],
+): Promise<void> {
+  await fs.writeFile(file, JSON.stringify(paths, null, 2) + "\n", "utf8");
+}
+
+// gitnexus chooses the registered name itself, so after an analyze the folder
+// basename we guessed at add time has to be replaced with the real one.
+export function nameFromRegistry(
+  registryJson: string | null,
+  rootPath: string,
+): string | null {
+  if (!registryJson) return null;
+  try {
+    const parsed: unknown = JSON.parse(registryJson);
+    if (!Array.isArray(parsed)) return null;
+    const id = normalizeId(rootPath);
+    for (const e of parsed as RegistryEntry[]) {
+      if (
+        typeof e?.name === "string" &&
+        e.name !== "" &&
+        typeof e?.path === "string" &&
+        normalizeId(e.path) === id
+      ) {
+        return e.name;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function buildWorkspaces(
   vaultPath: string,
   entries: RegistryEntry[],
@@ -90,7 +137,10 @@ function gitHead(root: string): Promise<string | null> {
   });
 }
 
-export async function loadWorkspaces(vaultPath: string): Promise<Workspace[]> {
+export async function loadWorkspaces(
+  vaultPath: string,
+  extraPaths: string[] = [],
+): Promise<Workspace[]> {
   const registryPath = path.join(os.homedir(), ".gitnexus", "registry.json");
   let entries: RegistryEntry[] = [];
   try {
@@ -99,7 +149,7 @@ export async function loadWorkspaces(vaultPath: string): Promise<Workspace[]> {
   } catch {
     // no gitnexus / unreadable registry → vault-only (v1 mode)
   }
-  const list = buildWorkspaces(vaultPath, entries);
+  const list = buildWorkspaces(vaultPath, entries, extraPaths);
   const alive: Workspace[] = [];
   for (const ws of list) {
     if (ws.kind === "vault") {
