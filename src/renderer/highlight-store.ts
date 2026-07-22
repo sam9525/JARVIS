@@ -3,6 +3,7 @@ import type { ToolEvent } from "../shared/types";
 export const PULSE_MS = 600; // searching pulse ripple duration
 export const MATCH_MS = 3000; // matched-files glow lifetime
 export const HEAT_CAP = 6; // deliberate touches at which a node is fully hot
+export const FROZEN_PULSE = 0.5; // replay holds the pulse mid-animation — its zero-radius start would draw nothing
 
 type Highlight = { kind: "read" } | { kind: "modified" };
 
@@ -20,6 +21,10 @@ export interface HighlightState {
   // only: a broad Grep matching 40 files would flatten the map in one event.
   heat: Map<string, number>;
   rev: number; // bumped on every change — 3D polls this to know when to re-bake
+  // Set only on states built by replay's foldTo: the 1-based index being viewed.
+  // Absent on live states, so nothing about live behaviour changes. When set,
+  // pulseAt/matchAt hold event indices rather than wall-clock stamps.
+  frozenAt?: number;
 }
 
 export function emptyState(): HighlightState {
@@ -108,7 +113,10 @@ export function pulseProgress(
   state: HighlightState,
   now: number,
 ): number | null {
-  if (!state.pulseAt || now < state.pulseAt) return null;
+  if (!state.pulseAt) return null;
+  if (state.frozenAt !== undefined)
+    return state.pulseAt === state.frozenAt ? FROZEN_PULSE : null;
+  if (now < state.pulseAt) return null;
   const t = (now - state.pulseAt) / PULSE_MS;
   return t >= 1 ? null : t;
 }
@@ -117,7 +125,10 @@ export function matchProgress(
   state: HighlightState,
   now: number,
 ): number | null {
-  if (!state.matchAt || now < state.matchAt) return null;
+  if (!state.matchAt) return null;
+  if (state.frozenAt !== undefined)
+    return state.matchAt === state.frozenAt ? 0 : null;
+  if (now < state.matchAt) return null;
   const t = (now - state.matchAt) / MATCH_MS;
   return t >= 1 ? null : t;
 }
@@ -126,6 +137,7 @@ export function matchProgress(
 // store owns — nothing to leak, and the whole lifecycle stays synchronously
 // testable. Returns true when it actually cleared something.
 export function expireMatches(state: HighlightState, now: number): boolean {
+  if (state.frozenAt !== undefined) return false; // a parked view never decays
   if (!state.matched.size || now - state.matchAt < MATCH_MS) return false;
   state.matched.clear();
   state.matchAt = 0;

@@ -8,6 +8,7 @@ import {
   nodeDisplay,
   pulseProgress,
   resetHighlights,
+  FROZEN_PULSE,
   HEAT_CAP,
   MATCH_MS,
   PULSE_MS,
@@ -245,5 +246,48 @@ describe("highlight-store", () => {
     resetHighlights(a);
     expect(heatOf(a, "x")).toBe(0);
     expect(heatOf(b, "x")).toBeCloseTo(1 / 6);
+  });
+
+  it("a frozen state holds the pulse of the event it is parked on", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "pre" }), 3); // stamps pulseAt = 3
+    s.frozenAt = 3;
+    expect(pulseProgress(s, 999999)).toBe(FROZEN_PULSE);
+  });
+
+  it("a frozen state parked past the pulse shows no pulse", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "pre" }), 3);
+    s.frozenAt = 7; // parked on a later event
+    expect(pulseProgress(s, 999999)).toBeNull();
+  });
+
+  it("a frozen state with nothing stamped shows no pulse", () => {
+    const s = emptyState(); // pulseAt stays 0
+    s.frozenAt = 0; // 1-based clocks never produce 0, so this must not match
+    expect(pulseProgress(s, 999999)).toBeNull();
+  });
+
+  it("a frozen state holds the match glow at full", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "post", nodeIds: ["a", "b"] }), 5);
+    s.frozenAt = 5;
+    expect(matchProgress(s, 999999)).toBe(0);
+  });
+
+  it("a frozen state never expires its matches", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "post", nodeIds: ["a"] }), 5);
+    s.frozenAt = 5;
+    expect(expireMatches(s, 999999)).toBe(false);
+    expect(s.matched.size).toBe(1);
+  });
+
+  it("a live state still decays and expires normally", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "post", nodeIds: ["a"] }), 0);
+    expect(matchProgress(s, MATCH_MS + 1)).toBeNull();
+    expect(expireMatches(s, MATCH_MS + 1)).toBe(true);
+    expect(s.matched.size).toBe(0);
   });
 });
