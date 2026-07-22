@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods } from "react-force-graph-2d";
-import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
+import type { GraphGroup, ViewSettings, VaultGraph } from "../shared/types";
 import {
   expireMatches,
   heatOf,
@@ -39,8 +39,8 @@ type GraphProps = {
   graph: VaultGraph; // may be filtered
   domains: string[]; // from the FULL graph — keeps palette indices stable
   groups: GraphGroup[];
-  display: Settings["display"];
-  forces: Settings["forces"];
+  display: ViewSettings["display"];
+  forces: ViewSettings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // center this node in the graph slot
@@ -282,7 +282,13 @@ export default function Graph({
             const n = nodeById.get(id);
             // filtered-out nodes have no live position — skip
             if (!n || n.x === undefined || n.y === undefined) continue;
-            const r = (n.r ?? 4) * display.nodeSize;
+            // heat included: a hot node is drawn larger, and a ring sized off
+            // the cold radius would be painted over by the node itself
+            const r = displayRadius(
+              n.r ?? 4,
+              display.nodeSize,
+              heatOf(stateRef.current, id),
+            );
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 4 / globalScale, 0, 2 * Math.PI);
             ctx.stroke();
@@ -306,8 +312,18 @@ export default function Graph({
           const dx = (b.x ?? 0) - (a.x ?? 0);
           const dy = (b.y ?? 0) - (a.y ?? 0);
           const len = Math.hypot(dx, dy);
-          const ra = (a.r ?? 4) * display.nodeSize;
-          const rb = (b.r ?? 4) * display.nodeSize;
+          // heat included: trail nodes are read nodes, so they are exactly the
+          // ones that grow — offsets off the cold radius start inside the node
+          const ra = displayRadius(
+            a.r ?? 4,
+            display.nodeSize,
+            heatOf(stateRef.current, trail[i]),
+          );
+          const rb = displayRadius(
+            b.r ?? 4,
+            display.nodeSize,
+            heatOf(stateRef.current, trail[i + 1]),
+          );
           if (len < ra + rb + 2) continue; // nodes touching — no room
           const ux = dx / len;
           const uy = dy / len;

@@ -197,4 +197,84 @@ describe("Graph component", () => {
     expect(element.props.nodeVal(hot)).toBeCloseTo((1.5 * 2 * 1.4) ** 2);
     expect(element.props.nodeVal(cold)).toBeCloseTo((1.5 * 2) ** 2);
   });
+
+  // The overlay pass draws around nodes it does not itself size, so it has to
+  // apply heat the same way nodeCanvasObject does — otherwise a hot node simply
+  // swallows its own match ring and the trail arrows that point at it.
+  it("sizes the match ring and trail arrows off the heated radius", async () => {
+    const { default: Graph } = await import("../src/renderer/Graph");
+
+    const graph: VaultGraph = {
+      nodes: [
+        { id: "a", type: "note", domain: "physics", section: "raw" },
+        { id: "b", type: "note", domain: "physics", section: "wiki" },
+      ],
+      edges: [{ source: "a", target: "b" }],
+    };
+    // frozen (as replay builds it) so the transients hold still: matchProgress
+    // returns a fixed 0 instead of racing the wall clock through MATCH_MS
+    const stateRef = {
+      current: {
+        sessionId: null,
+        nodes: new Map(),
+        trail: ["a", "b"],
+        pulseAt: 0,
+        matched: new Set(["a"]),
+        matchAt: 5,
+        frozenAt: 5,
+        heat: new Map([["a", 6]]), // at HEAT_CAP => t=1 => scale 1.8
+        rev: 0,
+      },
+    };
+
+    const element = Graph({
+      graph,
+      domains: ["physics"],
+      groups: [],
+      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      forces: {
+        centerStrength: 1,
+        repelStrength: 30,
+        linkStrength: 1,
+        linkDistance: 30,
+      },
+      stateRef: stateRef as any,
+      onNodeClick: () => {
+        return;
+      },
+    } as any) as any;
+
+    // the sim owns positions; stand in for it so the overlay has something real
+    const nodes = element.props.graphData.nodes;
+    Object.assign(
+      nodes.find((n: any) => n.id === "a"),
+      { x: 0, y: 0 },
+    );
+    Object.assign(
+      nodes.find((n: any) => n.id === "b"),
+      { x: 100, y: 0 },
+    );
+
+    const arcRadii: number[] = [];
+    const moveXs: number[] = [];
+    const ctx: any = {
+      strokeStyle: "",
+      fillStyle: "",
+      lineWidth: 0,
+      globalAlpha: 1,
+      beginPath: noop,
+      stroke: noop,
+      fill: noop,
+      closePath: noop,
+      lineTo: noop,
+      arc: (_x: number, _y: number, r: number) => arcRadii.push(r),
+      moveTo: (x: number) => moveXs.push(x),
+    };
+    element.props.onRenderFramePost(ctx, 1); // globalScale 1
+
+    // node a: base 1.5 × nodeSize 2 × 1.8 heat = 5.4, ring sits 4/scale outside
+    expect(arcRadii[0]).toBeCloseTo(5.4 + 4);
+    // trail a→b starts 1px outside hot a (5.4), not outside cold a (3.0)
+    expect(moveXs[0]).toBeCloseTo(6.4);
+  });
 });
