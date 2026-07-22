@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { exec } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
@@ -6,7 +8,13 @@ import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
 import { autoGroups, loadSettings, saveSettings } from "./settings";
-import { loadWorkspaces } from "./workspaces";
+import {
+  loadWorkspaces,
+  normalizeId,
+  nameFromRegistry,
+  readProjects,
+  saveProjects,
+} from "./workspaces";
 import { loadCodeGraph } from "./gitnexus-graph";
 import { ensureHooks } from "./hook-install";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
@@ -43,9 +51,28 @@ async function resolveRootPath(): Promise<string> {
   return picked[0];
 }
 
+// exec, not execFile: `gitnexus` is a .cmd shim on Windows and needs a shell —
+// same reason gitnexus-graph.ts uses exec. Nothing untrusted is interpolated.
+// maxBuffer is per-call and defaults to 1 MB; analyze is chatty enough to blow
+// that, which would kill a long index mid-run.
+function runAnalyze(cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    exec(
+      "gitnexus analyze",
+      { cwd, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
+      (err) => (err ? reject(err) : resolve()),
+    );
+  });
+}
+
 app.whenReady().then(async () => {
   const rootPath = await resolveRootPath(); // unchanged (vault picker)
-  const workspaces = await loadWorkspaces(rootPath);
+  const projectsPath = path.join(
+    app.getPath("userData"),
+    "jarvis-projects.json",
+  );
+  const extraPaths = await readProjects(projectsPath);
+  const workspaces = await loadWorkspaces(rootPath, extraPaths);
   const vault = workspaces[0];
 
   // graphs load lazily per workspace and stay cached until rescan
@@ -79,6 +106,48 @@ app.whenReady().then(async () => {
     const g = await loadGraph(ws);
     graphs.set(id, Promise.resolve(g)); // assign only on success
     return g;
+  });
+
+  ipcMain.handle("add-project", async () => {
+    const picked = dialog.showOpenDialogSync({
+      title: "Add a project folder",
+      properties: ["openDirectory"],
+    });
+    if (!picked?.length) return workspaces; // cancelled
+    const rootPathPicked = picked[0];
+    const id = normalizeId(rootPathPicked);
+    if (workspaces.some((w) => w.id === id)) return workspaces; // already here
+
+    // pushed, never reassigned: startListener holds this array through a
+    // () => workspaces getter and the IPC handlers reach it via .find
+    workspaces.push({
+      id,
+      name: path.basename(rootPathPicked),
+      rootPath: rootPathPicked,
+      kind: "code",
+    });
+    extraPaths.push(rootPathPicked);
+    await saveProjects(projectsPath, extraPaths).catch(console.error);
+    return workspaces;
+  });
+
+  ipcMain.handle("index-project", async (_e, id: string) => {
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) return { ok: false, error: "unknown workspace" };
+    try {
+      await runAnalyze(ws.rootPath);
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+    // gitnexus picks the registered name itself; the basename guessed at add
+    // time would keep failing every loadCodeGraph until it is corrected
+    const registry = await fs
+      .readFile(path.join(os.homedir(), ".gitnexus", "registry.json"), "utf8")
+      .catch(() => null);
+    const name = nameFromRegistry(registry, ws.rootPath);
+    if (name) ws.name = name;
+    graphs.delete(ws.id); // next get-graph/rescan re-reads the fresh index
+    return { ok: true };
   });
 
   const settingsPath = path.join(

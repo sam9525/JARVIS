@@ -36,6 +36,11 @@ const api = {
     ipcRenderer.invoke("set-settings", s),
   rescan: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("rescan", workspaceId),
+  addProject: (): Promise<Workspace[]> => ipcRenderer.invoke("add-project"),
+  indexProject: (
+    workspaceId: string,
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("index-project", workspaceId),
   ptyLaunch: (
     workspaceId: string,
     cols: number,
