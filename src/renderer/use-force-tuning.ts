@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { forceCollide, forceX, forceY, forceZ } from "d3-force-3d";
-import type { Settings } from "../shared/types";
+import type { ViewSettings } from "../shared/types";
 
 const COLLIDE_PADDING = 6; // min gap between any two nodes, linked or not
 
@@ -21,7 +21,7 @@ export type ForceHandle = {
 
 export function useForceTuning(
   fgRef: React.MutableRefObject<ForceHandle | undefined>,
-  forces: Settings["forces"],
+  forces: ViewSettings["forces"],
 ): void {
   // d3's default link strength is per-link (1/min(degree)); capture it once so
   // the Link force slider multiplies it instead of flattening it to a constant.
