@@ -14,6 +14,8 @@ import WorkspaceRail from "./WorkspaceRail";
 import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
 import EmptyGraph, { type IndexState } from "./EmptyGraph";
+import Timeline from "./Timeline";
+import { appendEvent, foldTo, nextRev } from "./replay";
 import {
   applyEvent,
   emptyState,
@@ -26,6 +28,7 @@ import { defaultSettings } from "../shared/types";
 import { createPreviewOpener } from "./preview-opener";
 import type {
   Settings,
+  ToolEvent,
   VaultGraph,
   Workspace,
   WorkspaceStatus,
@@ -69,6 +72,14 @@ export default function App() {
   const activeIdRef = useRef<string | null>(null);
   const graphCacheRef = useRef(new Map<string, VaultGraph>());
 
+  // event log per workspace, feeding the replay scrubber. logRev exists only to
+  // re-render the bar as events arrive — the log itself stays in a ref so an
+  // append is O(1) rather than an array copy per event.
+  const logsRef = useRef(new Map<string, ToolEvent[]>());
+  const [replayIndex, setReplayIndex] = useState<number | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_logRev, setLogRev] = useState(0);
+
   const storeFor = (id: string): HighlightState => {
     let s = storesRef.current.get(id);
     if (!s) {
@@ -77,6 +88,22 @@ export default function App() {
     }
     return s;
   };
+
+  // Replay is a retarget of the same ref workspace switching retargets. The
+  // live store keeps receiving events while parked, so returning to live needs
+  // no catch-up — only a fresh rev so Graph3D re-bakes against the new object.
+  const onScrub = useCallback((i: number | null) => {
+    const id = activeIdRef.current;
+    if (!id) return;
+    setReplayIndex(i);
+    if (i === null) {
+      const live = storeFor(id);
+      live.rev = nextRev();
+      stateRef.current = live;
+    } else {
+      stateRef.current = foldTo(logsRef.current.get(id) ?? [], i);
+    }
+  }, []);
 
   // debounced auto-open: last-read file after reads go quiet
   const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
@@ -88,6 +115,7 @@ export default function App() {
       setActive(ws);
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
+      setReplayIndex(null); // the ref above already points at the live store
       const cached = graphCacheRef.current.get(ws.id);
       if (cached) {
         setGraph(cached);
@@ -133,8 +161,13 @@ export default function App() {
       .finally(() => setSettingsReady(true)); // defaults still render on failure
     offs.push(
       window.jarvis.onToolEvent((e) => {
+        const fresh = appendEvent(logsRef.current, e);
         applyEvent(storeFor(e.workspaceId), e, performance.now());
-        if (e.workspaceId === activeIdRef.current) onPreviewEvent(e);
+        if (e.workspaceId === activeIdRef.current) {
+          if (fresh) onScrub(null); // the past being replayed no longer exists
+          setLogRev((n) => n + 1);
+          onPreviewEvent(e);
+        }
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
@@ -366,6 +399,11 @@ export default function App() {
                     />
                   </div>
                 )}
+              <Timeline
+                log={(active && logsRef.current.get(active.id)) || []}
+                index={replayIndex}
+                onScrub={onScrub}
+              />
               {/* absolute within the graph slot, not fixed to the viewport —
                 so this sits at the slot's own right edge (left of the
                 terminal panel, whatever its current width) instead of
