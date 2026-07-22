@@ -6,6 +6,10 @@
 
 const MAX_DEPTH = 6; // deep enough for {mode, results:[{file:...}]}, shallow enough to always terminate
 
+// ponytail: a flat cap, not a smart one — MATCH_CAP trims further downstream.
+// This only stops a pathological response from building a giant array first.
+export const MAX_PATHS = 500;
+
 // A path needs a separator or a file extension. "Found 3 files" has neither.
 const PATH_LIKE = /[\\/]|\.[a-z0-9]+$/i;
 
@@ -17,9 +21,10 @@ function stripLineSuffix(line: string): string {
 }
 
 function walk(value: unknown, depth: number, out: string[]): void {
-  if (depth > MAX_DEPTH) return;
+  if (depth > MAX_DEPTH || out.length >= MAX_PATHS) return;
   if (typeof value === "string") {
     for (const raw of value.split(/\r?\n/)) {
+      if (out.length >= MAX_PATHS) return;
       const line = stripLineSuffix(raw).trim();
       if (line && PATH_LIKE.test(line)) out.push(line);
     }

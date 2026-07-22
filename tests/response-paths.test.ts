@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { extractPaths } from "../src/main/response-paths";
+import { extractPaths, MAX_PATHS } from "../src/main/response-paths";
 
 // Shapes observed in the captured fixtures (Task 1) — see
 // tests/fixtures/hook/ for the verbatim payloads.
@@ -80,5 +80,12 @@ describe("extractPaths", () => {
     cyclic.self = cyclic;
     expect(() => extractPaths(cyclic)).not.toThrow();
     expect(extractPaths(cyclic)).toContain("x/y.ts");
+  });
+
+  it("stops collecting once the cap is reached", () => {
+    const huge = Array.from({ length: 5000 }, (_, i) => `src/file${i}.ts`).join(
+      "\n",
+    );
+    expect(extractPaths(huge).length).toBe(MAX_PATHS);
   });
 });
