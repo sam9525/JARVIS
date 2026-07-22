@@ -106,6 +106,7 @@ describe("WorkspaceRail badges", () => {
         homeActive={false}
         onHome={() => {}}
         onSelect={() => {}}
+        onAddProject={() => {}}
       />,
     );
     expect(screen.getByTestId("badge-w1").className).toContain("bg-accent");
@@ -121,6 +122,7 @@ describe("WorkspaceRail badges", () => {
         homeActive={false}
         onHome={() => {}}
         onSelect={() => {}}
+        onAddProject={() => {}}
       />,
     );
     expect(screen.queryByTestId("badge-w1")).toBeNull();
@@ -135,6 +137,7 @@ describe("WorkspaceRail badges", () => {
         homeActive={false}
         onHome={() => {}}
         onSelect={() => {}}
+        onAddProject={() => {}}
       />,
     );
     expect(screen.queryByTestId("badge-w2")).toBeNull();
@@ -155,6 +158,7 @@ describe("WorkspaceRail badges", () => {
         homeActive={false}
         onHome={() => {}}
         onSelect={() => {}}
+        onAddProject={() => {}}
       />,
     );
     expect(
@@ -174,6 +178,7 @@ describe("WorkspaceRail badges", () => {
           fired = true;
         }}
         onSelect={() => {}}
+        onAddProject={() => {}}
       />,
     );
     screen.getByTestId("rail-home").props.onClick();
@@ -189,6 +194,7 @@ describe("WorkspaceRail badges", () => {
         homeActive={true}
         onHome={() => {}}
         onSelect={() => {}}
+        onAddProject={() => {}}
       />,
     );
     expect(screen.getByTestId("rail-home").className).toContain(
@@ -200,5 +206,24 @@ describe("WorkspaceRail badges", () => {
     expect(screen.getByTitle(/^vault/).props.className).toContain(
       "border-edge",
     );
+  });
+
+  it("renders an add button that fires onAddProject", () => {
+    let fired = false;
+    render(
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId="w1"
+        statuses={[]}
+        homeActive={false}
+        onHome={() => {}}
+        onSelect={() => {}}
+        onAddProject={() => {
+          fired = true;
+        }}
+      />,
+    );
+    screen.getByTestId("rail-add").props.onClick();
+    expect(fired).toBe(true);
   });
 });
