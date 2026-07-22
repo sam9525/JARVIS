@@ -103,27 +103,38 @@ export default function App() {
   );
 
   useEffect(() => {
+    const offs: Array<() => void> = [];
+    let cancelled = false;
     window.jarvis.getWorkspaces().then((list) => {
+      if (cancelled) return;
       setWorkspaces(list);
       if (list.length === 0) return;
       openWorkspace(list[0]); // vault first
       const vaultId = list[0].id;
       // watcher only feeds the vault — cache under its id, show if on screen
-      window.jarvis.onGraph((g) => {
-        graphCacheRef.current.set(vaultId, g);
-        if (activeIdRef.current === vaultId) setGraph(g);
-      });
+      offs.push(
+        window.jarvis.onGraph((g) => {
+          graphCacheRef.current.set(vaultId, g);
+          if (activeIdRef.current === vaultId) setGraph(g);
+        }),
+      );
     });
     window.jarvis
       .getSettings()
       .then(setSettings)
       .catch(console.error)
       .finally(() => setSettingsReady(true)); // defaults still render on failure
-    window.jarvis.onToolEvent((e) => {
-      applyEvent(storeFor(e.workspaceId), e, performance.now());
-      if (e.workspaceId === activeIdRef.current) onPreviewEvent(e);
-    });
-    window.jarvis.onStatus(setStatuses);
+    offs.push(
+      window.jarvis.onToolEvent((e) => {
+        applyEvent(storeFor(e.workspaceId), e, performance.now());
+        if (e.workspaceId === activeIdRef.current) onPreviewEvent(e);
+      }),
+    );
+    offs.push(window.jarvis.onStatus(setStatuses));
+    return () => {
+      cancelled = true;
+      for (const off of offs) off();
+    };
     // registered once — do not re-register on workspace switch
   }, []);
 

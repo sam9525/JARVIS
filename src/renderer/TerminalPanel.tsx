@@ -16,6 +16,8 @@ const entries = new Map<string, Entry>();
 const exitListeners = new Set<(id: string, code: number) => void>();
 let subscribed = false;
 
+// module-scope and permanent by design: these feed terminals that outlive
+// any one mount, so the disposers are deliberately dropped
 function ensureSubscribed() {
   if (subscribed) return;
   subscribed = true;

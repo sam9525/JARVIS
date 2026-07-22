@@ -7,20 +7,28 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 
+// Every subscription hands back its own disposer. Without one, a second mount
+// (StrictMode, or any remount) silently doubles the listener.
+function subscribe<A extends unknown[]>(
+  channel: string,
+  cb: (...args: A) => void,
+): () => void {
+  const handler = (_e: unknown, ...args: unknown[]) => cb(...(args as A));
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 const api = {
   getWorkspaces: (): Promise<Workspace[]> =>
     ipcRenderer.invoke("get-workspaces"),
   getGraph: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("get-graph", workspaceId),
-  onGraph: (cb: (g: VaultGraph) => void) => {
-    ipcRenderer.on("graph", (_e, g: VaultGraph) => cb(g));
-  },
-  onToolEvent: (cb: (e: ToolEvent) => void) => {
-    ipcRenderer.on("tool-event", (_e, t: ToolEvent) => cb(t));
-  },
-  onStatus: (cb: (s: WorkspaceStatus[]) => void) => {
-    ipcRenderer.on("status", (_e, s: WorkspaceStatus[]) => cb(s));
-  },
+  onGraph: (cb: (g: VaultGraph) => void) =>
+    subscribe<[VaultGraph]>("graph", cb),
+  onToolEvent: (cb: (e: ToolEvent) => void) =>
+    subscribe<[ToolEvent]>("tool-event", cb),
+  onStatus: (cb: (s: WorkspaceStatus[]) => void) =>
+    subscribe<[WorkspaceStatus[]]>("status", cb),
   readNote: (workspaceId: string, nodeId: string): Promise<string | null> =>
     ipcRenderer.invoke("read-note", workspaceId, nodeId),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),
@@ -41,12 +49,10 @@ const api = {
   ptyResize: (workspaceId: string, cols: number, rows: number): void => {
     ipcRenderer.send("pty-resize", workspaceId, cols, rows);
   },
-  onPtyData: (cb: (workspaceId: string, data: string) => void) => {
-    ipcRenderer.on("pty-data", (_e, id: string, d: string) => cb(id, d));
-  },
-  onPtyExit: (cb: (workspaceId: string, exitCode: number) => void) => {
-    ipcRenderer.on("pty-exit", (_e, id: string, c: number) => cb(id, c));
-  },
+  onPtyData: (cb: (workspaceId: string, data: string) => void) =>
+    subscribe<[string, string]>("pty-data", cb),
+  onPtyExit: (cb: (workspaceId: string, exitCode: number) => void) =>
+    subscribe<[string, number]>("pty-exit", cb),
 };
 
 contextBridge.exposeInMainWorld("jarvis", api);
