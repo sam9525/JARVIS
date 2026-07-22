@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { isDirectory } from "./is-directory";
 import type { Workspace } from "../shared/types";
 
 export interface RegistryEntry {
@@ -156,11 +157,7 @@ export async function loadWorkspaces(
       alive.push(ws);
       continue;
     }
-    const ok = await fs.stat(ws.rootPath).then(
-      (s) => s.isDirectory(),
-      () => false,
-    );
-    if (!ok) continue; // registry entry whose folder is gone
+    if (!(await isDirectory(ws.rootPath))) continue; // folder is gone
     const meta = await fs
       .readFile(path.join(ws.rootPath, ".gitnexus", "meta.json"), "utf8")
       .catch(() => null);

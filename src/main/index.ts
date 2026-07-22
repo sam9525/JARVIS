@@ -15,7 +15,8 @@ import {
   readProjects,
   saveProjects,
 } from "./workspaces";
-import { loadCodeGraph } from "./gitnexus-graph";
+import { hasIndex, insideGitRepo, loadCodeGraph } from "./gitnexus-graph";
+import { isDirectory } from "./is-directory";
 import { ensureHooks } from "./hook-install";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import { createStatusStore, STALE_MS } from "./workspace-status";
@@ -29,15 +30,7 @@ async function resolveRootPath(): Promise<string> {
   const store = path.join(app.getPath("userData"), "jarvis-vault");
   const saved = await fs.readFile(store, "utf8").catch(() => null);
   // reuse the saved vault only if the folder is still there
-  if (
-    saved &&
-    (await fs.stat(saved).then(
-      (s) => s.isDirectory(),
-      () => false,
-    ))
-  ) {
-    return saved;
-  }
+  if (saved && (await isDirectory(saved))) return saved;
 
   const picked = dialog.showOpenDialogSync({
     title: "Pick your vault folder",
@@ -52,15 +45,22 @@ async function resolveRootPath(): Promise<string> {
 }
 
 // exec, not execFile: `gitnexus` is a .cmd shim on Windows and needs a shell —
-// same reason gitnexus-graph.ts uses exec. Nothing untrusted is interpolated.
+// same reason gitnexus-graph.ts uses exec. The only interpolated value is one
+// of two literal flags, so nothing user-supplied reaches the command line.
 // maxBuffer is per-call and defaults to 1 MB; analyze is chatty enough to blow
 // that, which would kill a long index mid-run.
-function runAnalyze(cwd: string): Promise<void> {
+async function runAnalyze(cwd: string): Promise<void> {
+  // gitnexus refuses a folder with no git history unless told to skip git;
+  // a project can perfectly well be worth indexing before it is a repo
+  const skipGit = (await insideGitRepo(cwd)) ? "" : " --skip-git";
   return new Promise((resolve, reject) => {
     exec(
-      "gitnexus analyze",
+      `gitnexus analyze${skipGit}`,
       { cwd, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
-      (err) => (err ? reject(err) : resolve()),
+      // stderr carries the actual reason ("Not inside a git repository", a
+      // parse failure); err.message alone is just the exit code
+      (err, _stdout, stderr) =>
+        err ? reject(new Error(stderr.trim() || err.message)) : resolve(),
     );
   });
 }
@@ -77,16 +77,19 @@ app.whenReady().then(async () => {
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
-  const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
-    ws.kind === "vault"
-      ? scanVault(ws.rootPath)
-      : // keyed by registry name, not path: two registry entries sharing a
-        // name resolve to the same gitnexus index
-        loadCodeGraph(ws.name).catch((err) => {
-          // gitnexus missing/format drift → terminal-only workspace, no crash
-          console.error(`code graph failed for ${ws.name}:`, err);
-          return { nodes: [], edges: [] };
-        });
+  const loadGraph = async (ws: Workspace): Promise<VaultGraph> => {
+    if (ws.kind === "vault") return scanVault(ws.rootPath);
+    // a project added before it was ever analyzed has no registry entry, so
+    // asking the CLI would only produce "Repository not found"
+    if (!(await hasIndex(ws.rootPath))) return { nodes: [], edges: [] };
+    // keyed by registry name, not path: two registry entries sharing a name
+    // resolve to the same gitnexus index
+    return loadCodeGraph(ws.name).catch((err) => {
+      // gitnexus format drift / unreadable index → terminal-only, no crash
+      console.error(`code graph failed for ${ws.name}:`, err);
+      return { nodes: [], edges: [] };
+    });
+  };
   const graphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
@@ -137,6 +140,9 @@ app.whenReady().then(async () => {
     try {
       await runAnalyze(ws.rootPath);
     } catch (err) {
+      // the renderer only has room for this in a tooltip — keep the full text
+      // where it can be read
+      console.error(`gitnexus analyze failed in ${ws.rootPath}:`, err);
       return { ok: false, error: (err as Error).message };
     }
     // gitnexus picks the registered name itself; the basename guessed at add
