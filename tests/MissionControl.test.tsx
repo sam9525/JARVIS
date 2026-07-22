@@ -1,8 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { vi, describe, it, expect } from "vitest";
+// Cards render a real ForceGraph2D now, and force-graph touches window at
+// import time. This suite is about the chrome around the thumbnail, and the
+// shallow renderer below never descends into it anyway.
+vi.mock("../src/renderer/MiniGraph", () => ({ default: () => null }));
+
 import MissionControl from "../src/renderer/MissionControl";
 import { emptyState } from "../src/renderer/highlight-store";
+import { defaultSettings } from "../src/shared/types";
 import type {
   VaultGraph,
   Workspace,
@@ -87,6 +93,12 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   graphs: new Map<string, VaultGraph>(),
   getStore: () => emptyState(),
   groups: [],
+  view: defaultSettings().views["2d"],
+  filters: {
+    sectionFilter: "both" as const,
+    showTags: true,
+    showOrphans: true,
+  },
   now: 1_700_000_000_000,
   onSelect: () => {},
   ...over,

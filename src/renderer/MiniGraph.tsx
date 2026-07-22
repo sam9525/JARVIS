@@ -1,136 +1,106 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import type { GraphGroup, VaultGraph } from "../shared/types";
-import {
-  matchProgress,
-  nodeDisplay,
-  pulseProgress,
-  type HighlightState,
-} from "./highlight-store";
-import { layoutFor } from "./mini-layout";
-import { baseNodeColor, domainsOf } from "./domain-colors";
+import React, { useMemo, useRef } from "react";
+import type {
+  GraphGroup,
+  VaultGraph,
+  ViewSettings,
+  Workspace,
+} from "../shared/types";
+import type { HighlightState } from "./highlight-store";
+import Graph from "./Graph";
+import { domainsOf } from "./domain-colors";
+import { busiest, filterGraph, type GraphFilters } from "./graph-filter";
 import { COLORS } from "./graph-colors";
+
+// A whole force simulation per card, so cards show only their most connected
+// neighbourhood. At thumbnail scale the rest is invisible anyway.
+export const MINI_NODES = 250;
+const MINI_NODE_SCALE = 1.5; // dots shrink with the fit; hubs must stay visible
 
 type MiniGraphProps = {
   graph: VaultGraph | null; // null while the workspace's graph is still loading
+  kind: Workspace["kind"]; // code workspaces have no sections — see below
   state: HighlightState;
   groups: GraphGroup[];
+  view: ViewSettings; // always the 2D view's, even when the app is in 3D
+  // the section/tag/orphan filters the workspace view uses; search is left out
+  // on purpose — it belongs to the workspace you have open, not to every card
+  filters: Omit<GraphFilters, "search">;
   width: number;
   height: number;
 };
 
-// A card's thumbnail: the layout is settled once and frozen, and only the
-// highlight layer moves. An idle card costs one comparison per frame.
+// A card is the 2D view, shrunk — same component, same forces, so a thumbnail
+// can't drift from the view it stands for. pointer-events are off so the card
+// stays one big button.
 export default function MiniGraph({
   graph,
+  kind,
   state,
   groups,
+  view,
+  filters,
   width,
   height,
 }: MiniGraphProps) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const lastRev = useRef(-1);
-  // each card's palette indices come from its own graph, so a workspace's
-  // thumbnail matches that workspace's 2D view
-  const domains = useMemo(() => (graph ? domainsOf(graph) : []), [graph]);
+  // Graph reads highlights through a ref so its canvas can repaint without
+  // re-rendering; cards get the state by value, so mirror it into one
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  useEffect(() => {
-    const cv = ref.current;
-    if (!cv) return;
-    const ctx = cv.getContext("2d");
-    if (!ctx) return; // no canvas (jsdom, or a lost context) — render nothing
-    lastRev.current = -1; // force one paint after any prop change
-
-    const draw = (c: CanvasRenderingContext2D, now: number) => {
-      c.fillStyle = COLORS.bg;
-      c.fillRect(0, 0, width, height);
-      if (!graph || graph.nodes.length === 0) return;
-      const layout = layoutFor(graph, width, height);
-
-      c.strokeStyle = COLORS.link;
-      c.lineWidth = 1;
-      for (const [a, b] of layout.edges) {
-        c.beginPath();
-        c.moveTo(layout.nodes[a].x, layout.nodes[a].y);
-        c.lineTo(layout.nodes[b].x, layout.nodes[b].y);
-        c.stroke();
-      }
-
-      for (const n of layout.nodes) {
-        const d = nodeDisplay(state, n.id);
-        c.beginPath();
-        c.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        // same rules as the 2D view: modified wins, then group, tag, domain
-        c.fillStyle =
-          d === "modified"
-            ? COLORS.modified
-            : baseNodeColor(n, domains, groups);
-        c.fill();
-        if (d === "ring") {
-          c.beginPath();
-          c.arc(n.x, n.y, n.r + 2, 0, Math.PI * 2);
-          c.strokeStyle = COLORS.ring;
-          c.lineWidth = 1;
-          c.stroke();
-        }
-      }
-
-      const mt = matchProgress(state, now);
-      if (mt !== null) {
-        c.strokeStyle = COLORS.match;
-        c.globalAlpha = 1 - mt;
-        c.lineWidth = 1.2;
-        for (const n of layout.nodes) {
-          if (!state.matched.has(n.id)) continue;
-          c.beginPath();
-          c.arc(n.x, n.y, n.r + 3, 0, Math.PI * 2);
-          c.stroke();
-        }
-        c.globalAlpha = 1;
-      }
-
-      const pt = pulseProgress(state, now);
-      if (pt !== null) {
-        c.beginPath();
-        c.arc(
-          width / 2,
-          height / 2,
-          pt * Math.max(width, height),
-          0,
-          Math.PI * 2,
-        );
-        c.strokeStyle = COLORS.ring;
-        c.globalAlpha = 1 - pt;
-        c.lineWidth = 1;
-        c.stroke();
-        c.globalAlpha = 1;
-      }
-    };
-
-    let raf = 0;
-    const frame = () => {
-      raf = requestAnimationFrame(frame);
-      const now = performance.now();
-      const live =
-        matchProgress(state, now) !== null ||
-        pulseProgress(state, now) !== null;
-      // repaint every frame only while something is actually animating;
-      // otherwise only when the store says it changed
-      if (!live && state.rev === lastRev.current) return;
-      lastRev.current = state.rev;
-      draw(ctx, now);
-    };
-
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
-  }, [graph, state, groups, domains, width, height]);
+  // depends on the filter FIELDS, not the object: a fresh-but-equal filters
+  // object each render would hand force-graph new data and restart the settle
+  const mini = useMemo(
+    () =>
+      graph
+        ? busiest(
+            filterGraph(graph, {
+              // code workspaces have no sections; force "both" so nothing
+              // vanishes, exactly as App does for the open workspace
+              sectionFilter: kind === "code" ? "both" : filters.sectionFilter,
+              search: "",
+              showTags: filters.showTags,
+              showOrphans: filters.showOrphans,
+            }),
+            MINI_NODES,
+          )
+        : null,
+    [graph, kind, filters.sectionFilter, filters.showTags, filters.showOrphans],
+  );
+  const domains = useMemo(() => (mini ? domainsOf(mini) : []), [mini]);
+  const display = useMemo(
+    () => ({
+      ...view.display,
+      nodeSize: view.display.nodeSize * MINI_NODE_SCALE,
+      textFadeThreshold: Infinity, // no labels on a 220px card
+    }),
+    [view.display],
+  );
 
   return (
-    <canvas
-      ref={ref}
-      width={width}
-      height={height}
-      className="block w-full rounded"
-      style={{ height }}
-    />
+    <div
+      className="pointer-events-none overflow-hidden rounded"
+      style={{ width, height, background: COLORS.bg }}
+    >
+      {mini && (
+        <Graph
+          graph={mini}
+          domains={domains}
+          groups={groups}
+          display={display}
+          forces={view.forces}
+          stateRef={stateRef}
+          onNodeClick={noop}
+          focusNode={null}
+          layoutEpoch={0}
+          thumbnail
+          width={width}
+          height={height}
+        />
+      )}
+    </div>
   );
+}
+
+function noop() {
+  return;
 }

@@ -249,6 +249,12 @@ export default function App() {
               graphs={cardGraphs}
               getStore={storeFor}
               groups={settings.groups}
+              view={settings.views["2d"]}
+              filters={{
+                sectionFilter: settings.sectionFilter,
+                showTags: settings.showTags,
+                showOrphans: settings.showOrphans,
+              }}
               now={cardNow}
               onSelect={(ws) => {
                 setShowHome(false);

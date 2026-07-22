@@ -3,10 +3,12 @@ import type {
   GraphGroup,
   StatusKind,
   VaultGraph,
+  ViewSettings,
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
 import type { HighlightState } from "./highlight-store";
+import type { GraphFilters } from "./graph-filter";
 import MiniGraph from "./MiniGraph";
 import { relativeTime } from "./relative-time";
 
@@ -40,6 +42,8 @@ type MissionControlProps = {
   graphs: Map<string, VaultGraph>; // only the workspaces loaded so far
   getStore: (workspaceId: string) => HighlightState;
   groups: GraphGroup[]; // so thumbnails colour like the 2D view
+  view: ViewSettings; // the 2D view's settings — thumbnails render with them
+  filters: Omit<GraphFilters, "search">; // cards hide what the view hides
   now: number; // passed in, not read — keeps this component hook-free
   onSelect: (ws: Workspace) => void;
 };
@@ -52,6 +56,8 @@ export default function MissionControl({
   graphs,
   getStore,
   groups,
+  view,
+  filters,
   now,
   onSelect,
 }: MissionControlProps) {
@@ -117,8 +123,11 @@ export default function MissionControl({
 
               <MiniGraph
                 graph={graphs.get(ws.id) ?? null}
+                kind={ws.kind}
                 state={getStore(ws.id)}
                 groups={groups}
+                view={view}
+                filters={filters}
                 width={CARD_W}
                 height={CARD_H}
               />

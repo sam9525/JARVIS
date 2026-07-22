@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { filterGraph } from "../src/renderer/graph-filter";
+import { busiest, filterGraph } from "../src/renderer/graph-filter";
 import type { GraphFilters } from "../src/renderer/graph-filter";
 import type { VaultGraph } from "../src/shared/types";
 
@@ -76,6 +76,24 @@ describe("filterGraph", () => {
       "history/raw/c",
       "physics/raw/a",
       "tag:shared",
+    ]);
+  });
+});
+
+describe("busiest", () => {
+  it("passes the graph through untouched when it is under the cap", () => {
+    expect(busiest(g, 10)).toBe(g);
+  });
+
+  it("keeps the highest-degree nodes and only edges between them", () => {
+    const b = busiest(g, 2);
+    // a has 3 edges, b has 2 — the rest have 1
+    expect(b.nodes.map((n) => n.id)).toEqual([
+      "physics/raw/a",
+      "physics/wiki/b",
+    ]);
+    expect(b.edges).toEqual([
+      { source: "physics/raw/a", target: "physics/wiki/b" },
     ]);
   });
 });
