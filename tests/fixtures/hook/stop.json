@@ -1,0 +1,14 @@
+{
+  "session_id": "60f81070-7861-45f0-98b0-b173695c545a",
+  "cwd": "D:\\data\\Program\\JARVIS",
+  "prompt_id": "4e7e133b-18c7-4492-a770-ac07b385d33f",
+  "permission_mode": "default",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "Hey! What are we working on?",
+  "background_tasks": [],
+  "session_crons": []
+}

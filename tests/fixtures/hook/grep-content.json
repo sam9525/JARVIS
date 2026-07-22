@@ -1,0 +1,28 @@
+{
+  "session_id": "6828ffa0-4579-419d-8857-877654c5b28e",
+  "cwd": "D:\\data\\Program\\JARVIS",
+  "prompt_id": "1f475c05-e3af-4b5b-b901-60a3c6154d26",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Grep",
+  "tool_input": {
+    "pattern": "export function",
+    "path": "D:\\data\\Program\\JARVIS\\src\\main",
+    "output_mode": "content",
+    "head_limit": 10
+  },
+  "tool_response": {
+    "mode": "content",
+    "numFiles": 0,
+    "filenames": [],
+    "content": "src\\main\\event-mapper.ts:16:export function mapHookEvent(\nsrc\\main\\http-listener.ts:7:export function startListener(\nsrc\\main\\gitnexus-graph.ts:7:export function parseCypherTable(stdout: string): string[][] {\nsrc\\main\\gitnexus-graph.ts:27:export function buildCodeGraph(\nsrc\\main\\pty-manager.ts:32:export function claudeCommand(dangerous = false): {\nsrc\\main\\pty-manager.ts:42:export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {\nsrc\\main\\settings.ts:75:export function autoGroups(graph: VaultGraph): GraphGroup[] {\nsrc\\main\\watcher.ts:6:export function watchVault(\nsrc\\main\\vault-graph.ts:19:export function toNodeId(rootPath: string, absPath: string): string {\nsrc\\main\\vault-graph.ts:139:export function resolveMdLink(",
+    "numLines": 10,
+    "totalLines": 14,
+    "appliedLimit": 10
+  },
+  "tool_use_id": "toolu_01EXSgBN39Vzv7gczL2f4JXB",
+  "duration_ms": 71
+}

@@ -2,9 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   applyEvent,
   emptyState,
+  expireMatches,
+  matchProgress,
   nodeDisplay,
   pulseProgress,
   resetHighlights,
+  MATCH_MS,
   PULSE_MS,
 } from "../src/renderer/highlight-store";
 import type { ToolEvent } from "../src/shared/types";
@@ -113,5 +116,67 @@ describe("highlight-store", () => {
     resetHighlights(a);
     expect(b.nodes.size).toBe(0);
     expect(b.rev).toBe(0); // untouched by a's event and reset
+  });
+
+  it("a post Grep marks its nodes matched without touching rings or trail", () => {
+    const s = emptyState();
+    applyEvent(
+      s,
+      ev({ phase: "post", tool: "Grep", nodeIds: ["a", "b"] }),
+      1000,
+    );
+    expect([...s.matched]).toEqual(["a", "b"]);
+    expect(s.matchAt).toBe(1000);
+    // matched is not a tier — no ring, no trail entry
+    expect(nodeDisplay(s, "a")).toBeNull();
+    expect(s.trail).toEqual([]);
+  });
+
+  it("a new search replaces the previous match batch", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ phase: "post", tool: "Grep", nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ phase: "post", tool: "Glob", nodeIds: ["b"] }), 500);
+    expect([...s.matched]).toEqual(["b"]);
+    expect(s.matchAt).toBe(500);
+  });
+
+  it("matchProgress runs 0→1 then returns null once expired", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ phase: "post", tool: "Grep", nodeIds: ["a"] }), 1000);
+    expect(matchProgress(s, 1000)).toBeCloseTo(0);
+    expect(matchProgress(s, 1000 + MATCH_MS / 2)).toBeCloseTo(0.5);
+    expect(matchProgress(s, 1000 + MATCH_MS)).toBeNull();
+  });
+
+  it("matchProgress is null when nothing has matched", () => {
+    expect(matchProgress(emptyState(), 5000)).toBeNull();
+  });
+
+  it("expireMatches clears the batch once, and reports whether it did", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ phase: "post", tool: "Grep", nodeIds: ["a"] }), 0);
+    const revBefore = s.rev;
+    expect(expireMatches(s, MATCH_MS - 1)).toBe(false);
+    expect(s.matched.size).toBe(1);
+    expect(expireMatches(s, MATCH_MS)).toBe(true);
+    expect(s.matched.size).toBe(0);
+    expect(s.rev).toBeGreaterThan(revBefore);
+    expect(expireMatches(s, MATCH_MS + 1000)).toBe(false); // already clear
+  });
+
+  it("a matched node still gets a normal ring and trail entry when read", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ phase: "post", tool: "Grep", nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ nodeIds: ["a"] }), 100);
+    expect(nodeDisplay(s, "a")).toBe("ring");
+    expect(s.trail).toEqual(["a"]);
+  });
+
+  it("a new prompt clears matches along with everything else", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ phase: "post", tool: "Grep", nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ tool: "Prompt", nodeIds: [] }), 10);
+    expect(s.matched.size).toBe(0);
+    expect(s.matchAt).toBe(0);
   });
 });

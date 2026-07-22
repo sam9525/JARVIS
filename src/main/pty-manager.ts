@@ -29,18 +29,22 @@ export interface PtyManagerEvents {
 }
 
 // Windows can't spawn `claude` (a .cmd shim) without a shell.
-export function claudeCommand(): { file: string; args: string[] } {
+export function claudeCommand(dangerous = false): {
+  file: string;
+  args: string[];
+} {
+  const flags = dangerous ? ["--dangerously-skip-permissions"] : [];
   return process.platform === "win32"
-    ? { file: "cmd.exe", args: ["/c", "claude"] }
-    : { file: "claude", args: [] };
+    ? { file: "cmd.exe", args: ["/c", "claude", ...flags] }
+    : { file: "claude", args: flags };
 }
 
 export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
   const ptys = new Map<string, PtyLike>();
   return {
-    launch(ws: Workspace, cols: number, rows: number): void {
+    launch(ws: Workspace, cols: number, rows: number, dangerous = false): void {
       if (ptys.has(ws.id)) return; // one live session per workspace
-      const { file, args } = claudeCommand();
+      const { file, args } = claudeCommand(dangerous);
       const p = spawnFn(file, args, {
         cwd: ws.rootPath,
         cols,

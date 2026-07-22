@@ -1,0 +1,171 @@
+import React from "react";
+import type {
+  GraphGroup,
+  StatusKind,
+  VaultGraph,
+  ViewSettings,
+  Workspace,
+  WorkspaceStatus,
+} from "../shared/types";
+import type { HighlightState } from "./highlight-store";
+import type { GraphFilters } from "./graph-filter";
+import MiniGraph from "./MiniGraph";
+import { relativeTime } from "./relative-time";
+
+const CARD_W = 220;
+const CARD_H = 150;
+
+const LABEL: Record<StatusKind, string> = {
+  waiting: "waiting on you",
+  running: "running",
+  idle: "idle",
+  none: "no session",
+};
+
+const DOT: Record<StatusKind, string> = {
+  waiting: "bg-warm",
+  running: "bg-accent",
+  idle: "bg-ink-dim",
+  none: "border border-ink-dim",
+};
+
+const TEXT: Record<StatusKind, string> = {
+  waiting: "text-warm",
+  running: "text-accent",
+  idle: "text-ink-dim",
+  none: "text-ink-dim",
+};
+
+type MissionControlProps = {
+  workspaces: Workspace[];
+  statuses: WorkspaceStatus[];
+  graphs: Map<string, VaultGraph>; // only the workspaces loaded so far
+  getStore: (workspaceId: string) => HighlightState;
+  groups: GraphGroup[]; // so thumbnails colour like the 2D view
+  view: ViewSettings; // the 2D view's settings — thumbnails render with them
+  filters: Omit<GraphFilters, "search">; // cards hide what the view hides
+  now: number; // passed in, not read — keeps this component hook-free
+  onSelect: (ws: Workspace) => void;
+};
+
+// Every workspace at a glance. Presentation only — the status array arrives
+// ready-made from main, and no card computes state of its own.
+export default function MissionControl({
+  workspaces,
+  statuses,
+  graphs,
+  getStore,
+  groups,
+  view,
+  filters,
+  now,
+  onSelect,
+}: MissionControlProps) {
+  const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
+
+  return (
+    <div className="h-full overflow-y-auto p-5">
+      <div className="mb-4 flex items-baseline justify-between border-b border-edge pb-3">
+        <span className="text-[15px] font-semibold text-ink">
+          All workspaces
+        </span>
+        <span
+          data-testid="mc-summary"
+          className="font-mono text-[11px] tracking-wide text-ink-dim"
+        >
+          {summary(statuses)}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-3.5">
+        {workspaces.map((ws) => {
+          const st = byId.get(ws.id);
+          const kind: StatusKind = st?.kind ?? "none";
+          return (
+            <button
+              key={ws.id}
+              data-testid={`card-${ws.id}`}
+              onClick={() => onSelect(ws)}
+              style={{ width: CARD_W + 26 }}
+              className={
+                "flex flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:border-accent " +
+                (kind === "waiting" ? "border-warm" : "border-edge")
+              }
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  data-testid={`name-${ws.id}`}
+                  className="text-[13px] font-semibold text-ink"
+                >
+                  {ws.name}
+                </span>
+                <span className="rounded border border-edge px-1.5 font-mono text-[9px] uppercase tracking-widest text-ink-dim">
+                  {ws.kind}
+                </span>
+              </div>
+
+              <div
+                data-testid={`status-${ws.id}`}
+                className={`flex items-center gap-2 font-mono text-[11px] uppercase tracking-wide ${TEXT[kind]}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${DOT[kind]}`} />
+                {LABEL[kind]}
+              </div>
+
+              {/* one line, ellipsized — a card's height never depends on what
+                  Claude happens to be doing */}
+              <div
+                data-testid={`call-${ws.id}`}
+                className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11.5px] text-accent-soft"
+              >
+                {st?.call || " "}
+              </div>
+
+              <MiniGraph
+                graph={graphs.get(ws.id) ?? null}
+                kind={ws.kind}
+                state={getStore(ws.id)}
+                groups={groups}
+                view={view}
+                filters={filters}
+                width={CARD_W}
+                height={CARD_H}
+              />
+
+              <div
+                data-testid={`counts-${ws.id}`}
+                className="flex gap-3 border-t border-edge pt-2 font-mono text-[11px] tabular-nums text-ink-dim"
+              >
+                <span>
+                  <b className="font-semibold text-ink-muted">
+                    {st?.reads ?? 0}
+                  </b>{" "}
+                  read
+                </span>
+                <span>
+                  <b className="font-semibold text-ink-muted">
+                    {st?.edits ?? 0}
+                  </b>{" "}
+                  edited
+                </span>
+                <span className="ml-auto">
+                  {relativeTime(st?.since ?? 0, now)}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function summary(statuses: WorkspaceStatus[]): string {
+  const n = (k: StatusKind) => statuses.filter((s) => s.kind === k).length;
+  const parts = [
+    n("waiting") && `${n("waiting")} waiting`,
+    n("running") && `${n("running")} running`,
+    n("idle") && `${n("idle")} idle`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "no active sessions";
+}

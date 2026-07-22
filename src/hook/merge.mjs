@@ -1,7 +1,18 @@
 // Shared by install.mjs (manual CLI) and src/main/hook-install.ts (auto-install
 // before first terminal launch). Pure: takes parsed settings, returns merged.
-const MATCHER = "Read|Grep|Glob|Edit|Write";
-const EVENTS = ["PreToolUse", "PostToolUse", "UserPromptSubmit"];
+// Pre at "*" does ship every Write's content and every Task's prompt; that
+// cost is accepted because the call line needs Bash and Task, and the
+// listener is localhost-only. Post stays narrow because its payloads are
+// unbounded tool OUTPUT, which nothing in the UI reads.
+const POST_MATCHER = "Read|Grep|Glob|Edit|Write";
+const PRE_MATCHER = "*";
+const EVENTS = [
+  "PreToolUse",
+  "PostToolUse",
+  "UserPromptSubmit",
+  "Notification",
+  "Stop",
+];
 
 // Any entry already pointing at forward.mjs is ours (possibly stale from an
 // older checkout path or matcher).
@@ -22,12 +33,14 @@ function withoutOurHooks(settings) {
 }
 
 export function mergeHooks(settings, command) {
-  const hook = { matcher: MATCHER, hooks: [{ type: "command", command }] };
-  // UserPromptSubmit resets highlights per question; prompt hooks take no matcher
+  const hooks = [{ type: "command", command }];
+  // Stop and Notification take no matcher — they always fire
   const entries = {
-    PreToolUse: hook,
-    PostToolUse: hook,
-    UserPromptSubmit: { hooks: [{ type: "command", command }] },
+    PreToolUse: { matcher: PRE_MATCHER, hooks },
+    PostToolUse: { matcher: POST_MATCHER, hooks },
+    UserPromptSubmit: { hooks },
+    Notification: { hooks },
+    Stop: { hooks },
   };
   const out = withoutOurHooks(settings);
   for (const [event, entry] of Object.entries(entries)) {

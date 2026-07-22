@@ -1,4 +1,24 @@
 import type { SectionFilter, VaultGraph } from "../shared/types";
+import { graphMetrics } from "./graph-metrics";
+
+// The n highest-degree nodes and every edge between them. Mission-control cards
+// run a full simulation each, so a card graphs only its busiest neighbourhood —
+// at thumbnail scale the rest is invisible anyway.
+export function busiest(g: VaultGraph, n: number): VaultGraph {
+  if (g.nodes.length <= n) return g;
+  const { neighbors } = graphMetrics(g);
+  const nodes = [...g.nodes]
+    .sort(
+      (a, b) =>
+        (neighbors.get(b.id)?.size ?? 0) - (neighbors.get(a.id)?.size ?? 0),
+    )
+    .slice(0, n);
+  const kept = new Set(nodes.map((x) => x.id));
+  return {
+    nodes,
+    edges: g.edges.filter((e) => kept.has(e.source) && kept.has(e.target)),
+  };
+}
 
 export interface GraphFilters {
   sectionFilter: SectionFilter;

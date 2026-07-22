@@ -52,14 +52,18 @@ describe("install.mjs", () => {
 
     expect(result.status).toBe(0);
     const settings = readSettings(vault);
-    for (const event of ["PreToolUse", "PostToolUse"]) {
-      expect(settings.hooks[event]).toEqual([
-        {
-          matcher: "Read|Grep|Glob|Edit|Write",
-          hooks: [{ type: "command", command: COMMAND }],
-        },
-      ]);
-    }
+    expect(settings.hooks.PreToolUse).toEqual([
+      {
+        matcher: "*",
+        hooks: [{ type: "command", command: COMMAND }],
+      },
+    ]);
+    expect(settings.hooks.PostToolUse).toEqual([
+      {
+        matcher: "Read|Grep|Glob|Edit|Write",
+        hooks: [{ type: "command", command: COMMAND }],
+      },
+    ]);
   });
 
   it("installs a matcher-less UserPromptSubmit hook (prompt hooks take no matcher)", () => {
@@ -102,7 +106,7 @@ describe("install.mjs", () => {
     const settings = readSettings(vault);
     expect(settings.hooks.PreToolUse).toEqual([
       {
-        matcher: "Read|Grep|Glob|Edit|Write",
+        matcher: "*",
         hooks: [{ type: "command", command: COMMAND }],
       },
     ]);
@@ -146,7 +150,7 @@ describe("install.mjs", () => {
     const settings = readSettings(vault);
     expect(settings.hooks.PreToolUse).toEqual([
       {
-        matcher: "Read|Grep|Glob|Edit|Write",
+        matcher: "*",
         hooks: [{ type: "command", command: COMMAND }],
       },
     ]);

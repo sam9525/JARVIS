@@ -1,0 +1,39 @@
+{
+  "session_id": "6828ffa0-4579-419d-8857-877654c5b28e",
+  "cwd": "D:\\data\\Program\\JARVIS",
+  "prompt_id": "1f475c05-e3af-4b5b-b901-60a3c6154d26",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Glob",
+  "tool_input": {
+    "pattern": "src/renderer/*.ts"
+  },
+  "tool_response": {
+    "filenames": [
+      "src\\renderer\\d3-force-3d.d.ts",
+      "src\\renderer\\domain-colors.ts",
+      "src\\renderer\\global.d.ts",
+      "src\\renderer\\graph-colors.ts",
+      "src\\renderer\\graph-filter.ts",
+      "src\\renderer\\graph-metrics.ts",
+      "src\\renderer\\highlight-store.ts",
+      "src\\renderer\\markdown.ts",
+      "src\\renderer\\node-label.ts",
+      "src\\renderer\\three.d.ts",
+      "src\\renderer\\use-force-tuning.ts",
+      "src\\renderer\\use-group-halos.ts",
+      "src\\renderer\\code-highlight.ts",
+      "src\\renderer\\preview-opener.ts"
+    ],
+    "durationMs": 213,
+    "numFiles": 14,
+    "truncated": false,
+    "totalMatches": 14,
+    "countIsComplete": true
+  },
+  "tool_use_id": "toolu_0177iVHBcswxToi4kCkWk8ea",
+  "duration_ms": 213
+}

@@ -12,6 +12,27 @@ export interface ToolEvent {
   ts: number;
 }
 
+export type StatusKind = "waiting" | "running" | "idle" | "none";
+
+// what the rail badge and the mission-control cards read
+export interface WorkspaceStatus {
+  workspaceId: string;
+  kind: StatusKind;
+  call: string; // compact "Tool(subject)"; "" when there is nothing to show
+  since: number; // ms epoch of the last kind change — drives "40s ago"
+  reads: number; // distinct files read this session
+  edits: number; // distinct files edited this session
+}
+
+// emitted by the status mapper; "none" is never a hook outcome, only a PTY one
+export interface StatusEvent {
+  workspaceId: string;
+  sessionId: string;
+  kind: "waiting" | "running" | "idle";
+  call: string;
+  ts: number;
+}
+
 export type Section = "raw" | "wiki";
 export type SectionFilter = Section | "both";
 

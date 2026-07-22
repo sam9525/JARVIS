@@ -3,6 +3,8 @@ import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods } from "react-force-graph-2d";
 import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
 import {
+  expireMatches,
+  matchProgress,
   nodeDisplay,
   pulseProgress,
   type HighlightState,
@@ -13,7 +15,7 @@ import { COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { nodeLabelText } from "./node-label";
 
-const ZOOM = { min: 0.5, max: 15 } as const;
+const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
 
 type NodeObj = {
   id?: string | number;
@@ -44,6 +46,9 @@ type GraphProps = {
   layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
   width: number; // measured graph-slot size from GraphSlot's ResizeObserver
   height: number;
+  // card mode: no zoom floor (a 220px card fits at ~0.15, far below ZOOM.min),
+  // a tight margin, and a refit every tick so the settle stays inside the card
+  thumbnail?: boolean;
 };
 
 export default function Graph({
@@ -58,7 +63,9 @@ export default function Graph({
   layoutEpoch,
   width,
   height,
+  thumbnail = false,
 }: GraphProps) {
+  const fitPadding = thumbnail ? 4 : 40;
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
   const fgRef = useRef<ForceGraphMethods>();
@@ -70,6 +77,23 @@ export default function Graph({
     if (layoutEpoch === 0) return;
     didFit.current = false;
   }, [layoutEpoch]);
+
+  // A parked card never runs onRenderFramePost, which is where the open view
+  // expires matches and repaints. Poll the store's rev counter instead and
+  // refresh on change — the same trick Graph3D uses for its baked-in accessors.
+  const lastRev = useRef(-1);
+  useEffect(() => {
+    if (!thumbnail) return;
+    const id = setInterval(() => {
+      const s = stateRef.current;
+      expireMatches(s, performance.now());
+      if (s.rev !== lastRev.current) {
+        lastRev.current = s.rev;
+        fgRef.current?.refresh();
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [thumbnail, stateRef]);
 
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean.
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time,
@@ -103,7 +127,7 @@ export default function Graph({
     if (!focusNode) {
       if (hadFocus.current) {
         hadFocus.current = false;
-        fgRef.current?.zoomToFit(1000, 40);
+        fgRef.current?.zoomToFit(1000, fitPadding);
       }
       return;
     }
@@ -131,15 +155,22 @@ export default function Graph({
       width={width}
       height={height}
       backgroundColor={COLORS.bg}
-      autoPauseRedraw={false} // keep repainting so flares fade, pulses ripple, hover tracks
+      // the open view repaints so flares fade, pulses ripple and hover tracks;
+      // a card has none of those, so let it park and nudge it from the effect below
+      autoPauseRedraw={thumbnail}
       nodeRelSize={1}
-      minZoom={ZOOM.min}
+      minZoom={thumbnail ? ZOOM.thumbnail : ZOOM.min}
       maxZoom={ZOOM.max}
       cooldownTicks={200} // settle in ~1-2s instead of the default 15s so the fit fires promptly
+      // a card is too small to let the settle spill past its edges, so it
+      // reframes as it goes; the full view fits once, at the end
+      onEngineTick={
+        thumbnail ? () => fgRef.current?.zoomToFit(0, fitPadding) : undefined
+      }
       onEngineStop={() => {
         if (didFit.current) return;
         didFit.current = true;
-        fgRef.current?.zoomToFit(200, 40);
+        fgRef.current?.zoomToFit(200, fitPadding);
       }}
       nodeLabel="id"
       nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
@@ -227,6 +258,28 @@ export default function Graph({
           ctx.strokeStyle = `rgba(126, 249, 255, ${1 - t})`;
           ctx.lineWidth = 3 / globalScale;
           ctx.stroke();
+        }
+
+        // matched files: a soft ring that fades over MATCH_MS. Drawn here
+        // rather than in nodeCanvasObject so the alpha is a per-frame value
+        // instead of something baked into each node.
+        const mt = matchProgress(stateRef.current, performance.now());
+        if (mt !== null) {
+          ctx.strokeStyle = COLORS.match;
+          ctx.globalAlpha = 1 - mt;
+          ctx.lineWidth = 2 / globalScale;
+          for (const id of stateRef.current.matched) {
+            const n = nodeById.get(id);
+            // filtered-out nodes have no live position — skip
+            if (!n || n.x === undefined || n.y === undefined) continue;
+            const r = (n.r ?? 4) * display.nodeSize;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + 4 / globalScale, 0, 2 * Math.PI);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        } else {
+          expireMatches(stateRef.current, performance.now());
         }
 
         // read-order trail: arrows between consecutively read nodes

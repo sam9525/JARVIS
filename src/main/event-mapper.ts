@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { ToolEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
+import { extractPaths } from "./response-paths";
 
 export interface RawHookEvent {
   session_id?: string;
@@ -8,8 +9,13 @@ export interface RawHookEvent {
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  // tool_response exists on PostToolUse but is never read (tech-spec lock)
+  tool_response?: unknown; // PostToolUse only; read solely for the Grep/Glob match highlight
+  notification_type?: string; // Notification only; read by status-mapper.ts
 }
+
+// A broad search can match hundreds of files; past this the graph is a white
+// screen, not a signal. First-N in response order (≈ relevance order for Grep).
+export const MATCH_CAP = 40;
 
 // Emits exactly the combos the graph reacts to; everything else → null.
 // Events route to the workspace whose root is the longest prefix of cwd.
@@ -50,6 +56,29 @@ export function mapHookEvent(
       nodeIds: [],
       pattern: String(input.pattern ?? ""),
     };
+  }
+  if (
+    phase === "post" &&
+    (raw.tool_name === "Grep" || raw.tool_name === "Glob")
+  ) {
+    const nodeIds: string[] = [];
+    const seen = new Set<string>();
+    for (const p of extractPaths(raw.tool_response)) {
+      const nodeId = toNode(ws, raw.cwd, p);
+      if (!nodeId || seen.has(nodeId)) continue;
+      seen.add(nodeId);
+      nodeIds.push(nodeId);
+      if (nodeIds.length === MATCH_CAP) break;
+    }
+    return nodeIds.length
+      ? {
+          ...common,
+          phase,
+          tool: raw.tool_name,
+          nodeIds,
+          pattern: String(input.pattern ?? ""),
+        }
+      : null;
   }
   if (phase === "pre" && raw.tool_name === "Read") {
     const nodeId = toNode(ws, raw.cwd, input.file_path);

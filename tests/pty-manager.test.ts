@@ -37,6 +37,19 @@ function fakePty() {
 }
 
 describe("pty-manager", () => {
+  it("passes --dangerously-skip-permissions only when asked", () => {
+    const calls: string[][] = [];
+    const spawn: SpawnFn = (_file, args) => {
+      calls.push(args);
+      return fakePty();
+    };
+    const mgr = createPtyManager(spawn, { onData: () => {}, onExit: () => {} });
+    mgr.launch(ws("a"), 80, 24);
+    mgr.launch(ws("b"), 80, 24, true);
+    expect(calls[0]).not.toContain("--dangerously-skip-permissions");
+    expect(calls[1]).toContain("--dangerously-skip-permissions");
+  });
+
   it("spawns once per workspace and forwards data/exit with the workspace id", () => {
     const spawned: ReturnType<typeof fakePty>[] = [];
     const spawn: SpawnFn = () => {
