@@ -81,6 +81,11 @@ describe("callSignature", () => {
     expect(sig.endsWith("…)")).toBe(true);
   });
 
+  it("respects the cap even when the tool name alone exceeds it", () => {
+    const sig = callSignature("AnExtremelyLongToolNameFromSomeMcpServer", {});
+    expect(sig.length).toBeLessThanOrEqual(30);
+  });
+
   it("never throws on a missing or malformed input", () => {
     expect(() => callSignature("Bash", {})).not.toThrow();
     expect(() =>

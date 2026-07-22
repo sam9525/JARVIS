@@ -36,7 +36,9 @@ export function callSignature(
   if (full.length <= CALL_MAX) return full;
   // keep the tool name and the opening paren; the subject is what gets cut
   const room = CALL_MAX - toolName.length - 3; // "(", "…", ")"
-  return `${toolName}(${(subject ?? "").slice(0, Math.max(0, room))}…)`;
+  const cut = `${toolName}(${(subject ?? "").slice(0, Math.max(0, room))}…)`;
+  // a tool name longer than the budget leaves nothing to trim — cut the label
+  return cut.length <= CALL_MAX ? cut : `${cut.slice(0, CALL_MAX - 1)}…`;
 }
 
 // Second, independent mapper: same raw payload as mapHookEvent, different
