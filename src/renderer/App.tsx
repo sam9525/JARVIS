@@ -13,6 +13,7 @@ import GraphSettingsPanel from "./GraphSettingsPanel";
 import WorkspaceRail from "./WorkspaceRail";
 import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
+import EmptyGraph, { type IndexState } from "./EmptyGraph";
 import {
   applyEvent,
   emptyState,
@@ -54,6 +55,12 @@ export default function App() {
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
+
+  // per-workspace indexing state, shared by the cards and the graph slot so
+  // the two can never disagree about what a project is doing
+  const [indexing, setIndexing] = useState<
+    Record<string, { state: IndexState; error?: string }>
+  >({});
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
   // so retargeting .current on switch is all a switch needs
@@ -190,6 +197,47 @@ export default function App() {
       .catch(console.error);
   }, [active]);
 
+  const addProject = useCallback(() => {
+    window.jarvis.addProject().then(setWorkspaces).catch(console.error);
+  }, []);
+
+  const indexProject = useCallback((id: string) => {
+    setIndexing((prev) => ({ ...prev, [id]: { state: "running" } }));
+    window.jarvis
+      .indexProject(id)
+      .then(async (res) => {
+        if (!res.ok) {
+          setIndexing((prev) => ({
+            ...prev,
+            [id]: { state: "error", error: res.error },
+          }));
+          return;
+        }
+        // analyze may have changed the registered name, so refresh the list
+        // before pulling the graph the rail and cards will render
+        setWorkspaces(await window.jarvis.getWorkspaces());
+        const g = await window.jarvis.rescan(id);
+        graphCacheRef.current.set(id, g);
+        setCardGraphs((prev) => new Map(prev).set(id, g));
+        if (activeIdRef.current === id) {
+          setGraph(g);
+          setLayoutEpoch((n) => n + 1);
+          setGraphLoading(false);
+        }
+        setIndexing((prev) => {
+          const next = { ...prev };
+          delete next[id]; // back to idle; an empty graph means analyze found nothing
+          return next;
+        });
+      })
+      .catch((err) => {
+        setIndexing((prev) => ({
+          ...prev,
+          [id]: { state: "error", error: String(err) },
+        }));
+      });
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F5") {
@@ -236,6 +284,7 @@ export default function App() {
         activeId={active?.id ?? null}
         statuses={statuses}
         homeActive={showHome}
+        onAddProject={addProject}
         onHome={() => setShowHome(true)}
         onSelect={(ws) => {
           setShowHome(false);
@@ -267,6 +316,8 @@ export default function App() {
                 showOrphans: settings.showOrphans,
               }}
               now={cardNow}
+              indexing={indexing}
+              onIndex={indexProject}
               onSelect={(ws) => {
                 setShowHome(false);
                 openWorkspace(ws);
@@ -307,9 +358,12 @@ export default function App() {
               {active?.kind === "code" &&
                 !graphLoading &&
                 graph.nodes.length === 0 && (
-                  <div className="absolute top-3 left-3 z-10 text-[12px] text-ink-dim">
-                    no graph — GitNexus index missing or unreadable for this
-                    project
+                  <div className="absolute inset-0 z-10 flex items-center justify-center">
+                    <EmptyGraph
+                      state={indexing[active.id]?.state ?? "idle"}
+                      error={indexing[active.id]?.error}
+                      onIndex={() => indexProject(active.id)}
+                    />
                   </div>
                 )}
               {/* absolute within the graph slot, not fixed to the viewport —
