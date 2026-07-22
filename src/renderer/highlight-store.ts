@@ -2,6 +2,8 @@ import type { ToolEvent } from "../shared/types";
 
 export const PULSE_MS = 600; // searching pulse ripple duration
 export const MATCH_MS = 3000; // matched-files glow lifetime
+export const HEAT_CAP = 6; // deliberate touches at which a node is fully hot
+export const FROZEN_PULSE = 0.5; // replay holds the pulse mid-animation — its zero-radius start would draw nothing
 
 type Highlight = { kind: "read" } | { kind: "modified" };
 
@@ -15,7 +17,14 @@ export interface HighlightState {
   // matches out means no reader of that map needs an expiry check.
   matched: Set<string>;
   matchAt: number; // 0 = no active match batch
+  // deliberate touches (Read/Edit/Write) per node this session. Reads and edits
+  // only: a broad Grep matching 40 files would flatten the map in one event.
+  heat: Map<string, number>;
   rev: number; // bumped on every change — 3D polls this to know when to re-bake
+  // Set only on states built by replay's foldTo: the 1-based index being viewed.
+  // Absent on live states, so nothing about live behaviour changes. When set,
+  // pulseAt/matchAt hold event indices rather than wall-clock stamps.
+  frozenAt?: number;
 }
 
 export function emptyState(): HighlightState {
@@ -26,6 +35,7 @@ export function emptyState(): HighlightState {
     pulseAt: 0,
     matched: new Set(),
     matchAt: 0,
+    heat: new Map(),
     rev: 0,
   };
 }
@@ -37,6 +47,7 @@ export function resetHighlights(state: HighlightState): void {
   state.pulseAt = 0;
   state.matched.clear();
   state.matchAt = 0;
+  state.heat.clear();
   state.rev++;
 }
 
@@ -64,6 +75,7 @@ export function applyEvent(
     }
     if (state.trail[state.trail.length - 1] !== nodeId)
       state.trail.push(nodeId);
+    bump(state, nodeId); // every read counts, including the ones trail skips
     state.rev++;
   } else if (
     e.phase === "post" &&
@@ -71,6 +83,7 @@ export function applyEvent(
     nodeId
   ) {
     state.nodes.set(nodeId, { kind: "modified" }); // sticks all session
+    bump(state, nodeId);
     state.rev++;
   } else if (
     e.phase === "post" &&
@@ -100,7 +113,10 @@ export function pulseProgress(
   state: HighlightState,
   now: number,
 ): number | null {
-  if (!state.pulseAt || now < state.pulseAt) return null;
+  if (!state.pulseAt) return null;
+  if (state.frozenAt !== undefined)
+    return state.pulseAt === state.frozenAt ? FROZEN_PULSE : null;
+  if (now < state.pulseAt) return null;
   const t = (now - state.pulseAt) / PULSE_MS;
   return t >= 1 ? null : t;
 }
@@ -109,7 +125,10 @@ export function matchProgress(
   state: HighlightState,
   now: number,
 ): number | null {
-  if (!state.matchAt || now < state.matchAt) return null;
+  if (!state.matchAt) return null;
+  if (state.frozenAt !== undefined)
+    return state.matchAt === state.frozenAt ? 0 : null;
+  if (now < state.matchAt) return null;
   const t = (now - state.matchAt) / MATCH_MS;
   return t >= 1 ? null : t;
 }
@@ -118,9 +137,20 @@ export function matchProgress(
 // store owns — nothing to leak, and the whole lifecycle stays synchronously
 // testable. Returns true when it actually cleared something.
 export function expireMatches(state: HighlightState, now: number): boolean {
+  if (state.frozenAt !== undefined) return false; // a parked view never decays
   if (!state.matched.size || now - state.matchAt < MATCH_MS) return false;
   state.matched.clear();
   state.matchAt = 0;
   state.rev++;
   return true;
+}
+
+function bump(state: HighlightState, nodeId: string): void {
+  state.heat.set(nodeId, (state.heat.get(nodeId) ?? 0) + 1);
+}
+
+// 0..1, absolute and capped — a node's heat depends only on its own count, so
+// nothing repaints because a *different* file got hot.
+export function heatOf(state: HighlightState, nodeId: string): number {
+  return Math.min(state.heat.get(nodeId) ?? 0, HEAT_CAP) / HEAT_CAP;
 }

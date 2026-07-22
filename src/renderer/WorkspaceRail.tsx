@@ -8,6 +8,7 @@ type WorkspaceRailProps = {
   homeActive: boolean;
   onHome: () => void;
   onSelect: (ws: Workspace) => void;
+  onAddProject: () => void;
 };
 
 // "waiting" is the only state that earns attention — it pulses and takes the
@@ -35,6 +36,7 @@ export default function WorkspaceRail({
   homeActive,
   onHome,
   onSelect,
+  onAddProject,
 }: WorkspaceRailProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
   return (
@@ -81,6 +83,14 @@ export default function WorkspaceRail({
           </button>
         );
       })}
+      <button
+        data-testid="rail-add"
+        title="Add a project folder"
+        onClick={onAddProject}
+        className="h-9 w-9 cursor-pointer rounded-lg border border-dashed border-edge text-[15px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+      >
+        +
+      </button>
     </div>
   );
 }

@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import type { ForceGraphMethods } from "react-force-graph-3d";
-import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
+import type { GraphGroup, ViewSettings, VaultGraph } from "../shared/types";
 import {
   expireMatches,
+  heatOf,
+  matchProgress,
   nodeDisplay,
   type HighlightState,
 } from "./highlight-store";
 import { baseNodeColor } from "./domain-colors";
-import { graphMetrics } from "./graph-metrics";
-import { COLORS } from "./graph-colors";
+import { displayRadius, graphMetrics } from "./graph-metrics";
+import { brighten, COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import SpriteText from "three-spritetext";
@@ -103,8 +105,8 @@ type GraphProps = {
   graph: VaultGraph; // may be filtered
   domains: string[]; // from the FULL graph — keeps palette indices stable
   groups: GraphGroup[];
-  display: Settings["display"];
-  forces: Settings["forces"];
+  display: ViewSettings["display"];
+  forces: ViewSettings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // aim the camera at this node
@@ -452,17 +454,22 @@ export default function Graph3D({
     fgRef.current?.refresh();
   }, [display, groups, linkMaterial]);
 
-  // highlights always win, then group color, then domain palette
+  // highlights always win, then group color, then domain palette; heat
+  // brightens whichever won rather than replacing it
   const displayColor = useCallback(
     (node: NodeObj): string => {
       const id = String(node.id);
+      const t = heatOf(stateRef.current, id);
       // modified recolors the sphere; a read gets a ring sprite (Task 3)
       if (nodeDisplay(stateRef.current, id) === "modified")
-        return COLORS.modified;
-      return baseNodeColor(
-        { id, type: node.type, domain: node.domain },
-        domains,
-        groups,
+        return brighten(COLORS.modified, t);
+      return brighten(
+        baseNodeColor(
+          { id, type: node.type, domain: node.domain },
+          domains,
+          groups,
+        ),
+        t,
       );
     },
     [stateRef, domains, groups],
@@ -547,7 +554,12 @@ export default function Graph3D({
       const obj = new Group();
       // soft radial "box shadow" behind the sphere, in the node's color;
       // sphere radius matches the lib's nodeRelSize(4) * nodeVal^(1/3)
-      const sphereR = 4 * Math.cbrt(((node.r ?? 4) * display.nodeSize) ** 2);
+      const r = displayRadius(
+        node.r ?? 4,
+        display.nodeSize,
+        heatOf(stateRef.current, id),
+      );
+      const sphereR = 4 * Math.cbrt(r ** 2);
       const glow = new Sprite(glowMaterial(displayColor(node)));
       glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
@@ -558,8 +570,14 @@ export default function Graph3D({
       }
       // matched by the last search — binary on/off, not a fade: node
       // appearance here is baked and only re-runs on a rev change, and
-      // re-baking every frame is the cost this design avoids
-      if (stateRef.current.matched.has(id)) {
+      // re-baking every frame is the cost this design avoids.
+      // matchProgress gates it as well as the set does, because a frozen replay
+      // state never expires its matches — without this, 3D would hold the rings
+      // for the whole scrub while 2D drops them one event later.
+      if (
+        matchProgress(stateRef.current, performance.now()) !== null &&
+        stateRef.current.matched.has(id)
+      ) {
         const ring = new Sprite(ringMaterial(COLORS.match));
         ring.scale.setScalar(sphereR * 3.3);
         obj.add(ring);
@@ -575,7 +593,7 @@ export default function Graph3D({
       sprite.textHeight = 4;
       // sit just below the sphere; re-created on refresh() so a nodeSize
       // slider change re-derives the offset
-      sprite.position.set(0, -((node.r ?? 4) * display.nodeSize + 4), 0);
+      sprite.position.set(0, -(r + 4), 0);
       // refresh() recreates sprites with visible=true; inherit the previous
       // visibility so far labels don't strobe between distance sweeps
       sprite.visible = sprites.current.get(id)?.visible ?? true;
@@ -609,7 +627,13 @@ export default function Graph3D({
         fgRef.current?.zoomToFit(300, -400);
       }}
       nodeLabel="id"
-      nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
+      nodeVal={(node: NodeObj) =>
+        displayRadius(
+          node.r ?? 4,
+          display.nodeSize,
+          heatOf(stateRef.current, String(node.id)),
+        ) ** 2
+      }
       nodeThreeObjectExtend={true}
       nodeThreeObject={nodeThreeObject}
       nodeColor={displayColor}

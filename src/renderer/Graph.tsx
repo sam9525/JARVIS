@@ -1,17 +1,18 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods } from "react-force-graph-2d";
-import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
+import type { GraphGroup, ViewSettings, VaultGraph } from "../shared/types";
 import {
   expireMatches,
+  heatOf,
   matchProgress,
   nodeDisplay,
   pulseProgress,
   type HighlightState,
 } from "./highlight-store";
 import { colorFor, groupColor } from "./domain-colors";
-import { graphMetrics } from "./graph-metrics";
-import { COLORS } from "./graph-colors";
+import { displayRadius, graphMetrics } from "./graph-metrics";
+import { brighten, COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { nodeLabelText } from "./node-label";
 
@@ -38,8 +39,8 @@ type GraphProps = {
   graph: VaultGraph; // may be filtered
   domains: string[]; // from the FULL graph — keeps palette indices stable
   groups: GraphGroup[];
-  display: Settings["display"];
-  forces: Settings["forces"];
+  display: ViewSettings["display"];
+  forces: ViewSettings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // center this node in the graph slot
@@ -173,7 +174,13 @@ export default function Graph({
         fgRef.current?.zoomToFit(200, fitPadding);
       }}
       nodeLabel="id"
-      nodeVal={(node: NodeObj) => ((node.r ?? 4) * display.nodeSize) ** 2}
+      nodeVal={(node: NodeObj) =>
+        displayRadius(
+          node.r ?? 4,
+          display.nodeSize,
+          heatOf(stateRef.current, String(node.id)),
+        ) ** 2
+      }
       nodeCanvasObject={(
         node: NodeObj,
         ctx: CanvasRenderingContext2D,
@@ -181,16 +188,19 @@ export default function Graph({
       ) => {
         if (node.x === undefined || node.y === undefined) return;
         const id = String(node.id);
-        const r = (node.r ?? 4) * display.nodeSize;
+        const t = heatOf(stateRef.current, id);
+        const r = displayRadius(node.r ?? 4, display.nodeSize, t);
         const d = nodeDisplay(stateRef.current, id);
         const base =
           node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
         // modified wins, then group color, then domain palette; reads keep
-        // their base color and get a ring instead
-        ctx.fillStyle =
-          d === "modified" ? COLORS.modified : (groupColor(id, groups) ?? base);
+        // their base color and get a ring instead. heat brightens whichever won.
+        ctx.fillStyle = brighten(
+          d === "modified" ? COLORS.modified : (groupColor(id, groups) ?? base),
+          t,
+        );
         ctx.fill();
 
         if (d === "ring") {
@@ -272,7 +282,13 @@ export default function Graph({
             const n = nodeById.get(id);
             // filtered-out nodes have no live position — skip
             if (!n || n.x === undefined || n.y === undefined) continue;
-            const r = (n.r ?? 4) * display.nodeSize;
+            // heat included: a hot node is drawn larger, and a ring sized off
+            // the cold radius would be painted over by the node itself
+            const r = displayRadius(
+              n.r ?? 4,
+              display.nodeSize,
+              heatOf(stateRef.current, id),
+            );
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 4 / globalScale, 0, 2 * Math.PI);
             ctx.stroke();
@@ -296,8 +312,18 @@ export default function Graph({
           const dx = (b.x ?? 0) - (a.x ?? 0);
           const dy = (b.y ?? 0) - (a.y ?? 0);
           const len = Math.hypot(dx, dy);
-          const ra = (a.r ?? 4) * display.nodeSize;
-          const rb = (b.r ?? 4) * display.nodeSize;
+          // heat included: trail nodes are read nodes, so they are exactly the
+          // ones that grow — offsets off the cold radius start inside the node
+          const ra = displayRadius(
+            a.r ?? 4,
+            display.nodeSize,
+            heatOf(stateRef.current, trail[i]),
+          );
+          const rb = displayRadius(
+            b.r ?? 4,
+            display.nodeSize,
+            heatOf(stateRef.current, trail[i + 1]),
+          );
           if (len < ra + rb + 2) continue; // nodes touching — no room
           const ux = dx / len;
           const uy = dy / len;

@@ -50,6 +50,10 @@ function walk(node: any, fn: (n: any) => boolean): any {
     }
     return null;
   }
+  if (typeof node.type === "function") {
+    const rendered = node.type(node.props);
+    return walk(rendered, fn);
+  }
   if (fn(node)) return node;
   const children = node.props?.children;
   if (Array.isArray(children)) {
@@ -101,6 +105,8 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   },
   now: 1_700_000_000_000,
   onSelect: () => {},
+  indexing: {} as Record<string, { state: string; error?: string }>,
+  onIndex: () => {},
   ...over,
 });
 
@@ -190,5 +196,123 @@ describe("MissionControl", () => {
   it("renders a card for a workspace whose graph has not loaded yet", () => {
     render(<MissionControl {...(props() as any)} />);
     expect(screen.byTestId("card-w1")).toBeTruthy();
+  });
+
+  it("shows the index button on a code workspace whose graph loaded empty", () => {
+    render(
+      <MissionControl
+        {...(props({
+          graphs: new Map<string, VaultGraph>([
+            ["w2", { nodes: [], edges: [] }],
+          ]),
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("index-button").text).toBe("Index with GitNexus");
+  });
+
+  it("shows no index button while a graph is still loading", () => {
+    // absent from the map means "not fetched yet", not "empty"
+    render(<MissionControl {...(props() as any)} />);
+    expect(() => screen.byTestId("index-button")).toThrow();
+  });
+
+  it("shows no index button for a vault, which is never gitnexus-indexed", () => {
+    render(
+      <MissionControl
+        {...(props({
+          graphs: new Map<string, VaultGraph>([
+            ["w1", { nodes: [], edges: [] }],
+          ]),
+        }) as any)}
+      />,
+    );
+    expect(() => screen.byTestId("index-button")).toThrow();
+  });
+
+  it("shows no index button once a graph has nodes", () => {
+    render(
+      <MissionControl
+        {...(props({
+          graphs: new Map<string, VaultGraph>([
+            [
+              "w2",
+              { nodes: [{ id: "a.ts", type: "note" as const }], edges: [] },
+            ],
+          ]),
+        }) as any)}
+      />,
+    );
+    expect(() => screen.byTestId("index-button")).toThrow();
+  });
+
+  it("fires onIndex with the workspace id, without selecting the card", () => {
+    const onIndex = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <MissionControl
+        {...(props({
+          graphs: new Map<string, VaultGraph>([
+            ["w2", { nodes: [], edges: [] }],
+          ]),
+          onIndex,
+          onSelect,
+        }) as any)}
+      />,
+    );
+    screen
+      .byTestId("index-button")
+      .props.onClick({ stopPropagation: () => {} });
+    expect(onIndex).toHaveBeenCalledWith("w2");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("reflects a workspace's indexing state on its button", () => {
+    render(
+      <MissionControl
+        {...(props({
+          graphs: new Map<string, VaultGraph>([
+            ["w2", { nodes: [], edges: [] }],
+          ]),
+          indexing: { w2: { state: "running" } },
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("index-button").props.disabled).toBe(true);
+  });
+
+  it("opens the workspace on Enter, since the card is no longer a button", () => {
+    const onSelect = vi.fn();
+    render(<MissionControl {...(props({ onSelect }) as any)} />);
+    screen.byTestId("card-w2").props.onKeyDown({
+      key: "Enter",
+      preventDefault: () => {},
+    });
+    expect(onSelect).toHaveBeenCalledWith(workspaces[1]);
+  });
+
+  it("ignores other keys on a card", () => {
+    const onSelect = vi.fn();
+    render(<MissionControl {...(props({ onSelect }) as any)} />);
+    screen.byTestId("card-w2").props.onKeyDown({
+      key: "a",
+      preventDefault: () => {},
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  // the index button lives inside the card, so its own Enter bubbles up here
+  // first — keying it must index, not navigate away from the thing being indexed
+  it("leaves Enter alone when it came from a control inside the card", () => {
+    const onSelect = vi.fn();
+    render(<MissionControl {...(props({ onSelect }) as any)} />);
+    const card = screen.byTestId("card-w2");
+    card.props.onKeyDown({
+      key: "Enter",
+      target: { name: "the index button" },
+      currentTarget: { name: "the card" },
+      preventDefault: () => {},
+    });
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

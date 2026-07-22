@@ -13,6 +13,9 @@ import GraphSettingsPanel from "./GraphSettingsPanel";
 import WorkspaceRail from "./WorkspaceRail";
 import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
+import EmptyGraph, { type IndexState } from "./EmptyGraph";
+import Timeline from "./Timeline";
+import { appendEvent, foldTo, nextRev } from "./replay";
 import {
   applyEvent,
   emptyState,
@@ -25,6 +28,7 @@ import { defaultSettings } from "../shared/types";
 import { createPreviewOpener } from "./preview-opener";
 import type {
   Settings,
+  ToolEvent,
   VaultGraph,
   Workspace,
   WorkspaceStatus,
@@ -55,12 +59,26 @@ export default function App() {
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
 
+  // per-workspace indexing state, shared by the cards and the graph slot so
+  // the two can never disagree about what a project is doing
+  const [indexing, setIndexing] = useState<
+    Record<string, { state: IndexState; error?: string }>
+  >({});
+
   // one highlight store per workspace; Graph reads stateRef.current per frame,
   // so retargeting .current on switch is all a switch needs
   const storesRef = useRef(new Map<string, HighlightState>());
   const stateRef = useRef(emptyState());
   const activeIdRef = useRef<string | null>(null);
   const graphCacheRef = useRef(new Map<string, VaultGraph>());
+
+  // event log per workspace, feeding the replay scrubber. logRev exists only to
+  // re-render the bar as events arrive — the log itself stays in a ref so an
+  // append is O(1) rather than an array copy per event.
+  const logsRef = useRef(new Map<string, ToolEvent[]>());
+  const [replayIndex, setReplayIndex] = useState<number | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_logRev, setLogRev] = useState(0);
 
   const storeFor = (id: string): HighlightState => {
     let s = storesRef.current.get(id);
@@ -70,6 +88,22 @@ export default function App() {
     }
     return s;
   };
+
+  // Replay is a retarget of the same ref workspace switching retargets. The
+  // live store keeps receiving events while parked, so returning to live needs
+  // no catch-up — only a fresh rev so Graph3D re-bakes against the new object.
+  const onScrub = useCallback((i: number | null) => {
+    const id = activeIdRef.current;
+    if (!id) return;
+    setReplayIndex(i);
+    if (i === null) {
+      const live = storeFor(id);
+      live.rev = nextRev();
+      stateRef.current = live;
+    } else {
+      stateRef.current = foldTo(logsRef.current.get(id) ?? [], i);
+    }
+  }, []);
 
   // debounced auto-open: last-read file after reads go quiet
   const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
@@ -81,6 +115,7 @@ export default function App() {
       setActive(ws);
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
+      setReplayIndex(null); // the ref above already points at the live store
       const cached = graphCacheRef.current.get(ws.id);
       if (cached) {
         setGraph(cached);
@@ -126,8 +161,13 @@ export default function App() {
       .finally(() => setSettingsReady(true)); // defaults still render on failure
     offs.push(
       window.jarvis.onToolEvent((e) => {
+        const fresh = appendEvent(logsRef.current, e);
         applyEvent(storeFor(e.workspaceId), e, performance.now());
-        if (e.workspaceId === activeIdRef.current) onPreviewEvent(e);
+        if (e.workspaceId === activeIdRef.current) {
+          if (fresh) onScrub(null); // the past being replayed no longer exists
+          setLogRev((n) => n + 1);
+          onPreviewEvent(e);
+        }
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
@@ -190,6 +230,47 @@ export default function App() {
       .catch(console.error);
   }, [active]);
 
+  const addProject = useCallback(() => {
+    window.jarvis.addProject().then(setWorkspaces).catch(console.error);
+  }, []);
+
+  const indexProject = useCallback((id: string) => {
+    setIndexing((prev) => ({ ...prev, [id]: { state: "running" } }));
+    window.jarvis
+      .indexProject(id)
+      .then(async (res) => {
+        if (!res.ok) {
+          setIndexing((prev) => ({
+            ...prev,
+            [id]: { state: "error", error: res.error },
+          }));
+          return;
+        }
+        // analyze may have changed the registered name, so refresh the list
+        // before pulling the graph the rail and cards will render
+        setWorkspaces(await window.jarvis.getWorkspaces());
+        const g = await window.jarvis.rescan(id);
+        graphCacheRef.current.set(id, g);
+        setCardGraphs((prev) => new Map(prev).set(id, g));
+        if (activeIdRef.current === id) {
+          setGraph(g);
+          setLayoutEpoch((n) => n + 1);
+          setGraphLoading(false);
+        }
+        setIndexing((prev) => {
+          const next = { ...prev };
+          delete next[id]; // back to idle; an empty graph means analyze found nothing
+          return next;
+        });
+      })
+      .catch((err) => {
+        setIndexing((prev) => ({
+          ...prev,
+          [id]: { state: "error", error: String(err) },
+        }));
+      });
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F5") {
@@ -236,6 +317,7 @@ export default function App() {
         activeId={active?.id ?? null}
         statuses={statuses}
         homeActive={showHome}
+        onAddProject={addProject}
         onHome={() => setShowHome(true)}
         onSelect={(ws) => {
           setShowHome(false);
@@ -267,6 +349,8 @@ export default function App() {
                 showOrphans: settings.showOrphans,
               }}
               now={cardNow}
+              indexing={indexing}
+              onIndex={indexProject}
               onSelect={(ws) => {
                 setShowHome(false);
                 openWorkspace(ws);
@@ -307,11 +391,19 @@ export default function App() {
               {active?.kind === "code" &&
                 !graphLoading &&
                 graph.nodes.length === 0 && (
-                  <div className="absolute top-3 left-3 z-10 text-[12px] text-ink-dim">
-                    no graph — GitNexus index missing or unreadable for this
-                    project
+                  <div className="absolute inset-0 z-10 flex items-center justify-center">
+                    <EmptyGraph
+                      state={indexing[active.id]?.state ?? "idle"}
+                      error={indexing[active.id]?.error}
+                      onIndex={() => indexProject(active.id)}
+                    />
                   </div>
                 )}
+              <Timeline
+                log={(active && logsRef.current.get(active.id)) || []}
+                index={replayIndex}
+                onScrub={onScrub}
+              />
               {/* absolute within the graph slot, not fixed to the viewport —
                 so this sits at the slot's own right edge (left of the
                 terminal panel, whatever its current width) instead of

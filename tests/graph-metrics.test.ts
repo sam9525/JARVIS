@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { graphMetrics, nodeRadius } from "../src/renderer/graph-metrics";
+import {
+  graphMetrics,
+  nodeRadius,
+  displayRadius,
+  HEAT_GROW,
+} from "../src/renderer/graph-metrics";
 import type { VaultGraph } from "../src/shared/types";
 
 const g: VaultGraph = {
@@ -48,3 +53,19 @@ describe("graphMetrics", () => {
     expect(m.neighbors.get("lonely")?.size).toBe(0);
   });
 });
+
+describe("displayRadius", () => {
+  it("is base × nodeSize when cold", () => {
+    expect(displayRadius(1.5, 2, 0)).toBeCloseTo(3);
+  });
+
+  it("grows to 1.8× at full heat", () => {
+    expect(HEAT_GROW).toBe(0.8);
+    expect(displayRadius(1.5, 2, 1)).toBeCloseTo(3 * 1.8);
+  });
+
+  it("scales linearly in between", () => {
+    expect(displayRadius(1.5, 2, 0.5)).toBeCloseTo(3 * 1.4);
+  });
+});
+

@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { exec } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
@@ -6,8 +8,15 @@ import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
 import { autoGroups, loadSettings, saveSettings } from "./settings";
-import { loadWorkspaces } from "./workspaces";
-import { loadCodeGraph } from "./gitnexus-graph";
+import {
+  loadWorkspaces,
+  normalizeId,
+  nameFromRegistry,
+  readProjects,
+  saveProjects,
+} from "./workspaces";
+import { hasIndex, insideGitRepo, loadCodeGraph } from "./gitnexus-graph";
+import { isDirectory } from "./is-directory";
 import { ensureHooks } from "./hook-install";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import { createStatusStore, STALE_MS } from "./workspace-status";
@@ -21,15 +30,7 @@ async function resolveRootPath(): Promise<string> {
   const store = path.join(app.getPath("userData"), "jarvis-vault");
   const saved = await fs.readFile(store, "utf8").catch(() => null);
   // reuse the saved vault only if the folder is still there
-  if (
-    saved &&
-    (await fs.stat(saved).then(
-      (s) => s.isDirectory(),
-      () => false,
-    ))
-  ) {
-    return saved;
-  }
+  if (saved && (await isDirectory(saved))) return saved;
 
   const picked = dialog.showOpenDialogSync({
     title: "Pick your vault folder",
@@ -43,23 +44,71 @@ async function resolveRootPath(): Promise<string> {
   return picked[0];
 }
 
+// exec, not execFile: `gitnexus` is a .cmd shim on Windows and needs a shell —
+// same reason gitnexus-graph.ts uses exec. The only interpolated value is one
+// of two literal flags, so nothing user-supplied reaches the command line.
+// maxBuffer is per-call and defaults to 1 MB; analyze is chatty enough to blow
+// that, which would kill a long index mid-run.
+const ANALYZE_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function runAnalyze(cwd: string): Promise<void> {
+  // gitnexus refuses a folder with no git history unless told to skip git;
+  // a project can perfectly well be worth indexing before it is a repo
+  const skipGit = (await insideGitRepo(cwd)) ? "" : " --skip-git";
+  return new Promise((resolve, reject) => {
+    exec(
+      `gitnexus analyze${skipGit}`,
+      {
+        cwd,
+        windowsHide: true,
+        maxBuffer: 64 * 1024 * 1024,
+        // the button is disabled while this runs, so a hung analyze would park
+        // the card on "indexing…" with no way out — fail instead of never
+        timeout: ANALYZE_TIMEOUT_MS,
+      },
+      // stderr carries the actual reason ("Not inside a git repository", a
+      // parse failure); err.message alone is just the exit code
+      (err, _stdout, stderr) => {
+        if (!err) return resolve();
+        // a timeout kill leaves stderr empty and err.message unhelpfully generic
+        const killed = (err as { killed?: boolean }).killed;
+        reject(
+          new Error(
+            killed
+              ? `gitnexus analyze timed out after ${ANALYZE_TIMEOUT_MS / 60000} min`
+              : stderr.trim() || err.message,
+          ),
+        );
+      },
+    );
+  });
+}
+
 app.whenReady().then(async () => {
   const rootPath = await resolveRootPath(); // unchanged (vault picker)
-  const workspaces = await loadWorkspaces(rootPath);
+  const projectsPath = path.join(
+    app.getPath("userData"),
+    "jarvis-projects.json",
+  );
+  const extraPaths = await readProjects(projectsPath);
+  const workspaces = await loadWorkspaces(rootPath, extraPaths);
   const vault = workspaces[0];
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
-  const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
-    ws.kind === "vault"
-      ? scanVault(ws.rootPath)
-      : // keyed by registry name, not path: two registry entries sharing a
-        // name resolve to the same gitnexus index
-        loadCodeGraph(ws.name).catch((err) => {
-          // gitnexus missing/format drift → terminal-only workspace, no crash
-          console.error(`code graph failed for ${ws.name}:`, err);
-          return { nodes: [], edges: [] };
-        });
+  const loadGraph = async (ws: Workspace): Promise<VaultGraph> => {
+    if (ws.kind === "vault") return scanVault(ws.rootPath);
+    // a project added before it was ever analyzed has no registry entry, so
+    // asking the CLI would only produce "Repository not found"
+    if (!(await hasIndex(ws.rootPath))) return { nodes: [], edges: [] };
+    // keyed by registry name, not path: two registry entries sharing a name
+    // resolve to the same gitnexus index
+    return loadCodeGraph(ws.name).catch((err) => {
+      // gitnexus format drift / unreadable index → terminal-only, no crash
+      console.error(`code graph failed for ${ws.name}:`, err);
+      return { nodes: [], edges: [] };
+    });
+  };
   const graphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
@@ -79,6 +128,51 @@ app.whenReady().then(async () => {
     const g = await loadGraph(ws);
     graphs.set(id, Promise.resolve(g)); // assign only on success
     return g;
+  });
+
+  ipcMain.handle("add-project", async () => {
+    const picked = dialog.showOpenDialogSync({
+      title: "Add a project folder",
+      properties: ["openDirectory"],
+    });
+    if (!picked?.length) return workspaces; // cancelled
+    const rootPathPicked = picked[0];
+    const id = normalizeId(rootPathPicked);
+    if (workspaces.some((w) => w.id === id)) return workspaces; // already here
+
+    // pushed, never reassigned: startListener holds this array through a
+    // () => workspaces getter and the IPC handlers reach it via .find
+    workspaces.push({
+      id,
+      name: path.basename(rootPathPicked),
+      rootPath: rootPathPicked,
+      kind: "code",
+    });
+    extraPaths.push(rootPathPicked);
+    await saveProjects(projectsPath, extraPaths).catch(console.error);
+    return workspaces;
+  });
+
+  ipcMain.handle("index-project", async (_e, id: string) => {
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) return { ok: false, error: "unknown workspace" };
+    try {
+      await runAnalyze(ws.rootPath);
+    } catch (err) {
+      // the renderer only has room for this in a tooltip — keep the full text
+      // where it can be read
+      console.error(`gitnexus analyze failed in ${ws.rootPath}:`, err);
+      return { ok: false, error: (err as Error).message };
+    }
+    // gitnexus picks the registered name itself; the basename guessed at add
+    // time would keep failing every loadCodeGraph until it is corrected
+    const registry = await fs
+      .readFile(path.join(os.homedir(), ".gitnexus", "registry.json"), "utf8")
+      .catch(() => null);
+    const name = nameFromRegistry(registry, ws.rootPath);
+    if (name) ws.name = name;
+    graphs.delete(ws.id); // next get-graph/rescan re-reads the fresh index
+    return { ok: true };
   });
 
   const settingsPath = path.join(

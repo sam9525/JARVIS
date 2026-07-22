@@ -3,10 +3,13 @@ import {
   applyEvent,
   emptyState,
   expireMatches,
+  heatOf,
   matchProgress,
   nodeDisplay,
   pulseProgress,
   resetHighlights,
+  FROZEN_PULSE,
+  HEAT_CAP,
   MATCH_MS,
   PULSE_MS,
 } from "../src/renderer/highlight-store";
@@ -178,5 +181,113 @@ describe("highlight-store", () => {
     applyEvent(s, ev({ tool: "Prompt", nodeIds: [] }), 10);
     expect(s.matched.size).toBe(0);
     expect(s.matchAt).toBe(0);
+  });
+
+  it("counts every read as heat, including consecutive repeats the trail skips", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ nodeIds: ["a"] }), 1); // trail skips this; heat must not
+    applyEvent(s, ev({ nodeIds: ["b"] }), 2);
+    expect(s.heat.get("a")).toBe(2);
+    expect(s.heat.get("b")).toBe(1);
+  });
+
+  it("counts edits and writes as heat alongside reads", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ tool: "Edit", phase: "post", nodeIds: ["a"] }), 1);
+    applyEvent(s, ev({ tool: "Write", phase: "post", nodeIds: ["a"] }), 2);
+    expect(s.heat.get("a")).toBe(3);
+  });
+
+  it("adds no heat for searches, on either phase", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", pattern: "x" }), 0);
+    applyEvent(
+      s,
+      ev({ tool: "Grep", phase: "post", nodeIds: ["a", "b"], pattern: "x" }),
+      1,
+    );
+    applyEvent(s, ev({ tool: "Glob", phase: "post", nodeIds: ["c"] }), 2);
+    expect(s.heat.size).toBe(0);
+  });
+
+  it("heatOf is absolute and capped, and 0 for an unseen node", () => {
+    const s = emptyState();
+    expect(heatOf(s, "nope")).toBe(0);
+    for (let i = 0; i < 3; i++) applyEvent(s, ev({ nodeIds: ["a"] }), i);
+    expect(heatOf(s, "a")).toBeCloseTo(0.5); // 3 of HEAT_CAP=6
+    for (let i = 0; i < 20; i++) applyEvent(s, ev({ nodeIds: ["a"] }), 100 + i);
+    expect(s.heat.get("a")).toBe(23); // raw count keeps climbing
+    expect(heatOf(s, "a")).toBe(1); // ...but the ramp saturates
+    expect(HEAT_CAP).toBe(6);
+  });
+
+  it("a new prompt clears heat", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ tool: "Prompt" }), 1);
+    expect(heatOf(s, "a")).toBe(0);
+  });
+
+  it("a new session clears heat", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ sessionId: "s2", nodeIds: ["b"] }), 1);
+    expect(heatOf(s, "a")).toBe(0);
+    expect(s.heat.get("b")).toBe(1);
+  });
+
+  it("heat is per-store — a reset in one workspace leaves another alone", () => {
+    const a = emptyState();
+    const b = emptyState();
+    applyEvent(a, ev({ nodeIds: ["x"] }), 0);
+    applyEvent(b, ev({ workspaceId: "w2", nodeIds: ["x"] }), 0);
+    resetHighlights(a);
+    expect(heatOf(a, "x")).toBe(0);
+    expect(heatOf(b, "x")).toBeCloseTo(1 / 6);
+  });
+
+  it("a frozen state holds the pulse of the event it is parked on", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "pre" }), 3); // stamps pulseAt = 3
+    s.frozenAt = 3;
+    expect(pulseProgress(s, 999999)).toBe(FROZEN_PULSE);
+  });
+
+  it("a frozen state parked past the pulse shows no pulse", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "pre" }), 3);
+    s.frozenAt = 7; // parked on a later event
+    expect(pulseProgress(s, 999999)).toBeNull();
+  });
+
+  it("a frozen state with nothing stamped shows no pulse", () => {
+    const s = emptyState(); // pulseAt stays 0
+    s.frozenAt = 0; // 1-based clocks never produce 0, so this must not match
+    expect(pulseProgress(s, 999999)).toBeNull();
+  });
+
+  it("a frozen state holds the match glow at full", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "post", nodeIds: ["a", "b"] }), 5);
+    s.frozenAt = 5;
+    expect(matchProgress(s, 999999)).toBe(0);
+  });
+
+  it("a frozen state never expires its matches", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "post", nodeIds: ["a"] }), 5);
+    s.frozenAt = 5;
+    expect(expireMatches(s, 999999)).toBe(false);
+    expect(s.matched.size).toBe(1);
+  });
+
+  it("a live state still decays and expires normally", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ tool: "Grep", phase: "post", nodeIds: ["a"] }), 0);
+    expect(matchProgress(s, MATCH_MS + 1)).toBeNull();
+    expect(expireMatches(s, MATCH_MS + 1)).toBe(true);
+    expect(s.matched.size).toBe(0);
   });
 });

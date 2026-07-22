@@ -1,5 +1,34 @@
 import { exec } from "node:child_process";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { isDirectory } from "./is-directory";
 import type { VaultGraph } from "../shared/types";
+
+// A project that was never analyzed has no registry entry, and `gitnexus
+// cypher -r <name>` resolves its name through the registry — it throws
+// `Repository "X" not found. Available: …`. There is nothing to load in that
+// case, so check for the index locally instead of asking the CLI.
+export function hasIndex(rootPath: string): Promise<boolean> {
+  return isDirectory(path.join(rootPath, ".gitnexus"));
+}
+
+// `gitnexus analyze` exits 1 with "Not inside a git repository" unless it is
+// given --skip-git, so we have to know which one to pass. Walking up beats
+// shelling out to git: it is one stat per level, and it accepts a `.git` file
+// as well as a directory (worktrees and submodules use a file).
+export async function insideGitRepo(rootPath: string): Promise<boolean> {
+  let dir = path.resolve(rootPath);
+  for (;;) {
+    const found = await fs.stat(path.join(dir, ".git")).then(
+      () => true,
+      () => false,
+    );
+    if (found) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false; // hit the drive root
+    dir = parent;
+  }
+}
 
 // Informal contract with gitnexus 1.6.x: cypher CLI prints
 // {"markdown": "| col |\n| --- |\n| val |", "row_count": n} — or {"error": …}.

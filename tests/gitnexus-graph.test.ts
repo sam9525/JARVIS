@@ -1,14 +1,67 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildCodeGraph,
+  hasIndex,
+  insideGitRepo,
   loadCodeGraph,
   parseCypherTable,
 } from "../src/main/gitnexus-graph";
 
 const fixture = (name: string) =>
   readFileSync(path.join(__dirname, "fixtures", "gitnexus", name), "utf8");
+
+const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "jarvis-graph-"));
+
+describe("hasIndex", () => {
+  it("is true when the project holds a .gitnexus directory", async () => {
+    const dir = await tmp();
+    await fs.mkdir(path.join(dir, ".gitnexus"));
+    expect(await hasIndex(dir)).toBe(true);
+  });
+
+  it("is false for a project that was never analyzed", async () => {
+    // the whole point: without this, loadCodeGraph asks the CLI to resolve a
+    // name that is not in the registry, and it throws "Repository not found"
+    expect(await hasIndex(await tmp())).toBe(false);
+  });
+
+  it("is false when .gitnexus is a file rather than a directory", async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, ".gitnexus"), "junk", "utf8");
+    expect(await hasIndex(dir)).toBe(false);
+  });
+});
+
+describe("insideGitRepo", () => {
+  it("is true for a repo root", async () => {
+    const dir = await tmp();
+    await fs.mkdir(path.join(dir, ".git"));
+    expect(await insideGitRepo(dir)).toBe(true);
+  });
+
+  it("is true when .git is a file, as in a worktree or submodule", async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, ".git"), "gitdir: ../real/.git", "utf8");
+    expect(await insideGitRepo(dir)).toBe(true);
+  });
+
+  it("is true for a subdirectory of a repo", async () => {
+    const dir = await tmp();
+    await fs.mkdir(path.join(dir, ".git"));
+    const sub = path.join(dir, "packages", "app");
+    await fs.mkdir(sub, { recursive: true });
+    expect(await insideGitRepo(sub)).toBe(true);
+  });
+
+  it("is false when no ancestor holds a .git", async () => {
+    // gitnexus analyze exits 1 here with "Not inside a git repository",
+    // which is what --skip-git exists for
+    expect(await insideGitRepo(await tmp())).toBe(false);
+  });
+});
 
 describe("parseCypherTable", () => {
   it("parses the captured files fixture into single-column rows", () => {
