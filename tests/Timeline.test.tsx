@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-empty-function */
 import { vi, describe, it, expect } from "vitest";
 import Timeline from "../src/renderer/Timeline";
 import type { ToolEvent } from "../src/shared/types";
@@ -120,7 +121,11 @@ describe("Timeline", () => {
 
   it("survives a single-event log without dividing by zero", () => {
     render(
-      <Timeline log={[ev({ tool: "Prompt" })]} index={null} onScrub={() => {}} />,
+      <Timeline
+        log={[ev({ tool: "Prompt" })]}
+        index={null}
+        onScrub={() => {}}
+      />,
     );
     expect(byTestId("replay-position").text).toBe("1 / 1");
     expect(byTestId("replay-chapters").props.children[0].props.style.left).toBe(
