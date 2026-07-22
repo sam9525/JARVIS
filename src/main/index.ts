@@ -49,6 +49,8 @@ async function resolveRootPath(): Promise<string> {
 // of two literal flags, so nothing user-supplied reaches the command line.
 // maxBuffer is per-call and defaults to 1 MB; analyze is chatty enough to blow
 // that, which would kill a long index mid-run.
+const ANALYZE_TIMEOUT_MS = 10 * 60 * 1000;
+
 async function runAnalyze(cwd: string): Promise<void> {
   // gitnexus refuses a folder with no git history unless told to skip git;
   // a project can perfectly well be worth indexing before it is a repo
@@ -56,11 +58,28 @@ async function runAnalyze(cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     exec(
       `gitnexus analyze${skipGit}`,
-      { cwd, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
+      {
+        cwd,
+        windowsHide: true,
+        maxBuffer: 64 * 1024 * 1024,
+        // the button is disabled while this runs, so a hung analyze would park
+        // the card on "indexing…" with no way out — fail instead of never
+        timeout: ANALYZE_TIMEOUT_MS,
+      },
       // stderr carries the actual reason ("Not inside a git repository", a
       // parse failure); err.message alone is just the exit code
-      (err, _stdout, stderr) =>
-        err ? reject(new Error(stderr.trim() || err.message)) : resolve(),
+      (err, _stdout, stderr) => {
+        if (!err) return resolve();
+        // a timeout kill leaves stderr empty and err.message unhelpfully generic
+        const killed = (err as { killed?: boolean }).killed;
+        reject(
+          new Error(
+            killed
+              ? `gitnexus analyze timed out after ${ANALYZE_TIMEOUT_MS / 60000} min`
+              : stderr.trim() || err.message,
+          ),
+        );
+      },
     );
   });
 }
