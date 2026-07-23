@@ -53,6 +53,11 @@ export function parseCypherTable(stdout: string): string[][] {
     );
 }
 
+// top-level folder drives auto-coloring, same as vault domains
+export function topFolder(p: string): string {
+  return p.includes("/") ? p.slice(0, p.indexOf("/")) : ".";
+}
+
 export function buildCodeGraph(
   files: string[],
   imports: Array<[string, string]>,
@@ -62,11 +67,30 @@ export function buildCodeGraph(
     nodes: files.map((p) => ({
       id: p,
       type: "note" as const,
-      // top-level folder drives auto-coloring, same as vault domains
-      domain: p.includes("/") ? p.slice(0, p.indexOf("/")) : ".",
+      domain: topFolder(p),
     })),
     edges: imports
       .filter(([a, b]) => ids.has(a) && ids.has(b))
+      .map(([source, target]) => ({ source, target })),
+  };
+}
+
+export type SymbolRow = { id: string; name: string; file: string };
+
+export function buildSymbolGraph(
+  symbols: SymbolRow[],
+  calls: Array<[string, string]>,
+): VaultGraph {
+  const ids = new Set(symbols.map((s) => s.id));
+  return {
+    nodes: symbols.map((s) => ({
+      id: s.id,
+      type: "note" as const,
+      domain: topFolder(s.file),
+      file: s.file,
+    })),
+    edges: calls
+      .filter(([a, b]) => a !== b && ids.has(a) && ids.has(b))
       .map(([source, target]) => ({ source, target })),
   };
 }
@@ -105,3 +129,29 @@ export async function loadCodeGraph(repoName: string): Promise<VaultGraph> {
   );
   return buildCodeGraph(files, imports);
 }
+
+// Symbols = Function ∪ Method ∪ Class (Interface excluded — types, not call
+// sites). Cypher 1.6.x rejects `s:A OR s:B`, so one query per label. CALLS uses
+// untyped endpoints; buildSymbolGraph filters edges to the loaded symbol set, so
+// calls into an excluded Interface drop on their own.
+export async function loadSymbolGraph(repoName: string): Promise<VaultGraph> {
+  const [fnOut, methodOut, classOut, callsOut] = await Promise.all([
+    runCypher(repoName, "MATCH (s:Function) RETURN s.id, s.name, s.filePath"),
+    runCypher(repoName, "MATCH (s:Method) RETURN s.id, s.name, s.filePath"),
+    runCypher(repoName, "MATCH (s:Class) RETURN s.id, s.name, s.filePath"),
+    runCypher(
+      repoName,
+      "MATCH (a)-[r:CodeRelation {type:'CALLS'}]->(b) RETURN a.id, b.id",
+    ),
+  ]);
+  const rows = (out: string): SymbolRow[] =>
+    parseCypherTable(out)
+      .filter((r) => r.length === 3 && r[0])
+      .map((r) => ({ id: r[0], name: r[1], file: r[2] }));
+  const symbols = [...rows(fnOut), ...rows(methodOut), ...rows(classOut)];
+  const calls = parseCypherTable(callsOut)
+    .filter((r) => r.length === 2)
+    .map((r) => [r[0], r[1]] as [string, string]);
+  return buildSymbolGraph(symbols, calls);
+}
+
