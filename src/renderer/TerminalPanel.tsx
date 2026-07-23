@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import type { Workspace } from "../shared/types";
+import Inbox from "./Inbox";
+import ReplyBox from "./ReplyBox";
+import type { Workspace, WorkspaceStatus } from "../shared/types";
 
 type Status =
   | { kind: "idle" }
@@ -48,20 +50,30 @@ function entryFor(id: string): Entry {
   return e;
 }
 
-export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
+export default function TerminalPanel({
+  workspace,
+  workspaces,
+  statuses,
+  onSelectWorkspace,
+}: {
+  workspace: Workspace;
+  workspaces: Workspace[];
+  statuses: WorkspaceStatus[];
+  onSelectWorkspace: (ws: Workspace) => void;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [statuses, setStatuses] = useState<Record<string, Status>>({});
+  const [localStatuses, setLocalStatuses] = useState<Record<string, Status>>({});
   const [width, setWidth] = useState(480);
   const [collapsed, setCollapsed] = useState(true);
   // a permission-free session is the one action here with no undo, so it costs
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
-  const status: Status = statuses[workspace.id] ?? { kind: "idle" };
+  const status: Status = localStatuses[workspace.id] ?? { kind: "idle" };
 
   useEffect(() => {
     ensureSubscribed();
     const onExit = (id: string, code: number) =>
-      setStatuses((m) => ({ ...m, [id]: { kind: "exited", code } }));
+      setLocalStatuses((m) => ({ ...m, [id]: { kind: "exited", code } }));
     exitListeners.add(onExit);
     return () => {
       exitListeners.delete(onExit);
@@ -105,7 +117,7 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
           e.term.writeln(
             "\x1b[33m[jarvis] .claude/settings.local.json unparseable — hooks not installed; the graph won't highlight\x1b[0m",
           );
-        setStatuses((m) => ({
+        setLocalStatuses((m) => ({
           ...m,
           [workspace.id]: { kind: "running", hooksOk },
         }));
@@ -180,6 +192,18 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
           »
         </button>
       </div>
+
+      <div
+        className="max-h-[45%] min-h-0 flex-none border-b border-edge"
+        data-testid="terminal-inbox"
+      >
+        <Inbox
+          workspaces={workspaces}
+          statuses={statuses}
+          activeId={workspace.id}
+          onSelect={onSelectWorkspace}
+        />
+      </div>
       <div className="relative min-h-0 flex-1">
         <div ref={hostRef} className="h-full w-full" />
         {status.kind !== "running" && (
@@ -209,6 +233,10 @@ export default function TerminalPanel({ workspace }: { workspace: Workspace }) {
           </div>
         )}
       </div>
+      <ReplyBox
+        workspaceId={status.kind === "running" ? workspace.id : null}
+        disabled={status.kind !== "running"}
+      />
     </div>
   );
 }

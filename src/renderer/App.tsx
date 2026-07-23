@@ -15,6 +15,7 @@ import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
 import EmptyGraph, { type IndexState } from "./EmptyGraph";
 import Timeline from "./Timeline";
+import MessageDetail from "./MessageDetail";
 import GraphLevelToggle from "./GraphLevelToggle";
 import { appendEvent, foldTo, nextRev } from "./replay";
 import {
@@ -60,6 +61,7 @@ export default function App() {
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
   const [showHome, setShowHome] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
@@ -114,6 +116,16 @@ export default function App() {
 
   // debounced auto-open: last-read file after reads go quiet
   const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
+
+
+  const openFromInbox = useCallback(
+    (ws: Workspace) => {
+      setShowHome(false);
+      openWorkspace(ws);
+      setShowDetail(true);
+    },
+    [openWorkspace],
+  );
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
@@ -466,6 +478,16 @@ export default function App() {
                     />
                   </div>
                 )}
+
+              {showDetail && (
+                <MessageDetail
+                  workspace={active}
+                  status={
+                    statuses.find((s) => s.workspaceId === active?.id) ?? null
+                  }
+                  onClose={() => setShowDetail(false)}
+                />
+              )}
               <Timeline
                 log={(active && logsRef.current.get(active.id)) || []}
                 index={replayIndex}
@@ -506,7 +528,14 @@ export default function App() {
       </GraphSlot>
       {/* terminals live in a module-level map, so unmounting here costs no
           session and no scrollback — it only takes the tab off the home screen */}
-      {!showHome && active && <TerminalPanel workspace={active} />}
+      {!showHome && active && (
+        <TerminalPanel
+          workspace={active}
+          workspaces={workspaces}
+          statuses={statuses}
+          onSelectWorkspace={openFromInbox}
+        />
+      )}
       {showSettings && (
         <GraphSettingsPanel
           settings={settings}
