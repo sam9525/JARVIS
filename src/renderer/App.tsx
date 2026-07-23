@@ -384,6 +384,26 @@ export default function App() {
 
   const view = settings.views[settings.dimensions];
 
+  // refresh + settings — shown on the workspace graph and the command center
+  const graphButtons = (
+    <>
+      <button
+        className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        title="Refresh graph (F5)"
+        onClick={refreshGraph}
+      >
+        ↻
+      </button>
+      <button
+        className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        title="Graph settings"
+        onClick={() => setShowSettings((v) => !v)}
+      >
+        ⚙
+      </button>
+    </>
+  );
+
   return (
     <div className="flex h-full w-full">
       <WorkspaceRail
@@ -394,8 +414,9 @@ export default function App() {
         onAddProject={addProject}
         onHome={() => setShowHome(true)}
         onSelect={(ws) => {
-          setShowHome(true);
-          setFocusedId(ws.id);
+          setShowHome(false);
+          setFocusedId(ws.id); // terminal follows when you return home
+          openWorkspace(ws);
         }}
       />
       {!showHome && previewNode && active && (
@@ -411,8 +432,9 @@ export default function App() {
         {({ width, height }) =>
           showHome ? (
             <>
-              <div className="absolute top-3 right-3 z-10">
+              <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
                 <HomeViewToggle value={homeView} onChange={setHomeView} />
+                {graphButtons}
               </div>
               {homeView === "fleet" ? (
                 <FleetGraph
@@ -512,20 +534,7 @@ export default function App() {
                     }
                   />
                 )}
-                <button
-                  className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
-                  title="Refresh graph (F5)"
-                  onClick={refreshGraph}
-                >
-                  ↻
-                </button>
-                <button
-                  className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
-                  title="Graph settings"
-                  onClick={() => setShowSettings((v) => !v)}
-                >
-                  ⚙
-                </button>
+                {graphButtons}
               </div>
             </>
           )
