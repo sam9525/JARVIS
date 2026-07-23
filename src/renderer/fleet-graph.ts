@@ -33,8 +33,10 @@ function busiestNodeId(g: VaultGraph): string | undefined {
   return best;
 }
 
-// a vault note "about" the project: exact basename, else basename contains the
-// (>=3 char) project name. First match wins; Map iteration is insertion order.
+// a vault note "about" the project: exact basename, else a basename that
+// contains the (>=3 char) project name as a whole word (so "app" matches
+// "app-router" but not "mapping"). First match wins; Map iteration is
+// insertion order.
 function matchVaultNote(
   projectName: string,
   vaultNoteByName: Map<string, string>,
@@ -43,7 +45,8 @@ function matchVaultNote(
   const exact = vaultNoteByName.get(p);
   if (exact) return exact;
   if (p.length < 3) return undefined;
-  for (const [name, id] of vaultNoteByName) if (name.includes(p)) return id;
+  for (const [name, id] of vaultNoteByName)
+    if (name.split(/[^a-z0-9]+/).includes(p)) return id;
   return undefined;
 }
 
@@ -68,14 +71,20 @@ export function buildFleetGraph(
     const px = (id: string) => `${ws.id}::${id}`;
     for (const n of capped.nodes) {
       nodes.push({ ...n, id: px(n.id), domain: ws.name });
-      if (ws.kind === "vault") vaultNoteByName.set(basename(n.id), px(n.id));
+      // first note with a given basename wins the match slot
+      if (ws.kind === "vault") {
+        const key = basename(n.id);
+        if (!vaultNoteByName.has(key)) vaultNoteByName.set(key, px(n.id));
+      }
     }
     for (const e of capped.edges)
       edges.push({ source: px(e.source), target: px(e.target) });
     return capped;
   };
 
-  // 1) vault at the centre: its cluster, anchored to the root
+  // 1) vault at the centre: its cluster, anchored to the root.
+  // ponytail: single-vault assumption — any extra vault workspaces are skipped
+  // in step 2. Treat them as project clusters if multi-vault ever ships.
   const vault = workspaces.find((w) => w.kind === "vault");
   if (vault) {
     const capped = addWs(vault, VAULT_CAP);

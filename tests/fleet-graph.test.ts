@@ -61,6 +61,28 @@ describe("buildFleetGraph", () => {
     expect(hasEdge(FLEET_ROOT, "hub::lone")).toBe(true);
   });
 
+  it("does not spoke a project to a note that merely contains its name as a substring", () => {
+    const f = buildFleetGraph(
+      [
+        { id: "vlt", name: "vault", rootPath: "", kind: "vault" },
+        { id: "app", name: "app", rootPath: "", kind: "code" },
+      ],
+      new Map<string, VaultGraph>([
+        ["vlt", { nodes: [{ id: "mapping", type: "note" }], edges: [] }],
+        ["app", { nodes: [{ id: "x.ts", type: "note" }], edges: [] }],
+      ]),
+    );
+    // "app" must not match the note "mapping" — falls back to the root spoke
+    expect(
+      f.edges.some((e) => e.source === FLEET_ROOT && e.target === "hub::app"),
+    ).toBe(true);
+    expect(
+      f.edges.some(
+        (e) => e.source === "vlt::mapping" && e.target === "hub::app",
+      ),
+    ).toBe(false);
+  });
+
   it("caps a project to 80 nodes", () => {
     const big: VaultGraph = {
       nodes: Array.from({ length: 90 }, (_, i) => ({
