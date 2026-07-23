@@ -4,9 +4,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildCodeGraph,
+  buildSymbolGraph,
   hasIndex,
   insideGitRepo,
   loadCodeGraph,
+  loadSymbolGraph,
   parseCypherTable,
 } from "../src/main/gitnexus-graph";
 
@@ -120,3 +122,48 @@ describe("loadCodeGraph", () => {
     await expect(loadCodeGraph("")).rejects.toThrow("unsafe repo name");
   });
 });
+
+describe("buildSymbolGraph", () => {
+  it("makes symbol nodes carrying their file, drops self-loops and dangling edges", () => {
+    const g = buildSymbolGraph(
+      [
+        { id: "Function:src/a.ts:foo", name: "foo", file: "src/a.ts" },
+        { id: "Function:src/a.ts:bar", name: "bar", file: "src/a.ts" },
+        { id: "Method:root.ts:baz", name: "baz", file: "root.ts" },
+      ],
+      [
+        ["Function:src/a.ts:foo", "Function:src/a.ts:bar"], // kept
+        ["Function:src/a.ts:foo", "Function:src/a.ts:foo"], // self-loop → dropped
+        ["Function:src/a.ts:bar", "Function:gone.ts:x"], // endpoint absent → dropped
+      ],
+    );
+    expect(g.nodes).toEqual([
+      { id: "Function:src/a.ts:foo", type: "note", domain: "src", file: "src/a.ts" },
+      { id: "Function:src/a.ts:bar", type: "note", domain: "src", file: "src/a.ts" },
+      { id: "Method:root.ts:baz", type: "note", domain: ".", file: "root.ts" },
+    ]);
+    expect(g.edges).toEqual([
+      { source: "Function:src/a.ts:foo", target: "Function:src/a.ts:bar" },
+    ]);
+  });
+});
+
+describe("symbol fixtures", () => {
+  it("parse into rows the builder accepts, and a known symbol survives", () => {
+    const rows = parseCypherTable(fixture("symbols.json"));
+    expect(rows[0]).toHaveLength(3);
+    expect(rows.some(([id]) => id === "Function:src/main/event-mapper.ts:toNode")).toBe(true);
+
+    const calls = parseCypherTable(fixture("calls.json"));
+    expect(calls[0]).toHaveLength(2);
+  });
+});
+
+describe("loadSymbolGraph", () => {
+  it("rejects an unsafe repo name before reaching exec", async () => {
+    await expect(loadSymbolGraph('a" & echo pwned "')).rejects.toThrow(
+      "unsafe repo name",
+    );
+  });
+});
+

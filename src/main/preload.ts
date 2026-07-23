@@ -23,6 +23,8 @@ const api = {
     ipcRenderer.invoke("get-workspaces"),
   getGraph: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("get-graph", workspaceId),
+  getSymbolGraph: (workspaceId: string): Promise<VaultGraph> =>
+    ipcRenderer.invoke("get-symbol-graph", workspaceId),
   onGraph: (cb: (g: VaultGraph) => void) =>
     subscribe<[VaultGraph]>("graph", cb),
   onToolEvent: (cb: (e: ToolEvent) => void) =>

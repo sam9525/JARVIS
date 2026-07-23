@@ -178,4 +178,27 @@ describe("status store", () => {
     expect(kindOf(s)).toBe("none");
     expect(s.snapshot()[0].since).toBe(300); // running -> none
   });
+
+  it("stores the message from a status event and clears it on session change", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", message: "done!" }));
+    expect(s.snapshot()[0].message).toBe("done!");
+    s.applyStatus(ev({ kind: "running", sessionId: "s2", ts: 2000 }));
+    expect(s.snapshot()[0].message).toBe("");
+  });
+
+  it("keeps the last message across a running event that carries none", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", message: "answer me" }));
+    s.applyStatus(ev({ kind: "running", ts: 2000 }));
+    expect(s.snapshot()[0].message).toBe("answer me");
+  });
+
+  it("a changed message alone counts as a change", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", message: "a" }));
+    expect(s.applyStatus(ev({ kind: "idle", message: "b", ts: 2000 }))).toBe(
+      true,
+    );
+  });
 });

@@ -15,7 +15,12 @@ import {
   readProjects,
   saveProjects,
 } from "./workspaces";
-import { hasIndex, insideGitRepo, loadCodeGraph } from "./gitnexus-graph";
+import {
+  hasIndex,
+  insideGitRepo,
+  loadCodeGraph,
+  loadSymbolGraph,
+} from "./gitnexus-graph";
 import { isDirectory } from "./is-directory";
 import { ensureHooks } from "./hook-install";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
@@ -120,13 +125,36 @@ app.whenReady().then(async () => {
     return g;
   };
 
+  // symbol graphs are a second, independent per-workspace cache — the file
+  // graph the rail/cards/preview use is never evicted by opening the symbol view
+  const symbolGraphs = new Map<string, Promise<VaultGraph>>();
+  const symbolGraphFor = (id: string): Promise<VaultGraph> => {
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws || ws.kind !== "code") return Promise.resolve({ nodes: [], edges: [] });
+    let g = symbolGraphs.get(id);
+    if (!g) {
+      g = (async () => {
+        if (!(await hasIndex(ws.rootPath))) return { nodes: [], edges: [] };
+        return loadSymbolGraph(ws.name).catch((err) => {
+          // gitnexus format drift / unreadable index → empty graph, no crash
+          console.error(`symbol graph failed for ${ws.name}:`, err);
+          return { nodes: [], edges: [] };
+        });
+      })();
+      symbolGraphs.set(id, g);
+    }
+    return g;
+  };
+
   ipcMain.handle("get-workspaces", () => workspaces);
   ipcMain.handle("get-graph", (_e, id: string) => graphFor(id));
+  ipcMain.handle("get-symbol-graph", (_e, id: string) => symbolGraphFor(id));
   ipcMain.handle("rescan", async (_e, id: string) => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return { nodes: [], edges: [] };
     const g = await loadGraph(ws);
     graphs.set(id, Promise.resolve(g)); // assign only on success
+    symbolGraphs.delete(id);
     return g;
   });
 
@@ -172,6 +200,7 @@ app.whenReady().then(async () => {
     const name = nameFromRegistry(registry, ws.rootPath);
     if (name) ws.name = name;
     graphs.delete(ws.id); // next get-graph/rescan re-reads the fresh index
+    symbolGraphs.delete(ws.id);
     return { ok: true };
   });
 

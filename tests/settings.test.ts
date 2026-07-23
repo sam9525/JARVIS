@@ -225,4 +225,19 @@ describe("settings", () => {
     expect(d.views["2d"].display.focusZoom).toBe(6.8);
     expect(d.views["3d"].display.focusZoom).toBe(180);
   });
+
+  it("defaults codeGraphLevel to file and accepts a stored symbol value", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-set-"));
+    const file = path.join(dir, "s.json");
+
+    const def = await loadSettings(file); // missing file → defaults
+    expect(def.codeGraphLevel).toBe("file");
+
+    await fs.writeFile(file, JSON.stringify({ codeGraphLevel: "symbol" }), "utf8");
+    expect((await loadSettings(file)).codeGraphLevel).toBe("symbol");
+
+    await fs.writeFile(file, JSON.stringify({ codeGraphLevel: "bogus" }), "utf8");
+    expect((await loadSettings(file)).codeGraphLevel).toBe("file"); // bad value ignored
+  });
 });
+

@@ -219,4 +219,22 @@ describe("mapStatusEvent", () => {
     expect(e?.kind).toBe("running");
     expect(e?.call.startsWith("Bash(")).toBe(true);
   });
+
+  it("Stop carries the last assistant message", () => {
+    const e = mapStatusEvent(
+      { ...base, hook_event_name: "Stop", last_assistant_message: "Pick A or B?" },
+      workspaces,
+    );
+    expect(e).toMatchObject({ kind: "idle", message: "Pick A or B?" });
+  });
+
+  it("the captured Stop fixture carries its message", () => {
+    const raw = fixture("stop");
+    const ws = buildWorkspaces("D:\\vault", [
+      { name: "jarvis", path: raw.cwd as string },
+    ]);
+    expect(mapStatusEvent(raw, ws)?.message).toBe(
+      "Hey! What are we working on?",
+    );
+  });
 });
