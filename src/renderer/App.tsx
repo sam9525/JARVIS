@@ -176,10 +176,12 @@ export default function App() {
           g.nodes.length > SYMBOL_NODE_CAP ? busiest(g, SYMBOL_NODE_CAP) : g,
         )
       : window.jarvis.getGraph(ws.id);
-    load.then((g) => {
-      cache.set(ws.id, g);
-      show(g);
-    });
+    load
+      .then((g) => {
+        cache.set(ws.id, g);
+        show(g);
+      })
+      .catch(() => setGraphLoading(false));
     return () => {
       cancelled = true;
     };
@@ -272,12 +274,28 @@ export default function App() {
       .rescan(ws.id)
       .then((g) => {
         graphCacheRef.current.set(ws.id, g);
-        setGraph(g);
-        setLayoutEpoch((n) => n + 1);
-        if (ws.kind === "code") setGraphLoading(false);
+        if (ws.kind === "code" && settings.codeGraphLevel === "symbol") {
+          window.jarvis
+            .getSymbolGraph(ws.id)
+            .then((gSym) => {
+              const finalG =
+                gSym.nodes.length > SYMBOL_NODE_CAP
+                  ? busiest(gSym, SYMBOL_NODE_CAP)
+                  : gSym;
+              symbolCacheRef.current.set(ws.id, finalG);
+              setGraph(finalG);
+              setLayoutEpoch((n) => n + 1);
+              setGraphLoading(false);
+            })
+            .catch(console.error);
+        } else {
+          setGraph(g);
+          setLayoutEpoch((n) => n + 1);
+          if (ws.kind === "code") setGraphLoading(false);
+        }
       })
       .catch(console.error);
-  }, [active]);
+  }, [active, settings.codeGraphLevel]);
 
   const addProject = useCallback(() => {
     window.jarvis.addProject().then(setWorkspaces).catch(console.error);
