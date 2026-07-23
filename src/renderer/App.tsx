@@ -15,6 +15,7 @@ import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
 import EmptyGraph, { type IndexState } from "./EmptyGraph";
 import Timeline from "./Timeline";
+import GraphLevelToggle from "./GraphLevelToggle";
 import { appendEvent, foldTo, nextRev } from "./replay";
 import {
   applyEvent,
@@ -22,11 +23,12 @@ import {
   resetHighlights,
   type HighlightState,
 } from "./highlight-store";
-import { filterGraph } from "./graph-filter";
+import { filterGraph, busiest } from "./graph-filter";
 import { domainsOf } from "./domain-colors";
 import { defaultSettings } from "../shared/types";
 import { createPreviewOpener } from "./preview-opener";
 import type {
+  CodeGraphLevel,
   Settings,
   ToolEvent,
   VaultGraph,
@@ -34,6 +36,10 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
+
+// symbol graphs of a huge repo can be thousands of nodes; show the busiest.
+// JARVIS (~386) renders uncapped.
+const SYMBOL_NODE_CAP = 600;
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -71,6 +77,7 @@ export default function App() {
   const stateRef = useRef(emptyState());
   const activeIdRef = useRef<string | null>(null);
   const graphCacheRef = useRef(new Map<string, VaultGraph>());
+  const symbolCacheRef = useRef(new Map<string, VaultGraph>());
 
   // event log per workspace, feeding the replay scrubber. logRev exists only to
   // re-render the bar as events arrive — the log itself stays in a ref so an
@@ -116,6 +123,12 @@ export default function App() {
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
       setReplayIndex(null); // the ref above already points at the live store
+      if (ws.kind === "code") {
+        // the [active, codeGraphLevel] effect loads the right-level graph
+        setGraph({ nodes: [], edges: [] });
+        setGraphLoading(true);
+        return;
+      }
       const cached = graphCacheRef.current.get(ws.id);
       if (cached) {
         setGraph(cached);
@@ -136,6 +149,41 @@ export default function App() {
     },
     [onPreviewEvent],
   );
+
+  // A code workspace's graph is chosen by codeGraphLevel: file graph from
+  // graphCacheRef (loaded here or by cards/refresh), symbol graph from
+  // symbolCacheRef. Vault graphs stay owned by openWorkspace.
+  useEffect(() => {
+    const ws = active;
+    if (!ws || ws.kind !== "code") return;
+    const symbol = settings.codeGraphLevel === "symbol";
+    const cache = symbol ? symbolCacheRef.current : graphCacheRef.current;
+    let cancelled = false;
+    const show = (g: VaultGraph) => {
+      if (cancelled || activeIdRef.current !== ws.id) return;
+      setGraph(g);
+      setLayoutEpoch((n) => n + 1);
+      setGraphLoading(false);
+    };
+    const cached = cache.get(ws.id);
+    if (cached) {
+      show(cached);
+      return;
+    }
+    setGraphLoading(true);
+    const load = symbol
+      ? window.jarvis.getSymbolGraph(ws.id).then((g) =>
+          g.nodes.length > SYMBOL_NODE_CAP ? busiest(g, SYMBOL_NODE_CAP) : g,
+        )
+      : window.jarvis.getGraph(ws.id);
+    load.then((g) => {
+      cache.set(ws.id, g);
+      show(g);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, settings.codeGraphLevel]);
 
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -219,6 +267,7 @@ export default function App() {
     const ws = active;
     if (!ws) return;
     resetHighlights(stateRef.current);
+    symbolCacheRef.current.delete(ws.id);
     window.jarvis
       .rescan(ws.id)
       .then((g) => {
@@ -409,6 +458,15 @@ export default function App() {
                 terminal panel, whatever its current width) instead of
                 overlapping the terminal when it's open */}
               <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+                {active && (
+                  <GraphLevelToggle
+                    kind={active.kind}
+                    value={settings.codeGraphLevel}
+                    onChange={(codeGraphLevel: CodeGraphLevel) =>
+                      updateSettings({ ...settings, codeGraphLevel })
+                    }
+                  />
+                )}
                 <button
                   className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
                   title="Refresh graph (F5)"
