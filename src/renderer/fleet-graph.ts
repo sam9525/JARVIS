@@ -80,7 +80,8 @@ export function buildFleetGraph(
   if (vault) {
     const capped = addWs(vault, VAULT_CAP);
     const anchor = capped && busiestNodeId(capped);
-    if (anchor) edges.push({ source: FLEET_ROOT, target: `${vault.id}::${anchor}` });
+    if (anchor)
+      edges.push({ source: FLEET_ROOT, target: `${vault.id}::${anchor}` });
   }
 
   // 2) each project: its cluster + a hub, spoked to a vault note or the root

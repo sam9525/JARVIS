@@ -6,7 +6,7 @@ import GraphLevelToggle from "../src/renderer/GraphLevelToggle";
 describe("GraphLevelToggle", () => {
   it("renders nothing for a vault workspace", () => {
     const html = renderToStaticMarkup(
-      <GraphLevelToggle kind="vault" value="file" onChange={() => {}} />,
+      <GraphLevelToggle kind="vault" value="file" onChange={vi.fn()} />,
     );
     expect(html).toBe("");
   });

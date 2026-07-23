@@ -13,6 +13,8 @@ import GraphSettingsPanel from "./GraphSettingsPanel";
 import WorkspaceRail from "./WorkspaceRail";
 import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
+import FleetGraph from "./FleetGraph";
+import HomeViewToggle, { type HomeView } from "./HomeViewToggle";
 import EmptyGraph, { type IndexState } from "./EmptyGraph";
 import Timeline from "./Timeline";
 import GraphLevelToggle from "./GraphLevelToggle";
@@ -60,6 +62,7 @@ export default function App() {
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
   const [showHome, setShowHome] = useState(false);
+  const [homeView, setHomeView] = useState<HomeView>("cards");
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
   // MissionControl is hook-free so it stays testable without a DOM — the
@@ -407,26 +410,45 @@ export default function App() {
       <GraphSlot>
         {({ width, height }) =>
           showHome ? (
-            <MissionControl
-              workspaces={workspaces}
-              statuses={statuses}
-              graphs={cardGraphs}
-              getStore={storeFor}
-              groups={settings.groups}
-              view={settings.views["2d"]}
-              filters={{
-                sectionFilter: settings.sectionFilter,
-                showTags: settings.showTags,
-                showOrphans: settings.showOrphans,
-              }}
-              now={cardNow}
-              indexing={indexing}
-              onIndex={indexProject}
-              onSelect={(ws) => {
-                setShowHome(false);
-                openWorkspace(ws);
-              }}
-            />
+            <>
+              <div className="absolute top-3 right-3 z-10">
+                <HomeViewToggle value={homeView} onChange={setHomeView} />
+              </div>
+              {homeView === "fleet" ? (
+                <FleetGraph
+                  workspaces={workspaces}
+                  graphs={cardGraphs}
+                  view={settings.views["2d"]}
+                  width={width}
+                  height={height}
+                  onOpen={(ws) => {
+                    setShowHome(false);
+                    openWorkspace(ws);
+                  }}
+                />
+              ) : (
+                <MissionControl
+                  workspaces={workspaces}
+                  statuses={statuses}
+                  graphs={cardGraphs}
+                  getStore={storeFor}
+                  groups={settings.groups}
+                  view={settings.views["2d"]}
+                  filters={{
+                    sectionFilter: settings.sectionFilter,
+                    showTags: settings.showTags,
+                    showOrphans: settings.showOrphans,
+                  }}
+                  now={cardNow}
+                  indexing={indexing}
+                  onIndex={indexProject}
+                  onSelect={(ws) => {
+                    setShowHome(false);
+                    openWorkspace(ws);
+                  }}
+                />
+              )}
+            </>
           ) : (
             <>
               {!settingsReady ? null : settings.dimensions === "3d" ? (
@@ -470,7 +492,6 @@ export default function App() {
                     />
                   </div>
                 )}
-
 
               <Timeline
                 log={(active && logsRef.current.get(active.id)) || []}

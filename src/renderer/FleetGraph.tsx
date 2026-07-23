@@ -32,7 +32,9 @@ export default function FleetGraph({
   // node id is `${wsId}::rest`, hub is `hub::${wsId}`, root is FLEET_ROOT
   const onNodeClick = (id: string) => {
     if (id === FLEET_ROOT) return;
-    const wsId = id.startsWith("hub::") ? id.slice(5) : id.slice(0, id.indexOf("::"));
+    const wsId = id.startsWith("hub::")
+      ? id.slice(5)
+      : id.slice(0, id.indexOf("::"));
     const ws = workspaces.find((w) => w.id === wsId);
     if (ws) onOpen(ws);
   };
