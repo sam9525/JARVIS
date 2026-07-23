@@ -5,6 +5,7 @@ import type { GraphGroup, ViewSettings, VaultGraph } from "../shared/types";
 import {
   expireMatches,
   heatOf,
+  hlKey,
   matchProgress,
   nodeDisplay,
   pulseProgress,
@@ -22,6 +23,7 @@ type NodeObj = {
   id?: string | number;
   type?: string;
   domain?: string;
+  file?: string;
   x?: number;
   y?: number;
   r?: number;
@@ -178,7 +180,10 @@ export default function Graph({
         displayRadius(
           node.r ?? 4,
           display.nodeSize,
-          heatOf(stateRef.current, String(node.id)),
+          heatOf(
+            stateRef.current,
+            hlKey(node as { id: string | number; file?: string }),
+          ),
         ) ** 2
       }
       nodeCanvasObject={(
@@ -188,9 +193,10 @@ export default function Graph({
       ) => {
         if (node.x === undefined || node.y === undefined) return;
         const id = String(node.id);
-        const t = heatOf(stateRef.current, id);
+        const hk = hlKey(node as { id: string | number; file?: string });
+        const t = heatOf(stateRef.current, hk);
         const r = displayRadius(node.r ?? 4, display.nodeSize, t);
-        const d = nodeDisplay(stateRef.current, id);
+        const d = nodeDisplay(stateRef.current, hk);
         const base =
           node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
         ctx.beginPath();
@@ -287,7 +293,10 @@ export default function Graph({
             const r = displayRadius(
               n.r ?? 4,
               display.nodeSize,
-              heatOf(stateRef.current, id),
+              heatOf(
+                stateRef.current,
+                hlKey(n as { id: string | number; file?: string }),
+              ),
             );
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 4 / globalScale, 0, 2 * Math.PI);
@@ -298,6 +307,8 @@ export default function Graph({
           expireMatches(stateRef.current, performance.now());
         }
 
+        // ponytail: trail entries are file-path ids; in symbol mode no symbol node
+        // carries that id, so trail arrows simply don't resolve here. Structure-first.
         // read-order trail: arrows between consecutively read nodes
         const trail = stateRef.current.trail;
         if (trail.length < 2) return;

@@ -5,6 +5,7 @@ import type { GraphGroup, ViewSettings, VaultGraph } from "../shared/types";
 import {
   expireMatches,
   heatOf,
+  hlKey,
   matchProgress,
   nodeDisplay,
   type HighlightState,
@@ -91,6 +92,7 @@ type NodeObj = {
   id?: string | number;
   type?: string;
   domain?: string;
+  file?: string;
   r?: number;
   x?: number;
   y?: number;
@@ -388,6 +390,8 @@ export default function Graph3D({
         }
       }
       g.clear();
+      // ponytail: trail entries are file-path ids; in symbol mode no symbol node
+      // carries that id, so trail arrows simply don't resolve here. Structure-first.
       for (let i = 0; i < s.trail.length - 1; i++) {
         const a = nodeById.get(s.trail[i]);
         const b = nodeById.get(s.trail[i + 1]);
@@ -459,9 +463,10 @@ export default function Graph3D({
   const displayColor = useCallback(
     (node: NodeObj): string => {
       const id = String(node.id);
-      const t = heatOf(stateRef.current, id);
+      const hk = hlKey(node as { id: string | number; file?: string });
+      const t = heatOf(stateRef.current, hk);
       // modified recolors the sphere; a read gets a ring sprite (Task 3)
-      if (nodeDisplay(stateRef.current, id) === "modified")
+      if (nodeDisplay(stateRef.current, hk) === "modified")
         return brighten(COLORS.modified, t);
       return brighten(
         baseNodeColor(
@@ -551,19 +556,20 @@ export default function Graph3D({
   const nodeThreeObject = useCallback(
     (node: NodeObj) => {
       const id = String(node.id);
+      const hk = hlKey(node as { id: string | number; file?: string });
       const obj = new Group();
       // soft radial "box shadow" behind the sphere, in the node's color;
       // sphere radius matches the lib's nodeRelSize(4) * nodeVal^(1/3)
       const r = displayRadius(
         node.r ?? 4,
         display.nodeSize,
-        heatOf(stateRef.current, id),
+        heatOf(stateRef.current, hk),
       );
       const sphereR = 4 * Math.cbrt(r ** 2);
       const glow = new Sprite(glowMaterial(displayColor(node)));
       glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
-      if (nodeDisplay(stateRef.current, id) === "ring") {
+      if (nodeDisplay(stateRef.current, hk) === "ring") {
         const ring = new Sprite(ringMaterial(COLORS.ring));
         ring.scale.setScalar(sphereR * 3);
         obj.add(ring);
@@ -576,7 +582,7 @@ export default function Graph3D({
       // for the whole scrub while 2D drops them one event later.
       if (
         matchProgress(stateRef.current, performance.now()) !== null &&
-        stateRef.current.matched.has(id)
+        stateRef.current.matched.has(hk)
       ) {
         const ring = new Sprite(ringMaterial(COLORS.match));
         ring.scale.setScalar(sphereR * 3.3);
@@ -631,7 +637,10 @@ export default function Graph3D({
         displayRadius(
           node.r ?? 4,
           display.nodeSize,
-          heatOf(stateRef.current, String(node.id)),
+          heatOf(
+            stateRef.current,
+            hlKey(node as { id: string | number; file?: string }),
+          ),
         ) ** 2
       }
       nodeThreeObjectExtend={true}

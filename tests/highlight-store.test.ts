@@ -4,6 +4,7 @@ import {
   emptyState,
   expireMatches,
   heatOf,
+  hlKey,
   matchProgress,
   nodeDisplay,
   pulseProgress,
@@ -289,5 +290,15 @@ describe("highlight-store", () => {
     expect(matchProgress(s, MATCH_MS + 1)).toBeNull();
     expect(expireMatches(s, MATCH_MS + 1)).toBe(true);
     expect(s.matched.size).toBe(0);
+  });
+
+  describe("hlKey", () => {
+    it("keys on file when present, else on id", () => {
+      expect(hlKey({ id: "Function:src/a.ts:foo", file: "src/a.ts" })).toBe(
+        "src/a.ts",
+      );
+      expect(hlKey({ id: "notes/idea" })).toBe("notes/idea");
+      expect(hlKey({ id: 42 })).toBe("42");
+    });
   });
 });
