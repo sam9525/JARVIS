@@ -117,20 +117,11 @@ export default function App() {
   // debounced auto-open: last-read file after reads go quiet
   const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
 
-
-  const openFromInbox = useCallback(
-    (ws: Workspace) => {
-      setShowHome(false);
-      openWorkspace(ws);
-      setShowDetail(true);
-    },
-    [openWorkspace],
-  );
-
   const openWorkspace = useCallback(
     (ws: Workspace) => {
       onPreviewEvent.cancel(); // pending open from the old workspace must die
       setPreviewNode(null);
+      setShowDetail(false); // stale message panel must not survive a switch
       setActive(ws);
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
@@ -162,6 +153,15 @@ export default function App() {
     [onPreviewEvent],
   );
 
+  const openFromInbox = useCallback(
+    (ws: Workspace) => {
+      setShowHome(false);
+      openWorkspace(ws);
+      setShowDetail(true);
+    },
+    [openWorkspace],
+  );
+
   // A code workspace's graph is chosen by codeGraphLevel: file graph from
   // graphCacheRef (loaded here or by cards/refresh), symbol graph from
   // symbolCacheRef. Vault graphs stay owned by openWorkspace.
@@ -184,9 +184,11 @@ export default function App() {
     }
     setGraphLoading(true);
     const load = symbol
-      ? window.jarvis.getSymbolGraph(ws.id).then((g) =>
-          g.nodes.length > SYMBOL_NODE_CAP ? busiest(g, SYMBOL_NODE_CAP) : g,
-        )
+      ? window.jarvis
+          .getSymbolGraph(ws.id)
+          .then((g) =>
+            g.nodes.length > SYMBOL_NODE_CAP ? busiest(g, SYMBOL_NODE_CAP) : g,
+          )
       : window.jarvis.getGraph(ws.id);
     load
       .then((g) => {
