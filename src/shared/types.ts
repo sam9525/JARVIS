@@ -19,6 +19,7 @@ export interface WorkspaceStatus {
   workspaceId: string;
   kind: StatusKind;
   call: string; // compact "Tool(subject)"; "" when there is nothing to show
+  message?: string; // idle: the last thing Claude said, for the inbox
   since: number; // ms epoch of the last kind change — drives "40s ago"
   reads: number; // distinct files read this session
   edits: number; // distinct files edited this session

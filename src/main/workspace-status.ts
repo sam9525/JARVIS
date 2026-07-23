@@ -12,6 +12,7 @@ export const STALE_MS = 60000;
 interface Entry {
   kind: StatusKind;
   call: string;
+  message: string;
   since: number;
   lastEventAt: number;
   sessionId: string;
@@ -38,6 +39,7 @@ export function createStatusStore(): StatusStore {
       e = {
         kind: "none",
         call: "",
+        message: "",
         since: now,
         lastEventAt: now,
         sessionId: "",
@@ -62,14 +64,23 @@ export function createStatusStore(): StatusStore {
       if (sessionChanged) {
         e.sessionId = ev.sessionId;
         resetCounts(e);
+        e.message = ""; // a new session's inbox starts empty
       }
       // a permission prompt carries no call of its own; the pending PreToolUse
       // call is exactly what the user needs to see, so keep it
       const call = ev.call || e.call;
-      const changed = sessionChanged || e.kind !== ev.kind || e.call !== call;
+      // only Stop carries a message; keep the prior one otherwise so a running
+      // turn still remembers the last thing Claude said
+      const message = ev.message ?? e.message;
+      const changed =
+        sessionChanged ||
+        e.kind !== ev.kind ||
+        e.call !== call ||
+        e.message !== message;
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
       e.call = call;
+      e.message = message;
       e.lastEventAt = ev.ts;
       e.ptyAlive = true; // events only arrive from a live session
       return changed;
@@ -142,6 +153,7 @@ export function createStatusStore(): StatusStore {
         workspaceId,
         kind: e.kind,
         call: e.call,
+        message: e.message,
         since: e.since,
         reads: e.reads.size,
         edits: e.edits.size,
