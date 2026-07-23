@@ -158,7 +158,7 @@ export function heatOf(state: HighlightState, nodeId: string): number {
 // The store is keyed by file path. A symbol node resolves its highlight by its
 // file, so a file event lights every symbol in that file; file/tag nodes have no
 // `file` and fall back to their id — unchanged behavior.
-export function hlKey(node: { id: string | number; file?: string }): string {
+export function hlKey(node: { id?: string | number; file?: string }): string {
   return String(node.file ?? node.id);
 }
 

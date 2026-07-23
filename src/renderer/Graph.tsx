@@ -180,10 +180,7 @@ export default function Graph({
         displayRadius(
           node.r ?? 4,
           display.nodeSize,
-          heatOf(
-            stateRef.current,
-            hlKey(node as { id: string | number; file?: string }),
-          ),
+          heatOf(stateRef.current, hlKey(node)),
         ) ** 2
       }
       nodeCanvasObject={(
@@ -193,7 +190,7 @@ export default function Graph({
       ) => {
         if (node.x === undefined || node.y === undefined) return;
         const id = String(node.id);
-        const hk = hlKey(node as { id: string | number; file?: string });
+        const hk = hlKey(node);
         const t = heatOf(stateRef.current, hk);
         const r = displayRadius(node.r ?? 4, display.nodeSize, t);
         const d = nodeDisplay(stateRef.current, hk);
@@ -284,19 +281,16 @@ export default function Graph({
           ctx.strokeStyle = COLORS.match;
           ctx.globalAlpha = 1 - mt;
           ctx.lineWidth = 2 / globalScale;
-          for (const id of stateRef.current.matched) {
-            const n = nodeById.get(id);
+          for (const n of data.nodes) {
+            if (!stateRef.current.matched.has(hlKey(n))) continue;
             // filtered-out nodes have no live position — skip
-            if (!n || n.x === undefined || n.y === undefined) continue;
+            if (n.x === undefined || n.y === undefined) continue;
             // heat included: a hot node is drawn larger, and a ring sized off
             // the cold radius would be painted over by the node itself
             const r = displayRadius(
               n.r ?? 4,
               display.nodeSize,
-              heatOf(
-                stateRef.current,
-                hlKey(n as { id: string | number; file?: string }),
-              ),
+              heatOf(stateRef.current, hlKey(n)),
             );
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 4 / globalScale, 0, 2 * Math.PI);

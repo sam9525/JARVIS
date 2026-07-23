@@ -277,4 +277,68 @@ describe("Graph component", () => {
     // trail a→b starts 1px outside hot a (5.4), not outside cold a (3.0)
     expect(moveXs[0]).toBeCloseTo(6.4);
   });
+
+  it("draws match rings for symbol nodes whose file is in matched set", async () => {
+    const { default: Graph } = await import("../src/renderer/Graph");
+
+    const graph: VaultGraph = {
+      nodes: [
+        {
+          id: "Function:src/main.ts:start",
+          file: "src/main.ts",
+          type: "symbol",
+          domain: "src/main.ts",
+        },
+      ],
+      edges: [],
+    };
+    const stateRef = {
+      current: {
+        sessionId: null,
+        nodes: new Map(),
+        trail: [],
+        pulseAt: 0,
+        matched: new Set(["src/main.ts"]),
+        matchAt: 5,
+        frozenAt: 5,
+        heat: new Map(),
+        rev: 0,
+      },
+    };
+
+    const element = Graph({
+      graph,
+      domains: ["src/main.ts"],
+      groups: [],
+      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      forces: {
+        centerStrength: 1,
+        repelStrength: 30,
+        linkStrength: 1,
+        linkDistance: 30,
+      },
+      stateRef: stateRef as any,
+      onNodeClick: () => {
+        return;
+      },
+    } as any) as any;
+
+    const nodes = element.props.graphData.nodes;
+    Object.assign(nodes[0], { x: 10, y: 20 });
+
+    const arcs: { x: number; y: number; r: number }[] = [];
+    const ctx: any = {
+      strokeStyle: "",
+      globalAlpha: 1,
+      lineWidth: 0,
+      beginPath: noop,
+      stroke: noop,
+      arc: (x: number, y: number, r: number) => arcs.push({ x, y, r }),
+    };
+    element.props.onRenderFramePost(ctx, 1);
+
+    expect(arcs.length).toBe(1);
+    expect(arcs[0].x).toBe(10);
+    expect(arcs[0].y).toBe(20);
+  });
 });

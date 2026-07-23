@@ -297,6 +297,7 @@ describe("highlight-store", () => {
       expect(hlKey({ id: "Function:src/a.ts:foo", file: "src/a.ts" })).toBe(
         "src/a.ts",
       );
+      expect(hlKey({ file: "src/a.ts" })).toBe("src/a.ts");
       expect(hlKey({ id: "notes/idea" })).toBe("notes/idea");
       expect(hlKey({ id: 42 })).toBe("42");
     });
