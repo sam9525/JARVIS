@@ -66,7 +66,15 @@ export function mapStatusEvent(
       return null; // auth, elicitation, agent-view events are not our business
     }
     case "Stop":
-      return { ...common, kind: "idle", call: "" };
+      return {
+        ...common,
+        kind: "idle",
+        call: "",
+        message:
+          typeof raw.last_assistant_message === "string"
+            ? raw.last_assistant_message
+            : undefined,
+      };
     case "UserPromptSubmit":
       return { ...common, kind: "running", call: "" };
     case "PreToolUse":

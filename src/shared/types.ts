@@ -30,6 +30,7 @@ export interface StatusEvent {
   sessionId: string;
   kind: "waiting" | "running" | "idle";
   call: string;
+  message?: string; // Stop only: the last thing Claude said, for the inbox
   ts: number;
 }
 
