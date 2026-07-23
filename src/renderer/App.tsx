@@ -61,7 +61,7 @@ export default function App() {
   // true while getGraph is in flight, so the "no graph" notice doesn't flash
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
-  const [showHome, setShowHome] = useState(false);
+  const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
