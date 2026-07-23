@@ -12,6 +12,9 @@ export async function loadSettings(file: string): Promise<Settings> {
     if (p.dimensions === "2d" || p.dimensions === "3d") {
       s.dimensions = p.dimensions;
     }
+    if (p.codeGraphLevel === "file" || p.codeGraphLevel === "symbol") {
+      s.codeGraphLevel = p.codeGraphLevel;
+    }
     if (
       p.sectionFilter === "raw" ||
       p.sectionFilter === "wiki" ||

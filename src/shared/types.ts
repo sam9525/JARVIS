@@ -42,6 +42,7 @@ export interface GraphNode {
   type: "note" | "tag";
   domain?: string; // note nodes only: top-level vault folder name
   section?: Section; // note nodes only
+  file?: string; // symbol nodes only: the file this symbol lives in
 }
 
 export interface GraphEdge {
@@ -76,6 +77,7 @@ export interface GraphGroup {
 }
 
 export type Dimensions = "2d" | "3d";
+export type CodeGraphLevel = "file" | "symbol";
 
 export interface DisplaySettings {
   textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
@@ -106,6 +108,7 @@ export interface ViewSettings {
 
 export interface Settings {
   dimensions: Dimensions; // 2d canvas vs 3d WebGL graph
+  codeGraphLevel: CodeGraphLevel; // code workspaces: File graph vs symbol graph
   sectionFilter: SectionFilter;
   showTags: boolean;
   showOrphans: boolean;
@@ -158,6 +161,7 @@ function defaultView(mode: Dimensions): ViewSettings {
 export function defaultSettings(): Settings {
   return {
     dimensions: "3d",
+    codeGraphLevel: "file",
     sectionFilter: "wiki",
     showTags: true,
     showOrphans: true,
