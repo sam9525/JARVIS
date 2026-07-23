@@ -71,7 +71,9 @@ export default function MissionControl({
 
   return (
     <div className="h-full overflow-y-auto p-5">
-      <div className="mb-4 flex items-baseline justify-between border-b border-edge pb-3">
+      {/* pr keeps the summary left of the App-level Cards|Fleet + graph-controls
+          overlay (top-right); the border-b still spans full width */}
+      <div className="mb-4 flex items-baseline justify-between border-b border-edge pb-3 pr-48">
         <span className="text-[15px] font-semibold text-ink">
           All workspaces
         </span>
