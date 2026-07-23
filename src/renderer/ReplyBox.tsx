@@ -16,7 +16,7 @@ export default function ReplyBox({
   return (
     <div className="flex items-center gap-2 border-t border-edge bg-panel px-2 py-2">
       <input
-        className="min-w-0 flex-1 rounded-md border border-edge bg-black/30 px-3 py-1.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-40"
+        className="min-w-0 flex-1 rounded-md border border-edge bg-abyss px-3 py-1.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-40"
         placeholder={disabled ? "No live session" : "Reply to this session…"}
         value={text}
         disabled={disabled}
