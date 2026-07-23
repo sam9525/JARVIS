@@ -15,7 +15,6 @@ import MissionControl from "./MissionControl";
 import TerminalPanel from "./TerminalPanel";
 import EmptyGraph, { type IndexState } from "./EmptyGraph";
 import Timeline from "./Timeline";
-import MessageDetail from "./MessageDetail";
 import GraphLevelToggle from "./GraphLevelToggle";
 import { appendEvent, foldTo, nextRev } from "./replay";
 import {
@@ -61,7 +60,7 @@ export default function App() {
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
   const [showHome, setShowHome] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
@@ -121,7 +120,6 @@ export default function App() {
     (ws: Workspace) => {
       onPreviewEvent.cancel(); // pending open from the old workspace must die
       setPreviewNode(null);
-      setShowDetail(false); // stale message panel must not survive a switch
       setActive(ws);
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
@@ -151,15 +149,6 @@ export default function App() {
       }
     },
     [onPreviewEvent],
-  );
-
-  const openFromInbox = useCallback(
-    (ws: Workspace) => {
-      setShowHome(false);
-      openWorkspace(ws);
-      setShowDetail(true);
-    },
-    [openWorkspace],
   );
 
   // A code workspace's graph is chosen by codeGraphLevel: file graph from
@@ -209,6 +198,7 @@ export default function App() {
       setWorkspaces(list);
       if (list.length === 0) return;
       openWorkspace(list[0]); // vault first
+      setFocusedId(list[0].id); // command-center terminal starts on the vault
       const vaultId = list[0].id;
       // watcher only feeds the vault — cache under its id, show if on screen
       offs.push(
@@ -401,8 +391,8 @@ export default function App() {
         onAddProject={addProject}
         onHome={() => setShowHome(true)}
         onSelect={(ws) => {
-          setShowHome(false);
-          openWorkspace(ws);
+          setShowHome(true);
+          setFocusedId(ws.id);
         }}
       />
       {!showHome && previewNode && active && (
@@ -481,15 +471,7 @@ export default function App() {
                   </div>
                 )}
 
-              {showDetail && (
-                <MessageDetail
-                  workspace={active}
-                  status={
-                    statuses.find((s) => s.workspaceId === active?.id) ?? null
-                  }
-                  onClose={() => setShowDetail(false)}
-                />
-              )}
+
               <Timeline
                 log={(active && logsRef.current.get(active.id)) || []}
                 index={replayIndex}
@@ -530,14 +512,20 @@ export default function App() {
       </GraphSlot>
       {/* terminals live in a module-level map, so unmounting here costs no
           session and no scrollback — it only takes the tab off the home screen */}
-      {!showHome && active && (
-        <TerminalPanel
-          workspace={active}
-          workspaces={workspaces}
-          statuses={statuses}
-          onSelectWorkspace={openFromInbox}
-        />
-      )}
+      {showHome &&
+        (() => {
+          const focused = workspaces.find((w) => w.id === focusedId) ?? null;
+          return (
+            focused && (
+              <TerminalPanel
+                workspace={focused}
+                workspaces={workspaces}
+                statuses={statuses}
+                onSelectWorkspace={(ws) => setFocusedId(ws.id)}
+              />
+            )
+          );
+        })()}
       {showSettings && (
         <GraphSettingsPanel
           settings={settings}
