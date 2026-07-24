@@ -58,6 +58,7 @@ export default function App() {
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
+  const [fleetEpoch, setFleetEpoch] = useState(0); // ↻ re-fits the fleet graph
   // true while getGraph is in flight, so the "no graph" notice doesn't flash
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
@@ -273,6 +274,35 @@ export default function App() {
   // re-scan the active workspace, clear highlights, and re-settle the layout;
   // settings are deliberately untouched
   const refreshGraph = useCallback(() => {
+    // on the command center the fleet/cards are on screen, not a single
+    // workspace — re-scan every workspace so both rebuild and re-settle
+    if (showHome) {
+      // ponytail: rescan the fleet in parallel so the wait is the slowest
+      // single scan, not the sum. N gitnexus spawns at once is fine for a
+      // handful of workspaces; throttle if a fleet ever grows large enough
+      (async () => {
+        const results = await Promise.all(
+          workspaces.map(async (ws) => {
+            try {
+              const g = await window.jarvis.rescan(ws.id);
+              graphCacheRef.current.set(ws.id, g);
+              symbolCacheRef.current.delete(ws.id);
+              return [ws.id, g] as [string, VaultGraph];
+            } catch (err) {
+              console.error("fleet refresh failed for", ws.id, err);
+              return null;
+            }
+          }),
+        );
+        setCardGraphs((prev) => {
+          const m = new Map(prev);
+          for (const r of results) if (r) m.set(r[0], r[1]);
+          return m;
+        });
+        setFleetEpoch((n) => n + 1);
+      })();
+      return;
+    }
     const ws = active;
     if (!ws) return;
     resetHighlights(stateRef.current);
@@ -302,7 +332,7 @@ export default function App() {
         }
       })
       .catch(console.error);
-  }, [active, settings.codeGraphLevel]);
+  }, [showHome, workspaces, active, settings.codeGraphLevel]);
 
   const addProject = useCallback(() => {
     window.jarvis.addProject().then(setWorkspaces).catch(console.error);
@@ -442,6 +472,7 @@ export default function App() {
                   graphs={cardGraphs}
                   view={view}
                   dimensions={settings.dimensions}
+                  layoutEpoch={fleetEpoch}
                   width={width}
                   height={height}
                   onOpen={(ws) => {

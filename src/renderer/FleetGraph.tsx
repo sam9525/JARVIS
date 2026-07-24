@@ -18,6 +18,7 @@ export default function FleetGraph({
   graphs,
   view,
   dimensions,
+  layoutEpoch,
   width,
   height,
   onOpen,
@@ -26,6 +27,7 @@ export default function FleetGraph({
   graphs: Map<string, VaultGraph>;
   view: ViewSettings;
   dimensions: Dimensions;
+  layoutEpoch: number; // bumped by ↻ so the fleet re-fits after a re-scan
   width: number;
   height: number;
   onOpen: (ws: Workspace) => void;
@@ -57,7 +59,7 @@ export default function FleetGraph({
       stateRef={stateRef}
       onNodeClick={onNodeClick}
       focusNode={null}
-      layoutEpoch={0}
+      layoutEpoch={layoutEpoch}
       rotationPaused={false}
       width={width}
       height={height}
@@ -72,7 +74,7 @@ export default function FleetGraph({
       stateRef={stateRef}
       onNodeClick={onNodeClick}
       focusNode={null}
-      layoutEpoch={0}
+      layoutEpoch={layoutEpoch}
       width={width}
       height={height}
     />
