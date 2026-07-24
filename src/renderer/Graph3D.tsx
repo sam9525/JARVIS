@@ -33,6 +33,8 @@ import {
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 
 // links hold node objects after graph init but raw ids before it
 const endpointId = (end: LinkEnd | undefined): string =>
@@ -116,6 +118,7 @@ type GraphProps = {
   rotationPaused: boolean; // preview open — no auto-rotation
   width: number; // measured graph-slot size from GraphSlot's ResizeObserver
   height: number;
+  lite?: boolean; // static fleet view: cheaper spheres, tighter glow, no highlight polling
 };
 
 export default function Graph3D({
@@ -131,6 +134,7 @@ export default function Graph3D({
   rotationPaused,
   width,
   height,
+  lite = false,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
@@ -188,6 +192,26 @@ export default function Graph3D({
     return m;
   }, []);
 
+  // lite (fleet) merged lines get their own material: depthWrite off so the
+  // link layer can't punch the depth buffer and sit over the node spheres
+  // (the spheres still occlude lines behind them — depthTest stays on).
+  const liteLinkMaterial = useMemo(() => {
+    const m = new LineMaterial({
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      opacity: display.linkOpacity,
+      linewidth: display.linkThickness * 2,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    m.dispose = () => {};
+    return m;
+  }, []);
+  useEffect(
+    () => () => LineMaterial.prototype.dispose.call(liteLinkMaterial),
+    [liteLinkMaterial],
+  );
+
   useEffect(
     () => () => LineMaterial.prototype.dispose.call(linkMaterial),
     [linkMaterial],
@@ -219,6 +243,104 @@ export default function Graph3D({
     },
     [linkColors, linkMaterial],
   );
+
+  // lite (fleet): draw ALL edges as one merged fat-line object instead of a
+  // Line2 per edge. Hundreds of link draw calls — and their transparency-sort
+  // entries — collapse to one, which is the whole point of this mode.
+  const mergedRef = useRef<{
+    buf: Float32Array;
+    posBuffer: { needsUpdate: boolean }; // the geometry's backing buffer
+  }>();
+  const writeMergedPositions = useCallback(() => {
+    const m = mergedRef.current;
+    if (!m) return;
+    const buf = m.buf;
+    const ns = display.nodeSize;
+    for (let i = 0; i < data.links.length; i++) {
+      const l = data.links[i] as LinkObj;
+      const s = nodeById.get(endpointId(l.source));
+      const t = nodeById.get(endpointId(l.target));
+      const o = i * 6;
+      const sx = s?.x ?? 0;
+      const sy = s?.y ?? 0;
+      const sz = s?.z ?? 0;
+      const tx = t?.x ?? 0;
+      const ty = t?.y ?? 0;
+      const tz = t?.z ?? 0;
+      // start/end at the sphere SURFACES, not the centres, so a link doesn't
+      // spear through the middle of a node (radius formula matches nodeThreeObject)
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const dz = tz - sz;
+      const len = Math.hypot(dx, dy, dz);
+      const ra = 4 * Math.cbrt(((s?.r ?? 4) * ns) ** 2);
+      const rb = 4 * Math.cbrt(((t?.r ?? 4) * ns) ** 2);
+      if (len > ra + rb) {
+        const ux = dx / len;
+        const uy = dy / len;
+        const uz = dz / len;
+        buf[o] = sx + ux * ra;
+        buf[o + 1] = sy + uy * ra;
+        buf[o + 2] = sz + uz * ra;
+        buf[o + 3] = tx - ux * rb;
+        buf[o + 4] = ty - uy * rb;
+        buf[o + 5] = tz - uz * rb;
+      } else {
+        // spheres overlapping — no room for a line; collapse it to a point
+        buf[o] = buf[o + 3] = sx;
+        buf[o + 1] = buf[o + 4] = sy;
+        buf[o + 2] = buf[o + 5] = sz;
+      }
+    }
+    // buf IS the geometry's backing store, so flag it for re-upload rather than
+    // setPositions() (which reallocates the GPU buffer). Ticks only fire during
+    // the settle; rotating at rest pays nothing.
+    m.posBuffer.needsUpdate = true;
+  }, [data, nodeById, display.nodeSize]);
+  // stable handle so the setup effect and slider effect don't re-run on it
+  const writeRef = useRef(writeMergedPositions);
+  writeRef.current = writeMergedPositions;
+
+  useEffect(() => {
+    if (!lite) return;
+    const scene = fgRef.current?.scene();
+    if (!scene) return;
+    const geo = new LineSegmentsGeometry();
+    const n = data.links.length;
+    const buf = new Float32Array(n * 6);
+    const colors = new Float32Array(n * 6);
+    const sc = new Color();
+    const tc = new Color();
+    for (let i = 0; i < n; i++) {
+      const l = data.links[i] as LinkObj;
+      sc.set(linkColors.get(endpointId(l.source)) ?? COLORS.link);
+      tc.set(linkColors.get(endpointId(l.target)) ?? COLORS.link);
+      const o = i * 6;
+      colors[o] = sc.r;
+      colors[o + 1] = sc.g;
+      colors[o + 2] = sc.b;
+      colors[o + 3] = tc.r;
+      colors[o + 4] = tc.g;
+      colors[o + 5] = tc.b;
+    }
+    geo.setPositions(buf); // buf becomes the geometry's backing store
+    geo.setColors(colors); // static per graph — set once
+    const obj = new LineSegments2(geo, liteLinkMaterial);
+    obj.frustumCulled = false; // bbox is stale between ticks; never cull it
+    scene.add(obj);
+    const posBuffer = (
+      geo.getAttribute("instanceStart") as unknown as {
+        data: { needsUpdate: boolean };
+      }
+    ).data;
+    mergedRef.current = { buf, posBuffer };
+    writeRef.current(); // fill real coords (zeros pre-layout) + flag upload
+    return () => {
+      scene.remove(obj);
+      geo.dispose();
+      mergedRef.current = undefined;
+    };
+  }, [lite, data, linkColors, liteLinkMaterial]);
 
   useForceTuning(
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
@@ -350,7 +472,8 @@ export default function Graph3D({
   // linewidth stays correct across resizes (panel open/close, window resize)
   useEffect(() => {
     linkMaterial.resolution.set(width, height);
-  }, [width, height, linkMaterial]);
+    liteLinkMaterial.resolution.set(width, height);
+  }, [width, height, linkMaterial, liteLinkMaterial]);
 
   // preview open ⇒ stop now and stay stopped; close ⇒ normal idle re-arm
   useEffect(() => {
@@ -363,6 +486,7 @@ export default function Graph3D({
   // Trail arrows rebuild every tick (cheap — dozens at most) to track drift.
   const lastRev = useRef(-1);
   useEffect(() => {
+    if (lite) return; // static fleet: rev never changes, trail always empty
     const id = setInterval(() => {
       const s = stateRef.current;
       expireMatches(s, performance.now());
@@ -420,7 +544,7 @@ export default function Graph3D({
       }
     }, 500);
     return () => clearInterval(id);
-  }, [stateRef, nodeById, display.nodeSize]);
+  }, [stateRef, nodeById, display.nodeSize, lite]);
 
   // ponytail: label visibility is a 4×/s distance sweep, not per-frame
   // projection math like 2D. Ceiling: hook onEngineTick if the interval lags.
@@ -454,9 +578,12 @@ export default function Graph3D({
     }
     linkMaterial.linewidth = display.linkThickness * 2;
     linkMaterial.opacity = display.linkOpacity;
+    liteLinkMaterial.linewidth = display.linkThickness * 2;
+    liteLinkMaterial.opacity = display.linkOpacity;
     for (const m of glowMats.current.values()) m.opacity = display.nodeOpacity;
+    writeRef.current(); // re-seat link ends on the resized spheres (lite no-ops if idle)
     fgRef.current?.refresh();
-  }, [display, groups, linkMaterial]);
+  }, [display, groups, linkMaterial, liteLinkMaterial]);
 
   // highlights always win, then group color, then domain palette; heat
   // brightens whichever won rather than replacing it
@@ -567,7 +694,7 @@ export default function Graph3D({
       );
       const sphereR = 4 * Math.cbrt(r ** 2);
       const glow = new Sprite(glowMaterial(displayColor(node)));
-      glow.scale.setScalar(sphereR * 4);
+      glow.scale.setScalar(sphereR * (lite ? 3 : 4)); // tighter halo = less overdraw on the dense fleet
       obj.add(glow);
       if (nodeDisplay(stateRef.current, hk) === "ring") {
         const ring = new Sprite(ringMaterial(COLORS.ring));
@@ -614,6 +741,7 @@ export default function Graph3D({
       ringMaterial,
       stateRef,
       focusNode,
+      lite,
     ],
   );
 
@@ -625,9 +753,10 @@ export default function Graph3D({
       height={height}
       backgroundColor={COLORS.bg}
       controlType="orbit"
-      nodeResolution={16}
+      nodeResolution={lite ? 10 : 16}
       cooldownTicks={300} // settle in ~1-2s instead of the default 15s so the fit fires promptly
       onEngineStop={() => {
+        if (lite) writeMergedPositions(); // final coords, even on a 0-tick settle
         if (didFit.current) return;
         didFit.current = true;
         fgRef.current?.zoomToFit(300, -400);
@@ -646,21 +775,26 @@ export default function Graph3D({
       nodeThreeObjectExtend={true}
       nodeThreeObject={nodeThreeObject}
       nodeColor={displayColor}
-      linkThreeObject={linkThreeObject}
-      linkPositionUpdate={(
-        obj: Line2,
-        ends: { start: Coords; end: Coords },
-      ) => {
-        obj.geometry.setPositions([
-          ends.start.x,
-          ends.start.y,
-          ends.start.z,
-          ends.end.x,
-          ends.end.y,
-          ends.end.z,
-        ]);
-        return true; // we own positioning — skip the default handler
-      }}
+      // lite: links are drawn by the single merged LineSegments2 above, so the
+      // library renders none of its own; onEngineTick keeps them following nodes
+      linkVisibility={!lite}
+      onEngineTick={lite ? writeMergedPositions : undefined}
+      linkThreeObject={lite ? undefined : linkThreeObject}
+      linkPositionUpdate={
+        lite
+          ? undefined
+          : (obj: Line2, ends: { start: Coords; end: Coords }) => {
+              obj.geometry.setPositions([
+                ends.start.x,
+                ends.start.y,
+                ends.start.z,
+                ends.end.x,
+                ends.end.y,
+                ends.end.z,
+              ]);
+              return true; // we own positioning — skip the default handler
+            }
+      }
       onNodeClick={(node: NodeObj) => {
         if (node.type === "note") onNodeClick(String(node.id));
       }}

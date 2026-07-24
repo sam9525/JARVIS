@@ -130,6 +130,16 @@ describe("Graph3D component", () => {
     expect(element.props.linkWidth).toBeUndefined();
   });
 
+  it("lite mode hides the library's links and drives merged ones per tick", async () => {
+    const { default: Graph3D } = await import("../src/renderer/Graph3D");
+    const props = { ...makeProps(sampleGraph), lite: true } as any;
+    const element = Graph3D(props) as any;
+    expect(element.props.nodeResolution).toBe(10);
+    expect(element.props.linkVisibility).toBe(false);
+    expect(element.props.linkThreeObject).toBeUndefined();
+    expect(typeof element.props.onEngineTick).toBe("function");
+  });
+
   it("grows a hot node through nodeVal, leaving node.r for forceCollide", async () => {
     const { default: Graph3D } = await import("../src/renderer/Graph3D");
 

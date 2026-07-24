@@ -63,6 +63,7 @@ export default function FleetGraph({
       rotationPaused={false}
       width={width}
       height={height}
+      lite
     />
   ) : (
     <Graph
