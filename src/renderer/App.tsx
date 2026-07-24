@@ -440,7 +440,8 @@ export default function App() {
                 <FleetGraph
                   workspaces={workspaces}
                   graphs={cardGraphs}
-                  view={settings.views["2d"]}
+                  view={view}
+                  dimensions={settings.dimensions}
                   width={width}
                   height={height}
                   onOpen={(ws) => {

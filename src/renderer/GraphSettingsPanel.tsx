@@ -31,13 +31,14 @@ export default function GraphSettingsPanel({
 }: Props) {
   const set = (patch: Partial<Settings>) =>
     onSettingsChange({ ...settings, ...patch });
-  // display + forces edit the active view (2d/3d); the toggle below swaps which
-  const view = settings.views[settings.dimensions];
+  // display + forces edit the active view (2d/3d); the 3D toggle swaps which
+  const dim = settings.dimensions;
+  const view = settings.views[dim];
   const setView = (patch: Partial<ViewSettings>) =>
     set({
       views: {
         ...settings.views,
-        [settings.dimensions]: { ...view, ...patch },
+        [dim]: { ...view, ...patch },
       },
     });
   const setDisplay = (patch: Partial<DisplaySettings>) =>
@@ -163,7 +164,7 @@ export default function GraphSettingsPanel({
 
       <details open className="border-t border-edge py-2">
         <summary className="mb-1.5 cursor-pointer font-semibold">
-          Display ({settings.dimensions.toUpperCase()})
+          Display ({dim.toUpperCase()})
         </summary>
         <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
           3D
@@ -200,7 +201,7 @@ export default function GraphSettingsPanel({
           value={view.display.linkThickness}
           onChange={(v) => setDisplay({ linkThickness: v })}
         />
-        {settings.dimensions === "3d" ? (
+        {dim === "3d" ? (
           <Slider
             label="Focus distance"
             min={40}
@@ -219,7 +220,7 @@ export default function GraphSettingsPanel({
             onChange={(v) => setDisplay({ focusZoom: v })}
           />
         )}
-        {settings.dimensions === "3d" && (
+        {dim === "3d" && (
           <>
             <Slider
               label="Node opacity"
@@ -259,7 +260,7 @@ export default function GraphSettingsPanel({
 
       <details className="border-t border-edge py-2">
         <summary className="mb-1.5 cursor-pointer font-semibold">
-          Forces ({settings.dimensions.toUpperCase()})
+          Forces ({dim.toUpperCase()})
         </summary>
         <Slider
           label="Center force"

@@ -1,6 +1,12 @@
 import React, { useMemo, useRef } from "react";
-import type { ViewSettings, VaultGraph, Workspace } from "../shared/types";
+import type {
+  Dimensions,
+  ViewSettings,
+  VaultGraph,
+  Workspace,
+} from "../shared/types";
 import Graph from "./Graph";
+import Graph3D from "./Graph3D";
 import { emptyState } from "./highlight-store";
 import { domainsOf } from "./domain-colors";
 import { buildFleetGraph, FLEET_ROOT } from "./fleet-graph";
@@ -11,6 +17,7 @@ export default function FleetGraph({
   workspaces,
   graphs,
   view,
+  dimensions,
   width,
   height,
   onOpen,
@@ -18,6 +25,7 @@ export default function FleetGraph({
   workspaces: Workspace[];
   graphs: Map<string, VaultGraph>;
   view: ViewSettings;
+  dimensions: Dimensions;
   width: number;
   height: number;
   onOpen: (ws: Workspace) => void;
@@ -39,7 +47,22 @@ export default function FleetGraph({
     if (ws) onOpen(ws);
   };
 
-  return (
+  return dimensions === "3d" ? (
+    <Graph3D
+      graph={fleet}
+      domains={domains}
+      groups={[]}
+      display={view.display}
+      forces={view.forces}
+      stateRef={stateRef}
+      onNodeClick={onNodeClick}
+      focusNode={null}
+      layoutEpoch={0}
+      rotationPaused={false}
+      width={width}
+      height={height}
+    />
+  ) : (
     <Graph
       graph={fleet}
       domains={domains}
