@@ -6,7 +6,9 @@ import { groupOf } from "./domain-colors";
 // huge-but-light halo: radial gradient that fades out like a CSS box shadow
 const HALO = { pad: 1.1, base: 10, intervalMs: 200 } as const;
 
-export type HaloFit = { pad: number; base: number };
+// opacity scales the halo down (default 1); the fleet turns it low to keep its
+// one big backdrop halo faint
+export type HaloFit = { pad: number; base: number; opacity?: number };
 
 // center → edge alpha stops for the radial gradient (8-digit hex suffixes)
 const HALO_STOPS: ReadonlyArray<readonly [number, string]> = [
@@ -85,6 +87,7 @@ export function useGroupHalos(
           map: makeHaloTexture(g.color),
           transparent: true,
           depthWrite: false,
+          opacity: fit.opacity ?? 1,
         }),
       );
       sprite.visible = false; // hidden until the first fit
@@ -117,5 +120,5 @@ export function useGroupHalos(
       }
     };
     // dep on the numbers, not the object — callers may pass a fresh literal
-  }, [fgRef, nodes, groups, fit.pad, fit.base]);
+  }, [fgRef, nodes, groups, fit.pad, fit.base, fit.opacity]);
 }

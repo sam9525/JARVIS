@@ -25,6 +25,7 @@ import {
   Group,
   LineBasicMaterial,
   MeshBasicMaterial,
+  NormalBlending,
   Sprite,
   SpriteMaterial,
   Texture,
@@ -109,6 +110,7 @@ type GraphProps = {
   graph: VaultGraph; // may be filtered
   domains: string[]; // from the FULL graph — keeps palette indices stable
   groups: GraphGroup[];
+  haloGroups?: GraphGroup[]; // group halos only; decoupled from node coloring (fleet: blue backdrops over per-project node colors)
   display: ViewSettings["display"];
   forces: ViewSettings["forces"];
   stateRef: React.MutableRefObject<HighlightState>;
@@ -118,13 +120,14 @@ type GraphProps = {
   rotationPaused: boolean; // preview open — no auto-rotation
   width: number; // measured graph-slot size from GraphSlot's ResizeObserver
   height: number;
-  lite?: boolean; // static fleet view: cheaper spheres, tighter glow, no highlight polling
+  lite?: boolean; // static fleet view: cheaper spheres, merged link layer, normal-blend glow, no highlight polling
 };
 
 export default function Graph3D({
   graph,
   domains,
   groups,
+  haloGroups,
   display,
   forces,
   stateRef,
@@ -350,8 +353,14 @@ export default function Graph3D({
   useGroupHalos(
     fgRef as unknown as React.MutableRefObject<HaloSceneHandle | undefined>,
     data.nodes,
-    groups,
-    { pad: display.haloPad, base: display.haloBase },
+    haloGroups ?? groups,
+    {
+      // fleet gets one big, light backdrop: widen the single halo well past the
+      // graph and keep it faint
+      pad: lite ? display.haloPad * 2.5 : display.haloPad,
+      base: display.haloBase,
+      opacity: lite ? 0.55 : 1,
+    },
   );
 
   // read-order arrows live in a component-owned group, rebuilt by the
@@ -615,28 +624,34 @@ export default function Graph3D({
   const glowMats = useRef(new Map<string, SpriteMaterial>());
   const glowOpacity = useRef(display.nodeOpacity);
   glowOpacity.current = display.nodeOpacity;
-  const glowMaterial = useCallback((color: string): SpriteMaterial => {
-    if (!glowTexture.current) {
-      glowTexture.current = makeGlowTexture();
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      glowTexture.current.dispose = () => {};
-    }
-    let m = glowMats.current.get(color);
-    if (!m) {
-      m = new SpriteMaterial({
-        map: glowTexture.current,
-        color,
-        transparent: true,
-        opacity: glowOpacity.current,
-        depthWrite: false,
-        blending: AdditiveBlending,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      m.dispose = () => {};
-      glowMats.current.set(color, m);
-    }
-    return m;
-  }, []);
+  const glowMaterial = useCallback(
+    (color: string): SpriteMaterial => {
+      if (!glowTexture.current) {
+        glowTexture.current = makeGlowTexture();
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        glowTexture.current.dispose = () => {};
+      }
+      let m = glowMats.current.get(color);
+      if (!m) {
+        m = new SpriteMaterial({
+          map: glowTexture.current,
+          color,
+          transparent: true,
+          opacity: glowOpacity.current,
+          depthWrite: false,
+          // additive glows sum toward white where many overlap — fine on a sparse
+          // single-workspace graph, but the dense fleet saturates. lite layers
+          // (normal blend) so a single-color cluster stays that color.
+          blending: lite ? NormalBlending : AdditiveBlending,
+        });
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        m.dispose = () => {};
+        glowMats.current.set(color, m);
+      }
+      return m;
+    },
+    [lite],
+  );
 
   // shared ring sprite materials (one per color) for read-highlighted and
   // preview-focused nodes; same no-op-dispose pattern as glowMaterial — the
@@ -694,7 +709,7 @@ export default function Graph3D({
       );
       const sphereR = 4 * Math.cbrt(r ** 2);
       const glow = new Sprite(glowMaterial(displayColor(node)));
-      glow.scale.setScalar(sphereR * (lite ? 3 : 4)); // tighter halo = less overdraw on the dense fleet
+      glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
       if (nodeDisplay(stateRef.current, hk) === "ring") {
         const ring = new Sprite(ringMaterial(COLORS.ring));
@@ -741,7 +756,6 @@ export default function Graph3D({
       ringMaterial,
       stateRef,
       focusNode,
-      lite,
     ],
   );
 

@@ -11,6 +11,11 @@ import { emptyState } from "./highlight-store";
 import { domainsOf } from "./domain-colors";
 import { buildFleetGraph, FLEET_ROOT } from "./fleet-graph";
 
+// one light-blue backdrop for the whole fleet: a single halo whose query `::`
+// matches every fleet id (all are `a::b`, `hub::x`, or `root::jarvis`), so it
+// spans all nodes. Per-cluster colors mixed to white where clusters overlapped.
+const FLEET_HALO_GROUPS = [{ query: "::", color: "#61afef" }];
+
 // One merged graph of the whole fleet. Static — no live highlight layer in this
 // build (the wsId:: prefix breaks the per-workspace highlight store's keys).
 export default function FleetGraph({
@@ -54,6 +59,7 @@ export default function FleetGraph({
       graph={fleet}
       domains={domains}
       groups={[]}
+      haloGroups={FLEET_HALO_GROUPS}
       display={view.display}
       forces={view.forces}
       stateRef={stateRef}
