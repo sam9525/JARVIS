@@ -33,3 +33,10 @@ export function displayRadius(
 ): number {
   return base * nodeSize * (1 + HEAT_GROW * heat);
 }
+
+// 3D only: react-force-graph-3d draws its sphere at nodeRelSize(4) * nodeVal^(1/3),
+// and we feed it nodeVal = displayRadius². Anything that has to stop at a
+// sphere's SURFACE — link ends, trail arrows — goes through here.
+export function sphereRadius(displayR: number): number {
+  return 4 * Math.cbrt(displayR ** 2);
+}

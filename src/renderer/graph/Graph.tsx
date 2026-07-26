@@ -16,26 +16,9 @@ import { displayRadius, graphMetrics } from "./graph-metrics";
 import { brighten, COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { nodeLabelText } from "./node-label";
+import { endId, type LinkObj, type NodeObj } from "./link-ends";
 
 const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
-
-type NodeObj = {
-  id?: string | number;
-  type?: string;
-  domain?: string;
-  file?: string;
-  x?: number;
-  y?: number;
-  r?: number;
-};
-
-type LinkEnd = string | { id?: string | number };
-type LinkObj = { source?: LinkEnd; target?: LinkEnd };
-
-// force-graph swaps link ends from id strings to node objects once it binds data
-function endId(end: LinkEnd | undefined): string {
-  return typeof end === "object" && end !== null ? String(end.id) : String(end);
-}
 
 type GraphProps = {
   graph: VaultGraph; // may be filtered

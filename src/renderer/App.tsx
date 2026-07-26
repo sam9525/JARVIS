@@ -15,7 +15,7 @@ import MissionControl from "./home/MissionControl";
 import TerminalPanel from "./terminal/TerminalPanel";
 import FleetGraph from "./graph/FleetGraph";
 import Segmented from "./ui/Segmented";
-import EmptyGraph, { type IndexState } from "./graph/EmptyGraph";
+import EmptyGraph from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
 import {
@@ -24,7 +24,8 @@ import {
   resetHighlights,
   type HighlightState,
 } from "./session/highlight-store";
-import { filterGraph, busiest } from "./graph/graph-filter";
+import { filterGraph } from "./graph/graph-filter";
+import { useWorkspaceGraphs } from "./graph/use-workspace-graphs";
 import { domainsOf } from "./graph/domain-colors";
 import { defaultSettings, groupsFor } from "../shared/types";
 import { randomColor } from "../shared/random-color";
@@ -34,15 +35,10 @@ import type {
   HomeView,
   Settings,
   ToolEvent,
-  VaultGraph,
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
-
-// symbol graphs of a huge repo can be thousands of nodes; show the busiest.
-// JARVIS (~386) renders uncapped.
-const SYMBOL_NODE_CAP = 600;
 
 const HOME_VIEW_OPTIONS: { value: HomeView; label: string }[] = [
   { value: "cards", label: "Cards" },
@@ -59,7 +55,6 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [active, setActive] = useState<Workspace | null>(null);
   const [statuses, setStatuses] = useState<WorkspaceStatus[]>([]);
-  const [graph, setGraph] = useState<VaultGraph>({ nodes: [], edges: [] });
   const [previewNode, setPreviewNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
   // Graphs mount only after settings load: swapping the forces/display prop
@@ -69,32 +64,28 @@ export default function App() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
-  const [layoutEpoch, setLayoutEpoch] = useState(0);
-  const [fleetEpoch, setFleetEpoch] = useState(0); // ↻ re-fits the fleet graph
-  // true while getGraph is in flight, so the "no graph" notice doesn't flash
-  // during the gap between clearing the graph and the fetch resolving
-  const [graphLoading, setGraphLoading] = useState(false);
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
-
-  // per-workspace indexing state, shared by the cards and the graph slot so
-  // the two can never disagree about what a project is doing
-  const [indexing, setIndexing] = useState<
-    Record<string, { state: IndexState; error?: string }>
-  >({});
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
   // so retargeting .current on switch is all a switch needs
   const storesRef = useRef(new Map<string, HighlightState>());
   const stateRef = useRef(emptyState());
   const activeIdRef = useRef<string | null>(null);
-  const graphCacheRef = useRef(new Map<string, VaultGraph>());
-  const symbolCacheRef = useRef(new Map<string, VaultGraph>());
+
+  const graphs = useWorkspaceGraphs({
+    active,
+    activeIdRef,
+    codeGraphLevel: settings.codeGraphLevel,
+    workspaces,
+    showHome,
+    onWorkspacesChanged: setWorkspaces,
+  });
+  const { graph, graphLoading, layoutEpoch, cardGraphs, indexing } = graphs;
 
   // event log per workspace, feeding the replay scrubber. logRev exists only to
   // re-render the bar as events arrive — the log itself stays in a ref so an
@@ -140,71 +131,10 @@ export default function App() {
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
       setReplayIndex(null); // the ref above already points at the live store
-      if (ws.kind === "code") {
-        // the [active, codeGraphLevel] effect loads the right-level graph
-        setGraph({ nodes: [], edges: [] });
-        setGraphLoading(true);
-        return;
-      }
-      const cached = graphCacheRef.current.get(ws.id);
-      if (cached) {
-        setGraph(cached);
-        setLayoutEpoch((n) => n + 1);
-        setGraphLoading(false);
-      } else {
-        setGraph({ nodes: [], edges: [] });
-        setGraphLoading(true);
-        window.jarvis.getGraph(ws.id).then((g) => {
-          graphCacheRef.current.set(ws.id, g);
-          if (activeIdRef.current === ws.id) {
-            setGraph(g);
-            setLayoutEpoch((n) => n + 1);
-            setGraphLoading(false);
-          }
-        });
-      }
+      graphs.openGraph(ws);
     },
-    [onPreviewEvent],
+    [onPreviewEvent, graphs.openGraph],
   );
-
-  // A code workspace's graph is chosen by codeGraphLevel: file graph from
-  // graphCacheRef (loaded here or by cards/refresh), symbol graph from
-  // symbolCacheRef. Vault graphs stay owned by openWorkspace.
-  useEffect(() => {
-    const ws = active;
-    if (!ws || ws.kind !== "code") return;
-    const symbol = settings.codeGraphLevel === "symbol";
-    const cache = symbol ? symbolCacheRef.current : graphCacheRef.current;
-    let cancelled = false;
-    const show = (g: VaultGraph) => {
-      if (cancelled || activeIdRef.current !== ws.id) return;
-      setGraph(g);
-      setLayoutEpoch((n) => n + 1);
-      setGraphLoading(false);
-    };
-    const cached = cache.get(ws.id);
-    if (cached) {
-      show(cached);
-      return;
-    }
-    setGraphLoading(true);
-    const load = symbol
-      ? window.jarvis
-          .getSymbolGraph(ws.id)
-          .then((g) =>
-            g.nodes.length > SYMBOL_NODE_CAP ? busiest(g, SYMBOL_NODE_CAP) : g,
-          )
-      : window.jarvis.getGraph(ws.id);
-    load
-      .then((g) => {
-        cache.set(ws.id, g);
-        show(g);
-      })
-      .catch(() => setGraphLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [active, settings.codeGraphLevel]);
 
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -218,10 +148,7 @@ export default function App() {
       const vaultId = list[0].id;
       // watcher only feeds the vault — cache under its id, show if on screen
       offs.push(
-        window.jarvis.onGraph((g) => {
-          graphCacheRef.current.set(vaultId, g);
-          if (activeIdRef.current === vaultId) setGraph(g);
-        }),
+        window.jarvis.onGraph((g) => graphs.applyWatchedGraph(vaultId, g)),
       );
     });
     window.jarvis
@@ -248,32 +175,6 @@ export default function App() {
     // registered once — do not re-register on workspace switch
   }, []);
 
-  // Card graphs load one at a time, reusing whatever normal use already
-  // cached. Cards render their frame and status immediately and fill in.
-  useEffect(() => {
-    if (!showHome) return;
-    let cancelled = false;
-    (async () => {
-      for (const ws of workspaces) {
-        if (cancelled) return;
-        try {
-          const cached = graphCacheRef.current.get(ws.id);
-          const g = cached ?? (await window.jarvis.getGraph(ws.id));
-          if (cancelled) return;
-          graphCacheRef.current.set(ws.id, g);
-          setCardGraphs((prev) => new Map(prev).set(ws.id, g));
-        } catch (err) {
-          // one unreadable GitNexus index must not stop the remaining cards
-          // from loading — that card simply keeps its empty canvas
-          console.error("card graph failed for", ws.id, err);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [showHome, workspaces]);
-
   // status pushes are the usual repaint trigger, but an all-idle fleet would
   // otherwise freeze every card's age at whatever it read when home opened
   useEffect(() => {
@@ -283,108 +184,15 @@ export default function App() {
     return () => clearInterval(id);
   }, [showHome]);
 
-  // re-scan the active workspace, clear highlights, and re-settle the layout;
-  // settings are deliberately untouched
+  // re-scan and re-settle. Highlights are cleared only for a single workspace
+  // — the fleet refresh on the command center leaves them alone, as before.
   const refreshGraph = useCallback(() => {
-    // on the command center the fleet/cards are on screen, not a single
-    // workspace — re-scan every workspace so both rebuild and re-settle
-    if (showHome) {
-      // ponytail: rescan the fleet in parallel so the wait is the slowest
-      // single scan, not the sum. N gitnexus spawns at once is fine for a
-      // handful of workspaces; throttle if a fleet ever grows large enough
-      (async () => {
-        const results = await Promise.all(
-          workspaces.map(async (ws) => {
-            try {
-              const g = await window.jarvis.rescan(ws.id);
-              graphCacheRef.current.set(ws.id, g);
-              symbolCacheRef.current.delete(ws.id);
-              return [ws.id, g] as [string, VaultGraph];
-            } catch (err) {
-              console.error("fleet refresh failed for", ws.id, err);
-              return null;
-            }
-          }),
-        );
-        setCardGraphs((prev) => {
-          const m = new Map(prev);
-          for (const r of results) if (r) m.set(r[0], r[1]);
-          return m;
-        });
-        setFleetEpoch((n) => n + 1);
-      })();
-      return;
-    }
-    const ws = active;
-    if (!ws) return;
-    resetHighlights(stateRef.current);
-    symbolCacheRef.current.delete(ws.id);
-    window.jarvis
-      .rescan(ws.id)
-      .then((g) => {
-        graphCacheRef.current.set(ws.id, g);
-        if (ws.kind === "code" && settings.codeGraphLevel === "symbol") {
-          window.jarvis
-            .getSymbolGraph(ws.id)
-            .then((gSym) => {
-              const finalG =
-                gSym.nodes.length > SYMBOL_NODE_CAP
-                  ? busiest(gSym, SYMBOL_NODE_CAP)
-                  : gSym;
-              symbolCacheRef.current.set(ws.id, finalG);
-              setGraph(finalG);
-              setLayoutEpoch((n) => n + 1);
-              setGraphLoading(false);
-            })
-            .catch(console.error);
-        } else {
-          setGraph(g);
-          setLayoutEpoch((n) => n + 1);
-          if (ws.kind === "code") setGraphLoading(false);
-        }
-      })
-      .catch(console.error);
-  }, [showHome, workspaces, active, settings.codeGraphLevel]);
+    if (!showHome && active) resetHighlights(stateRef.current);
+    graphs.refresh();
+  }, [showHome, active, graphs.refresh]);
 
   const addProject = useCallback(() => {
     window.jarvis.addProject().then(setWorkspaces).catch(console.error);
-  }, []);
-
-  const indexProject = useCallback((id: string) => {
-    setIndexing((prev) => ({ ...prev, [id]: { state: "running" } }));
-    window.jarvis
-      .indexProject(id)
-      .then(async (res) => {
-        if (!res.ok) {
-          setIndexing((prev) => ({
-            ...prev,
-            [id]: { state: "error", error: res.error },
-          }));
-          return;
-        }
-        // analyze may have changed the registered name, so refresh the list
-        // before pulling the graph the rail and cards will render
-        setWorkspaces(await window.jarvis.getWorkspaces());
-        const g = await window.jarvis.rescan(id);
-        graphCacheRef.current.set(id, g);
-        setCardGraphs((prev) => new Map(prev).set(id, g));
-        if (activeIdRef.current === id) {
-          setGraph(g);
-          setLayoutEpoch((n) => n + 1);
-          setGraphLoading(false);
-        }
-        setIndexing((prev) => {
-          const next = { ...prev };
-          delete next[id]; // back to idle; an empty graph means analyze found nothing
-          return next;
-        });
-      })
-      .catch((err) => {
-        setIndexing((prev) => ({
-          ...prev,
-          [id]: { state: "error", error: String(err) },
-        }));
-      });
   }, []);
 
   useEffect(() => {
@@ -501,7 +309,7 @@ export default function App() {
                   graphs={cardGraphs}
                   view={view}
                   dimensions={settings.dimensions}
-                  layoutEpoch={fleetEpoch}
+                  layoutEpoch={graphs.fleetEpoch}
                   width={width}
                   height={height}
                   onOpen={(ws) => {
@@ -524,7 +332,7 @@ export default function App() {
                   }}
                   now={cardNow}
                   indexing={indexing}
-                  onIndex={indexProject}
+                  onIndex={graphs.indexProject}
                   onSelect={(ws) => {
                     setShowHome(false);
                     openWorkspace(ws);
@@ -571,7 +379,7 @@ export default function App() {
                     <EmptyGraph
                       state={indexing[active.id]?.state ?? "idle"}
                       error={indexing[active.id]?.error}
-                      onIndex={() => indexProject(active.id)}
+                      onIndex={() => graphs.indexProject(active.id)}
                     />
                   </div>
                 )}

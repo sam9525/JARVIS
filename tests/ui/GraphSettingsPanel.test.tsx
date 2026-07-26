@@ -33,6 +33,17 @@ function render(overrides: Partial<Settings> = {}) {
   return { el, calls };
 }
 
+// sliders render from a spec array, so find them by label rather than by
+// position in the section's children
+const sliders = (section: any): any[] =>
+  section.props.children.flat(2).filter((c: any) => c?.props?.label);
+
+function sliderByLabel(section: any, label: string): any {
+  const found = sliders(section).find((c) => c.props.label === label);
+  if (!found) throw new Error(`no slider labeled "${label}"`);
+  return found;
+}
+
 describe("GraphSettingsPanel", () => {
   it("renders header + four sections, Forces collapsed by default", () => {
     const { el } = render();
@@ -92,27 +103,35 @@ describe("GraphSettingsPanel", () => {
   it("display sliders edit the active view only", () => {
     const { el, calls } = render({ dimensions: "3d" });
     const display = el.props.children[3];
-    // Display children: [summary, 3D label, textFade, nodeSize, linkThickness]
-    const nodeSizeSlider = display.props.children[3];
-    nodeSizeSlider.props.onChange(2.5);
+    sliderByLabel(display, "Node size").props.onChange(2.5);
     expect(calls.settings[0].views["3d"].display.nodeSize).toBe(2.5);
     expect(calls.settings[0].views["2d"].display.nodeSize).toBe(1); // untouched
   });
 
   it("focus slider follows the active dimension and edits only that view", () => {
-    // 2D: label "Focus zoom", sits after the linkThickness slider
+    // 2D: labelled "Focus zoom", and the 3D-only knobs stay out
     const twoD = render({ dimensions: "2d" });
-    const focus2d = twoD.el.props.children[3].props.children[5];
-    expect(focus2d.props.label).toBe("Focus zoom");
-    focus2d.props.onChange(4);
+    const twoDLabels = sliders(twoD.el.props.children[3]).map(
+      (s) => s.props.label,
+    );
+    expect(twoDLabels).toContain("Focus zoom");
+    expect(twoDLabels).not.toContain("Focus distance");
+    expect(twoDLabels).not.toContain("Halo opacity");
+    sliderByLabel(twoD.el.props.children[3], "Focus zoom").props.onChange(4);
     expect(twoD.calls.settings[0].views["2d"].display.focusZoom).toBe(4);
     expect(twoD.calls.settings[0].views["3d"].display.focusZoom).toBe(180);
 
-    // 3D: label "Focus distance"
+    // 3D: label "Focus distance", plus the halo/opacity knobs
     const threeD = render({ dimensions: "3d" });
-    const focus3d = threeD.el.props.children[3].props.children[5];
-    expect(focus3d.props.label).toBe("Focus distance");
-    focus3d.props.onChange(200);
+    const threeDLabels = sliders(threeD.el.props.children[3]).map(
+      (s) => s.props.label,
+    );
+    expect(threeDLabels).toContain("Focus distance");
+    expect(threeDLabels).not.toContain("Focus zoom");
+    expect(threeDLabels).toContain("Halo opacity");
+    sliderByLabel(threeD.el.props.children[3], "Focus distance").props.onChange(
+      200,
+    );
     expect(threeD.calls.settings[0].views["3d"].display.focusZoom).toBe(200);
     expect(threeD.calls.settings[0].views["2d"].display.focusZoom).toBe(6.8);
   });

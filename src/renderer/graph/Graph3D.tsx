@@ -11,74 +11,27 @@ import {
   type HighlightState,
 } from "../session/highlight-store";
 import { baseNodeColor } from "./domain-colors";
-import { displayRadius, graphMetrics } from "./graph-metrics";
+import { displayRadius, graphMetrics, sphereRadius } from "./graph-metrics";
 import { brighten, COLORS } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
+import { useSpriteMaterials } from "./sprite-materials";
+import { useMergedLinks } from "./use-merged-links";
+import { endId, type LinkObj, type NodeObj } from "./link-ends";
 import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
 import {
-  AdditiveBlending,
   ArrowHelper,
-  CanvasTexture,
   Color,
   Group,
   LineBasicMaterial,
   MeshBasicMaterial,
-  NormalBlending,
   Sprite,
-  SpriteMaterial,
-  Texture,
   Vector3,
 } from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
-import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-
-// links hold node objects after graph init but raw ids before it
-const endpointId = (end: LinkEnd | undefined): string =>
-  typeof end === "object" && end !== null ? String(end.id) : String(end);
-
-// white radial falloff shared by every node glow sprite; tinted per node
-// via material.color so one texture serves all colors
-function makeGlowTexture(): CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
-  const g = ctx.createRadialGradient(
-    size / 2,
-    size / 2,
-    0,
-    size / 2,
-    size / 2,
-    size / 2,
-  );
-  g.addColorStop(0, "rgba(255,255,255,1)");
-  g.addColorStop(0.4, "rgba(255,255,255,0.35)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  return new CanvasTexture(canvas);
-}
-
-// hollow white circle; tinted per use via material.color
-function makeRingTexture(): CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 8;
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, size / 2 - 8, 0, 2 * Math.PI);
-  ctx.stroke();
-  return new CanvasTexture(canvas);
-}
 
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
@@ -91,20 +44,22 @@ const ROTATE_SPEED = 1;
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
 const LABEL_DISTANCE_SCALE = 4500;
 
-type NodeObj = {
-  id?: string | number;
-  type?: string;
-  domain?: string;
-  file?: string;
-  r?: number;
-  x?: number;
-  y?: number;
-  z?: number;
-};
-
-type LinkEnd = string | number | NodeObj;
-type LinkObj = { source?: LinkEnd; target?: LinkEnd };
 type Coords = { x: number; y: number; z: number };
+
+// ArrowHelper owns a line + cone material apiece and nothing else disposes
+// them, so emptying the trail group has to walk them by hand.
+function clearTrail(group: Group): void {
+  for (const child of [...group.children]) {
+    const arrow = child as ArrowHelper;
+    for (const part of [arrow.line, arrow.cone]) {
+      const mat = part?.material;
+      if (!mat) continue;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat.dispose();
+    }
+  }
+  group.clear();
+}
 
 type GraphProps = {
   graph: VaultGraph; // may be filtered
@@ -235,115 +190,25 @@ export default function Graph3D({
         t?.y ?? 0,
         t?.z ?? 0,
       ]);
-      const sc = new Color(
-        linkColors.get(endpointId(link.source)) ?? COLORS.link,
-      );
-      const tc = new Color(
-        linkColors.get(endpointId(link.target)) ?? COLORS.link,
-      );
+      const sc = new Color(linkColors.get(endId(link.source)) ?? COLORS.link);
+      const tc = new Color(linkColors.get(endId(link.target)) ?? COLORS.link);
       geometry.setColors([sc.r, sc.g, sc.b, tc.r, tc.g, tc.b]);
       return new Line2(geometry, linkMaterial);
     },
     [linkColors, linkMaterial],
   );
 
-  // lite (fleet): draw ALL edges as one merged fat-line object instead of a
-  // Line2 per edge. Hundreds of link draw calls — and their transparency-sort
-  // entries — collapse to one, which is the whole point of this mode.
-  const mergedRef = useRef<{
-    buf: Float32Array;
-    posBuffer: { needsUpdate: boolean }; // the geometry's backing buffer
-  }>();
-  const writeMergedPositions = useCallback(() => {
-    const m = mergedRef.current;
-    if (!m) return;
-    const buf = m.buf;
-    const ns = display.nodeSize;
-    for (let i = 0; i < data.links.length; i++) {
-      const l = data.links[i] as LinkObj;
-      const s = nodeById.get(endpointId(l.source));
-      const t = nodeById.get(endpointId(l.target));
-      const o = i * 6;
-      const sx = s?.x ?? 0;
-      const sy = s?.y ?? 0;
-      const sz = s?.z ?? 0;
-      const tx = t?.x ?? 0;
-      const ty = t?.y ?? 0;
-      const tz = t?.z ?? 0;
-      // start/end at the sphere SURFACES, not the centres, so a link doesn't
-      // spear through the middle of a node (radius formula matches nodeThreeObject)
-      const dx = tx - sx;
-      const dy = ty - sy;
-      const dz = tz - sz;
-      const len = Math.hypot(dx, dy, dz);
-      const ra = 4 * Math.cbrt(((s?.r ?? 4) * ns) ** 2);
-      const rb = 4 * Math.cbrt(((t?.r ?? 4) * ns) ** 2);
-      if (len > ra + rb) {
-        const ux = dx / len;
-        const uy = dy / len;
-        const uz = dz / len;
-        buf[o] = sx + ux * ra;
-        buf[o + 1] = sy + uy * ra;
-        buf[o + 2] = sz + uz * ra;
-        buf[o + 3] = tx - ux * rb;
-        buf[o + 4] = ty - uy * rb;
-        buf[o + 5] = tz - uz * rb;
-      } else {
-        // spheres overlapping — no room for a line; collapse it to a point
-        buf[o] = buf[o + 3] = sx;
-        buf[o + 1] = buf[o + 4] = sy;
-        buf[o + 2] = buf[o + 5] = sz;
-      }
-    }
-    // buf IS the geometry's backing store, so flag it for re-upload rather than
-    // setPositions() (which reallocates the GPU buffer). Ticks only fire during
-    // the settle; rotating at rest pays nothing.
-    m.posBuffer.needsUpdate = true;
-  }, [data, nodeById, display.nodeSize]);
-  // stable handle so the setup effect and slider effect don't re-run on it
-  const writeRef = useRef(writeMergedPositions);
-  writeRef.current = writeMergedPositions;
-
-  useEffect(() => {
-    if (!lite) return;
-    const scene = fgRef.current?.scene();
-    if (!scene) return;
-    const geo = new LineSegmentsGeometry();
-    const n = data.links.length;
-    const buf = new Float32Array(n * 6);
-    const colors = new Float32Array(n * 6);
-    const sc = new Color();
-    const tc = new Color();
-    for (let i = 0; i < n; i++) {
-      const l = data.links[i] as LinkObj;
-      sc.set(linkColors.get(endpointId(l.source)) ?? COLORS.link);
-      tc.set(linkColors.get(endpointId(l.target)) ?? COLORS.link);
-      const o = i * 6;
-      colors[o] = sc.r;
-      colors[o + 1] = sc.g;
-      colors[o + 2] = sc.b;
-      colors[o + 3] = tc.r;
-      colors[o + 4] = tc.g;
-      colors[o + 5] = tc.b;
-    }
-    geo.setPositions(buf); // buf becomes the geometry's backing store
-    geo.setColors(colors); // static per graph — set once
-    const obj = new LineSegments2(geo, liteLinkMaterial);
-    obj.frustumCulled = false; // bbox is stale between ticks; never cull it
-    scene.add(obj);
-    const posBuffer = (
-      geo.getAttribute("instanceStart") as unknown as {
-        data: { needsUpdate: boolean };
-      }
-    ).data;
-    mergedRef.current = { buf, posBuffer };
-    writeRef.current(); // fill real coords (zeros pre-layout) + flag upload
-    return () => {
-      scene.remove(obj);
-      geo.dispose();
-      mergedRef.current = undefined;
-    };
-  }, [lite, data, linkColors, liteLinkMaterial]);
+  const writeMergedPositions = useMergedLinks(
+    fgRef as unknown as React.MutableRefObject<
+      { scene(): { add(o: object): void; remove(o: object): void } } | undefined
+    >,
+    lite,
+    data.links,
+    nodeById,
+    linkColors,
+    liteLinkMaterial,
+    display.nodeSize,
+  );
 
   useForceTuning(
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
@@ -362,6 +227,8 @@ export default function Graph3D({
     },
   );
 
+  const materials = useSpriteMaterials(lite, display.nodeOpacity);
+
   // read-order arrows live in a component-owned group, rebuilt by the
   // highlight interval — never part of graphData
   const trailGroup = useRef<Group>();
@@ -372,24 +239,7 @@ export default function Graph3D({
     scene.add(g);
     trailGroup.current = g;
     return () => {
-      for (const c of [...g.children]) {
-        const arrow = c as ArrowHelper;
-        if (arrow.line?.material) {
-          if (Array.isArray(arrow.line.material)) {
-            arrow.line.material.forEach((m) => m.dispose());
-          } else {
-            arrow.line.material.dispose();
-          }
-        }
-        if (arrow.cone?.material) {
-          if (Array.isArray(arrow.cone.material)) {
-            arrow.cone.material.forEach((m) => m.dispose());
-          } else {
-            arrow.cone.material.dispose();
-          }
-        }
-      }
-      g.clear();
+      clearTrail(g);
       scene.remove(g);
     };
   }, []);
@@ -504,24 +354,7 @@ export default function Graph3D({
       }
       const g = trailGroup.current;
       if (!g) return;
-      for (const c of [...g.children]) {
-        const arrow = c as ArrowHelper;
-        if (arrow.line?.material) {
-          if (Array.isArray(arrow.line.material)) {
-            arrow.line.material.forEach((m) => m.dispose());
-          } else {
-            arrow.line.material.dispose();
-          }
-        }
-        if (arrow.cone?.material) {
-          if (Array.isArray(arrow.cone.material)) {
-            arrow.cone.material.forEach((m) => m.dispose());
-          } else {
-            arrow.cone.material.dispose();
-          }
-        }
-      }
-      g.clear();
+      clearTrail(g);
       // ponytail: trail entries are file-path ids; in symbol mode no symbol node
       // carries that id, so trail arrows simply don't resolve here. Structure-first.
       for (let i = 0; i < s.trail.length - 1; i++) {
@@ -531,9 +364,9 @@ export default function Graph3D({
         const from = new Vector3(a.x ?? 0, a.y ?? 0, a.z ?? 0);
         const dir = new Vector3(b.x ?? 0, b.y ?? 0, b.z ?? 0).sub(from);
         const len = dir.length();
-        // stop at the sphere surfaces (radius formula matches nodeThreeObject)
-        const ra = 4 * Math.cbrt(((a.r ?? 4) * display.nodeSize) ** 2);
-        const rb = 4 * Math.cbrt(((b.r ?? 4) * display.nodeSize) ** 2);
+        // stop at the sphere surfaces
+        const ra = sphereRadius(displayRadius(a.r ?? 4, display.nodeSize, 0));
+        const rb = sphereRadius(displayRadius(b.r ?? 4, display.nodeSize, 0));
         if (len < ra + rb + 2) continue; // spheres touching — no room
         dir.normalize();
         const arrow = new ArrowHelper(
@@ -588,8 +421,8 @@ export default function Graph3D({
     linkMaterial.opacity = display.linkOpacity;
     liteLinkMaterial.linewidth = display.linkThickness * 2;
     liteLinkMaterial.opacity = display.linkOpacity;
-    for (const m of glowMats.current.values()) m.opacity = display.nodeOpacity;
-    writeRef.current(); // re-seat link ends on the resized spheres (lite no-ops if idle)
+    materials.setGlowOpacity(display.nodeOpacity);
+    writeMergedPositions(); // re-seat link ends on the resized spheres (lite no-ops if idle)
     fgRef.current?.refresh();
   }, [display, groups, linkMaterial, liteLinkMaterial]);
 
@@ -615,103 +448,23 @@ export default function Graph3D({
     [stateRef, domains, groups],
   );
 
-  // glow materials are shared per color and component-owned — no-op the
-  // library's flush disposals (like linkMaterial) and dispose on unmount.
-  // Opacity comes through a ref so mats created after a slider change match
-  // the ones the display effect already re-tinted.
-  const glowTexture = useRef<CanvasTexture>();
-  const glowMats = useRef(new Map<string, SpriteMaterial>());
-  const glowOpacity = useRef(display.nodeOpacity);
-  glowOpacity.current = display.nodeOpacity;
-  const glowMaterial = useCallback(
-    (color: string): SpriteMaterial => {
-      if (!glowTexture.current) {
-        glowTexture.current = makeGlowTexture();
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        glowTexture.current.dispose = () => {};
-      }
-      let m = glowMats.current.get(color);
-      if (!m) {
-        m = new SpriteMaterial({
-          map: glowTexture.current,
-          color,
-          transparent: true,
-          opacity: glowOpacity.current,
-          depthWrite: false,
-          // additive glows sum toward white where many overlap — fine on a sparse
-          // single-workspace graph, but the dense fleet saturates. lite layers
-          // (normal blend) so a single-color cluster stays that color.
-          blending: lite ? NormalBlending : AdditiveBlending,
-        });
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        m.dispose = () => {};
-        glowMats.current.set(color, m);
-      }
-      return m;
-    },
-    [lite],
-  );
-
-  // shared ring sprite materials (one per color) for read-highlighted and
-  // preview-focused nodes; same no-op-dispose pattern as glowMaterial — the
-  // library flush-disposes node objects on refresh() so shared,
-  // component-owned materials must survive that.
-  const ringTexture = useRef<CanvasTexture>();
-  const ringMats = useRef(new Map<string, SpriteMaterial>());
-  const ringMaterial = useCallback((color: string): SpriteMaterial => {
-    if (!ringTexture.current) {
-      ringTexture.current = makeRingTexture();
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      ringTexture.current.dispose = () => {};
-    }
-    let m = ringMats.current.get(color);
-    if (!m) {
-      m = new SpriteMaterial({
-        map: ringTexture.current,
-        color,
-        transparent: true,
-        depthWrite: false,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      m.dispose = () => {};
-      ringMats.current.set(color, m);
-    }
-    return m;
-  }, []);
-
-  useEffect(() => {
-    const mats = glowMats.current;
-    const texture = glowTexture;
-    return () => {
-      for (const m of mats.values()) SpriteMaterial.prototype.dispose.call(m);
-      mats.clear();
-      if (texture.current) Texture.prototype.dispose.call(texture.current);
-      for (const m of ringMats.current.values())
-        SpriteMaterial.prototype.dispose.call(m);
-      ringMats.current.clear();
-      if (ringTexture.current)
-        Texture.prototype.dispose.call(ringTexture.current);
-    };
-  }, []);
-
   const nodeThreeObject = useCallback(
     (node: NodeObj) => {
       const id = String(node.id);
       const hk = hlKey(node as { id: string | number; file?: string });
       const obj = new Group();
-      // soft radial "box shadow" behind the sphere, in the node's color;
-      // sphere radius matches the lib's nodeRelSize(4) * nodeVal^(1/3)
+      // soft radial "box shadow" behind the sphere, in the node's color
       const r = displayRadius(
         node.r ?? 4,
         display.nodeSize,
         heatOf(stateRef.current, hk),
       );
-      const sphereR = 4 * Math.cbrt(r ** 2);
-      const glow = new Sprite(glowMaterial(displayColor(node)));
+      const sphereR = sphereRadius(r);
+      const glow = new Sprite(materials.glow(displayColor(node)));
       glow.scale.setScalar(sphereR * 4);
       obj.add(glow);
       if (nodeDisplay(stateRef.current, hk) === "ring") {
-        const ring = new Sprite(ringMaterial(COLORS.ring));
+        const ring = new Sprite(materials.ring(COLORS.ring));
         ring.scale.setScalar(sphereR * 3);
         obj.add(ring);
       }
@@ -725,13 +478,13 @@ export default function Graph3D({
         matchProgress(stateRef.current, performance.now()) !== null &&
         stateRef.current.matched.has(hk)
       ) {
-        const ring = new Sprite(ringMaterial(COLORS.match));
+        const ring = new Sprite(materials.ring(COLORS.match));
         ring.scale.setScalar(sphereR * 3.3);
         obj.add(ring);
       }
       // the node whose preview is open
       if (id === focusNode) {
-        const ring = new Sprite(ringMaterial(COLORS.hover));
+        const ring = new Sprite(materials.ring(COLORS.hover));
         ring.scale.setScalar(sphereR * 3.6);
         obj.add(ring);
       }
@@ -748,14 +501,7 @@ export default function Graph3D({
       obj.add(sprite as unknown as Sprite);
       return obj;
     },
-    [
-      display.nodeSize,
-      glowMaterial,
-      displayColor,
-      ringMaterial,
-      stateRef,
-      focusNode,
-    ],
+    [display.nodeSize, materials, displayColor, stateRef, focusNode],
   );
 
   return (

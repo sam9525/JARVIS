@@ -17,6 +17,45 @@ const SECTION_OPTIONS: { value: SectionFilter; label: string }[] = [
   { value: "both", label: "Both" },
 ];
 
+type SliderSpec<K> = {
+  key: K;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+};
+
+type DisplaySlider = SliderSpec<keyof DisplaySettings>;
+
+// prettier-ignore
+const BASE_DISPLAY: DisplaySlider[] = [
+  { key: "textFadeThreshold", label: "Text fade threshold", min: 2, max: 30, step: 1 },
+  { key: "nodeSize", label: "Node size", min: 0.5, max: 3, step: 0.1 },
+  { key: "linkThickness", label: "Link thickness", min: 0.5, max: 4, step: 0.1 },
+];
+
+// same setting, different meaning per view: 2d zooms, 3d flies the camera in
+// prettier-ignore
+const FOCUS_2D: DisplaySlider = { key: "focusZoom", label: "Focus zoom", min: 1, max: 8, step: 0.1 };
+// prettier-ignore
+const FOCUS_3D: DisplaySlider = { key: "focusZoom", label: "Focus distance", min: 40, max: 600, step: 10 };
+
+// glow/halo knobs only exist in the WebGL view
+const DISPLAY_3D_ONLY: DisplaySlider[] = [
+  { key: "nodeOpacity", label: "Node opacity", min: 0.05, max: 1, step: 0.05 },
+  { key: "linkOpacity", label: "Link opacity", min: 0.05, max: 1, step: 0.05 },
+  { key: "haloPad", label: "Halo padding", min: 1, max: 2, step: 0.05 },
+  { key: "haloBase", label: "Halo base size", min: 0, max: 50, step: 1 },
+  { key: "haloOpacity", label: "Halo opacity", min: 0, max: 1, step: 0.05 },
+];
+
+const FORCE_SLIDERS: SliderSpec<keyof ForceSettings>[] = [
+  { key: "centerStrength", label: "Center force", min: 0, max: 1, step: 0.05 },
+  { key: "repelStrength", label: "Repel force", min: 0, max: 20, step: 1 },
+  { key: "linkStrength", label: "Link force", min: 0, max: 1, step: 0.1 },
+  { key: "linkDistance", label: "Link distance", min: 10, max: 100, step: 1 },
+];
+
 type Props = {
   settings: Settings;
   activeId: string | null; // groups are edited for the open workspace
@@ -54,6 +93,10 @@ export default function GraphSettingsPanel({
     setView({ display: { ...view.display, ...patch } });
   const setForces = (patch: Partial<ForceSettings>) =>
     setView({ forces: { ...view.forces, ...patch } });
+  const displaySliders =
+    dim === "3d"
+      ? [...BASE_DISPLAY, FOCUS_3D, ...DISPLAY_3D_ONLY]
+      : [...BASE_DISPLAY, FOCUS_2D];
   const groups = (activeId && settings.groups[activeId]) || [];
   const setGroups = (next: GraphGroup[]) =>
     activeId && set({ groups: { ...settings.groups, [activeId]: next } });
@@ -184,131 +227,28 @@ export default function GraphSettingsPanel({
             }
           />
         </label>
-        <Slider
-          label="Text fade threshold"
-          min={2}
-          max={30}
-          step={1}
-          value={view.display.textFadeThreshold}
-          onChange={(v) => setDisplay({ textFadeThreshold: v })}
-        />
-        <Slider
-          label="Node size"
-          min={0.5}
-          max={3}
-          step={0.1}
-          value={view.display.nodeSize}
-          onChange={(v) => setDisplay({ nodeSize: v })}
-        />
-        <Slider
-          label="Link thickness"
-          min={0.5}
-          max={4}
-          step={0.1}
-          value={view.display.linkThickness}
-          onChange={(v) => setDisplay({ linkThickness: v })}
-        />
-        {dim === "3d" ? (
+        {displaySliders.map(({ key, ...s }) => (
           <Slider
-            label="Focus distance"
-            min={40}
-            max={600}
-            step={10}
-            value={view.display.focusZoom}
-            onChange={(v) => setDisplay({ focusZoom: v })}
+            key={key}
+            {...s}
+            value={view.display[key]}
+            onChange={(v) => setDisplay({ [key]: v })}
           />
-        ) : (
-          <Slider
-            label="Focus zoom"
-            min={1}
-            max={8}
-            step={0.1}
-            value={view.display.focusZoom}
-            onChange={(v) => setDisplay({ focusZoom: v })}
-          />
-        )}
-        {dim === "3d" && (
-          <>
-            <Slider
-              label="Node opacity"
-              min={0.05}
-              max={1}
-              step={0.05}
-              value={view.display.nodeOpacity}
-              onChange={(v) => setDisplay({ nodeOpacity: v })}
-            />
-            <Slider
-              label="Link opacity"
-              min={0.05}
-              max={1}
-              step={0.05}
-              value={view.display.linkOpacity}
-              onChange={(v) => setDisplay({ linkOpacity: v })}
-            />
-            <Slider
-              label="Halo padding"
-              min={1}
-              max={2}
-              step={0.05}
-              value={view.display.haloPad}
-              onChange={(v) => setDisplay({ haloPad: v })}
-            />
-            <Slider
-              label="Halo base size"
-              min={0}
-              max={50}
-              step={1}
-              value={view.display.haloBase}
-              onChange={(v) => setDisplay({ haloBase: v })}
-            />
-            <Slider
-              label="Halo opacity"
-              min={0}
-              max={1}
-              step={0.05}
-              value={view.display.haloOpacity}
-              onChange={(v) => setDisplay({ haloOpacity: v })}
-            />
-          </>
-        )}
+        ))}
       </details>
 
       <details className="border-t border-edge py-2">
         <summary className="mb-1.5 cursor-pointer font-semibold">
           Forces ({dim.toUpperCase()})
         </summary>
-        <Slider
-          label="Center force"
-          min={0}
-          max={1}
-          step={0.05}
-          value={view.forces.centerStrength}
-          onChange={(v) => setForces({ centerStrength: v })}
-        />
-        <Slider
-          label="Repel force"
-          min={0}
-          max={20}
-          step={1}
-          value={view.forces.repelStrength}
-          onChange={(v) => setForces({ repelStrength: v })}
-        />
-        <Slider
-          label="Link force"
-          min={0}
-          max={1}
-          step={0.1}
-          value={view.forces.linkStrength}
-          onChange={(v) => setForces({ linkStrength: v })}
-        />
-        <Slider
-          label="Link distance"
-          min={10}
-          max={100}
-          step={1}
-          value={view.forces.linkDistance}
-          onChange={(v) => setForces({ linkDistance: v })}
-        />
+        {FORCE_SLIDERS.map(({ key, ...s }) => (
+          <Slider
+            key={key}
+            {...s}
+            value={view.forces[key]}
+            onChange={(v) => setForces({ [key]: v })}
+          />
+        ))}
       </details>
     </div>
   );
