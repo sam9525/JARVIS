@@ -30,10 +30,7 @@ export default function Inbox({
     return s && s.kind !== "none";
   });
   return (
-    <div
-      className="flex min-h-0 flex-col overflow-y-auto"
-      data-testid="inbox"
-    >
+    <div className="flex min-h-0 flex-col overflow-y-auto" data-testid="inbox">
       {live.map((w) => {
         const s = byId.get(w.id)!;
         return (

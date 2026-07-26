@@ -18,6 +18,7 @@ function render(overrides: Partial<Settings> = {}) {
   };
   const el = GraphSettingsPanel({
     settings: { ...defaultSettings(), ...overrides },
+    activeId: "ws1",
     search: "abc",
     onSearchChange: (s) => calls.search.push(s),
     onSettingsChange: (s) => calls.settings.push(s),
@@ -44,7 +45,7 @@ describe("GraphSettingsPanel", () => {
   });
 
   it("reset restores defaults but keeps dimensions and groups", () => {
-    const groups = [{ query: "tech/", color: "#aa00ff" }];
+    const groups = { ws1: [{ query: "tech/", color: "#aa00ff" }] };
     const { el, calls } = render({ showTags: false, dimensions: "3d", groups });
     const header = el.props.children[0];
     const resetBtn = header.props.children[0];
@@ -72,9 +73,9 @@ describe("GraphSettingsPanel", () => {
     const kids = groupsSection.props.children;
     const newGroupBtn = kids[kids.length - 1];
     newGroupBtn.props.onClick();
-    expect(calls.settings[0].groups).toHaveLength(1);
-    expect(calls.settings[0].groups[0].query).toBe("");
-    expect(calls.settings[0].groups[0].color).toMatch(/^#[0-9a-f]{6}$/);
+    expect(calls.settings[0].groups.ws1).toHaveLength(1);
+    expect(calls.settings[0].groups.ws1[0].query).toBe("");
+    expect(calls.settings[0].groups.ws1[0].color).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it("3D toggle switches dimensions", () => {

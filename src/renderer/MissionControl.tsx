@@ -42,7 +42,7 @@ type MissionControlProps = {
   statuses: WorkspaceStatus[];
   graphs: Map<string, VaultGraph>; // only the workspaces loaded so far
   getStore: (workspaceId: string) => HighlightState;
-  groups: GraphGroup[]; // so thumbnails colour like the 2D view
+  groups: Record<string, GraphGroup[]>; // per workspace id, like the 2D view
   view: ViewSettings; // the 2D view's settings — thumbnails render with them
   filters: Omit<GraphFilters, "search">; // cards hide what the view hides
   now: number; // passed in, not read — keeps this component hook-free
@@ -167,7 +167,7 @@ export default function MissionControl({
                   graph={g ?? null}
                   kind={ws.kind}
                   state={getStore(ws.id)}
-                  groups={groups}
+                  groups={groups[ws.id] ?? []}
                   view={view}
                   filters={filters}
                   width={CARD_W}

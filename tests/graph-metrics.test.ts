@@ -68,4 +68,3 @@ describe("displayRadius", () => {
     expect(displayRadius(1.5, 2, 0.5)).toBeCloseTo(3 * 1.4);
   });
 });
-

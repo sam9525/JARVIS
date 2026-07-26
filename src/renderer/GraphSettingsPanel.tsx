@@ -12,6 +12,7 @@ import SectionToggle from "./SectionToggle";
 
 type Props = {
   settings: Settings;
+  activeId: string | null; // groups are edited for the open workspace
   search: string; // transient, owned by App — never persisted
   onSearchChange: (text: string) => void;
   onSettingsChange: (s: Settings) => void;
@@ -22,6 +23,7 @@ type Props = {
 
 export default function GraphSettingsPanel({
   settings,
+  activeId,
   search,
   onSearchChange,
   onSettingsChange,
@@ -45,10 +47,11 @@ export default function GraphSettingsPanel({
     setView({ display: { ...view.display, ...patch } });
   const setForces = (patch: Partial<ForceSettings>) =>
     setView({ forces: { ...view.forces, ...patch } });
+  const groups = (activeId && settings.groups[activeId]) || [];
+  const setGroups = (next: GraphGroup[]) =>
+    activeId && set({ groups: { ...settings.groups, [activeId]: next } });
   const setGroup = (i: number, patch: Partial<GraphGroup>) =>
-    set({
-      groups: settings.groups.map((g, j) => (j === i ? { ...g, ...patch } : g)),
-    });
+    setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
 
   return (
     <div className="fixed top-[50px] right-3 max-h-[calc(100vh-62px)] w-[260px] overflow-y-auto rounded-lg border border-edge bg-panel px-3 py-2.5 font-sans text-[13px] text-ink">
@@ -122,7 +125,7 @@ export default function GraphSettingsPanel({
         <summary className="mb-1.5 cursor-pointer font-semibold">
           Groups
         </summary>
-        {settings.groups.map((g, i) => (
+        {groups.map((g, i) => (
           <div
             className="flex items-center justify-between gap-2 py-1 text-ink-muted"
             key={i}
@@ -142,9 +145,7 @@ export default function GraphSettingsPanel({
             <button
               className="cursor-pointer text-ink-dim hover:text-warm"
               title="Remove group"
-              onClick={() =>
-                set({ groups: settings.groups.filter((_, j) => j !== i) })
-              }
+              onClick={() => setGroups(groups.filter((_, j) => j !== i))}
             >
               ✕
             </button>
@@ -153,9 +154,7 @@ export default function GraphSettingsPanel({
         <button
           className="mt-1.5 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
           onClick={() =>
-            set({
-              groups: [...settings.groups, { query: "", color: randomColor() }],
-            })
+            setGroups([...groups, { query: "", color: randomColor() }])
           }
         >
           New group
@@ -253,6 +252,14 @@ export default function GraphSettingsPanel({
               step={1}
               value={view.display.haloBase}
               onChange={(v) => setDisplay({ haloBase: v })}
+            />
+            <Slider
+              label="Halo opacity"
+              min={0}
+              max={1}
+              step={0.05}
+              value={view.display.haloOpacity}
+              onChange={(v) => setDisplay({ haloOpacity: v })}
             />
           </>
         )}

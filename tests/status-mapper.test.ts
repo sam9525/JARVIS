@@ -222,7 +222,11 @@ describe("mapStatusEvent", () => {
 
   it("Stop carries the last assistant message", () => {
     const e = mapStatusEvent(
-      { ...base, hook_event_name: "Stop", last_assistant_message: "Pick A or B?" },
+      {
+        ...base,
+        hook_event_name: "Stop",
+        last_assistant_message: "Pick A or B?",
+      },
       workspaces,
     );
     expect(e).toMatchObject({ kind: "idle", message: "Pick A or B?" });

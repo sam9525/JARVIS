@@ -90,6 +90,7 @@ export interface DisplaySettings {
   linkOpacity: number; // link line opacity
   haloPad: number; // group halo radius multiplier past the farthest member
   haloBase: number; // group halo base radius added after padding
+  haloOpacity: number; // group halo sprite opacity
   // zoom applied when a note opens: 2d = zoom factor, 3d = camera distance
   focusZoom: number;
 }
@@ -102,7 +103,7 @@ export interface ForceSettings {
 }
 
 // display + forces are tuned per view (2d/3d) since the same values lay out
-// differently in each; filters, groups, and dimension stay shared.
+// differently in each; filters and dimension stay shared.
 export interface ViewSettings {
   display: DisplaySettings;
   forces: ForceSettings;
@@ -114,8 +115,16 @@ export interface Settings {
   sectionFilter: SectionFilter;
   showTags: boolean;
   showOrphans: boolean;
-  groups: GraphGroup[]; // first matching group wins
+  groups: Record<string, GraphGroup[]>; // per workspace id; first match wins
   views: Record<Dimensions, ViewSettings>;
+}
+
+// a workspace's groups, or none if it has never been seeded
+export function groupsFor(
+  settings: Settings,
+  id: string | null | undefined,
+): GraphGroup[] {
+  return (id && settings.groups[id]) || [];
 }
 
 // force defaults equal the d3 defaults in 2d; 3d values are the hand-tuned
@@ -131,6 +140,7 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          haloOpacity: 0.55,
           focusZoom: 6.8,
         },
         forces: {
@@ -149,6 +159,7 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          haloOpacity: 0.55,
           focusZoom: 180,
         },
         forces: {
@@ -167,7 +178,7 @@ export function defaultSettings(): Settings {
     sectionFilter: "wiki",
     showTags: true,
     showOrphans: true,
-    groups: [],
+    groups: {},
     views: { "2d": defaultView("2d"), "3d": defaultView("3d") },
   };
 }

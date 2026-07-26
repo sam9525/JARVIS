@@ -30,4 +30,3 @@ export function brighten(hex: string, t: number): string {
     (up((v >> 16) & 255) << 16) | (up((v >> 8) & 255) << 8) | up(v & 255);
   return `#${rgb.toString(16).padStart(6, "0")}`;
 }
-

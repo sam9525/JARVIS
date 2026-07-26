@@ -62,7 +62,9 @@ export default function TerminalPanel({
   onSelectWorkspace: (ws: Workspace) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [localStatuses, setLocalStatuses] = useState<Record<string, Status>>({});
+  const [localStatuses, setLocalStatuses] = useState<Record<string, Status>>(
+    {},
+  );
   const [width, setWidth] = useState(480);
   const [collapsed, setCollapsed] = useState(true);
   // a permission-free session is the one action here with no undo, so it costs

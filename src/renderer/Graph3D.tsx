@@ -355,11 +355,10 @@ export default function Graph3D({
     data.nodes,
     haloGroups ?? groups,
     {
-      // fleet gets one big, light backdrop: widen the single halo well past the
-      // graph and keep it faint
+      // fleet gets one big backdrop: widen the single halo well past the graph
       pad: lite ? display.haloPad * 2.5 : display.haloPad,
       base: display.haloBase,
-      opacity: lite ? 0.55 : 1,
+      opacity: display.haloOpacity,
     },
   );
 

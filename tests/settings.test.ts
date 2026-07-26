@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { autoGroups, loadSettings, saveSettings } from "../src/main/settings";
+import { loadSettings, saveSettings } from "../src/main/settings";
 import { defaultSettings } from "../src/shared/types";
 import type { Settings } from "../src/shared/types";
 
@@ -19,7 +19,7 @@ describe("settings", () => {
       dimensions: "3d",
       sectionFilter: "raw",
       showTags: false,
-      groups: [{ query: "tech", color: "#aa00ff" }],
+      groups: { "d:/vault": [{ query: "tech", color: "#aa00ff" }] },
       views: {
         "2d": {
           display: {
@@ -30,6 +30,7 @@ describe("settings", () => {
             linkOpacity: 0.4,
             haloPad: 1.2,
             haloBase: 15,
+            haloOpacity: 0.4,
             focusZoom: 2.5,
           },
           forces: {
@@ -48,6 +49,7 @@ describe("settings", () => {
             linkOpacity: 0.15,
             haloPad: 1.5,
             haloBase: 20,
+            haloOpacity: 0.8,
             focusZoom: 150,
           },
           forces: {
@@ -96,14 +98,16 @@ describe("settings", () => {
         sectionFilter: "bogus",
         domainColors: { a: 5 },
         showTags: "yes",
-        groups: [{ query: "ok", color: "#123456" }, { query: 7 }, "junk"],
+        groups: {
+          "d:/vault": [{ query: "ok", color: "#123456" }, { query: 7 }, "junk"],
+        },
         display: { textFadeThreshold: "big", nodeSize: 2 },
         forces: { repelStrength: null, linkDistance: 80 },
       }),
       "utf8",
     );
     const expected = defaultSettings();
-    expected.groups = [{ query: "ok", color: "#123456" }];
+    expected.groups = { "d:/vault": [{ query: "ok", color: "#123456" }] };
     // legacy flat display/forces migrate into BOTH views
     expected.views["2d"].display.nodeSize = 2;
     expected.views["3d"].display.nodeSize = 2;
@@ -167,6 +171,7 @@ describe("settings", () => {
         linkOpacity: 0.25,
         haloPad: 1.1,
         haloBase: 10,
+        haloOpacity: 0.55,
         focusZoom: 180,
       },
       forces: {
@@ -185,6 +190,7 @@ describe("settings", () => {
         linkOpacity: 0.25,
         haloPad: 1.1,
         haloBase: 10,
+        haloOpacity: 0.55,
         focusZoom: 6.8,
       },
       forces: {
@@ -200,24 +206,32 @@ describe("settings", () => {
     );
   });
 
-  it("autoGroups builds one randomly-colored group per top-level folder", () => {
-    const graph = {
-      nodes: [
-        {
-          id: "physics/wiki/overview",
-          type: "note" as const,
-          domain: "physics",
+  it("keeps groups keyed per workspace id, dropping bad entries", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(
+      file,
+      JSON.stringify({
+        groups: {
+          "d:/vault": [{ query: "physics/", color: "#112233" }],
+          "d:/repo": [{ query: "src/", color: "#445566" }, "junk"],
         },
-        { id: "physics/raw/note1", type: "note" as const, domain: "physics" },
-        { id: "arts/Raw/painting", type: "note" as const, domain: "arts" },
-        { id: "stray", type: "note" as const }, // root-level file: no domain
-        { id: "tag:todo", type: "tag" as const }, // tags have no domain
-      ],
-      edges: [],
-    };
-    const groups = autoGroups(graph);
-    expect(groups.map((g) => g.query)).toEqual(["physics/", "arts/"]);
-    for (const g of groups) expect(g.color).toMatch(/^#[0-9a-f]{6}$/);
+      }),
+      "utf8",
+    );
+    expect((await loadSettings(file)).groups).toEqual({
+      "d:/vault": [{ query: "physics/", color: "#112233" }],
+      "d:/repo": [{ query: "src/", color: "#445566" }],
+    });
+  });
+
+  it("drops a legacy flat groups array — the renderer re-seeds per workspace", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(
+      file,
+      JSON.stringify({ groups: [{ query: "tech/", color: "#abcabc" }] }),
+      "utf8",
+    );
+    expect((await loadSettings(file)).groups).toEqual({});
   });
 
   it("focusZoom defaults per view (2D zoom factor, 3D camera distance)", () => {
@@ -233,11 +247,18 @@ describe("settings", () => {
     const def = await loadSettings(file); // missing file → defaults
     expect(def.codeGraphLevel).toBe("file");
 
-    await fs.writeFile(file, JSON.stringify({ codeGraphLevel: "symbol" }), "utf8");
+    await fs.writeFile(
+      file,
+      JSON.stringify({ codeGraphLevel: "symbol" }),
+      "utf8",
+    );
     expect((await loadSettings(file)).codeGraphLevel).toBe("symbol");
 
-    await fs.writeFile(file, JSON.stringify({ codeGraphLevel: "bogus" }), "utf8");
+    await fs.writeFile(
+      file,
+      JSON.stringify({ codeGraphLevel: "bogus" }),
+      "utf8",
+    );
     expect((await loadSettings(file)).codeGraphLevel).toBe("file"); // bad value ignored
   });
 });
-

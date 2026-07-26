@@ -55,7 +55,8 @@ export function appendEvent(
 // Prompt events divide a session into turns — the timeline's chapter ticks.
 export function chaptersOf(log: ToolEvent[]): number[] {
   const out: number[] = [];
-  for (let i = 0; i < log.length; i++) if (log[i].tool === "Prompt") out.push(i);
+  for (let i = 0; i < log.length; i++)
+    if (log[i].tool === "Prompt") out.push(i);
   return out;
 }
 

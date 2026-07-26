@@ -138,8 +138,18 @@ describe("buildSymbolGraph", () => {
       ],
     );
     expect(g.nodes).toEqual([
-      { id: "Function:src/a.ts:foo", type: "note", domain: "src", file: "src/a.ts" },
-      { id: "Function:src/a.ts:bar", type: "note", domain: "src", file: "src/a.ts" },
+      {
+        id: "Function:src/a.ts:foo",
+        type: "note",
+        domain: "src",
+        file: "src/a.ts",
+      },
+      {
+        id: "Function:src/a.ts:bar",
+        type: "note",
+        domain: "src",
+        file: "src/a.ts",
+      },
       { id: "Method:root.ts:baz", type: "note", domain: ".", file: "root.ts" },
     ]);
     expect(g.edges).toEqual([
@@ -152,7 +162,9 @@ describe("symbol fixtures", () => {
   it("parse into rows the builder accepts, and a known symbol survives", () => {
     const rows = parseCypherTable(fixture("symbols.json"));
     expect(rows[0]).toHaveLength(3);
-    expect(rows.some(([id]) => id === "Function:src/main/event-mapper.ts:toNode")).toBe(true);
+    expect(
+      rows.some(([id]) => id === "Function:src/main/event-mapper.ts:toNode"),
+    ).toBe(true);
 
     const calls = parseCypherTable(fixture("calls.json"));
     expect(calls[0]).toHaveLength(2);
@@ -166,4 +178,3 @@ describe("loadSymbolGraph", () => {
     );
   });
 });
-

@@ -96,7 +96,7 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   statuses: [] as WorkspaceStatus[],
   graphs: new Map<string, VaultGraph>(),
   getStore: () => emptyState(),
-  groups: [],
+  groups: {},
   view: defaultSettings().views["2d"],
   filters: {
     sectionFilter: "both" as const,

@@ -161,4 +161,3 @@ export function heatOf(state: HighlightState, nodeId: string): number {
 export function hlKey(node: { id?: string | number; file?: string }): string {
   return String(node.file ?? node.id);
 }
-

@@ -100,7 +100,9 @@ describe("Inbox", () => {
     render(
       <Inbox
         workspaces={workspaces}
-        statuses={[status({ workspaceId: "w1", kind: "idle", message: "Pick A or B?" })]}
+        statuses={[
+          status({ workspaceId: "w1", kind: "idle", message: "Pick A or B?" }),
+        ]}
         activeId={null}
         onSelect={() => {}}
       />,
@@ -114,7 +116,9 @@ describe("Inbox", () => {
     render(
       <Inbox
         workspaces={workspaces}
-        statuses={[status({ workspaceId: "w1", kind: "running", call: 'Grep("x")' })]}
+        statuses={[
+          status({ workspaceId: "w1", kind: "running", call: 'Grep("x")' }),
+        ]}
         activeId={null}
         onSelect={() => {}}
       />,

@@ -53,11 +53,11 @@ describe("buildWorkspaces", () => {
   });
 
   it("drops an extra that points at the vault, and dedupes repeated extras", () => {
-    const list = buildWorkspaces("D:\\Vault", [], [
+    const list = buildWorkspaces(
       "D:\\Vault",
-      "D:\\proj\\a",
-      "d:\\PROJ\\a",
-    ]);
+      [],
+      ["D:\\Vault", "D:\\proj\\a", "d:\\PROJ\\a"],
+    );
     expect(list.map((w) => w.name)).toEqual(["Vault", "a"]);
   });
 });
@@ -147,4 +147,3 @@ describe("nameFromRegistry", () => {
     expect(nameFromRegistry("not json", "D:\\proj\\alpha")).toBeNull();
   });
 });
-

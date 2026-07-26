@@ -27,7 +27,8 @@ import {
 } from "./highlight-store";
 import { filterGraph, busiest } from "./graph-filter";
 import { domainsOf } from "./domain-colors";
-import { defaultSettings } from "../shared/types";
+import { defaultSettings, groupsFor } from "../shared/types";
+import { randomColor } from "../shared/random-color";
 import { createPreviewOpener } from "./preview-opener";
 import type {
   CodeGraphLevel,
@@ -392,6 +393,19 @@ export default function App() {
   };
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
+
+  // Seed a workspace's groups once, from its own top-level folders, the first
+  // time we have its graph — so every project (not just the vault) gets group
+  // halos. `id in groups` marks it seeded, so later deletions are respected.
+  useEffect(() => {
+    if (!settingsReady || !active || active.id in settings.groups) return;
+    const seed = domains.map((d) => ({ query: `${d}/`, color: randomColor() }));
+    if (seed.length === 0) return; // no graph yet, or no folders to group by
+    updateSettings({
+      ...settings,
+      groups: { ...settings.groups, [active.id]: seed },
+    });
+  }, [settingsReady, active, domains, settings]);
   const resolveLink = useMemo(
     () =>
       buildWikilinkResolver(
@@ -509,7 +523,7 @@ export default function App() {
                 <Graph3D
                   graph={visible}
                   domains={domains}
-                  groups={settings.groups}
+                  groups={groupsFor(settings, active?.id)}
                   display={view.display}
                   forces={view.forces}
                   stateRef={stateRef}
@@ -524,7 +538,7 @@ export default function App() {
                 <Graph
                   graph={visible}
                   domains={domains}
-                  groups={settings.groups}
+                  groups={groupsFor(settings, active?.id)}
                   display={view.display}
                   forces={view.forces}
                   stateRef={stateRef}
@@ -591,6 +605,7 @@ export default function App() {
       {showSettings && (
         <GraphSettingsPanel
           settings={settings}
+          activeId={active?.id ?? null}
           search={search}
           onSearchChange={setSearch}
           onSettingsChange={updateSettings}

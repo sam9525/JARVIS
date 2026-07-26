@@ -33,4 +33,3 @@ export function displayRadius(
 ): number {
   return base * nodeSize * (1 + HEAT_GROW * heat);
 }
-

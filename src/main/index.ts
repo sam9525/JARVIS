@@ -7,7 +7,7 @@ import started from "electron-squirrel-startup";
 import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
-import { autoGroups, loadSettings, saveSettings } from "./settings";
+import { loadSettings, saveSettings } from "./settings";
 import {
   loadWorkspaces,
   normalizeId,
@@ -130,7 +130,8 @@ app.whenReady().then(async () => {
   const symbolGraphs = new Map<string, Promise<VaultGraph>>();
   const symbolGraphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
-    if (!ws || ws.kind !== "code") return Promise.resolve({ nodes: [], edges: [] });
+    if (!ws || ws.kind !== "code")
+      return Promise.resolve({ nodes: [], edges: [] });
     let g = symbolGraphs.get(id);
     if (!g) {
       g = (async () => {
@@ -209,13 +210,6 @@ app.whenReady().then(async () => {
     "jarvis-settings.json",
   );
   let settings = await loadSettings(settingsPath);
-  // first run (or user cleared every group): seed one group per top-level folder
-  if (settings.groups.length === 0) {
-    // a failed vault scan must not stop the window from opening — skip seeding
-    const g = await graphFor(vault.id).catch(() => null);
-    if (g) settings.groups = autoGroups(g);
-    if (settings.groups.length > 0) await saveSettings(settingsPath, settings);
-  }
   ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
     settings = s;
