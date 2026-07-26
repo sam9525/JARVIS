@@ -3,6 +3,7 @@ import {
   graphMetrics,
   nodeRadius,
   displayRadius,
+  sphereRadius,
   HEAT_GROW,
 } from "../../src/renderer/graph/graph-metrics";
 import type { VaultGraph } from "../../src/shared/types";
@@ -66,5 +67,23 @@ describe("displayRadius", () => {
 
   it("scales linearly in between", () => {
     expect(displayRadius(1.5, 2, 0.5)).toBeCloseTo(3 * 1.4);
+  });
+});
+
+describe("sphereRadius", () => {
+  // react-force-graph-3d draws nodeRelSize(4) * nodeVal^(1/3), and Graph3D
+  // feeds it nodeVal = displayRadius² — so this must invert that exactly
+  it("matches the library's own sphere sizing", () => {
+    const r = displayRadius(1.5, 2, 0);
+    expect(sphereRadius(r)).toBeCloseTo(4 * Math.cbrt(r ** 2));
+  });
+
+  it("grows with the display radius but sublinearly", () => {
+    expect(sphereRadius(8)).toBeGreaterThan(sphereRadius(2));
+    expect(sphereRadius(8) / sphereRadius(2)).toBeCloseTo(Math.cbrt(16));
+  });
+
+  it("is zero at zero, so a hidden node has no surface to offset from", () => {
+    expect(sphereRadius(0)).toBe(0);
   });
 });
