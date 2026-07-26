@@ -80,6 +80,7 @@ export interface GraphGroup {
 
 export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
+export type HomeView = "cards" | "fleet";
 
 export interface DisplaySettings {
   textFadeThreshold: number; // hide labels drawn smaller than this (screen px)

@@ -5,33 +5,33 @@ import React, {
   useRef,
   useState,
 } from "react";
-import Graph from "./Graph";
-import Graph3D from "./Graph3D";
-import GraphSlot from "./GraphSlot";
-import Preview from "./Preview";
-import GraphSettingsPanel from "./GraphSettingsPanel";
-import WorkspaceRail from "./WorkspaceRail";
-import MissionControl from "./MissionControl";
-import TerminalPanel from "./TerminalPanel";
-import FleetGraph from "./FleetGraph";
-import HomeViewToggle, { type HomeView } from "./HomeViewToggle";
-import EmptyGraph, { type IndexState } from "./EmptyGraph";
-import Timeline from "./Timeline";
-import GraphLevelToggle from "./GraphLevelToggle";
-import { appendEvent, foldTo, nextRev } from "./replay";
+import Graph from "./graph/Graph";
+import Graph3D from "./graph/Graph3D";
+import GraphSlot from "./graph/GraphSlot";
+import Preview from "./preview/Preview";
+import GraphSettingsPanel from "./ui/GraphSettingsPanel";
+import WorkspaceRail from "./home/WorkspaceRail";
+import MissionControl from "./home/MissionControl";
+import TerminalPanel from "./terminal/TerminalPanel";
+import FleetGraph from "./graph/FleetGraph";
+import Segmented from "./ui/Segmented";
+import EmptyGraph, { type IndexState } from "./graph/EmptyGraph";
+import Timeline from "./session/Timeline";
+import { appendEvent, foldTo, nextRev } from "./session/replay";
 import {
   applyEvent,
   emptyState,
   resetHighlights,
   type HighlightState,
-} from "./highlight-store";
-import { filterGraph, busiest } from "./graph-filter";
-import { domainsOf } from "./domain-colors";
+} from "./session/highlight-store";
+import { filterGraph, busiest } from "./graph/graph-filter";
+import { domainsOf } from "./graph/domain-colors";
 import { defaultSettings, groupsFor } from "../shared/types";
 import { randomColor } from "../shared/random-color";
-import { createPreviewOpener } from "./preview-opener";
+import { createPreviewOpener } from "./preview/preview-opener";
 import type {
   CodeGraphLevel,
+  HomeView,
   Settings,
   ToolEvent,
   VaultGraph,
@@ -43,6 +43,17 @@ import { buildWikilinkResolver } from "../shared/wikilink";
 // symbol graphs of a huge repo can be thousands of nodes; show the busiest.
 // JARVIS (~386) renders uncapped.
 const SYMBOL_NODE_CAP = 600;
+
+const HOME_VIEW_OPTIONS: { value: HomeView; label: string }[] = [
+  { value: "cards", label: "Cards" },
+  { value: "fleet", label: "Fleet" },
+];
+
+// vault workspaces have no symbol graph, so this toggle is code-only
+const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
+  { value: "file", label: "Files" },
+  { value: "symbol", label: "Symbols" },
+];
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -477,7 +488,11 @@ export default function App() {
           showHome ? (
             <>
               <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-                <HomeViewToggle value={homeView} onChange={setHomeView} />
+                <Segmented
+                  options={HOME_VIEW_OPTIONS}
+                  value={homeView}
+                  onChange={setHomeView}
+                />
                 {graphButtons}
               </div>
               {homeView === "fleet" ? (
@@ -571,9 +586,9 @@ export default function App() {
                 terminal panel, whatever its current width) instead of
                 overlapping the terminal when it's open */}
               <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-                {active && (
-                  <GraphLevelToggle
-                    kind={active.kind}
+                {active?.kind === "code" && (
+                  <Segmented
+                    options={GRAPH_LEVEL_OPTIONS}
                     value={settings.codeGraphLevel}
                     onChange={(codeGraphLevel: CodeGraphLevel) =>
                       updateSettings({ ...settings, codeGraphLevel })
