@@ -139,6 +139,11 @@ export default function MissionControl({
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${DOT[kind]}`} />
                 {LABEL[kind]}
+                {st?.delegatedBy && (
+                  <span className="truncate normal-case text-ink-dim">
+                    ↳ delegated by {st.delegatedBy}
+                  </span>
+                )}
               </div>
 
               {/* one line, ellipsized — a card's height never depends on what

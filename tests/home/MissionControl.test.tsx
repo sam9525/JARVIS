@@ -315,4 +315,25 @@ describe("MissionControl", () => {
     });
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it("shows delegation provenance on the card's status line", () => {
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [
+            status({
+              workspaceId: "w2",
+              kind: "running",
+              delegatedBy: "JARVIS",
+            }),
+          ],
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("status-w2").text).toContain(
+      "delegated by JARVIS",
+    );
+    expect(screen.byTestId("status-w1").text).not.toContain("delegated");
+  });
 });
+

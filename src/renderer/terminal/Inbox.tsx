@@ -57,6 +57,14 @@ export default function Inbox({
                 <span className="text-[11px] uppercase tracking-wide text-ink-dim">
                   {s.kind}
                 </span>
+                {s.delegatedBy && (
+                  <span
+                    data-testid={`inbox-delegated-${w.id}`}
+                    className="truncate text-[11px] text-warm"
+                  >
+                    ↳ delegated by {s.delegatedBy}
+                  </span>
+                )}
               </span>
               <span
                 className="block truncate text-[12px] text-ink-dim"

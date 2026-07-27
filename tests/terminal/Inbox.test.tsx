@@ -143,4 +143,29 @@ describe("Inbox", () => {
     screen.getByTestId("inbox-row-w1").props.onClick();
     expect(picked?.id).toBe("w1");
   });
+
+  it("labels a delegated turn and omits the label otherwise", () => {
+    render(
+      <Inbox
+        workspaces={workspaces}
+        statuses={[
+          status({
+            workspaceId: "w1",
+            kind: "running",
+            call: "Bash(npm test)",
+            delegatedBy: "JARVIS",
+          }),
+          status({ workspaceId: "w2", kind: "running", call: "Read(a.ts)" }),
+        ]}
+        activeId={null}
+        onSelect={() => {}}
+      />,
+    );
+    const tag = screen.getByTestId("inbox-delegated-w1");
+    expect((tag.props.children as unknown[]).join("")).toBe(
+      "↳ delegated by JARVIS",
+    );
+    expect(screen.queryByTestId("inbox-delegated-w2")).toBeNull();
+  });
 });
+
