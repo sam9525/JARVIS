@@ -15,6 +15,7 @@ const SUBJECT: Record<string, (i: Record<string, unknown>) => string | null> = {
   Glob: (i) => quoted(i.pattern),
   Bash: (i) => (typeof i.command === "string" ? i.command : null),
   Task: (i) => (typeof i.subagent_type === "string" ? i.subagent_type : null),
+  Skill: (i) => (typeof i.skill === "string" ? i.skill : null),
 };
 
 function basename(v: unknown): string | null {

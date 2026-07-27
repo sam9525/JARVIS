@@ -66,6 +66,12 @@ describe("callSignature", () => {
     );
   });
 
+  it("names the running skill", () => {
+    expect(callSignature("Skill", { skill: "brainstorming" })).toBe(
+      "Skill(brainstorming)",
+    );
+  });
+
   it("falls back to the bare tool name rather than guessing an argument", () => {
     expect(callSignature("WebFetch", { url: "https://example.com" })).toBe(
       "WebFetch(…)",
