@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import Inbox from "./Inbox";
-import ReplyBox from "./ReplyBox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
 import type {
@@ -333,10 +332,6 @@ export default function TerminalPanel({
           </div>
         )}
       </div>
-      <ReplyBox
-        workspaceId={status.kind === "running" ? workspace.id : null}
-        disabled={status.kind !== "running"}
-      />
     </div>
   );
 }
