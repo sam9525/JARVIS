@@ -61,7 +61,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         };
       }
       // self-send is the one loop the one-orchestrator topology can't rule out
-      if (ws.kind === "vault") {
+      if (ws.isSelf) {
         return {
           ok: false,
           error: `refused: ${ws.name} is the orchestrator itself`,
@@ -76,10 +76,16 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name} has no session — launch it first`,
         };
       }
-      const by = all.find((w) => w.kind === "vault")?.name ?? "vault";
+      // the caller sends no identity — it can only be the one workspace that
+      // has the tools, which mcp-install pins to isSelf
+      const by = all.find((w) => w.isSelf)?.name ?? "JARVIS";
       deps.markDelegated(ws.id, by);
-      // "\r" submits — exactly what the inbox's sendReply appends
-      deps.write(ws.id, prompt + "\r");
+      // Claude Code's TUI treats one arriving chunk as a paste, so a trailing
+      // "\r" lands as a newline in the composer instead of submitting. Send the
+      // CR as its own write a beat later — indistinguishable from typing Enter.
+      // ponytail: fixed 80ms, not a prompt-ready probe — bump if a busy TUI misses it
+      deps.write(ws.id, prompt);
+      setTimeout(() => deps.write(ws.id, "\r"), 80);
       return { ok: true };
     },
   };

@@ -2,14 +2,15 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { Workspace } from "../shared/types";
 
-// .mcp.json goes to the vault only: one orchestrator, N delegates. A code
-// workspace with jarvis_send could delegate back — the topology, not code,
-// is what makes cycles impossible, so this guard is the topology.
+// .mcp.json goes to the cockpit's own repo only: one orchestrator, N
+// delegates. A second workspace with jarvis_send could delegate back — the
+// topology, not code, is what makes cycles impossible, so this guard is the
+// topology. isSelf is dev-only (see index.ts), which matches terminals.
 export async function ensureMcp(
   ws: Workspace,
   mcpPath: string,
 ): Promise<boolean> {
-  if (ws.kind !== "vault") return true; // nothing to install — not a failure
+  if (!ws.isSelf) return true; // nothing to install — not a failure
   const file = path.join(ws.rootPath, ".mcp.json");
   let config: Record<string, unknown> = {};
   const raw = await fs.readFile(file, "utf8").catch(() => null);

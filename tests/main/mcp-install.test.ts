@@ -7,14 +7,20 @@ import type { Workspace } from "../../src/shared/types";
 
 const MCP_PATH = "D:\\app\\src\\hook\\mcp.mjs";
 
-async function tmpVault(): Promise<Workspace> {
+async function tmpSelf(): Promise<Workspace> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-mcp-"));
-  return { id: root.toLowerCase(), name: "vault", rootPath: root, kind: "vault" };
+  return {
+    id: root.toLowerCase(),
+    name: "JARVIS",
+    rootPath: root,
+    kind: "code",
+    isSelf: true,
+  };
 }
 
 describe("ensureMcp", () => {
-  it("writes .mcp.json with the jarvis server into the vault root", async () => {
-    const ws = await tmpVault();
+  it("writes .mcp.json with the jarvis server into the cockpit's own root", async () => {
+    const ws = await tmpSelf();
     expect(await ensureMcp(ws, MCP_PATH)).toBe(true);
     const written = JSON.parse(
       await fs.readFile(path.join(ws.rootPath, ".mcp.json"), "utf8"),
@@ -25,7 +31,7 @@ describe("ensureMcp", () => {
   });
 
   it("merges into an existing file rather than clobbering it", async () => {
-    const ws = await tmpVault();
+    const ws = await tmpSelf();
     const file = path.join(ws.rootPath, ".mcp.json");
     await fs.writeFile(
       file,
@@ -48,14 +54,14 @@ describe("ensureMcp", () => {
   });
 
   it("refuses to touch an unparseable file and reports failure", async () => {
-    const ws = await tmpVault();
+    const ws = await tmpSelf();
     const file = path.join(ws.rootPath, ".mcp.json");
     await fs.writeFile(file, "{broken");
     expect(await ensureMcp(ws, MCP_PATH)).toBe(false);
     expect(await fs.readFile(file, "utf8")).toBe("{broken"); // untouched
   });
 
-  it("never writes to a code workspace", async () => {
+  it("never writes to a delegate workspace, vault or code", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-mcp-code-"));
     const ws: Workspace = {
       id: root.toLowerCase(),
@@ -64,8 +70,10 @@ describe("ensureMcp", () => {
       kind: "code",
     };
     expect(await ensureMcp(ws, MCP_PATH)).toBe(true); // nothing to do ≠ failure
-    await expect(
-      fs.access(path.join(root, ".mcp.json")),
-    ).rejects.toThrow();
+    await expect(fs.access(path.join(root, ".mcp.json"))).rejects.toThrow();
+
+    const vault: Workspace = { ...ws, name: "Obsidian-valut", kind: "vault" };
+    expect(await ensureMcp(vault, MCP_PATH)).toBe(true);
+    await expect(fs.access(path.join(root, ".mcp.json"))).rejects.toThrow();
   });
 });

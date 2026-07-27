@@ -1,11 +1,23 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createOrchestrator } from "../../src/main/orchestrate";
 import type { Workspace, WorkspaceStatus } from "../../src/shared/types";
 
 const workspaces: Workspace[] = [
-  { id: "d:/vault", name: "JARVIS", rootPath: "D:\\vault", kind: "vault" },
+  {
+    id: "d:/jarvis",
+    name: "JARVIS",
+    rootPath: "D:\\jarvis",
+    kind: "code",
+    isSelf: true,
+  },
   { id: "d:/aero", name: "AeroGraph", rootPath: "D:\\aero", kind: "code" },
   { id: "d:/fin", name: "FinPulse", rootPath: "D:\\fin", kind: "code" },
+  {
+    id: "d:/vault",
+    name: "Obsidian-vault",
+    rootPath: "D:\\vault",
+    kind: "vault",
+  },
 ];
 
 const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
@@ -18,10 +30,12 @@ const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
   ...over,
 });
 
-function setup(over: {
-  statuses?: WorkspaceStatus[];
-  live?: string[]; // workspace ids with a PTY
-} = {}) {
+function setup(
+  over: {
+    statuses?: WorkspaceStatus[];
+    live?: string[]; // workspace ids with a PTY
+  } = {},
+) {
   const writes: Array<[string, string]> = [];
   const delegated: Array<[string, string]> = [];
   const live = new Set(over.live ?? ["d:/aero"]);
@@ -55,7 +69,7 @@ describe("orchestrate.list", () => {
       live: ["d:/aero"],
     });
     const out = orch.list();
-    expect(out).toHaveLength(3);
+    expect(out).toHaveLength(4);
     expect(out[1]).toEqual({
       name: "AeroGraph",
       kind: "code",
@@ -79,12 +93,21 @@ describe("orchestrate.list", () => {
 });
 
 describe("orchestrate.send", () => {
-  it("happy path: marks provenance then writes exactly prompt + CR", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  // the CR is a separate, later write so the TUI reads it as Enter, not paste
+  it("happy path: marks provenance, writes the prompt, then the CR", () => {
     const { orch, writes, delegated } = setup();
     const out = orch.send("AeroGraph", "run the packaging fix");
     expect(out).toEqual({ ok: true });
     expect(delegated).toEqual([["d:/aero", "JARVIS"]]);
-    expect(writes).toEqual([["d:/aero", "run the packaging fix\r"]]);
+    expect(writes).toEqual([["d:/aero", "run the packaging fix"]]);
+    vi.runAllTimers();
+    expect(writes).toEqual([
+      ["d:/aero", "run the packaging fix"],
+      ["d:/aero", "\r"],
+    ]);
   });
 
   it("resolves the target name case-insensitively", () => {
@@ -111,12 +134,24 @@ describe("orchestrate.send", () => {
     expect(delegated).toEqual([]);
   });
 
-  it("refuses to send to the vault itself", () => {
-    const { orch, writes, delegated } = setup({ live: ["d:/vault"] });
+  it("refuses to send to the orchestrator itself", () => {
+    const { orch, writes, delegated } = setup({ live: ["d:/jarvis"] });
     const out = orch.send("JARVIS", "x");
     expect(out.ok).toBe(false);
     expect(writes).toEqual([]);
     expect(delegated).toEqual([]);
+  });
+
+  // the vault is an ordinary delegate now that isSelf, not kind, marks the sender
+  it("sends to the vault like any other workspace", () => {
+    const { orch, writes, delegated } = setup({ live: ["d:/vault"] });
+    expect(orch.send("Obsidian-vault", "x")).toEqual({ ok: true });
+    expect(delegated).toEqual([["d:/vault", "JARVIS"]]);
+    vi.runAllTimers();
+    expect(writes).toEqual([
+      ["d:/vault", "x"],
+      ["d:/vault", "\r"],
+    ]);
   });
 
   it("rejects an empty prompt", () => {
