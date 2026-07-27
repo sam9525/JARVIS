@@ -201,6 +201,31 @@ describe("status store", () => {
       true,
     );
   });
+
+  it("markDelegated surfaces the delegator in the snapshot", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "running" }));
+    expect(s.markDelegated("w1", "JARVIS", 2000)).toBe(true);
+    expect(s.markDelegated("w1", "JARVIS", 2100)).toBe(false); // no change
+    expect(s.snapshot()[0].delegatedBy).toBe("JARVIS");
+  });
+
+  it("delegatedBy survives status updates within the same session", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "running" }));
+    s.markDelegated("w1", "JARVIS", 2000);
+    s.applyStatus(ev({ kind: "waiting", ts: 3000 }));
+    s.applyStatus(ev({ kind: "idle", ts: 4000, message: "done" }));
+    expect(s.snapshot()[0].delegatedBy).toBe("JARVIS");
+  });
+
+  it("delegatedBy clears when a new session starts", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "running" }));
+    s.markDelegated("w1", "JARVIS", 2000);
+    s.applyStatus(ev({ sessionId: "s2", kind: "running", ts: 5000 }));
+    expect(s.snapshot()[0].delegatedBy).toBe("");
+  });
 });
 
 describe("status store restore", () => {

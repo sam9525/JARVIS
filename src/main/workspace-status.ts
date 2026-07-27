@@ -13,6 +13,7 @@ interface Entry {
   kind: StatusKind;
   call: string;
   message: string;
+  delegatedBy: string;
   since: number;
   lastEventAt: number;
   sessionId: string;
@@ -25,6 +26,7 @@ export interface StatusStore {
   restore(saved: unknown): void;
   applyStatus(e: StatusEvent): boolean;
   countTool(e: ToolEvent): boolean;
+  markDelegated(workspaceId: string, by: string, now: number): boolean;
   ptyLaunched(workspaceId: string, now: number): boolean;
   ptyExited(workspaceId: string, now: number): boolean;
   sweep(now: number): boolean;
@@ -41,6 +43,7 @@ export function createStatusStore(): StatusStore {
         kind: "none",
         call: "",
         message: "",
+        delegatedBy: "",
         since: now,
         lastEventAt: now,
         sessionId: "",
@@ -82,6 +85,7 @@ export function createStatusStore(): StatusStore {
         e.sessionId = ev.sessionId;
         resetCounts(e);
         e.message = ""; // a new session's inbox starts empty
+        e.delegatedBy = ""; // provenance shares the message's lifecycle
       }
       // a permission prompt carries no call of its own; the pending PreToolUse
       // call is exactly what the user needs to see, so keep it
@@ -125,6 +129,16 @@ export function createStatusStore(): StatusStore {
       if (ev.phase === "post" && (ev.tool === "Edit" || ev.tool === "Write"))
         for (const id of ev.nodeIds) e.edits.add(id);
       return changed || e.reads.size + e.edits.size !== before;
+    },
+
+    // set by orchestrate.send just before the prompt is written; the target's
+    // own UserPromptSubmit arrives with the SAME session id, so this survives
+    // the turn it labels and dies with the session
+    markDelegated(id, by, now) {
+      const e = entry(id, now);
+      const changed = e.delegatedBy !== by;
+      e.delegatedBy = by;
+      return changed;
     },
 
     ptyLaunched(id, now) {
@@ -171,6 +185,7 @@ export function createStatusStore(): StatusStore {
         kind: e.kind,
         call: e.call,
         message: e.message,
+        delegatedBy: e.delegatedBy,
         since: e.since,
         reads: e.reads.size,
         edits: e.edits.size,
