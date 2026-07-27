@@ -3,7 +3,13 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import Inbox from "./Inbox";
 import ReplyBox from "./ReplyBox";
-import type { Workspace, WorkspaceStatus } from "../../shared/types";
+import { renderNote } from "../preview/markdown";
+import { relativeTime } from "../home/relative-time";
+import type {
+  StatusKind,
+  Workspace,
+  WorkspaceStatus,
+} from "../../shared/types";
 
 type Status =
   | { kind: "idle" }
@@ -11,6 +17,26 @@ type Status =
   | { kind: "exited"; code: number };
 
 type Entry = { term: Terminal; fit: FitAddon; el: HTMLDivElement };
+
+// same state colors the rail badges and inbox dots use — amber is "waiting"
+const PILL: Record<StatusKind, string> = {
+  waiting: "border-warm/30 bg-warm/10 text-warm",
+  running: "border-accent/30 bg-accent/10 text-accent",
+  idle: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
+  none: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
+};
+const PILL_LABEL: Record<StatusKind, string> = {
+  waiting: "waiting on you",
+  running: "running",
+  idle: "idle",
+  none: "idle",
+};
+const BAR: Record<StatusKind, string> = {
+  waiting: "from-warm",
+  running: "from-accent",
+  idle: "from-ink-dim",
+  none: "from-ink-dim",
+};
 
 // Module-level so terminals (and their scrollback) survive workspace
 // switches and panel collapse/expand — the component only attaches them.
@@ -52,16 +78,15 @@ function entryFor(id: string): Entry {
 
 export default function TerminalPanel({
   workspace,
-  workspaces,
-  statuses,
-  onSelectWorkspace,
+  inbox,
 }: {
   workspace: Workspace;
-  workspaces: Workspace[];
-  statuses: WorkspaceStatus[];
-  onSelectWorkspace: (ws: Workspace) => void;
+  // the inbox is the fleet view — home only. A workspace's terminal is just
+  // its own, so there is nothing there for a cross-workspace list to do.
+  inbox?: { workspaces: Workspace[]; statuses: WorkspaceStatus[] };
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [localStatuses, setLocalStatuses] = useState<Record<string, Status>>(
     {},
   );
@@ -71,6 +96,31 @@ export default function TerminalPanel({
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
   const status: Status = localStatuses[workspace.id] ?? { kind: "idle" };
+
+  const detailWs = inbox?.workspaces.find((w) => w.id === detailId);
+  const detailStatus = inbox?.statuses.find((s) => s.workspaceId === detailId);
+  const detail =
+    detailWs && detailStatus ? { ws: detailWs, status: detailStatus } : null;
+
+  // Claude's last message is markdown — run it through the same pipeline the
+  // preview uses so bold/tables/lists read the same here. No vault to link
+  // into, so both link deps are dead ends.
+  const [detailHtml, setDetailHtml] = useState("");
+  const message = detail?.status.message ?? "";
+  useEffect(() => {
+    let stale = false;
+    if (!message) {
+      setDetailHtml("");
+      return;
+    }
+    renderNote(message, {
+      resolveLink: () => null,
+      loadNote: async () => null,
+    }).then((html) => !stale && setDetailHtml(html));
+    return () => {
+      stale = true;
+    };
+  }, [message]);
 
   useEffect(() => {
     ensureSubscribed();
@@ -195,17 +245,65 @@ export default function TerminalPanel({
         </button>
       </div>
 
-      <div
-        className="max-h-[45%] min-h-0 flex-none border-b border-edge"
-        data-testid="terminal-inbox"
-      >
-        <Inbox
-          workspaces={workspaces}
-          statuses={statuses}
-          activeId={workspace.id}
-          onSelect={onSelectWorkspace}
-        />
-      </div>
+      {inbox && (
+        <div
+          className="max-h-[45%] min-h-0 flex-none border-b border-edge"
+          data-testid="terminal-inbox"
+        >
+          <Inbox
+            workspaces={inbox.workspaces}
+            statuses={inbox.statuses}
+            activeId={detailId}
+            onSelect={(ws) =>
+              setDetailId((id) => (id === ws.id ? null : ws.id))
+            }
+          />
+        </div>
+      )}
+      {detail && (
+        // inset from the terminal's left edge, floating over the graph
+        <div
+          className="absolute top-11 right-[calc(100%+20px)] bottom-5 z-10 flex w-[340px] flex-col rounded-xl border border-edge bg-gradient-to-b from-panel/95 to-abyss/95 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8),0_0_0_1px_rgba(34,211,238,0.06)] backdrop-blur-[2px]"
+          data-testid="inbox-detail"
+        >
+          {/* state bar: the panel says which state it is before you read it */}
+          <span
+            className={`absolute top-3.5 bottom-3.5 -left-px w-0.5 rounded-full bg-gradient-to-b to-transparent ${BAR[detail.status.kind]}`}
+          />
+          <div className="flex items-center gap-2.5 border-b border-edge px-4 pt-3 pb-2.5">
+            <span className="truncate font-semibold text-ink">
+              {detail.ws.name}
+            </span>
+            <span
+              className={`flex-none rounded-full border px-2 py-0.5 text-[10.5px] font-semibold tracking-[0.1em] uppercase ${PILL[detail.status.kind]}`}
+            >
+              {PILL_LABEL[detail.status.kind]}
+            </span>
+            <span className="ml-auto flex-none text-[12px] text-ink-dim tabular-nums">
+              {relativeTime(detail.status.since, Date.now())}
+            </span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {message ? (
+              <>
+                <div className="mb-2.5 text-[11px] tracking-[0.16em] text-accent uppercase">
+                  Claude said
+                </div>
+                <div
+                  className="preview-body font-sans text-sm leading-relaxed text-ink"
+                  dangerouslySetInnerHTML={{ __html: detailHtml }}
+                />
+              </>
+            ) : (
+              // a session that has only just launched has neither call nor
+              // message — say so, so an empty panel doesn't read as a broken one
+              <div className="font-mono text-sm break-words text-ink-dim">
+                {detail.status.call || "nothing yet this session"}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div className="relative min-h-0 flex-1">
         <div ref={hostRef} className="h-full w-full" />
         {status.kind !== "running" && (

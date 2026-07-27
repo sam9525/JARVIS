@@ -409,22 +409,23 @@ export default function App() {
           )
         }
       </GraphSlot>
-      {/* terminals live in a module-level map, so unmounting here costs no
-          session and no scrollback — it only takes the tab off the home screen */}
-      {showHome &&
-        (() => {
-          const focused = workspaces.find((w) => w.id === focusedId) ?? null;
-          return (
-            focused && (
-              <TerminalPanel
-                workspace={focused}
-                workspaces={workspaces}
-                statuses={statuses}
-                onSelectWorkspace={(ws) => setFocusedId(ws.id)}
-              />
-            )
-          );
-        })()}
+      {/* terminals live in a module-level map, so swapping which one is on
+          screen costs no session and no scrollback. On a workspace it's that
+          workspace's own terminal; home shows the last-opened one plus the
+          fleet inbox. */}
+      {(() => {
+        const ws = showHome
+          ? (workspaces.find((w) => w.id === focusedId) ?? null)
+          : active;
+        return (
+          ws && (
+            <TerminalPanel
+              workspace={ws}
+              inbox={showHome ? { workspaces, statuses } : undefined}
+            />
+          )
+        );
+      })()}
       {showSettings && (
         <GraphSettingsPanel
           settings={settings}

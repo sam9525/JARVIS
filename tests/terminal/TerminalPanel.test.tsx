@@ -77,9 +77,22 @@ beforeEach(() => {
 });
 
 // re-runs the component against the persisted state array
-function render(): any {
+function render(props: any = {}): any {
   idx = 0;
-  return TerminalPanel({ workspace });
+  return TerminalPanel({ workspace, ...props });
+}
+
+function find(node: any, pred: (n: any) => boolean): any {
+  if (!node || typeof node !== "object") return undefined;
+  if (Array.isArray(node)) {
+    for (const c of node) {
+      const hit = find(c, pred);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+  if (pred(node)) return node;
+  return find(node.props?.children, pred);
 }
 
 function buttons(node: any, out: any[] = []): any[] {
@@ -132,5 +145,56 @@ describe("TerminalPanel dangerous launch", () => {
     findButton(render(), /Launch Claude/).onClick();
     expect(ptyLaunch).toHaveBeenCalledTimes(1);
     expect(ptyLaunch.mock.calls[0][3]).toBe(false);
+  });
+});
+
+describe("TerminalPanel inbox", () => {
+  const inbox = {
+    workspaces: [workspace],
+    statuses: [
+      {
+        workspaceId: "w1",
+        kind: "idle" as const,
+        call: "",
+        message: "all done",
+        since: 0,
+        reads: 2,
+        edits: 1,
+      },
+    ],
+  };
+  const open = () => render({ inbox });
+  const detail = (tree: any) =>
+    find(tree, (n) => n.props?.["data-testid"] === "inbox-detail");
+
+  it("is home-only — a workspace terminal shows no inbox", () => {
+    findButton(render(), /">_"|>_/).onClick();
+    expect(
+      find(render(), (n) => n.props?.["data-testid"] === "terminal-inbox"),
+    ).toBeUndefined();
+  });
+
+  it("opens a detail panel from a row, and closes it on a second click", () => {
+    findButton(open(), /">_"|>_/).onClick();
+    expect(detail(open())).toBeUndefined();
+
+    const row = find(open(), (n) => typeof n.props?.onSelect === "function");
+    row.props.onSelect(workspace);
+    expect(text(detail(open()).props.children)).toContain("vault");
+
+    row.props.onSelect(workspace);
+    expect(detail(open())).toBeUndefined();
+  });
+
+  // the message is Claude's markdown — rendered, not shown as **literal**
+  it("renders the message through the preview pipeline", () => {
+    findButton(open(), /">_"|>_/).onClick();
+    find(open(), (n) => typeof n.props?.onSelect === "function").props.onSelect(
+      workspace,
+    );
+    const body = find(detail(open()), (n) =>
+      String(n.props?.className ?? "").includes("preview-body"),
+    );
+    expect(body.props.dangerouslySetInnerHTML).toBeDefined();
   });
 });
