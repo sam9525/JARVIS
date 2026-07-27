@@ -111,4 +111,31 @@ describe("pty-manager", () => {
     expect(ptys[0].kill).toHaveBeenCalled();
     expect(ptys[1].kill).toHaveBeenCalled();
   });
+
+  it("write reports whether a pty actually received the data", () => {
+    const mgr = createPtyManager(() => fakePty(), {
+      onData: vi.fn(),
+      onExit: vi.fn(),
+    });
+    mgr.launch(ws("a"), 80, 24);
+    expect(mgr.write("a", "hi")).toBe(true);
+    // regression guard: this used to be a silent no-op
+    expect(mgr.write("nope", "hi")).toBe(false);
+  });
+
+  it("has() tracks launch and exit", () => {
+    const spawned: ReturnType<typeof fakePty>[] = [];
+    const spawn: SpawnFn = () => {
+      const p = fakePty();
+      spawned.push(p);
+      return p;
+    };
+    const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
+    expect(mgr.has("a")).toBe(false);
+    mgr.launch(ws("a"), 80, 24);
+    expect(mgr.has("a")).toBe(true);
+    spawned[0].emitExit(0);
+    expect(mgr.has("a")).toBe(false);
+  });
 });
+

@@ -58,8 +58,14 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
         events.onExit(ws.id, exitCode);
       });
     },
-    write(id: string, data: string): void {
-      ptys.get(id)?.write(data);
+    write(id: string, data: string): boolean {
+      const p = ptys.get(id);
+      if (!p) return false;
+      p.write(data);
+      return true;
+    },
+    has(id: string): boolean {
+      return ptys.has(id);
     },
     resize(id: string, cols: number, rows: number): void {
       ptys.get(id)?.resize(cols, rows);
