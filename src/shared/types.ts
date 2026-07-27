@@ -65,6 +65,7 @@ export interface Workspace {
   rootPath: string;
   kind: WorkspaceKind;
   staleIndex?: boolean; // code only: gitnexus index behind repo HEAD
+  isSelf?: boolean; // the cockpit's own repo — home's terminal is pinned here
 }
 
 export interface Session {

@@ -99,6 +99,12 @@ app.whenReady().then(async () => {
   const workspaces = await loadWorkspaces(rootPath, extraPaths);
   const vault = workspaces[0];
 
+  // ponytail: dev-only match — packaged getAppPath() is an asar path that no
+  // workspace can equal, so home falls back to the vault. Terminals are
+  // dev-only anyway.
+  const self = workspaces.find((w) => w.id === normalizeId(app.getAppPath()));
+  if (self) self.isSelf = true;
+
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
   const loadGraph = async (ws: Workspace): Promise<VaultGraph> => {

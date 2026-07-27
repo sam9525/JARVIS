@@ -66,7 +66,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
-  const [focusedId, setFocusedId] = useState<string | null>(null);
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
@@ -144,7 +143,6 @@ export default function App() {
       setWorkspaces(list);
       if (list.length === 0) return;
       openWorkspace(list[0]); // vault first
-      setFocusedId(list[0].id); // command-center terminal starts on the vault
       const vaultId = list[0].id;
       // watcher only feeds the vault — cache under its id, show if on screen
       offs.push(
@@ -278,7 +276,6 @@ export default function App() {
         onHome={() => setShowHome(true)}
         onSelect={(ws) => {
           setShowHome(false);
-          setFocusedId(ws.id); // terminal follows when you return home
           openWorkspace(ws);
         }}
       />
@@ -411,11 +408,11 @@ export default function App() {
       </GraphSlot>
       {/* terminals live in a module-level map, so swapping which one is on
           screen costs no session and no scrollback. On a workspace it's that
-          workspace's own terminal; home shows the last-opened one plus the
-          fleet inbox. */}
+          workspace's own terminal; home always shows the cockpit's own repo
+          (falling back to the vault) plus the fleet inbox. */}
       {(() => {
         const ws = showHome
-          ? (workspaces.find((w) => w.id === focusedId) ?? null)
+          ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
           : active;
         return (
           ws && (
