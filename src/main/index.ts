@@ -23,6 +23,8 @@ import {
 } from "./gitnexus-graph";
 import { isDirectory } from "./is-directory";
 import { ensureHooks } from "./hook-install";
+import { ensureMcp } from "./mcp-install";
+import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
@@ -293,16 +295,6 @@ app.whenReady().then(async () => {
     );
   };
 
-  startListener(
-    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
-    (e) => {
-      send("tool-event", e);
-      pushStatus(status.countTool(e));
-    },
-    (s) => pushStatus(status.applyStatus(s)),
-    () => workspaces,
-  );
-
   // one sweep for every workspace — Esc leaves "running" with no Stop to end it
   const sweepTimer = setInterval(
     () => pushStatus(status.sweep(Date.now())),
@@ -338,7 +330,30 @@ app.whenReady().then(async () => {
       },
     },
   );
+
+  const orchestrator = createOrchestrator({
+    getWorkspaces: () => workspaces,
+    snapshot: () => status.snapshot(),
+    hasPty: (id) => ptyManager.has(id),
+    write: (id, data) => ptyManager.write(id, data),
+    // markDelegated is a status change like any other — push it to the rail
+    markDelegated: (id, by) =>
+      pushStatus(status.markDelegated(id, by, Date.now())),
+  });
+
+  startListener(
+    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
+    (e) => {
+      send("tool-event", e);
+      pushStatus(status.countTool(e));
+    },
+    (s) => pushStatus(status.applyStatus(s)),
+    () => workspaces,
+    orchestrator,
+  );
+
   const forwardPath = path.join(app.getAppPath(), "src", "hook", "forward.mjs");
+  const mcpPath = path.join(app.getAppPath(), "src", "hook", "mcp.mjs");
   ipcMain.handle(
     "pty-launch",
     async (
@@ -351,15 +366,16 @@ app.whenReady().then(async () => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
+      const mcpOk = await ensureMcp(ws, mcpPath);
       try {
         ptyManager.launch(ws, cols, rows, dangerous);
         pushStatus(status.ptyLaunched(ws.id, Date.now()));
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
         console.error("pty launch failed:", err);
-        return { ok: false, hooksOk };
+        return { ok: false, hooksOk: hooksOk && mcpOk };
       }
-      return { ok: true, hooksOk };
+      return { ok: true, hooksOk: hooksOk && mcpOk };
     },
   );
   ipcMain.on("pty-input", (_e, id: string, data: string) =>
