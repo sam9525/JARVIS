@@ -259,9 +259,32 @@ app.whenReady().then(async () => {
     win.webContents.send(channel, payload, ...rest);
   };
 
+  const inboxPath = path.join(app.getPath("userData"), "jarvis-inbox.json");
   const status = createStatusStore();
+  status.restore(
+    await fs
+      .readFile(inboxPath, "utf8")
+      .then((t) => JSON.parse(t) as unknown)
+      .catch(() => null), // missing or corrupt → the inbox just starts empty
+  );
+
+  // the renderer only ever receives pushes, so a restored inbox needs one
+  win.webContents.on("did-finish-load", () =>
+    send("status", status.snapshot()),
+  );
+
+  let savedInbox = "";
   const pushStatus = (changed: boolean) => {
-    if (changed) send("status", status.snapshot());
+    if (!changed) return;
+    const snap = status.snapshot();
+    send("status", snap);
+    // only Stop carries a message, so this writes rarely despite the call site
+    const json = JSON.stringify(snap.filter((s) => s.message));
+    if (json === savedInbox) return;
+    savedInbox = json;
+    fs.writeFile(inboxPath, json, "utf8").catch((err) =>
+      console.error("inbox save failed:", err),
+    );
   };
 
   startListener(

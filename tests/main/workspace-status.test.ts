@@ -202,3 +202,37 @@ describe("status store", () => {
     );
   });
 });
+
+describe("status store restore", () => {
+  it("brings back the last message as an idle workspace", () => {
+    const s = createStatusStore();
+    s.restore([{ workspaceId: "w1", message: "answer me", since: 4000 }]);
+    expect(s.snapshot()[0]).toMatchObject({
+      workspaceId: "w1",
+      kind: "idle",
+      message: "answer me",
+      since: 4000,
+      reads: 0,
+      edits: 0,
+    });
+  });
+
+  it("drops entries with no message, and survives garbage", () => {
+    const s = createStatusStore();
+    s.restore([{ workspaceId: "w1", message: "" }, { message: "no id" }, 7]);
+    s.restore("not an array");
+    s.restore(null);
+    expect(s.snapshot()).toEqual([]);
+  });
+
+  it("a live session overwrites what was restored", () => {
+    const s = createStatusStore();
+    s.restore([{ workspaceId: "w1", message: "stale", since: 1 }]);
+    s.applyStatus(ev({ kind: "running", call: "Bash(ls)", ts: 9000 }));
+    expect(s.snapshot()[0]).toMatchObject({
+      kind: "running",
+      call: "Bash(ls)",
+      message: "", // a new session id clears the restored message
+    });
+  });
+});

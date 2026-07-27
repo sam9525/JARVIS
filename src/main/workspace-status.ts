@@ -22,6 +22,7 @@ interface Entry {
 }
 
 export interface StatusStore {
+  restore(saved: unknown): void;
   applyStatus(e: StatusEvent): boolean;
   countTool(e: ToolEvent): boolean;
   ptyLaunched(workspaceId: string, now: number): boolean;
@@ -58,6 +59,22 @@ export function createStatusStore(): StatusStore {
   };
 
   return {
+    // Closing the app must not lose the last thing Claude said. Only the
+    // message is worth keeping: a restored workspace has no live terminal, so
+    // it reads idle with no counts until a session actually starts.
+    restore(saved) {
+      if (!Array.isArray(saved)) return;
+      for (const raw of saved as Partial<WorkspaceStatus>[]) {
+        if (typeof raw?.workspaceId !== "string") continue;
+        if (typeof raw.message !== "string" || !raw.message) continue;
+        const since = typeof raw.since === "number" ? raw.since : Date.now();
+        const e = entry(raw.workspaceId, since);
+        e.kind = "idle";
+        e.message = raw.message;
+        e.since = since;
+      }
+    },
+
     applyStatus(ev) {
       const e = entry(ev.workspaceId, ev.ts);
       const sessionChanged = ev.sessionId !== e.sessionId;
