@@ -1,0 +1,161 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect, afterEach } from "vitest";
+import { spawn, type ChildProcess } from "node:child_process";
+import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { AddressInfo } from "node:net";
+
+const MCP = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "src",
+  "hook",
+  "mcp.mjs",
+);
+
+const children: ChildProcess[] = [];
+afterEach(() => {
+  for (const c of children.splice(0)) c.kill();
+});
+
+function startMcp(port: number) {
+  const child = spawn(process.execPath, [MCP], {
+    env: { ...process.env, JARVIS_PORT: String(port) },
+  });
+  children.push(child);
+  const lines: any[] = [];
+  const waiters: Array<() => void> = [];
+  let buf = "";
+  child.stdout?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    buf += chunk;
+    let nl;
+    while ((nl = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      lines.push(JSON.parse(line));
+      for (const w of waiters.splice(0)) w();
+    }
+  });
+  const waitLine = (index: number): Promise<any> =>
+    new Promise((resolve) => {
+      const check = () => {
+        if (lines.length > index) resolve(lines[index]);
+        else waiters.push(check);
+      };
+      check();
+    });
+  // write one raw line, resolve with the next response line after it —
+  // the index is captured BEFORE the write so a fast reply can't be missed
+  const raw = (s: string): Promise<any> => {
+    const i = lines.length;
+    child.stdin?.write(s);
+    return waitLine(i);
+  };
+  const request = (msg: unknown): Promise<any> =>
+    raw(JSON.stringify(msg) + "\n");
+  return { request, raw };
+}
+
+// a listener stand-in that records what mcp.mjs sends it
+async function fakeListener(reply: unknown) {
+  const hits: Array<{ url: string; headers: http.IncomingHttpHeaders; body: string }> = [];
+  const server = http.createServer((req, res) => {
+    let b = "";
+    req.on("data", (c) => (b += c));
+    req.on("end", () => {
+      hits.push({ url: req.url ?? "", headers: req.headers, body: b });
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(reply));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const { port } = server.address() as AddressInfo;
+  return { port, hits, close: () => server.close() };
+}
+
+describe("mcp.mjs", () => {
+  it("answers initialize with tool capabilities and its identity", async () => {
+    const { request } = startMcp(1);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {} },
+    });
+    expect(res.id).toBe(1);
+    expect(res.result.protocolVersion).toBe("2025-06-18");
+    expect(res.result.capabilities).toEqual({ tools: {} });
+    expect(res.result.serverInfo.name).toBe("jarvis");
+  });
+
+  it("lists exactly jarvis_list and jarvis_send", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const names = res.result.tools.map((t: any) => t.name);
+    expect(names).toEqual(["jarvis_list", "jarvis_send"]);
+    const send = res.result.tools[1];
+    expect(send.inputSchema.required).toEqual(["workspace", "prompt"]);
+  });
+
+  it("tools/call jarvis_send POSTs to /orchestrate/send with the header", async () => {
+    const listener = await fakeListener({ ok: true });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "AeroGraph", prompt: "fix it" },
+      },
+    });
+    expect(listener.hits).toHaveLength(1);
+    expect(listener.hits[0].url).toBe("/orchestrate/send");
+    expect(listener.hits[0].headers["x-jarvis"]).toBe("1");
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "AeroGraph",
+      prompt: "fix it",
+    });
+    expect(res.result.isError).toBeUndefined();
+    listener.close();
+  });
+
+  it("a rejected send comes back as a tool error, not a protocol error", async () => {
+    const listener = await fakeListener({ ok: false, error: "no workspace" });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "jarvis_send", arguments: { workspace: "X", prompt: "p" } },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("no workspace");
+    listener.close();
+  });
+
+  it("listener down → tool error, never a hang", async () => {
+    const { request } = startMcp(1); // port 1 → refused immediately
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: { name: "jarvis_list", arguments: {} },
+    });
+    expect(res.result.isError).toBe(true);
+  }, 5000);
+
+  it("malformed and unknown input get standard JSON-RPC errors, server survives", async () => {
+    const { request, raw } = startMcp(1);
+    const parseErr = await raw("not json at all\n");
+    expect(parseErr.error.code).toBe(-32700);
+    const unknown = await request({ jsonrpc: "2.0", id: 6, method: "nope" });
+    expect(unknown.error.code).toBe(-32601);
+    const alive = await request({ jsonrpc: "2.0", id: 7, method: "tools/list" });
+    expect(alive.result.tools).toHaveLength(2);
+  });
+});
