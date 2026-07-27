@@ -6,18 +6,36 @@ import { buildWorkspaces } from "../../src/main/workspaces";
 
 const workspaces: Workspace[] = buildWorkspaces("D:\\vault", []);
 
+function stubOrchestrator() {
+  const sends: Array<[string, string]> = [];
+  return {
+    sends,
+    listCalls: { n: 0 },
+    list() {
+      this.listCalls.n++;
+      return [{ name: "vault", live: false }];
+    },
+    send(workspace: string, prompt: string) {
+      sends.push([workspace, prompt]);
+      return { ok: true as const };
+    },
+  };
+}
+
 async function start(
   onEvent: (e: ToolEvent) => void,
   onStatus: (s: StatusEvent) => void = () => {
     /* ignore */
   },
 ) {
-  const server = startListener(0, onEvent, onStatus, () => workspaces);
+  const orch = stubOrchestrator();
+  const server = startListener(0, onEvent, onStatus, () => workspaces, orch);
   await new Promise((r) => server.once("listening", r));
   const { port } = server.address() as AddressInfo;
   return {
     port,
     server,
+    orch,
     url: `http://127.0.0.1:${port}/event`,
     close: () => server.close(),
   };
@@ -118,6 +136,89 @@ describe("startListener", () => {
     await postRaw(port, "{not json");
     expect(tools).toHaveLength(0);
     expect(statuses).toHaveLength(0);
+    close();
+  });
+});
+
+describe("orchestrate routes", () => {
+  const post = (
+    port: number,
+    path: string,
+    body: string,
+    headers: Record<string, string> = {},
+  ) =>
+    fetch(`http://127.0.0.1:${port}${path}`, {
+      method: "POST",
+      headers,
+      body,
+    });
+
+  it("rejects requests without the x-jarvis header before any handler runs", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    const list = await post(port, "/orchestrate/list", "{}");
+    const send = await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({ workspace: "a", prompt: "p" }),
+      // text/plain is the CORS simple-request shape a web page could fire
+      { "content-type": "text/plain" },
+    );
+    expect(list.status).toBe(403);
+    expect(send.status).toBe(403);
+    expect(orch.listCalls.n).toBe(0);
+    expect(orch.sends).toEqual([]);
+    close();
+  });
+
+  it("list answers JSON when the header is present", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    const res = await post(port, "/orchestrate/list", "{}", {
+      "x-jarvis": "1",
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{ name: "vault", live: false }]);
+    expect(orch.listCalls.n).toBe(1);
+    close();
+  });
+
+  it("send maps the body onto orchestrator.send", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    const res = await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({ workspace: "AeroGraph", prompt: "fix it" }),
+      { "x-jarvis": "1" },
+    );
+    expect(await res.json()).toEqual({ ok: true });
+    expect(orch.sends).toEqual([["AeroGraph", "fix it"]]);
+    close();
+  });
+
+  it("a malformed send body reaches no handler and reports the failure", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    const res = await post(port, "/orchestrate/send", "{not json", {
+      "x-jarvis": "1",
+    });
+    const out = (await res.json()) as { ok: boolean };
+    expect(out.ok).toBe(false);
+    expect(orch.sends).toEqual([]);
+    close();
+  });
+
+  it("GET (a preflight-ish probe) is 404, never answered as CORS", async () => {
+    const { port, close } = await start(() => {
+      /* no-op */
+    });
+    const res = await fetch(`http://127.0.0.1:${port}/orchestrate/list`);
+    expect(res.status).toBe(404);
     close();
   });
 });
