@@ -79,12 +79,22 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       // the caller sends no identity — it can only be the one workspace that
       // has the tools, which mcp-install pins to isSelf
       const by = all.find((w) => w.isSelf)?.name ?? "JARVIS";
+      // the session can die between the hasPty probe and the write, so mark the
+      // delegation only once the prompt is actually in the PTY
+      if (!deps.write(ws.id, prompt)) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session ended before delivery`,
+        };
+      }
       deps.markDelegated(ws.id, by);
       // Claude Code's TUI treats one arriving chunk as a paste, so a trailing
       // "\r" lands as a newline in the composer instead of submitting. Send the
       // CR as its own write a beat later — indistinguishable from typing Enter.
       // ponytail: fixed 80ms, not a prompt-ready probe — bump if a busy TUI misses it
-      deps.write(ws.id, prompt);
+      // ponytail: send has already returned by the time the CR lands, so a session
+      // that dies inside the 80ms leaves the prompt unsubmitted and only surfaces
+      // as the delegate going stale in jarvis_list. Await delivery if that bites.
       setTimeout(() => deps.write(ws.id, "\r"), 80);
       return { ok: true };
     },

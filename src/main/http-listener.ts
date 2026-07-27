@@ -6,6 +6,26 @@ import type { StatusEvent, ToolEvent, Workspace } from "../shared/types";
 
 export const DEFAULT_PORT = 4599;
 
+// ponytail: hook payloads are a few KB; the cap only exists so an unauthenticated
+// POST can't grow main's memory. Raise it if a real tool_response ever trips it.
+const MAX_BODY = 1 << 20; // 1 MiB
+
+// Over the cap we destroy the socket, so "end" never fires and done() never runs.
+function readBody(
+  req: http.IncomingMessage,
+  done: (body: string) => void,
+): void {
+  let body = "";
+  req.on("data", (chunk) => {
+    body += chunk;
+    if (body.length > MAX_BODY) {
+      body = "";
+      req.destroy();
+    }
+  });
+  req.on("end", () => done(body));
+}
+
 // structural, not the concrete Orchestrator — lets tests inject stubs
 export interface OrchestratorLike {
   list(): unknown;
@@ -25,9 +45,20 @@ export function startListener(
       return;
     }
     if (req.url === "/event") {
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
+      // /event stays open on purpose (any Claude Code session may post to it),
+      // but application/json is outside the CORS simple-request set — so a web
+      // page has to preflight, and we never answer preflights. forward.mjs
+      // already sends this header; the Stop message it carries is persisted and
+      // rendered as HTML, so the body must not be page-writable.
+      if (
+        !String(req.headers["content-type"] ?? "").startsWith(
+          "application/json",
+        )
+      ) {
+        res.writeHead(415).end();
+        return;
+      }
+      readBody(req, (body) => {
         res.writeHead(200).end(); // ack immediately — never make Claude Code wait
         let raw: RawHookEvent;
         try {
@@ -62,12 +93,17 @@ export function startListener(
         return;
       }
       const isSend = req.url === "/orchestrate/send";
-      let body = "";
-      req.on("data", (chunk) => (body += chunk));
-      req.on("end", () => {
+      readBody(req, (body) => {
         res.setHeader("content-type", "application/json");
         if (!isSend) {
-          res.writeHead(200).end(JSON.stringify(orchestrator.list()));
+          // a throw here would be uncaught inside an http handler — in Electron
+          // main that kills the process, so list gets the same try send has
+          try {
+            const json = JSON.stringify(orchestrator.list()); // before writeHead
+            res.writeHead(200).end(json);
+          } catch (err) {
+            res.writeHead(500).end(JSON.stringify({ error: String(err) }));
+          }
           return;
         }
         let out: SendResult;

@@ -34,6 +34,7 @@ function setup(
   over: {
     statuses?: WorkspaceStatus[];
     live?: string[]; // workspace ids with a PTY
+    writeFails?: boolean; // PTY died between the probe and the write
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -44,6 +45,7 @@ function setup(
     snapshot: () => over.statuses ?? [],
     hasPty: (id) => live.has(id),
     write: (id, data) => {
+      if (over.writeFails) return false;
       writes.push([id, data]);
       return true;
     },
@@ -152,6 +154,15 @@ describe("orchestrate.send", () => {
       ["d:/vault", "x"],
       ["d:/vault", "\r"],
     ]);
+  });
+
+  // hasPty passes, then the session dies before the write lands
+  it("reports failure and marks nothing when the write is not delivered", () => {
+    const { orch, delegated } = setup({ writeFails: true });
+    const out = orch.send("AeroGraph", "x");
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("ended before delivery");
+    expect(delegated).toEqual([]);
   });
 
   it("rejects an empty prompt", () => {

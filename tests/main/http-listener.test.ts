@@ -52,6 +52,7 @@ async function post(port: number, body: unknown) {
 async function postRaw(port: number, body: string) {
   return fetch(`http://127.0.0.1:${port}/event`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body,
   });
 }
@@ -63,6 +64,7 @@ describe("startListener", () => {
 
     const res = await fetch(url, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         session_id: "s1",
         cwd: "D:\\vault",
@@ -80,13 +82,10 @@ describe("startListener", () => {
 
   it("swallows malformed bodies and unmapped events without crashing", async () => {
     const events: ToolEvent[] = [];
-    const { server, url } = await start((e) => events.push(e));
+    const { server, port, url } = await start((e) => events.push(e));
 
-    await fetch(url, { method: "POST", body: "not json{{{" });
-    await fetch(url, {
-      method: "POST",
-      body: JSON.stringify({ tool_name: "Bash" }),
-    });
+    await postRaw(port, "not json{{{");
+    await post(port, { tool_name: "Bash" });
     const notFound = await fetch(url.replace("/event", "/nope"), {
       method: "POST",
       body: "{}",
@@ -135,6 +134,50 @@ describe("startListener", () => {
     );
     await postRaw(port, "{not json");
     expect(tools).toHaveLength(0);
+    expect(statuses).toHaveLength(0);
+    close();
+  });
+
+  // text/plain is the CORS simple-request shape a web page can fire without a
+  // preflight; requiring JSON forces one, and we never answer preflights
+  it("rejects a non-JSON content-type before either mapper runs", async () => {
+    const tools: unknown[] = [];
+    const statuses: unknown[] = [];
+    const { port, close } = await start(
+      (e) => tools.push(e),
+      (s) => statuses.push(s),
+    );
+    const res = await fetch(`http://127.0.0.1:${port}/event`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({
+        session_id: "s1",
+        cwd: "D:\\vault",
+        hook_event_name: "Stop",
+        last_assistant_message: "<b>spoofed</b>",
+      }),
+    });
+    expect(res.status).toBe(415);
+    expect(tools).toHaveLength(0);
+    expect(statuses).toHaveLength(0);
+    close();
+  });
+
+  it("drops a body over the size cap instead of buffering it", async () => {
+    const statuses: unknown[] = [];
+    const { port, close } = await start(
+      () => {
+        /* no-op */
+      },
+      (s) => statuses.push(s),
+    );
+    const huge = JSON.stringify({
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "x".repeat(2 << 20),
+    });
+    await postRaw(port, huge).catch(() => null); // socket destroyed mid-send
     expect(statuses).toHaveLength(0);
     close();
   });
@@ -211,6 +254,33 @@ describe("orchestrate routes", () => {
     expect(out.ok).toBe(false);
     expect(orch.sends).toEqual([]);
     close();
+  });
+
+  // an uncaught throw in an http handler takes down Electron main, not the request
+  it("answers 500 when list throws, instead of crashing", async () => {
+    const server = startListener(
+      0,
+      () => {
+        /* no-op */
+      },
+      () => {
+        /* no-op */
+      },
+      () => workspaces,
+      {
+        list() {
+          throw new Error("snapshot exploded");
+        },
+        send: () => ({ ok: true as const }),
+      },
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    const res = await post(port, "/orchestrate/list", "{}", {
+      "x-jarvis": "1",
+    });
+    expect(res.status).toBe(500);
+    server.close();
   });
 
   it("GET (a preflight-ish probe) is 404, never answered as CORS", async () => {
