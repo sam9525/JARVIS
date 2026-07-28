@@ -95,6 +95,17 @@ export default function TerminalPanel({
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
   const status: Status = localStatuses[workspace.id] ?? { kind: "idle" };
+  const [staleIndex, setStaleIndex] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setStaleIndex(false);
+    window.jarvis
+      .sourceStale(workspace.id)
+      .then((s) => !cancelled && setStaleIndex(s));
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace.id]);
 
   const detailWs = inbox?.workspaces.find((w) => w.id === detailId);
   const detailStatus = inbox?.statuses.find((s) => s.workspaceId === detailId);
@@ -224,7 +235,7 @@ export default function TerminalPanel({
           {workspace.name}
           {status.kind === "exited" ? ` — exited (${status.code})` : ""}
         </span>
-        {workspace.staleIndex && status.kind === "running" && (
+        {staleIndex && status.kind === "running" && (
           <button
             className="cursor-pointer text-amber-400 hover:text-amber-300"
             title="GitNexus index is behind HEAD — type the reindex command"

@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
-import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
 import { loadSettings, saveSettings } from "./settings";
@@ -14,7 +13,8 @@ import {
   readProjects,
   saveProjects,
 } from "./workspaces";
-import { hasIndex, loadCodeGraph, loadSymbolGraph } from "./gitnexus-graph";
+import { loadSymbolGraph } from "./gitnexus-graph";
+import { resolveSourceId, sourceById } from "./graph-sources/registry";
 import { isDirectory } from "./is-directory";
 import { runAnalyze } from "./graph-sources/gitnexus-source";
 import { ensureHooks } from "./hook-install";
@@ -64,19 +64,9 @@ app.whenReady().then(async () => {
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
-  const loadGraph = async (ws: Workspace): Promise<VaultGraph> => {
-    if (ws.kind === "vault") return scanVault(ws.rootPath);
-    // a project added before it was ever analyzed has no registry entry, so
-    // asking the CLI would only produce "Repository not found"
-    if (!(await hasIndex(ws.rootPath))) return { nodes: [], edges: [] };
-    // keyed by registry name, not path: two registry entries sharing a name
-    // resolve to the same gitnexus index
-    return loadCodeGraph(ws.name).catch((err) => {
-      // gitnexus format drift / unreadable index → terminal-only, no crash
-      console.error(`code graph failed for ${ws.name}:`, err);
-      return { nodes: [], edges: [] };
-    });
-  };
+  const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
+    sourceById(ws.sourceId)?.load(ws) ??
+    Promise.resolve({ nodes: [], edges: [] });
   const graphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
@@ -98,7 +88,6 @@ app.whenReady().then(async () => {
     let g = symbolGraphs.get(id);
     if (!g) {
       g = (async () => {
-        if (!(await hasIndex(ws.rootPath))) return { nodes: [], edges: [] };
         return loadSymbolGraph(ws.name).catch((err) => {
           // gitnexus format drift / unreadable index → empty graph, no crash
           console.error(`symbol graph failed for ${ws.name}:`, err);
@@ -113,6 +102,11 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-workspaces", () => workspaces);
   ipcMain.handle("get-graph", (_e, id: string) => graphFor(id));
   ipcMain.handle("get-symbol-graph", (_e, id: string) => symbolGraphFor(id));
+  ipcMain.handle("source-stale", async (_e, id: string) => {
+    const ws = workspaces.find((w) => w.id === id);
+    if (!ws) return false;
+    return (await sourceById(ws.sourceId)?.stale?.(ws.rootPath)) ?? false;
+  });
   ipcMain.handle("rescan", async (_e, id: string) => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return { nodes: [], edges: [] };
@@ -132,14 +126,18 @@ app.whenReady().then(async () => {
     const id = normalizeId(rootPathPicked);
     if (workspaces.some((w) => w.id === id)) return workspaces; // already here
 
-    // pushed, never reassigned: startListener holds this array through a
-    // () => workspaces getter and the IPC handlers reach it via .find
-    workspaces.push({
+    const ws: Workspace = {
       id,
       name: path.basename(rootPathPicked),
       rootPath: rootPathPicked,
       kind: "code",
-    });
+      sourceId: "unknown",
+    };
+    ws.sourceId = await resolveSourceId(ws);
+
+    // pushed, never reassigned: startListener holds this array through a
+    // () => workspaces getter and the IPC handlers reach it via .find
+    workspaces.push(ws);
     extraPaths.push(rootPathPicked);
     await saveProjects(projectsPath, extraPaths).catch(console.error);
     return workspaces;
@@ -163,6 +161,7 @@ app.whenReady().then(async () => {
       .catch(() => null);
     const name = nameFromRegistry(registry, ws.rootPath);
     if (name) ws.name = name;
+    ws.sourceId = await resolveSourceId(ws);
     graphs.delete(ws.id); // next get-graph/rescan re-reads the fresh index
     symbolGraphs.delete(ws.id);
     return { ok: true };

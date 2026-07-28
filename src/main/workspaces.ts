@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isDirectory } from "./is-directory";
-import { gitnexusSource } from "./graph-sources/gitnexus-source";
+import { resolveSourceId } from "./graph-sources/registry";
 import type { Workspace } from "../shared/types";
 
 export interface RegistryEntry {
@@ -73,6 +73,7 @@ export function buildWorkspaces(
     name: path.basename(vaultPath),
     rootPath: vaultPath,
     kind: "vault",
+    sourceId: "unknown",
   };
   const code = entries
     .filter(
@@ -87,6 +88,7 @@ export function buildWorkspaces(
       name: e.name,
       rootPath: e.path,
       kind: "code" as const,
+      sourceId: "unknown",
     }));
 
   // Registry entries win: gitnexus picks the registered name itself, and only
@@ -97,7 +99,13 @@ export function buildWorkspaces(
     const id = normalizeId(p);
     if (taken.has(id)) continue;
     taken.add(id);
-    extra.push({ id, name: path.basename(p), rootPath: p, kind: "code" });
+    extra.push({
+      id,
+      name: path.basename(p),
+      rootPath: p,
+      kind: "code",
+      sourceId: "unknown",
+    });
   }
 
   return [vault, ...code, ...extra];
@@ -132,12 +140,8 @@ export async function loadWorkspaces(
   const list = buildWorkspaces(vaultPath, entries, extraPaths);
   const alive: Workspace[] = [];
   for (const ws of list) {
-    if (ws.kind === "vault") {
-      alive.push(ws);
-      continue;
-    }
-    if (!(await isDirectory(ws.rootPath))) continue; // folder is gone
-    ws.staleIndex = (await gitnexusSource.stale?.(ws.rootPath)) ?? false;
+    if (ws.kind !== "vault" && !(await isDirectory(ws.rootPath))) continue;
+    ws.sourceId = await resolveSourceId(ws);
     alive.push(ws);
   }
   return alive;

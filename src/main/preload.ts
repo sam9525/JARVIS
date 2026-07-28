@@ -43,6 +43,8 @@ const api = {
     workspaceId: string,
   ): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("index-project", workspaceId),
+  sourceStale: (workspaceId: string): Promise<boolean> =>
+    ipcRenderer.invoke("source-stale", workspaceId),
   ptyLaunch: (
     workspaceId: string,
     cols: number,

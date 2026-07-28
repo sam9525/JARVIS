@@ -51,6 +51,7 @@ const workspace: Workspace = {
   name: "vault",
   rootPath: "D:\\vault",
   kind: "vault",
+  sourceId: "vault",
 };
 
 const ptyLaunch = vi.fn(async () => ({ ok: true, hooksOk: true }));
@@ -69,6 +70,7 @@ beforeEach(() => {
       ptyResize: () => {},
       onPtyData: () => {},
       onPtyExit: () => {},
+      sourceStale: async () => false,
     },
     addEventListener: () => {},
     removeEventListener: () => {},

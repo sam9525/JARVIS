@@ -59,6 +59,12 @@ describe("buildWorkspaces", () => {
     );
     expect(list.map((w) => w.name)).toEqual(["Vault", "a"]);
   });
+
+  it("constructs every workspace with sourceId unknown — resolution is loadWorkspaces' job", () => {
+    const list = buildWorkspaces("D:\\Vault", entries, ["D:\\proj\\x"]);
+    expect(list.every((w) => w.sourceId === "unknown")).toBe(true);
+    expect(list.every((w) => !("staleIndex" in w))).toBe(true);
+  });
 });
 
 describe("resolveWorkspace", () => {
