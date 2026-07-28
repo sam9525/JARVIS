@@ -4,7 +4,6 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildWorkspaces,
-  isStale,
   nameFromRegistry,
   normalizeId,
   readProjects,
@@ -84,17 +83,6 @@ describe("resolveWorkspace", () => {
     // "D:\proj\alphabet" must NOT match workspace "D:\proj\alpha"
     expect(resolveWorkspace(list, "D:\\proj\\alphabet\\z.ts")).toBeNull();
     expect(resolveWorkspace(list, "C:\\elsewhere\\z.ts")).toBeNull();
-  });
-});
-
-describe("isStale", () => {
-  const meta = JSON.stringify({ lastCommit: "abc123" });
-  it("is stale only when both sides are known and differ", () => {
-    expect(isStale(meta, "def456")).toBe(true);
-    expect(isStale(meta, "abc123")).toBe(false);
-    expect(isStale(null, "abc123")).toBe(false); // no meta → can't judge
-    expect(isStale(meta, null)).toBe(false); // git failed → don't cry wolf
-    expect(isStale("not json", "abc123")).toBe(false);
   });
 });
 

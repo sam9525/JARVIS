@@ -168,4 +168,3 @@ describe("Inbox", () => {
     expect(screen.queryByTestId("inbox-delegated-w2")).toBeNull();
   });
 });
-

@@ -1,5 +1,4 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
-import { exec } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
@@ -15,13 +14,9 @@ import {
   readProjects,
   saveProjects,
 } from "./workspaces";
-import {
-  hasIndex,
-  insideGitRepo,
-  loadCodeGraph,
-  loadSymbolGraph,
-} from "./gitnexus-graph";
+import { hasIndex, loadCodeGraph, loadSymbolGraph } from "./gitnexus-graph";
 import { isDirectory } from "./is-directory";
+import { runAnalyze } from "./graph-sources/gitnexus-source";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { createOrchestrator } from "./orchestrate";
@@ -49,46 +44,6 @@ async function resolveRootPath(): Promise<string> {
   }
   await fs.writeFile(store, picked[0], "utf8");
   return picked[0];
-}
-
-// exec, not execFile: `gitnexus` is a .cmd shim on Windows and needs a shell —
-// same reason gitnexus-graph.ts uses exec. The only interpolated value is one
-// of two literal flags, so nothing user-supplied reaches the command line.
-// maxBuffer is per-call and defaults to 1 MB; analyze is chatty enough to blow
-// that, which would kill a long index mid-run.
-const ANALYZE_TIMEOUT_MS = 10 * 60 * 1000;
-
-async function runAnalyze(cwd: string): Promise<void> {
-  // gitnexus refuses a folder with no git history unless told to skip git;
-  // a project can perfectly well be worth indexing before it is a repo
-  const skipGit = (await insideGitRepo(cwd)) ? "" : " --skip-git";
-  return new Promise((resolve, reject) => {
-    exec(
-      `gitnexus analyze${skipGit}`,
-      {
-        cwd,
-        windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024,
-        // the button is disabled while this runs, so a hung analyze would park
-        // the card on "indexing…" with no way out — fail instead of never
-        timeout: ANALYZE_TIMEOUT_MS,
-      },
-      // stderr carries the actual reason ("Not inside a git repository", a
-      // parse failure); err.message alone is just the exit code
-      (err, _stdout, stderr) => {
-        if (!err) return resolve();
-        // a timeout kill leaves stderr empty and err.message unhelpfully generic
-        const killed = (err as { killed?: boolean }).killed;
-        reject(
-          new Error(
-            killed
-              ? `gitnexus analyze timed out after ${ANALYZE_TIMEOUT_MS / 60000} min`
-              : stderr.trim() || err.message,
-          ),
-        );
-      },
-    );
-  });
 }
 
 app.whenReady().then(async () => {

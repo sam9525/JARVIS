@@ -60,6 +60,12 @@ export interface VaultGraph {
 
 export type WorkspaceKind = "vault" | "code";
 
+export const SOURCE_LABELS: Record<string, string> = {
+  vault: "Vault",
+  gitnexus: "GitNexus",
+  unknown: "Unknown",
+};
+
 export interface Workspace {
   id: string; // normalized absolute root path (lowercased, POSIX separators)
   name: string;

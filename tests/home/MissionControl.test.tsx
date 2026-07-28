@@ -330,10 +330,7 @@ describe("MissionControl", () => {
         }) as any)}
       />,
     );
-    expect(screen.byTestId("status-w2").text).toContain(
-      "delegated by JARVIS",
-    );
+    expect(screen.byTestId("status-w2").text).toContain("delegated by JARVIS");
     expect(screen.byTestId("status-w1").text).not.toContain("delegated");
   });
 });
-

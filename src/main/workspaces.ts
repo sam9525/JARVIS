@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
-import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { isDirectory } from "./is-directory";
+import { gitnexusSource } from "./graph-sources/gitnexus-source";
 import type { Workspace } from "../shared/types";
 
 export interface RegistryEntry {
@@ -117,27 +117,6 @@ export function resolveWorkspace(
   return best;
 }
 
-export function isStale(metaJson: string | null, head: string | null): boolean {
-  if (!metaJson || !head) return false;
-  try {
-    const last = (JSON.parse(metaJson) as { lastCommit?: unknown }).lastCommit;
-    return typeof last === "string" && last !== head;
-  } catch {
-    return false;
-  }
-}
-
-function gitHead(root: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      "git",
-      ["-C", root, "rev-parse", "HEAD"],
-      { windowsHide: true },
-      (err, stdout) => resolve(err ? null : stdout.trim()),
-    );
-  });
-}
-
 export async function loadWorkspaces(
   vaultPath: string,
   extraPaths: string[] = [],
@@ -158,10 +137,7 @@ export async function loadWorkspaces(
       continue;
     }
     if (!(await isDirectory(ws.rootPath))) continue; // folder is gone
-    const meta = await fs
-      .readFile(path.join(ws.rootPath, ".gitnexus", "meta.json"), "utf8")
-      .catch(() => null);
-    ws.staleIndex = isStale(meta, await gitHead(ws.rootPath));
+    ws.staleIndex = (await gitnexusSource.stale?.(ws.rootPath)) ?? false;
     alive.push(ws);
   }
   return alive;
