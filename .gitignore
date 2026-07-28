@@ -9,6 +9,7 @@ out/
 # CLAUDE
 CLAUDE.md
 .claude/
+.mcp.json
 
 # ANTIGRAVITY
 AGENTS.md

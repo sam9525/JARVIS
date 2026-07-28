@@ -154,4 +154,3 @@ export async function loadSymbolGraph(repoName: string): Promise<VaultGraph> {
     .map((r) => [r[0], r[1]] as [string, string]);
   return buildSymbolGraph(symbols, calls);
 }
-

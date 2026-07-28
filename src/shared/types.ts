@@ -20,6 +20,7 @@ export interface WorkspaceStatus {
   kind: StatusKind;
   call: string; // compact "Tool(subject)"; "" when there is nothing to show
   message?: string; // idle: the last thing Claude said, for the inbox
+  delegatedBy?: string; // orchestrator that submitted the current turn; "" when the user did
   since: number; // ms epoch of the last kind change — drives "40s ago"
   reads: number; // distinct files read this session
   edits: number; // distinct files edited this session
@@ -65,6 +66,7 @@ export interface Workspace {
   rootPath: string;
   kind: WorkspaceKind;
   staleIndex?: boolean; // code only: gitnexus index behind repo HEAD
+  isSelf?: boolean; // the cockpit's own repo — home's terminal is pinned here
 }
 
 export interface Session {
@@ -80,6 +82,7 @@ export interface GraphGroup {
 
 export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
+export type HomeView = "cards" | "fleet";
 
 export interface DisplaySettings {
   textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
@@ -90,6 +93,7 @@ export interface DisplaySettings {
   linkOpacity: number; // link line opacity
   haloPad: number; // group halo radius multiplier past the farthest member
   haloBase: number; // group halo base radius added after padding
+  haloOpacity: number; // group halo sprite opacity
   // zoom applied when a note opens: 2d = zoom factor, 3d = camera distance
   focusZoom: number;
 }
@@ -102,7 +106,7 @@ export interface ForceSettings {
 }
 
 // display + forces are tuned per view (2d/3d) since the same values lay out
-// differently in each; filters, groups, and dimension stay shared.
+// differently in each; filters and dimension stay shared.
 export interface ViewSettings {
   display: DisplaySettings;
   forces: ForceSettings;
@@ -114,8 +118,16 @@ export interface Settings {
   sectionFilter: SectionFilter;
   showTags: boolean;
   showOrphans: boolean;
-  groups: GraphGroup[]; // first matching group wins
+  groups: Record<string, GraphGroup[]>; // per workspace id; first match wins
   views: Record<Dimensions, ViewSettings>;
+}
+
+// a workspace's groups, or none if it has never been seeded
+export function groupsFor(
+  settings: Settings,
+  id: string | null | undefined,
+): GraphGroup[] {
+  return (id && settings.groups[id]) || [];
 }
 
 // force defaults equal the d3 defaults in 2d; 3d values are the hand-tuned
@@ -131,6 +143,7 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          haloOpacity: 0.55,
           focusZoom: 6.8,
         },
         forces: {
@@ -149,6 +162,7 @@ function defaultView(mode: Dimensions): ViewSettings {
           linkOpacity: 0.25,
           haloPad: 1.1,
           haloBase: 10,
+          haloOpacity: 0.55,
           focusZoom: 180,
         },
         forces: {
@@ -167,7 +181,7 @@ export function defaultSettings(): Settings {
     sectionFilter: "wiki",
     showTags: true,
     showOrphans: true,
-    groups: [],
+    groups: {},
     views: { "2d": defaultView("2d"), "3d": defaultView("3d") },
   };
 }

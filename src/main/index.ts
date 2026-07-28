@@ -7,7 +7,7 @@ import started from "electron-squirrel-startup";
 import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
-import { autoGroups, loadSettings, saveSettings } from "./settings";
+import { loadSettings, saveSettings } from "./settings";
 import {
   loadWorkspaces,
   normalizeId,
@@ -23,6 +23,8 @@ import {
 } from "./gitnexus-graph";
 import { isDirectory } from "./is-directory";
 import { ensureHooks } from "./hook-install";
+import { ensureMcp } from "./mcp-install";
+import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
@@ -99,6 +101,12 @@ app.whenReady().then(async () => {
   const workspaces = await loadWorkspaces(rootPath, extraPaths);
   const vault = workspaces[0];
 
+  // ponytail: dev-only match — packaged getAppPath() is an asar path that no
+  // workspace can equal, so home falls back to the vault. Terminals are
+  // dev-only anyway.
+  const self = workspaces.find((w) => w.id === normalizeId(app.getAppPath()));
+  if (self) self.isSelf = true;
+
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
   const loadGraph = async (ws: Workspace): Promise<VaultGraph> => {
@@ -130,7 +138,8 @@ app.whenReady().then(async () => {
   const symbolGraphs = new Map<string, Promise<VaultGraph>>();
   const symbolGraphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
-    if (!ws || ws.kind !== "code") return Promise.resolve({ nodes: [], edges: [] });
+    if (!ws || ws.kind !== "code")
+      return Promise.resolve({ nodes: [], edges: [] });
     let g = symbolGraphs.get(id);
     if (!g) {
       g = (async () => {
@@ -209,13 +218,6 @@ app.whenReady().then(async () => {
     "jarvis-settings.json",
   );
   let settings = await loadSettings(settingsPath);
-  // first run (or user cleared every group): seed one group per top-level folder
-  if (settings.groups.length === 0) {
-    // a failed vault scan must not stop the window from opening — skip seeding
-    const g = await graphFor(vault.id).catch(() => null);
-    if (g) settings.groups = autoGroups(g);
-    if (settings.groups.length > 0) await saveSettings(settingsPath, settings);
-  }
   ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
     settings = s;
@@ -265,20 +267,33 @@ app.whenReady().then(async () => {
     win.webContents.send(channel, payload, ...rest);
   };
 
+  const inboxPath = path.join(app.getPath("userData"), "jarvis-inbox.json");
   const status = createStatusStore();
-  const pushStatus = (changed: boolean) => {
-    if (changed) send("status", status.snapshot());
-  };
-
-  startListener(
-    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
-    (e) => {
-      send("tool-event", e);
-      pushStatus(status.countTool(e));
-    },
-    (s) => pushStatus(status.applyStatus(s)),
-    () => workspaces,
+  status.restore(
+    await fs
+      .readFile(inboxPath, "utf8")
+      .then((t) => JSON.parse(t) as unknown)
+      .catch(() => null), // missing or corrupt → the inbox just starts empty
   );
+
+  // the renderer only ever receives pushes, so a restored inbox needs one
+  win.webContents.on("did-finish-load", () =>
+    send("status", status.snapshot()),
+  );
+
+  let savedInbox = "";
+  const pushStatus = (changed: boolean) => {
+    if (!changed) return;
+    const snap = status.snapshot();
+    send("status", snap);
+    // only Stop carries a message, so this writes rarely despite the call site
+    const json = JSON.stringify(snap.filter((s) => s.message));
+    if (json === savedInbox) return;
+    savedInbox = json;
+    fs.writeFile(inboxPath, json, "utf8").catch((err) =>
+      console.error("inbox save failed:", err),
+    );
+  };
 
   // one sweep for every workspace — Esc leaves "running" with no Stop to end it
   const sweepTimer = setInterval(
@@ -315,7 +330,30 @@ app.whenReady().then(async () => {
       },
     },
   );
+
+  const orchestrator = createOrchestrator({
+    getWorkspaces: () => workspaces,
+    snapshot: () => status.snapshot(),
+    hasPty: (id) => ptyManager.has(id),
+    write: (id, data) => ptyManager.write(id, data),
+    // markDelegated is a status change like any other — push it to the rail
+    markDelegated: (id, by) =>
+      pushStatus(status.markDelegated(id, by, Date.now())),
+  });
+
+  startListener(
+    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
+    (e) => {
+      send("tool-event", e);
+      pushStatus(status.countTool(e));
+    },
+    (s) => pushStatus(status.applyStatus(s)),
+    () => workspaces,
+    orchestrator,
+  );
+
   const forwardPath = path.join(app.getAppPath(), "src", "hook", "forward.mjs");
+  const mcpPath = path.join(app.getAppPath(), "src", "hook", "mcp.mjs");
   ipcMain.handle(
     "pty-launch",
     async (
@@ -328,15 +366,16 @@ app.whenReady().then(async () => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
+      const mcpOk = await ensureMcp(ws, mcpPath);
       try {
         ptyManager.launch(ws, cols, rows, dangerous);
         pushStatus(status.ptyLaunched(ws.id, Date.now()));
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
         console.error("pty launch failed:", err);
-        return { ok: false, hooksOk };
+        return { ok: false, hooksOk: hooksOk && mcpOk };
       }
-      return { ok: true, hooksOk };
+      return { ok: true, hooksOk: hooksOk && mcpOk };
     },
   );
   ipcMain.on("pty-input", (_e, id: string, data: string) =>

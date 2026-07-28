@@ -1,0 +1,562 @@
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import ForceGraph3D from "react-force-graph-3d";
+import type { ForceGraphMethods } from "react-force-graph-3d";
+import type { GraphGroup, ViewSettings, VaultGraph } from "../../shared/types";
+import {
+  expireMatches,
+  heatOf,
+  hlKey,
+  matchProgress,
+  nodeDisplay,
+  type HighlightState,
+} from "../session/highlight-store";
+import { baseNodeColor } from "./domain-colors";
+import { displayRadius, graphMetrics, sphereRadius } from "./graph-metrics";
+import { brighten, COLORS } from "./graph-colors";
+import { useForceTuning, type ForceHandle } from "./use-force-tuning";
+import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
+import { useSpriteMaterials } from "./sprite-materials";
+import { useMergedLinks } from "./use-merged-links";
+import { endId, type LinkObj, type NodeObj } from "./link-ends";
+import SpriteText from "three-spritetext";
+import { nodeLabelText } from "./node-label";
+import {
+  ArrowHelper,
+  Color,
+  Group,
+  LineBasicMaterial,
+  MeshBasicMaterial,
+  Sprite,
+  Vector3,
+} from "three";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+
+// camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
+const CAM = { min: 20, max: 3000 } as const;
+
+// idle auto-rotation: resume this long after the last interaction
+const IDLE_ROTATE_MS = 5000;
+const ROTATE_SPEED = 1;
+
+// slider (2–30) → max camera distance at which labels show; higher threshold
+// hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
+const LABEL_DISTANCE_SCALE = 4500;
+
+type Coords = { x: number; y: number; z: number };
+
+// ArrowHelper owns a line + cone material apiece and nothing else disposes
+// them, so emptying the trail group has to walk them by hand.
+function clearTrail(group: Group): void {
+  for (const child of [...group.children]) {
+    const arrow = child as ArrowHelper;
+    for (const part of [arrow.line, arrow.cone]) {
+      const mat = part?.material;
+      if (!mat) continue;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat.dispose();
+    }
+  }
+  group.clear();
+}
+
+type GraphProps = {
+  graph: VaultGraph; // may be filtered
+  domains: string[]; // from the FULL graph — keeps palette indices stable
+  groups: GraphGroup[];
+  haloGroups?: GraphGroup[]; // group halos only; decoupled from node coloring (fleet: blue backdrops over per-project node colors)
+  display: ViewSettings["display"];
+  forces: ViewSettings["forces"];
+  stateRef: React.MutableRefObject<HighlightState>;
+  onNodeClick: (id: string) => void;
+  focusNode: string | null; // aim the camera at this node
+  layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
+  rotationPaused: boolean; // preview open — no auto-rotation
+  width: number; // measured graph-slot size from GraphSlot's ResizeObserver
+  height: number;
+  lite?: boolean; // static fleet view: cheaper spheres, merged link layer, normal-blend glow, no highlight polling
+};
+
+export default function Graph3D({
+  graph,
+  domains,
+  groups,
+  haloGroups,
+  display,
+  forces,
+  stateRef,
+  onNodeClick,
+  focusNode,
+  layoutEpoch,
+  rotationPaused,
+  width,
+  height,
+  lite = false,
+}: GraphProps) {
+  const fgRef = useRef<ForceGraphMethods>();
+  const didFit = useRef(false); // fit-to-screen once, not on every re-settle
+  // node id → its label sprite, so the visibility sweep can toggle them.
+  // Entries for removed nodes go stale but are never visited (sweep iterates
+  // current data.nodes) — harmless.
+  const sprites = useRef(new Map<string, SpriteText>());
+  const pausedRef = useRef(rotationPaused);
+  pausedRef.current = rotationPaused;
+  const rotationCtl = useRef<{ stop: () => void; arm: () => void }>();
+
+  // a rescan hands over brand-new node objects, so the simulation restarts
+  // on its own; we only need to let onEngineStop re-fit the camera
+  useEffect(() => {
+    if (layoutEpoch === 0) return;
+    didFit.current = false;
+  }, [layoutEpoch]);
+
+  // Nodes carry the BASE radius only — display.nodeSize applies at paint time
+  // so a slider tick doesn't re-bind data and restart the simulation.
+  const data = useMemo(() => {
+    const m = graphMetrics(graph);
+    return {
+      nodes: graph.nodes.map((n) => ({ ...n, r: m.radius.get(n.id) ?? 4 })),
+      links: graph.edges.map((e) => ({ source: e.source, target: e.target })),
+    };
+  }, [graph]);
+
+  const nodeById = useMemo(
+    () => new Map(data.nodes.map((n) => [String(n.id), n as NodeObj])),
+    [data],
+  );
+
+  // node id → base color so every link is a source→target gradient;
+  // same-group links come out solid, cross-group links blend group colors.
+  // baseNodeColor excludes highlight state so read flares don't recolor edges.
+  const linkColors = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const n of graph.nodes) m.set(n.id, baseNodeColor(n, domains, groups));
+    return m;
+  }, [graph, domains, groups]);
+
+  // one material shared by every link line; linewidth is screen-space px.
+  // refresh() flush-disposes each link object's material, but this one is
+  // shared and component-owned — no-op those disposals (they'd force a
+  // shader recompile 2×/s during highlights) and do the real one on unmount.
+  const linkMaterial = useMemo(() => {
+    const m = new LineMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: display.linkOpacity,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    m.dispose = () => {};
+    return m;
+  }, []);
+
+  // lite (fleet) merged lines get their own material: depthWrite off so the
+  // link layer can't punch the depth buffer and sit over the node spheres
+  // (the spheres still occlude lines behind them — depthTest stays on).
+  const liteLinkMaterial = useMemo(() => {
+    const m = new LineMaterial({
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      opacity: display.linkOpacity,
+      linewidth: display.linkThickness * 2,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    m.dispose = () => {};
+    return m;
+  }, []);
+  useEffect(
+    () => () => LineMaterial.prototype.dispose.call(liteLinkMaterial),
+    [liteLinkMaterial],
+  );
+
+  useEffect(
+    () => () => LineMaterial.prototype.dispose.call(linkMaterial),
+    [linkMaterial],
+  );
+
+  const linkThreeObject = useCallback(
+    (link: LinkObj) => {
+      const geometry = new LineGeometry();
+      // seed real endpoint positions when nodes are already resolved so a
+      // refresh() at rest doesn't leave lines collapsed at the origin
+      const s = typeof link.source === "object" ? link.source : undefined;
+      const t = typeof link.target === "object" ? link.target : undefined;
+      geometry.setPositions([
+        s?.x ?? 0,
+        s?.y ?? 0,
+        s?.z ?? 0,
+        t?.x ?? 0,
+        t?.y ?? 0,
+        t?.z ?? 0,
+      ]);
+      const sc = new Color(linkColors.get(endId(link.source)) ?? COLORS.link);
+      const tc = new Color(linkColors.get(endId(link.target)) ?? COLORS.link);
+      geometry.setColors([sc.r, sc.g, sc.b, tc.r, tc.g, tc.b]);
+      return new Line2(geometry, linkMaterial);
+    },
+    [linkColors, linkMaterial],
+  );
+
+  const writeMergedPositions = useMergedLinks(
+    fgRef as unknown as React.MutableRefObject<
+      { scene(): { add(o: object): void; remove(o: object): void } } | undefined
+    >,
+    lite,
+    data.links,
+    nodeById,
+    linkColors,
+    liteLinkMaterial,
+    display.nodeSize,
+  );
+
+  useForceTuning(
+    fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
+    forces,
+  );
+
+  useGroupHalos(
+    fgRef as unknown as React.MutableRefObject<HaloSceneHandle | undefined>,
+    data.nodes,
+    haloGroups ?? groups,
+    {
+      // fleet gets one big backdrop: widen the single halo well past the graph
+      pad: lite ? display.haloPad * 2.5 : display.haloPad,
+      base: display.haloBase,
+      opacity: display.haloOpacity,
+    },
+  );
+
+  const materials = useSpriteMaterials(lite, display.nodeOpacity);
+
+  // read-order arrows live in a component-owned group, rebuilt by the
+  // highlight interval — never part of graphData
+  const trailGroup = useRef<Group>();
+  useEffect(() => {
+    const scene = fgRef.current?.scene();
+    if (!scene) return;
+    const g = new Group();
+    scene.add(g);
+    trailGroup.current = g;
+    return () => {
+      clearTrail(g);
+      scene.remove(g);
+    };
+  }, []);
+
+  // fly the camera to focusZoom units from the focused node, looking at a
+  // point shifted left of it so the node lands in the visible area right of
+  // the left-docked preview card (3D analog of 2D's panel/2 centerAt offset);
+  // closing the preview returns to the launch fit. focusZoom in the deps
+  // makes slider drags re-apply live while a note is open.
+  const hadFocus = useRef(false);
+  useEffect(() => {
+    if (!focusNode) {
+      if (hadFocus.current) {
+        hadFocus.current = false;
+        fgRef.current?.zoomToFit(1000, -400);
+      }
+      return;
+    }
+    hadFocus.current = true;
+    const node = nodeById.get(focusNode);
+    if (!node || node.x === undefined) return;
+    const cam = fgRef.current?.camera();
+    if (!cam) return;
+    const nx = node.x ?? 0;
+    const ny = node.y ?? 0;
+    const nz = node.z ?? 0;
+    const dx = cam.position.x - nx;
+    const dy = cam.position.y - ny;
+    const dz = cam.position.z - nz;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return; // camera already on the node — nothing sensible to do
+    const s = display.focusZoom / len;
+    // preview is a layout sibling now, so the slot already excludes it —
+    // look straight at the node with no camera-right screen-space offset
+    fgRef.current?.cameraPosition(
+      { x: nx + dx * s, y: ny + dy * s, z: nz + dz * s },
+      { x: nx, y: ny, z: nz },
+      1600,
+    );
+  }, [focusNode, nodeById, display.focusZoom]);
+
+  useEffect(() => {
+    const controls = fgRef.current?.controls() as
+      | {
+          minDistance: number;
+          maxDistance: number;
+          autoRotate: boolean;
+          autoRotateSpeed: number;
+          enableDamping: boolean;
+          dampingFactor: number;
+          addEventListener(type: string, fn: () => void): void;
+          removeEventListener(type: string, fn: () => void): void;
+        }
+      | undefined;
+    if (!controls) return;
+    controls.minDistance = CAM.min;
+    controls.maxDistance = CAM.max;
+    controls.autoRotateSpeed = ROTATE_SPEED;
+    // release inertia: the drag coasts and slows to a stop instead of
+    // halting dead. autoRotate already animates each frame, which proves
+    // controls.update() runs per frame — damping rides the same loop.
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.03;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopRotate = () => {
+      controls.autoRotate = false;
+      clearTimeout(timer);
+    };
+    const armRotate = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!pausedRef.current) controls.autoRotate = true;
+      }, IDLE_ROTATE_MS);
+    };
+    controls.addEventListener("start", stopRotate); // user grabbed the camera
+    controls.addEventListener("end", armRotate); // released — rotate in 5s
+    armRotate(); // initial load counts as an interaction
+    rotationCtl.current = { stop: stopRotate, arm: armRotate };
+    linkMaterial.linewidth = display.linkThickness * 2;
+    return () => {
+      controls.removeEventListener("start", stopRotate);
+      controls.removeEventListener("end", armRotate);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // keep the line material's resolution matched to the canvas so screen-space
+  // linewidth stays correct across resizes (panel open/close, window resize)
+  useEffect(() => {
+    linkMaterial.resolution.set(width, height);
+    liteLinkMaterial.resolution.set(width, height);
+  }, [width, height, linkMaterial, liteLinkMaterial]);
+
+  // preview open ⇒ stop now and stay stopped; close ⇒ normal idle re-arm
+  useEffect(() => {
+    if (rotationPaused) rotationCtl.current?.stop();
+    else rotationCtl.current?.arm();
+  }, [rotationPaused]);
+
+  // ponytail: rings/colors are baked into node objects, so poll the store's
+  // rev counter and re-run accessors once per change (covers add AND reset).
+  // Trail arrows rebuild every tick (cheap — dozens at most) to track drift.
+  const lastRev = useRef(-1);
+  useEffect(() => {
+    if (lite) return; // static fleet: rev never changes, trail always empty
+    const id = setInterval(() => {
+      const s = stateRef.current;
+      expireMatches(s, performance.now());
+      if (s.rev !== lastRev.current) {
+        lastRev.current = s.rev;
+        fgRef.current?.refresh();
+      }
+      const g = trailGroup.current;
+      if (!g) return;
+      clearTrail(g);
+      // ponytail: trail entries are file-path ids; in symbol mode no symbol node
+      // carries that id, so trail arrows simply don't resolve here. Structure-first.
+      for (let i = 0; i < s.trail.length - 1; i++) {
+        const a = nodeById.get(s.trail[i]);
+        const b = nodeById.get(s.trail[i + 1]);
+        if (!a || !b || a.x === undefined || b.x === undefined) continue;
+        const from = new Vector3(a.x ?? 0, a.y ?? 0, a.z ?? 0);
+        const dir = new Vector3(b.x ?? 0, b.y ?? 0, b.z ?? 0).sub(from);
+        const len = dir.length();
+        // stop at the sphere surfaces
+        const ra = sphereRadius(displayRadius(a.r ?? 4, display.nodeSize, 0));
+        const rb = sphereRadius(displayRadius(b.r ?? 4, display.nodeSize, 0));
+        if (len < ra + rb + 2) continue; // spheres touching — no room
+        dir.normalize();
+        const arrow = new ArrowHelper(
+          dir,
+          from.addScaledVector(dir, ra + 1),
+          len - ra - rb - 2,
+          COLORS.trail,
+          6,
+          3,
+        );
+        (arrow.line.material as LineBasicMaterial).transparent = true;
+        (arrow.line.material as LineBasicMaterial).opacity = 0.6;
+        (arrow.cone.material as MeshBasicMaterial).transparent = true;
+        (arrow.cone.material as MeshBasicMaterial).opacity = 0.6;
+        g.add(arrow);
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [stateRef, nodeById, display.nodeSize, lite]);
+
+  // ponytail: label visibility is a 4×/s distance sweep, not per-frame
+  // projection math like 2D. Ceiling: hook onEngineTick if the interval lags.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const cam = fgRef.current?.camera();
+      if (!cam) return;
+      const maxDist = LABEL_DISTANCE_SCALE / display.textFadeThreshold;
+      const maxSq = maxDist * maxDist;
+      for (const n of data.nodes as NodeObj[]) {
+        const s = sprites.current.get(String(n.id));
+        if (!s) continue;
+        const dx = (n.x ?? 0) - cam.position.x;
+        const dy = (n.y ?? 0) - cam.position.y;
+        const dz = (n.z ?? 0) - cam.position.z;
+        s.visible = dx * dx + dy * dy + dz * dz < maxSq;
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [data, display.textFadeThreshold]);
+
+  // Node size / link thickness / group colors are baked into 3D geometry, so a
+  // slider change only takes effect on refresh(). Forces re-settle on their own
+  // via useForceTuning's reheat. Skip the mount run — the first build already
+  // reads current values. refresh() re-reads accessors without moving nodes.
+  const didRefresh = useRef(false);
+  useEffect(() => {
+    if (!didRefresh.current) {
+      didRefresh.current = true;
+      return;
+    }
+    linkMaterial.linewidth = display.linkThickness * 2;
+    linkMaterial.opacity = display.linkOpacity;
+    liteLinkMaterial.linewidth = display.linkThickness * 2;
+    liteLinkMaterial.opacity = display.linkOpacity;
+    materials.setGlowOpacity(display.nodeOpacity);
+    writeMergedPositions(); // re-seat link ends on the resized spheres (lite no-ops if idle)
+    fgRef.current?.refresh();
+  }, [display, groups, linkMaterial, liteLinkMaterial]);
+
+  // highlights always win, then group color, then domain palette; heat
+  // brightens whichever won rather than replacing it
+  const displayColor = useCallback(
+    (node: NodeObj): string => {
+      const id = String(node.id);
+      const hk = hlKey(node as { id: string | number; file?: string });
+      const t = heatOf(stateRef.current, hk);
+      // modified recolors the sphere; a read gets a ring sprite (Task 3)
+      if (nodeDisplay(stateRef.current, hk) === "modified")
+        return brighten(COLORS.modified, t);
+      return brighten(
+        baseNodeColor(
+          { id, type: node.type, domain: node.domain },
+          domains,
+          groups,
+        ),
+        t,
+      );
+    },
+    [stateRef, domains, groups],
+  );
+
+  const nodeThreeObject = useCallback(
+    (node: NodeObj) => {
+      const id = String(node.id);
+      const hk = hlKey(node as { id: string | number; file?: string });
+      const obj = new Group();
+      // soft radial "box shadow" behind the sphere, in the node's color
+      const r = displayRadius(
+        node.r ?? 4,
+        display.nodeSize,
+        heatOf(stateRef.current, hk),
+      );
+      const sphereR = sphereRadius(r);
+      const glow = new Sprite(materials.glow(displayColor(node)));
+      glow.scale.setScalar(sphereR * 4);
+      obj.add(glow);
+      if (nodeDisplay(stateRef.current, hk) === "ring") {
+        const ring = new Sprite(materials.ring(COLORS.ring));
+        ring.scale.setScalar(sphereR * 3);
+        obj.add(ring);
+      }
+      // matched by the last search — binary on/off, not a fade: node
+      // appearance here is baked and only re-runs on a rev change, and
+      // re-baking every frame is the cost this design avoids.
+      // matchProgress gates it as well as the set does, because a frozen replay
+      // state never expires its matches — without this, 3D would hold the rings
+      // for the whole scrub while 2D drops them one event later.
+      if (
+        matchProgress(stateRef.current, performance.now()) !== null &&
+        stateRef.current.matched.has(hk)
+      ) {
+        const ring = new Sprite(materials.ring(COLORS.match));
+        ring.scale.setScalar(sphereR * 3.3);
+        obj.add(ring);
+      }
+      // the node whose preview is open
+      if (id === focusNode) {
+        const ring = new Sprite(materials.ring(COLORS.hover));
+        ring.scale.setScalar(sphereR * 3.6);
+        obj.add(ring);
+      }
+      const sprite = new SpriteText(nodeLabelText(id, node.type));
+      sprite.color = COLORS.label;
+      sprite.textHeight = 4;
+      // sit just below the sphere; re-created on refresh() so a nodeSize
+      // slider change re-derives the offset
+      sprite.position.set(0, -(r + 4), 0);
+      // refresh() recreates sprites with visible=true; inherit the previous
+      // visibility so far labels don't strobe between distance sweeps
+      sprite.visible = sprites.current.get(id)?.visible ?? true;
+      sprites.current.set(id, sprite);
+      obj.add(sprite as unknown as Sprite);
+      return obj;
+    },
+    [display.nodeSize, materials, displayColor, stateRef, focusNode],
+  );
+
+  return (
+    <ForceGraph3D
+      ref={fgRef}
+      graphData={data}
+      width={width}
+      height={height}
+      backgroundColor={COLORS.bg}
+      controlType="orbit"
+      nodeResolution={lite ? 10 : 16}
+      cooldownTicks={300} // settle in ~1-2s instead of the default 15s so the fit fires promptly
+      onEngineStop={() => {
+        if (lite) writeMergedPositions(); // final coords, even on a 0-tick settle
+        if (didFit.current) return;
+        didFit.current = true;
+        fgRef.current?.zoomToFit(300, -400);
+      }}
+      nodeLabel="id"
+      nodeVal={(node: NodeObj) =>
+        displayRadius(
+          node.r ?? 4,
+          display.nodeSize,
+          heatOf(
+            stateRef.current,
+            hlKey(node as { id: string | number; file?: string }),
+          ),
+        ) ** 2
+      }
+      nodeThreeObjectExtend={true}
+      nodeThreeObject={nodeThreeObject}
+      nodeColor={displayColor}
+      // lite: links are drawn by the single merged LineSegments2 above, so the
+      // library renders none of its own; onEngineTick keeps them following nodes
+      linkVisibility={!lite}
+      onEngineTick={lite ? writeMergedPositions : undefined}
+      linkThreeObject={lite ? undefined : linkThreeObject}
+      linkPositionUpdate={
+        lite
+          ? undefined
+          : (obj: Line2, ends: { start: Coords; end: Coords }) => {
+              obj.geometry.setPositions([
+                ends.start.x,
+                ends.start.y,
+                ends.start.z,
+                ends.end.x,
+                ends.end.y,
+                ends.end.z,
+              ]);
+              return true; // we own positioning — skip the default handler
+            }
+      }
+      onNodeClick={(node: NodeObj) => {
+        if (node.type === "note") onNodeClick(String(node.id));
+      }}
+    />
+  );
+}

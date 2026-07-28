@@ -1,7 +1,6 @@
 import { promises as fs } from "node:fs";
 import { defaultSettings } from "../shared/types";
-import { randomColor } from "../shared/random-color";
-import type { GraphGroup, Settings, VaultGraph } from "../shared/types";
+import type { GraphGroup, Settings } from "../shared/types";
 
 export async function loadSettings(file: string): Promise<Settings> {
   const s = defaultSettings();
@@ -24,14 +23,12 @@ export async function loadSettings(file: string): Promise<Settings> {
     }
     if (typeof p.showTags === "boolean") s.showTags = p.showTags;
     if (typeof p.showOrphans === "boolean") s.showOrphans = p.showOrphans;
-    if (Array.isArray(p.groups)) {
-      s.groups = p.groups.filter(
-        (g): g is GraphGroup =>
-          typeof g === "object" &&
-          g !== null &&
-          typeof (g as Record<string, unknown>).query === "string" &&
-          typeof (g as Record<string, unknown>).color === "string",
-      );
+    // groups are keyed by workspace id; a legacy flat array is dropped (the
+    // renderer re-seeds each workspace from its own graph on first open)
+    if (typeof p.groups === "object" && p.groups !== null) {
+      for (const [id, list] of Object.entries(p.groups)) {
+        if (Array.isArray(list)) s.groups[id] = list.filter(isGroup);
+      }
     }
     // per-view display/forces (new format). A legacy flat display/forces from
     // an older settings file seeds BOTH modes first, then any per-view values
@@ -69,14 +66,15 @@ function mergeFiniteNumbers(
   }
 }
 
-export async function saveSettings(file: string, s: Settings): Promise<void> {
-  await fs.writeFile(file, JSON.stringify(s, null, 2) + "\n", "utf8");
+function isGroup(g: unknown): g is GraphGroup {
+  return (
+    typeof g === "object" &&
+    g !== null &&
+    typeof (g as Record<string, unknown>).query === "string" &&
+    typeof (g as Record<string, unknown>).color === "string"
+  );
 }
 
-// one group per top-level vault folder; the trailing slash keeps false
-// substring matches rare (e.g. a note merely named "physics" won't match)
-export function autoGroups(graph: VaultGraph): GraphGroup[] {
-  const domains = new Set<string>();
-  for (const n of graph.nodes) if (n.domain) domains.add(n.domain);
-  return [...domains].map((d) => ({ query: `${d}/`, color: randomColor() }));
+export async function saveSettings(file: string, s: Settings): Promise<void> {
+  await fs.writeFile(file, JSON.stringify(s, null, 2) + "\n", "utf8");
 }
