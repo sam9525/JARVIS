@@ -130,9 +130,8 @@ export default function App() {
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
       setReplayIndex(null); // the ref above already points at the live store
-      graphs.openGraph(ws);
     },
-    [onPreviewEvent, graphs.openGraph],
+    [onPreviewEvent],
   );
 
   useEffect(() => {
