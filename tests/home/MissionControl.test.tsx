@@ -16,8 +16,20 @@ import type {
 } from "../../src/shared/types";
 
 const workspaces: Workspace[] = [
-  { id: "w1", name: "vault", rootPath: "D:\\vault", kind: "vault" },
-  { id: "w2", name: "gitnexus", rootPath: "D:\\gn", kind: "code" },
+  {
+    id: "w1",
+    name: "vault",
+    rootPath: "D:\\vault",
+    kind: "vault",
+    sourceId: "vault",
+  },
+  {
+    id: "w2",
+    name: "gitnexus",
+    rootPath: "D:\\gn",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
 ];
 
 const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
@@ -332,5 +344,27 @@ describe("MissionControl", () => {
     );
     expect(screen.byTestId("status-w2").text).toContain("delegated by JARVIS");
     expect(screen.byTestId("status-w1").text).not.toContain("delegated");
+  });
+
+  it("carries the untruncated call in a native tooltip", () => {
+    const call =
+      "Bash(npx vitest run tests/graph/use-workspace-graphs.test.tsx --reporter verbose)";
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [status({ workspaceId: "w1", kind: "running", call })],
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("call-w1").props.title).toBe(call);
+  });
+
+  it("has no tooltip when there is no call", () => {
+    render(
+      <MissionControl
+        {...(props({ statuses: [status({ workspaceId: "w1" })] }) as any)}
+      />,
+    );
+    expect(screen.byTestId("call-w1").props.title).toBeUndefined();
   });
 });

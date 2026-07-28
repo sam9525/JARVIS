@@ -150,6 +150,7 @@ export default function MissionControl({
                   Claude happens to be doing */}
               <div
                 data-testid={`call-${ws.id}`}
+                title={st?.call || undefined}
                 className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11.5px] text-accent-soft"
               >
                 {st?.call || " "}
