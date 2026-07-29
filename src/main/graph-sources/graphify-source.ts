@@ -1,5 +1,10 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { topFolder } from "../gitnexus-graph";
+import { gitHead } from "./gitnexus-source";
+import { SOURCE_LABELS } from "../../shared/types";
 import type { VaultGraph, GraphEdge } from "../../shared/types";
+import type { GraphSource } from "./types";
 
 // Informal contract with the graphify pipeline: graphify-out/graph.json is
 // networkx node_link_data. Only the fields read here are modelled; relation,
@@ -75,3 +80,72 @@ export function buildSymbolGraph(
       .map((l) => ({ source: l.source, target: l.target })),
   };
 }
+
+const OUT_DIR = "graphify-out";
+
+function readGraph(rootPath: string): Promise<GraphifyGraph> {
+  return fs
+    .readFile(path.join(rootPath, OUT_DIR, "graph.json"), "utf8")
+    .then((raw) => JSON.parse(raw) as GraphifyGraph);
+}
+
+// written by the pipeline's labelling step and optional by design — absent,
+// unreadable, or malformed all mean "no labels"
+function readLabels(rootPath: string): Promise<Record<string, string>> {
+  return fs
+    .readFile(path.join(rootPath, OUT_DIR, ".graphify_labels.json"), "utf8")
+    .then((raw) => {
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === "object"
+        ? (parsed as Record<string, string>)
+        : {};
+    })
+    .catch(() => ({}));
+}
+
+export function isStale(
+  commit: string | null | undefined,
+  head: string | null,
+): boolean {
+  return typeof commit === "string" && !!head && commit !== head;
+}
+
+const EMPTY = { nodes: [], edges: [] };
+
+export const graphifySource: GraphSource = {
+  id: "graphify",
+  label: SOURCE_LABELS.graphify,
+  detect: (ws) =>
+    fs.stat(path.join(ws.rootPath, OUT_DIR, "graph.json")).then(
+      () => true,
+      () => false,
+    ),
+  load: (ws) =>
+    readGraph(ws.rootPath)
+      .then(buildFileGraph)
+      .catch((err) => {
+        console.error(`graphify graph failed for ${ws.name}:`, err);
+        return EMPTY;
+      }),
+  loadSymbols: (ws) =>
+    Promise.all([readGraph(ws.rootPath), readLabels(ws.rootPath)])
+      .then(([g, labels]) => buildSymbolGraph(g, labels))
+      .catch((err) => {
+        console.error(`graphify symbol graph failed for ${ws.name}:`, err);
+        return EMPTY;
+      }),
+  // index() deliberately absent: the pipeline is agent-driven (LLM subagents),
+  // so there is no headless invocation — and detect() only passes when a graph
+  // already exists. Rebuilds are `/graphify .` in the workspace's own terminal.
+  // ponytail: stale() parses the whole ~2 MB graph.json to read one trailing
+  // field; source-stale fires on workspace switch, not per frame — cache
+  // built_at_commit beside the loaded graph if this ever shows in a profile
+  stale: async (rootPath) =>
+    isStale(
+      await readGraph(rootPath).then(
+        (g) => g.built_at_commit,
+        () => null,
+      ),
+      await gitHead(rootPath),
+    ),
+};

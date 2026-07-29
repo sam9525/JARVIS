@@ -1,11 +1,15 @@
-import { readFileSync } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildFileGraph,
   buildSymbolGraph,
+  graphifySource,
+  isStale,
   type GraphifyGraph,
 } from "../../src/main/graph-sources/graphify-source";
+import type { Workspace } from "../../src/shared/types";
 
 const FIXTURE_DIR = path.join(__dirname, "..", "fixtures", "graphify");
 
@@ -90,5 +94,105 @@ describe("buildSymbolGraph", () => {
     // no labels at all → every domain is the stringified community id
     const g = buildSymbolGraph(fixture(), {});
     expect(g.nodes.find((n) => n.id === "a_fn")?.domain).toBe("0");
+  });
+});
+
+const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "jarvis-graphify-"));
+
+const wsAt = (rootPath: string): Workspace => ({
+  id: "w",
+  name: "w",
+  rootPath,
+  kind: "code",
+  sourceId: "graphify",
+});
+
+// copy the pinned fixture into a temp workspace's graphify-out/
+const plantFixture = async (root: string, withLabels: boolean) => {
+  const out = path.join(root, "graphify-out");
+  await fs.mkdir(out, { recursive: true });
+  await fs.copyFile(
+    path.join(FIXTURE_DIR, "graph.json"),
+    path.join(out, "graph.json"),
+  );
+  if (withLabels)
+    await fs.copyFile(
+      path.join(FIXTURE_DIR, ".graphify_labels.json"),
+      path.join(out, ".graphify_labels.json"),
+    );
+};
+
+describe("graphifySource", () => {
+  it("detects only when graphify-out/graph.json exists", async () => {
+    const root = await tmp();
+    expect(await graphifySource.detect(wsAt(root))).toBe(false);
+    await plantFixture(root, false);
+    expect(await graphifySource.detect(wsAt(root))).toBe(true);
+  });
+
+  it("has no index() — rebuilds are /graphify in the workspace terminal", () => {
+    expect(graphifySource.index).toBeUndefined();
+  });
+
+  it("loads the file-level graph from disk", async () => {
+    const root = await tmp();
+    await plantFixture(root, false);
+    const g = await graphifySource.load(wsAt(root));
+    expect(g.nodes.map((n) => n.id).sort()).toEqual([
+      "docs/readme.md",
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+    expect(g.edges).toHaveLength(2);
+  });
+
+  it("loads the symbol-level graph with community labels applied", async () => {
+    const root = await tmp();
+    await plantFixture(root, true);
+    const g = await graphifySource.loadSymbols!(wsAt(root));
+    expect(g.nodes.find((n) => n.id === "a_fn")?.domain).toBe("Data Loading");
+  });
+
+  it("treats missing labels as optional — numeric domains, no throw", async () => {
+    const root = await tmp();
+    await plantFixture(root, false);
+    const g = await graphifySource.loadSymbols!(wsAt(root));
+    expect(g.nodes.find((n) => n.id === "a_fn")?.domain).toBe("0");
+  });
+
+  it("degrades missing or corrupt graph.json to an empty graph", async () => {
+    const missing = await tmp();
+    expect(await graphifySource.load(wsAt(missing))).toEqual({
+      nodes: [],
+      edges: [],
+    });
+    const corrupt = await tmp();
+    const out = path.join(corrupt, "graphify-out");
+    await fs.mkdir(out, { recursive: true });
+    await fs.writeFile(path.join(out, "graph.json"), "{not json", "utf8");
+    expect(await graphifySource.load(wsAt(corrupt))).toEqual({
+      nodes: [],
+      edges: [],
+    });
+    expect(await graphifySource.loadSymbols!(wsAt(corrupt))).toEqual({
+      nodes: [],
+      edges: [],
+    });
+  });
+});
+
+describe("graphify stale", () => {
+  it("is stale only when both sides are known and differ", () => {
+    expect(isStale("abc", "def")).toBe(true);
+    expect(isStale("abc", "abc")).toBe(false);
+    expect(isStale(undefined, "abc")).toBe(false); // no commit recorded
+    expect(isStale("abc", null)).toBe(false); // git failed → don't cry wolf
+  });
+
+  it("stale() reports false outside a git repo", async () => {
+    const root = await tmp();
+    await plantFixture(root, false);
+    // tmpdir is not a git repo → gitHead resolves null → never stale
+    expect(await graphifySource.stale!(root)).toBe(false);
   });
 });

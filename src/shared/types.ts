@@ -63,6 +63,7 @@ export type WorkspaceKind = "vault" | "code";
 export const SOURCE_LABELS: Record<string, string> = {
   vault: "Vault",
   gitnexus: "GitNexus",
+  graphify: "Graphify",
   unknown: "Unknown",
 };
 

@@ -20,7 +20,7 @@ export function isStale(metaJson: string | null, head: string | null): boolean {
   }
 }
 
-function gitHead(root: string): Promise<string | null> {
+export function gitHead(root: string): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
       "git",
