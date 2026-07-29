@@ -23,7 +23,7 @@ const LABEL: Record<StatusKind, string> = {
   none: "no session",
 };
 
-const DOT: Record<StatusKind, string> = {
+export const DOT: Record<StatusKind, string> = {
   waiting: "bg-warm",
   running: "bg-accent",
   idle: "bg-ink-dim",

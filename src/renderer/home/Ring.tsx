@@ -1,0 +1,254 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  GraphGroup,
+  StatusKind,
+  VaultGraph,
+  ViewSettings,
+  Workspace,
+  WorkspaceStatus,
+} from "../../shared/types";
+import { SOURCE_LABELS } from "../../shared/types";
+import { emptyState, type HighlightState } from "../session/highlight-store";
+import Graph3D from "../graph/Graph3D";
+import EmptyGraph, { type IndexState } from "../graph/EmptyGraph";
+import { domainsOf } from "../graph/domain-colors";
+import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
+import { DOT } from "./MissionControl";
+
+const TILE_W = 176;
+// the release's one performance rule: the centre graph loads only after
+// rotation rests this long — spinning past eight tiles starts one force
+// simulation, not eight
+const SETTLE_MS = 300;
+const WHEEL_DEG = 0.2; // ring degrees per wheel deltaY unit
+const DRAG_DEG_PER_PX = 0.35;
+const WHEEL_SNAP_MS = 200; // a wheel has no "release" — snap after this idle
+const DRAG_SUPPRESS_PX = 5; // past this travel a pointer-up is a drag, not a click
+
+type RingProps = {
+  workspaces: Workspace[];
+  statuses: WorkspaceStatus[];
+  graphs: Map<string, VaultGraph>; // the cardGraphs cache; absent = loading
+  getStore: (workspaceId: string) => HighlightState;
+  groups: Record<string, GraphGroup[]>; // per workspace id
+  view: ViewSettings; // the 3d view — the centre graph renders with it
+  width: number;
+  height: number;
+  indexing: Record<string, { state: IndexState; error?: string }>;
+  onIndex: (workspaceId: string) => void;
+  onOpen: (ws: Workspace) => void;
+};
+
+// Every workspace on one rotating ring, the centred one's graph in the hollow
+// middle. Tiles are DOM, deliberately without mini-graphs — N live force
+// simulations is precisely what makes the card grid expensive.
+export default function Ring({
+  workspaces,
+  statuses,
+  graphs,
+  getStore,
+  groups,
+  view,
+  width,
+  height,
+  indexing,
+  onIndex,
+  onOpen,
+}: RingProps) {
+  const count = workspaces.length;
+  const [rotation, setRotation] = useState(0);
+  const [settledId, setSettledId] = useState<string | null>(null);
+  const stateRef = useRef<HighlightState>(emptyState());
+  const drag = useRef<{ lastX: number; travel: number } | null>(null);
+  const suppressClick = useRef(false);
+  const wheelSnap = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+
+  const byId = useMemo(
+    () => new Map(statuses.map((s) => [s.workspaceId, s])),
+    [statuses],
+  );
+  const { tiles, centeredIndex } = ringLayout(count, rotation);
+
+  // debounce the centred workspace into settledId; every rotation change
+  // resets the timer, so only a stop loads a graph
+  useEffect(() => {
+    const id = workspaces[centeredIndex]?.id ?? null;
+    const t = setTimeout(() => setSettledId(id), SETTLE_MS);
+    return () => clearTimeout(t);
+  }, [rotation, centeredIndex, workspaces]);
+
+  useEffect(() => () => clearTimeout(wheelSnap.current), []);
+
+  const settledWs = workspaces.find((w) => w.id === settledId) ?? null;
+
+  // the centre graph polls stateRef per frame, same as the main view — point
+  // it at the settled workspace's own store so live highlights keep working
+  useEffect(() => {
+    if (settledWs) stateRef.current = getStore(settledWs.id);
+  }, [settledWs, getStore]);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    drag.current = { lastX: e.clientX, travel: 0 };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const dx = e.clientX - d.lastX;
+    if (dx === 0) return;
+    d.lastX = e.clientX;
+    d.travel += Math.abs(dx);
+    // dragging right pulls the front of the ring right
+    setRotation((r) => r - dx * DRAG_DEG_PER_PX);
+  };
+
+  const onPointerUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    if (d.travel > DRAG_SUPPRESS_PX) suppressClick.current = true;
+    setRotation((r) => snapRotation(r, count));
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    setRotation((r) => r + e.deltaY * WHEEL_DEG);
+    clearTimeout(wheelSnap.current);
+    wheelSnap.current = setTimeout(
+      () => setRotation((r) => snapRotation(r, count)),
+      WHEEL_SNAP_MS,
+    );
+  };
+
+  // a click never both moves and commits: centred opens, anything else only
+  // rotates to centre
+  const onTileClick = (i: number) => {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    if (i === centeredIndex) onOpen(workspaces[i]);
+    else setRotation((r) => rotationTo(i, r, count));
+  };
+
+  const g = settledWs ? graphs.get(settledWs.id) : undefined;
+  // same rule as the cards: absent from the map = still loading; empty on a
+  // code workspace = never analyzed, which earns the index button
+  const needsIndex = settledWs?.kind === "code" && !!g && g.nodes.length === 0;
+  const domains = useMemo(() => (g ? domainsOf(g) : []), [g]);
+  const idx = settledWs ? indexing[settledWs.id] : undefined;
+
+  return (
+    <div
+      data-testid="ring"
+      className="relative h-full w-full touch-none overflow-hidden"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onWheel={onWheel}
+    >
+      <div data-testid="ring-centre" className="absolute inset-0">
+        {settledWs &&
+          g &&
+          (needsIndex ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <EmptyGraph
+                state={idx?.state ?? "idle"}
+                error={idx?.error}
+                onIndex={() => onIndex(settledWs.id)}
+              />
+            </div>
+          ) : (
+            <Graph3D
+              // remount per workspace: a fresh mount re-fits the camera and
+              // starts a clean simulation — exactly the one settle we pay for
+              key={settledWs.id}
+              graph={g}
+              domains={domains}
+              groups={groups[settledWs.id] ?? []}
+              display={view.display}
+              forces={view.forces}
+              stateRef={stateRef}
+              onNodeClick={() => undefined}
+              focusNode={null}
+              layoutEpoch={0}
+              rotationPaused={false}
+              width={width}
+              height={height}
+            />
+          ))}
+      </div>
+
+      {tiles.map((t, i) => {
+        const w = workspaces[i];
+        const st = byId.get(w.id);
+        const kind: StatusKind = st?.kind ?? "none";
+        return (
+          <div
+            key={w.id}
+            data-testid={`tile-${w.id}`}
+            data-centered={t.centered || undefined}
+            role="button"
+            tabIndex={0}
+            onClick={() => onTileClick(i)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onTileClick(i);
+              }
+            }}
+            style={{
+              width: TILE_W,
+              left: `calc(50% + ${t.x * (width * 0.4)}px)`,
+              top: `calc(50% + ${t.y * (height * 0.36)}px)`,
+              transform: `translate3d(-50%, -50%, 0) scale(${
+                0.55 + 0.45 * t.depth
+              })`,
+              opacity: 0.35 + 0.65 * t.depth,
+              zIndex: 10 + Math.round(t.depth * 100),
+            }}
+            className={
+              "absolute flex cursor-pointer select-none flex-col gap-1.5 rounded-lg border bg-panel p-2.5 transition-opacity " +
+              (kind === "waiting"
+                ? "border-warm"
+                : t.centered
+                  ? "border-accent"
+                  : "border-edge")
+            }
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] font-semibold text-ink">
+                {w.name}
+              </span>
+              <span
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[kind]}`}
+              />
+            </div>
+            <span
+              data-testid={`tile-source-${w.id}`}
+              className="font-mono text-[9px] uppercase tracking-widest text-ink-dim"
+            >
+              {SOURCE_LABELS[w.sourceId] ?? w.sourceId}
+            </span>
+            <div
+              data-testid={`tile-call-${w.id}`}
+              title={st?.call || undefined}
+              className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[10.5px] text-accent-soft"
+            >
+              {st?.call || " "}
+            </div>
+            <div
+              data-testid={`tile-counts-${w.id}`}
+              className="flex gap-2.5 font-mono text-[10px] tabular-nums text-ink-dim"
+            >
+              <span>{st?.reads ?? 0} read</span>
+              <span>{st?.edits ?? 0} edited</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
