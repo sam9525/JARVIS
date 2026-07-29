@@ -1,7 +1,12 @@
 import { exec, execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { hasIndex, insideGitRepo, loadCodeGraph } from "../gitnexus-graph";
+import {
+  hasIndex,
+  insideGitRepo,
+  loadCodeGraph,
+  loadSymbolGraph,
+} from "../gitnexus-graph";
 import { SOURCE_LABELS } from "../../shared/types";
 import type { GraphSource } from "./types";
 
@@ -61,6 +66,12 @@ export const gitnexusSource: GraphSource = {
   load: (ws) =>
     loadCodeGraph(ws.name).catch((err) => {
       console.error(`code graph failed for ${ws.name}:`, err);
+      return { nodes: [], edges: [] };
+    }),
+  loadSymbols: (ws) =>
+    loadSymbolGraph(ws.name).catch((err) => {
+      // gitnexus format drift / unreadable index → empty graph, no crash
+      console.error(`symbol graph failed for ${ws.name}:`, err);
       return { nodes: [], edges: [] };
     }),
   index: runAnalyze,

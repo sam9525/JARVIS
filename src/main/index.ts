@@ -13,7 +13,6 @@ import {
   readProjects,
   saveProjects,
 } from "./workspaces";
-import { loadSymbolGraph } from "./gitnexus-graph";
 import { resolveSourceId, sourceById } from "./graph-sources/registry";
 import { isDirectory } from "./is-directory";
 import { runAnalyze } from "./graph-sources/gitnexus-source";
@@ -83,17 +82,14 @@ app.whenReady().then(async () => {
   const symbolGraphs = new Map<string, Promise<VaultGraph>>();
   const symbolGraphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
-    if (!ws || ws.kind !== "code")
-      return Promise.resolve({ nodes: [], edges: [] });
+    if (!ws) return Promise.resolve({ nodes: [], edges: [] });
     let g = symbolGraphs.get(id);
     if (!g) {
-      g = (async () => {
-        return loadSymbolGraph(ws.name).catch((err) => {
-          // gitnexus format drift / unreadable index → empty graph, no crash
-          console.error(`symbol graph failed for ${ws.name}:`, err);
-          return { nodes: [], edges: [] };
-        });
-      })();
+      // sources own their error handling; a source with no symbol level
+      // serves an empty graph rather than main knowing what a gitnexus is
+      g =
+        sourceById(ws.sourceId)?.loadSymbols?.(ws) ??
+        Promise.resolve({ nodes: [], edges: [] });
       symbolGraphs.set(id, g);
     }
     return g;

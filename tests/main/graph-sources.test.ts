@@ -84,3 +84,14 @@ describe("gitnexus stale", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 });
+
+describe("gitnexus loadSymbols", () => {
+  it("is defined, and degrades to an empty graph instead of rejecting", async () => {
+    const gn = sourceById("gitnexus");
+    expect(gn?.loadSymbols).toBeDefined();
+    // "bad name!" fails runCypher's SAFE_REPO_NAME validation before any
+    // process spawns — the cheapest guaranteed failure path
+    const g = await gn?.loadSymbols?.(ws({ name: "bad name!" }));
+    expect(g).toEqual({ nodes: [], edges: [] });
+  });
+});
