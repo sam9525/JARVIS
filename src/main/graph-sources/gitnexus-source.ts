@@ -7,7 +7,6 @@ import {
   loadCodeGraph,
   loadSymbolGraph,
 } from "../gitnexus-graph";
-import { SOURCE_LABELS } from "../../shared/types";
 import type { GraphSource } from "./types";
 
 export function isStale(metaJson: string | null, head: string | null): boolean {
@@ -61,7 +60,6 @@ export async function runAnalyze(cwd: string): Promise<void> {
 
 export const gitnexusSource: GraphSource = {
   id: "gitnexus",
-  label: SOURCE_LABELS.gitnexus,
   detect: (ws) => hasIndex(ws.rootPath),
   load: (ws) =>
     loadCodeGraph(ws.name).catch((err) => {
@@ -75,6 +73,7 @@ export const gitnexusSource: GraphSource = {
       return { nodes: [], edges: [] };
     }),
   index: runAnalyze,
+  reindexCommand: "npx gitnexus analyze",
   stale: async (rootPath) => {
     const meta = await fs
       .readFile(path.join(rootPath, ".gitnexus", "meta.json"), "utf8")

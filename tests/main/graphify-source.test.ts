@@ -47,6 +47,13 @@ describe("buildFileGraph", () => {
     expect(g.edges).toHaveLength(2);
   });
 
+  // the fixture carries a real 3-member hyperedge; the contract is that it
+  // contributes no edges, not that the pipeline stopped emitting them
+  it("drops hyperedges rather than expanding them into pairs", () => {
+    const g = buildFileGraph(fixture());
+    expect(g.edges).toHaveLength(2); // unchanged by h1's a_fn/b_fn/readme_doc
+  });
+
   it("skips nodes without a source_file — empty string and absent alike", () => {
     // ghost_session ("" — an unresolved AST ref) and url_note (source_url
     // only) must produce no file node and no edge endpoint

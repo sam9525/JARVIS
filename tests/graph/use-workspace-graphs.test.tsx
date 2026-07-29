@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe("useWorkspaceGraphs", () => {
-  it("fetches a vault graph once, then serves the switch back from cache", async () => {
+  it("fetches each workspace's graph once — a switch back is served from cache", async () => {
     const vault = ws("v", "vault");
     const other = ws("o", "vault");
     const activeIdRef = { current: "v" as string | null };

@@ -10,7 +10,7 @@ import type {
 import { SOURCE_LABELS } from "../../shared/types";
 import { emptyState, type HighlightState } from "../session/highlight-store";
 import Graph3D from "../graph/Graph3D";
-import EmptyGraph, { type IndexState } from "../graph/EmptyGraph";
+import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { domainsOf } from "../graph/domain-colors";
 import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
 import { DOT } from "./MissionControl";
@@ -137,7 +137,8 @@ export default function Ring({
   const g = settledWs ? graphs.get(settledWs.id) : undefined;
   // same rule as the cards: absent from the map = still loading; empty on a
   // code workspace = never analyzed, which earns the index button
-  const needsIndex = settledWs?.kind === "code" && !!g && g.nodes.length === 0;
+  const needsIndex =
+    !!settledWs && canIndex(settledWs) && !!g && !g.nodes.length;
   const domains = useMemo(() => (g ? domainsOf(g) : []), [g]);
   const idx = settledWs ? indexing[settledWs.id] : undefined;
 
@@ -151,11 +152,16 @@ export default function Ring({
       onPointerCancel={onPointerUp}
       onWheel={onWheel}
     >
-      <div data-testid="ring-centre" className="absolute inset-0">
+      {/* the centre graph is a display, not a control: without this a wheel or
+          drag hits the 3D camera and the ring rotation at the same time */}
+      <div
+        data-testid="ring-centre"
+        className="pointer-events-none absolute inset-0"
+      >
         {settledWs &&
           g &&
           (needsIndex ? (
-            <div className="absolute inset-0 flex items-center justify-center">
+            <div className="pointer-events-auto absolute inset-0 flex items-center justify-center">
               <EmptyGraph
                 state={idx?.state ?? "idle"}
                 error={idx?.error}

@@ -17,6 +17,7 @@ const ws = (over: Partial<Workspace>): Workspace => ({
   name: "w",
   rootPath: "D:\\nowhere",
   kind: "code",
+  sourceId: UNKNOWN_SOURCE_ID,
   ...over,
 });
 
@@ -26,8 +27,19 @@ describe("registry", () => {
   });
 
   it("finds a source by id, and none for unknown", () => {
-    expect(sourceById("gitnexus")?.label).toBe("GitNexus");
+    expect(sourceById("gitnexus")?.id).toBe("gitnexus");
     expect(sourceById(UNKNOWN_SOURCE_ID)).toBeUndefined();
+  });
+
+  // the stale button types reindexCommand verbatim: a source that reports
+  // stale without one would offer another source's command
+  it("gives every stale-reporting source its own reindex command", () => {
+    for (const s of SOURCES.filter((s) => s.stale)) {
+      expect(s.reindexCommand).toBeTruthy();
+    }
+    expect(sourceById("gitnexus")?.reindexCommand).toBe("npx gitnexus analyze");
+    expect(sourceById("graphify")?.reindexCommand).toBe("/graphify .");
+    expect(sourceById("vault")?.reindexCommand).toBeUndefined();
   });
 });
 

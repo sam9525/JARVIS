@@ -98,14 +98,23 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-workspaces", () => workspaces);
   ipcMain.handle("get-graph", (_e, id: string) => graphFor(id));
   ipcMain.handle("get-symbol-graph", (_e, id: string) => symbolGraphFor(id));
-  ipcMain.handle("source-stale", async (_e, id: string) => {
-    const ws = workspaces.find((w) => w.id === id);
-    if (!ws) return false;
-    return (await sourceById(ws.sourceId)?.stale?.(ws.rootPath)) ?? false;
-  });
+  // returns the command that rebuilds this source, or null when it is fresh —
+  // a source with no reindexCommand never offers the button
+  ipcMain.handle(
+    "stale-reindex-command",
+    async (_e, id: string): Promise<string | null> => {
+      const ws = workspaces.find((w) => w.id === id);
+      const src = ws && sourceById(ws.sourceId);
+      if (!src?.stale || !src.reindexCommand) return null;
+      return (await src.stale(ws.rootPath)) ? src.reindexCommand : null;
+    },
+  );
   ipcMain.handle("rescan", async (_e, id: string) => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return { nodes: [], edges: [] };
+    // re-probe: a source can appear after boot (`/graphify .` or `gitnexus
+    // analyze` run in the workspace's own terminal), and refresh is how you say so
+    ws.sourceId = await resolveSourceId(ws);
     const g = await loadGraph(ws);
     graphs.set(id, Promise.resolve(g)); // assign only on success
     symbolGraphs.delete(id);

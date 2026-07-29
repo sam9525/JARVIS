@@ -2,15 +2,15 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { topFolder } from "../gitnexus-graph";
 import { gitHead } from "./gitnexus-source";
-import { SOURCE_LABELS } from "../../shared/types";
 import type { VaultGraph, GraphEdge } from "../../shared/types";
 import type { GraphSource } from "./types";
 
 // Informal contract with the graphify pipeline: graphify-out/graph.json is
 // networkx node_link_data. Only the fields read here are modelled; relation,
 // confidence, weight, and hyperedges are deliberately dropped (GraphEdge has
-// no room and nothing renders them). Pinned by tests/fixtures/graphify/ — a
-// format change fails there first.
+// no room and nothing renders them), and so are label/norm_label — GraphNode
+// has no display name, every view labels a node by its id. Pinned by
+// tests/fixtures/graphify/ — a format change fails there first.
 export interface GraphifyNode {
   id: string;
   source_file?: string; // repo-relative POSIX; "" or absent = no file
@@ -114,7 +114,6 @@ const EMPTY = { nodes: [], edges: [] };
 
 export const graphifySource: GraphSource = {
   id: "graphify",
-  label: SOURCE_LABELS.graphify,
   detect: (ws) =>
     fs.stat(path.join(ws.rootPath, OUT_DIR, "graph.json")).then(
       () => true,
@@ -137,8 +136,9 @@ export const graphifySource: GraphSource = {
   // index() deliberately absent: the pipeline is agent-driven (LLM subagents),
   // so there is no headless invocation — and detect() only passes when a graph
   // already exists. Rebuilds are `/graphify .` in the workspace's own terminal.
+  reindexCommand: "/graphify .",
   // ponytail: stale() parses the whole ~2 MB graph.json to read one trailing
-  // field; source-stale fires on workspace switch, not per frame — cache
+  // field; stale-reindex-command fires on workspace switch, not per frame — cache
   // built_at_commit beside the loaded graph if this ever shows in a profile
   stale: async (rootPath) =>
     isStale(

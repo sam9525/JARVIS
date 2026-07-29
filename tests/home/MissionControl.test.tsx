@@ -242,6 +242,30 @@ describe("MissionControl", () => {
     expect(() => screen.byTestId("index-button")).toThrow();
   });
 
+  it("shows no index button for a graphify workspace — indexing would convert it", () => {
+    // an empty graph here means a broken graph.json, and `gitnexus analyze`
+    // would flip the workspace's source on the next boot rather than fix it
+    render(
+      <MissionControl
+        {...(props({
+          workspaces: [
+            {
+              id: "w3",
+              name: "graphify",
+              rootPath: "D:\\gf",
+              kind: "code",
+              sourceId: "graphify",
+            },
+          ],
+          graphs: new Map<string, VaultGraph>([
+            ["w3", { nodes: [], edges: [] }],
+          ]),
+        }) as any)}
+      />,
+    );
+    expect(() => screen.byTestId("index-button")).toThrow();
+  });
+
   it("shows no index button once a graph has nodes", () => {
     render(
       <MissionControl

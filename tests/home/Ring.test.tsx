@@ -252,4 +252,12 @@ describe("Ring", () => {
     });
     expect(onOpen).toHaveBeenCalledWith(workspaces[0]);
   });
+
+  // jsdom has no hit-testing, so the class is the assertable form of "a wheel
+  // over the centre rotates the ring instead of also driving the 3D camera"
+  it("keeps the centre graph out of the ring's gesture path", () => {
+    render(<Ring {...(props() as any)} />);
+    settle();
+    expect(byTestId("ring-centre")!.className).toContain("pointer-events-none");
+  });
 });

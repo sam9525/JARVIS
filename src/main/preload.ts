@@ -43,8 +43,8 @@ const api = {
     workspaceId: string,
   ): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("index-project", workspaceId),
-  sourceStale: (workspaceId: string): Promise<boolean> =>
-    ipcRenderer.invoke("source-stale", workspaceId),
+  staleReindexCommand: (workspaceId: string): Promise<string | null> =>
+    ipcRenderer.invoke("stale-reindex-command", workspaceId),
   ptyLaunch: (
     workspaceId: string,
     cols: number,

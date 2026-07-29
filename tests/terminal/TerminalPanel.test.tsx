@@ -70,7 +70,7 @@ beforeEach(() => {
       ptyResize: () => {},
       onPtyData: () => {},
       onPtyExit: () => {},
-      sourceStale: async () => false,
+      staleReindexCommand: async () => null,
     },
     addEventListener: () => {},
     removeEventListener: () => {},

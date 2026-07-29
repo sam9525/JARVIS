@@ -139,6 +139,12 @@
       "source_file": "src/a.ts"
     }
   ],
-  "hyperedges": [],
+  "hyperedges": [
+    {
+      "id": "h1",
+      "members": ["a_fn", "b_fn", "readme_doc"],
+      "relation": "co_change"
+    }
+  ],
   "built_at_commit": "abc123def4567890abc123def4567890abc123de"
 }
