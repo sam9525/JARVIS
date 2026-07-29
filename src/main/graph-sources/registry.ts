@@ -1,11 +1,16 @@
 import { vaultSource } from "./vault-source";
 import { gitnexusSource } from "./gitnexus-source";
+import { graphifySource } from "./graphify-source";
 import type { GraphSource } from "./types";
 import type { Workspace } from "../../shared/types";
 
 export const UNKNOWN_SOURCE_ID = "unknown";
 
-export const SOURCES: GraphSource[] = [vaultSource, gitnexusSource];
+export const SOURCES: GraphSource[] = [
+  vaultSource,
+  gitnexusSource,
+  graphifySource,
+];
 
 export function sourceById(id: string): GraphSource | undefined {
   return SOURCES.find((s) => s.id === id);

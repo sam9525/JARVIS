@@ -21,8 +21,8 @@ const ws = (over: Partial<Workspace>): Workspace => ({
 });
 
 describe("registry", () => {
-  it("registers vault before gitnexus", () => {
-    expect(SOURCES.map((s) => s.id)).toEqual(["vault", "gitnexus"]);
+  it("registers vault, then gitnexus, then graphify", () => {
+    expect(SOURCES.map((s) => s.id)).toEqual(["vault", "gitnexus", "graphify"]);
   });
 
   it("finds a source by id, and none for unknown", () => {
@@ -41,6 +41,18 @@ describe("resolveSourceId", () => {
     expect(await resolveSourceId(ws({ rootPath: root }))).toBe(
       UNKNOWN_SOURCE_ID,
     );
+    await fs.mkdir(path.join(root, ".gitnexus"));
+    expect(await resolveSourceId(ws({ rootPath: root }))).toBe("gitnexus");
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves a graphify-out to graphify, but gitnexus wins when both exist", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-gs-"));
+    const out = path.join(root, "graphify-out");
+    await fs.mkdir(out, { recursive: true });
+    await fs.writeFile(path.join(out, "graph.json"), "{}", "utf8");
+    expect(await resolveSourceId(ws({ rootPath: root }))).toBe("graphify");
+    // an existing gitnexus workspace must not change source on upgrade
     await fs.mkdir(path.join(root, ".gitnexus"));
     expect(await resolveSourceId(ws({ rootPath: root }))).toBe("gitnexus");
     await fs.rm(root, { recursive: true, force: true });
