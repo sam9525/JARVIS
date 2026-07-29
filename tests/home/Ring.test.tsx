@@ -228,4 +228,28 @@ describe("Ring", () => {
     expect(byTestId("ring")).toBeTruthy();
     expect(graph3d).not.toHaveBeenCalled();
   });
+
+  it("resets click suppression on pointer down so subsequent clicks work", () => {
+    const onOpen = vi.fn();
+    render(<Ring {...(props({ onOpen }) as any)} />);
+    const ringEl = byTestId("ring")!;
+    act(() => {
+      ringEl.dispatchEvent(
+        new PointerEvent("pointerdown", { clientX: 100, bubbles: true }),
+      );
+      ringEl.dispatchEvent(
+        new PointerEvent("pointermove", { clientX: 200, bubbles: true }),
+      );
+      ringEl.dispatchEvent(
+        new PointerEvent("pointerup", { clientX: 200, bubbles: true }),
+      );
+    });
+    act(() => {
+      ringEl.dispatchEvent(
+        new PointerEvent("pointerdown", { clientX: 100, bubbles: true }),
+      );
+      byTestId("tile-w1")!.click();
+    });
+    expect(onOpen).toHaveBeenCalledWith(workspaces[0]);
+  });
 });

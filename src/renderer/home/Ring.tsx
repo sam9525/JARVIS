@@ -90,6 +90,7 @@ export default function Ring({
   }, [settledWs, getStore]);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    suppressClick.current = false;
     drag.current = { lastX: e.clientX, travel: 0 };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
@@ -147,6 +148,7 @@ export default function Ring({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
       onWheel={onWheel}
     >
       <div data-testid="ring-centre" className="absolute inset-0">
