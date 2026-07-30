@@ -350,4 +350,3 @@ describe("Ring: hand control", () => {
     expect(tracker.stop).toHaveBeenCalled();
   });
 });
-

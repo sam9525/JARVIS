@@ -3,12 +3,7 @@
 // rule), not new control flow (design §6). t is seconds.
 
 import { AnchorSmoother } from "./one-euro";
-import {
-  PinchDetector,
-  WRIST,
-  type Landmark,
-  type PinchState,
-} from "./pinch";
+import { PinchDetector, WRIST, type Landmark, type PinchState } from "./pinch";
 
 export type GestureEvent =
   | { type: "rotate"; dx: number } // normalized hand units; sign matches pointer dx
@@ -24,8 +19,7 @@ export type Finger = keyof typeof TIPS;
 // a finger is extended when its tip sits farther from the wrist than its PIP
 export function fingerExtended(hand: Landmark[], finger: Finger): boolean {
   const wrist = hand[WRIST];
-  const d = (i: number) =>
-    Math.hypot(hand[i].x - wrist.x, hand[i].y - wrist.y);
+  const d = (i: number) => Math.hypot(hand[i].x - wrist.x, hand[i].y - wrist.y);
   return d(TIPS[finger]) > d(PIPS[finger]);
 }
 

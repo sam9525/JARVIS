@@ -165,7 +165,8 @@ export default function Ring({
       setRotation((r) => snapRotation(r, count));
     },
     step: (dir) => {
-      if (count) setRotation((r) => snapRotation(r, count) - dir * (360 / count));
+      if (count)
+        setRotation((r) => snapRotation(r, count) - dir * (360 / count));
     },
     open: () => {
       const w = workspaces[centeredIndex];

@@ -23,7 +23,7 @@ export class OneEuroFilter {
   constructor(
     private minCutoff = 1.0,
     private beta = 0.007,
-    private dCutoff = 1.0
+    private dCutoff = 1.0,
   ) {}
 
   filter(x: number, t: number): number {
