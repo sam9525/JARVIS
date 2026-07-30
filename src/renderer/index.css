@@ -225,6 +225,26 @@
     font-size: 0.85em;
   }
 
+  /* ring tiles flying in on open. No `to` and fill-mode `backwards`: the
+     animation ends at the element's own inline transform/opacity (which depend
+     on its ring depth) and stops governing it after, so rotation's transition
+     takes over untouched. */
+  @keyframes ring-tile-in {
+    from {
+      opacity: 0;
+      /* undo the tile's own left/top offset — it starts stacked at the hub */
+      transform: translate3d(
+          calc(-50% - var(--ring-dx)),
+          calc(-50% - var(--ring-dy)),
+          0
+        )
+        scale(calc(var(--ring-s) * 0.4));
+    }
+  }
+  .ring-tile-in {
+    animation: ring-tile-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
   /* syntax-highlighted code preview (Shiki dark-plus). Shiki sets its own
      theme background as an inline style on <pre> — override it (needs
      !important to beat an inline style) so the panel's own background

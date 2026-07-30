@@ -24,6 +24,7 @@ const WHEEL_DEG = 0.2; // ring degrees per wheel deltaY unit
 const DRAG_DEG_PER_PX = 0.35;
 const WHEEL_SNAP_MS = 200; // a wheel has no "release" — snap after this idle
 const DRAG_SUPPRESS_PX = 5; // past this travel a pointer-up is a drag, not a click
+const ENTER_STAGGER_MS = 70; // tiles fly out of the hub one after another on open
 
 type RingProps = {
   workspaces: Workspace[];
@@ -223,18 +224,22 @@ export default function Ring({
                 onTileClick(i);
               }
             }}
-            style={{
-              width: TILE_W,
-              left: `calc(50% + ${t.x * (width * 0.4)}px)`,
-              top: `calc(50% + ${t.y * (height * 0.36)}px)`,
-              transform: `translate3d(-50%, -50%, 0) scale(${
-                0.55 + 0.45 * t.depth
-              })`,
-              opacity: 0.35 + 0.65 * t.depth,
-              zIndex: 10 + Math.round(t.depth * 100),
-            }}
+            style={
+              {
+                width: TILE_W,
+                "--ring-s": `${0.55 + 0.45 * t.depth}`,
+                "--ring-dx": `${t.x * (width * 0.4)}px`,
+                "--ring-dy": `${t.y * (height * 0.36)}px`,
+                animationDelay: `${i * ENTER_STAGGER_MS}ms`,
+                left: "calc(50% + var(--ring-dx))",
+                top: "calc(50% + var(--ring-dy))",
+                transform: "translate3d(-50%, -50%, 0) scale(var(--ring-s))",
+                opacity: 0.35 + 0.65 * t.depth,
+                zIndex: 10 + Math.round(t.depth * 100),
+              } as React.CSSProperties
+            }
             className={
-              "absolute flex cursor-pointer select-none flex-col gap-1.5 rounded-lg border bg-panel p-2.5 " +
+              "ring-tile-in absolute flex cursor-pointer select-none flex-col gap-1.5 rounded-lg border bg-panel p-2.5 " +
               (dragging
                 ? "transition-opacity "
                 : "transition-[left,top,transform,opacity] duration-300 ease-out ") +
