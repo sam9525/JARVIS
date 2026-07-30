@@ -1,0 +1,52 @@
+// Synthetic 21-landmark hands. Geometry: wrist (x, 0.8), middle MCP (x, 0.6)
+// → hand scale 0.2. PIPs sit at y 0.55 (0.25 from wrist); a default tip at
+// y 0.65 (0.15 from wrist) reads as curled, a tip at y 0.35 as extended.
+import {
+  INDEX_TIP,
+  MIDDLE_MCP,
+  THUMB_TIP,
+  WRIST,
+  type Landmark,
+} from "../../src/renderer/hands/pinch";
+
+const MIDDLE_TIP = 12;
+const RING_TIP = 16;
+const PINKY_TIP = 20;
+const PIPS = [6, 10, 14, 18];
+
+const base = (x: number): Landmark[] => {
+  const h: Landmark[] = Array.from({ length: 21 }, () => ({ x, y: 0.65 }));
+  h[WRIST] = { x, y: 0.8 };
+  h[MIDDLE_MCP] = { x, y: 0.6 };
+  for (const pip of PIPS) h[pip] = { x, y: 0.55 };
+  h[THUMB_TIP] = { x: x - 0.15, y: 0.65 }; // 0.15 from index tip → norm 0.75, no pinch
+  return h;
+};
+
+/** all four fingers curled, no pinch — a fist */
+export const fistHand = (x = 0.5): Landmark[] => base(x);
+
+/** thumb and index tips together (norm 0.1 < engage 0.35) */
+export const pinchedHand = (x = 0.5): Landmark[] => {
+  const h = base(x);
+  h[THUMB_TIP] = { x, y: 0.5 };
+  h[INDEX_TIP] = { x: x + 0.02, y: 0.5 };
+  return h;
+};
+
+/** every finger extended, tips far apart — the neutral "doing nothing" hand */
+export const palmHand = (x = 0.5): Landmark[] => {
+  const h = base(x);
+  for (const tip of [INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP])
+    h[tip] = { x, y: 0.35 };
+  h[THUMB_TIP] = { x: x - 0.2, y: 0.5 };
+  return h;
+};
+
+/** index + middle extended, ring + pinky curled, no pinch */
+export const twoFingerHand = (x = 0.5): Landmark[] => {
+  const h = base(x);
+  h[INDEX_TIP] = { x, y: 0.35 };
+  h[MIDDLE_TIP] = { x, y: 0.35 };
+  return h;
+};
