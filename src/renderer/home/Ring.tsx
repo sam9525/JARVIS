@@ -227,7 +227,10 @@ export default function Ring({
             style={
               {
                 width: TILE_W,
-                "--ring-s": `${0.55 + 0.45 * t.depth}`,
+                // the depth^6 term is the "you're looking at this one" bump: it
+                // only pays out in the last few degrees, so the tile grows into
+                // centre instead of popping when `centered` flips
+                "--ring-s": `${0.5 + 0.4 * t.depth + 0.35 * t.depth ** 6}`,
                 "--ring-dx": `${t.x * (width * 0.4)}px`,
                 "--ring-dy": `${t.y * (height * 0.36)}px`,
                 animationDelay: `${i * ENTER_STAGGER_MS}ms`,
