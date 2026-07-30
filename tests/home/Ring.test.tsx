@@ -15,7 +15,24 @@ vi.mock("../../src/renderer/graph/Graph3D", () => ({
   },
 }));
 
+// the camera/WASM boundary is mocked: tests drive the gesture layer by
+// feeding synthetic landmark frames straight into the captured callback
+const tracker = vi.hoisted(() => ({
+  frameCb: null as null | ((f: { hand: unknown; t: number }) => void),
+  stop: vi.fn(),
+  impl: null as null | (() => Promise<() => void>),
+}));
+vi.mock("../../src/renderer/hands/hand-tracker", () => ({
+  startHandTracker: (cb: (f: { hand: unknown; t: number }) => void) => {
+    tracker.frameCb = cb;
+    return tracker.impl
+      ? tracker.impl()
+      : Promise.reject(new Error("No camera available"));
+  },
+}));
+
 import Ring from "../../src/renderer/home/Ring";
+import { fistHand, twoFingerHand } from "../hands/hands";
 import { emptyState } from "../../src/renderer/session/highlight-store";
 import { defaultSettings } from "../../src/shared/types";
 import type {
@@ -85,6 +102,9 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
 beforeEach(() => {
   vi.useFakeTimers();
   graph3d.mockClear();
+  tracker.frameCb = null;
+  tracker.stop.mockClear();
+  tracker.impl = null;
   container = document.createElement("div");
   document.body.appendChild(container);
   act(() => {
@@ -261,3 +281,73 @@ describe("Ring", () => {
     expect(byTestId("ring-centre")!.className).toContain("pointer-events-none");
   });
 });
+
+describe("Ring: hand control", () => {
+  const enable = async () => {
+    await act(async () => {
+      byTestId("hand-toggle")!.click();
+    });
+    await act(async () => {
+      await Promise.resolve(); // flush the startHandTracker promise chain
+    });
+  };
+  const feed = (hand: unknown, t: number) =>
+    act(() => tracker.frameCb!({ hand, t }));
+
+  it("shows the toggle, off by default, with no camera started", () => {
+    render(<Ring {...(props() as any)} />);
+    expect(byTestId("hand-toggle")).toBeTruthy();
+    expect(byTestId("hand-live")).toBeNull();
+    expect(tracker.frameCb).toBeNull();
+  });
+
+  it("surfaces a tracker failure on the toggle and leaves the ring intact", async () => {
+    render(<Ring {...(props() as any)} />);
+    await enable(); // default mock impl rejects: "No camera available"
+    expect(byTestId("hand-error")!.textContent).toContain(
+      "No camera available",
+    );
+    expect(byTestId("hand-live")).toBeNull();
+    expect(byTestId("tile-w1")).toBeTruthy(); // ring still works
+  });
+
+  it("shows a live indicator while the camera runs", async () => {
+    tracker.impl = () => Promise.resolve(tracker.stop);
+    render(<Ring {...(props() as any)} />);
+    await enable();
+    expect(byTestId("hand-live")).toBeTruthy();
+    expect(byTestId("hand-error")).toBeNull();
+  });
+
+  it("a two-finger swipe steps the ring off the centred tile", async () => {
+    tracker.impl = () => Promise.resolve(tracker.stop);
+    render(<Ring {...(props() as any)} />);
+    await enable();
+    expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(true);
+    for (let i = 0; i < 10; i++) feed(twoFingerHand(0.1 + i * 0.08), i / 30);
+    expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(false);
+  });
+
+  it("a held fist turns hand control off and stops the camera", async () => {
+    tracker.impl = () => Promise.resolve(tracker.stop);
+    render(<Ring {...(props() as any)} />);
+    await enable();
+    feed(fistHand(), 0);
+    feed(fistHand(), 0.6);
+    feed(fistHand(), 1.1);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(byTestId("hand-live")).toBeNull();
+    expect(tracker.stop).toHaveBeenCalled();
+  });
+
+  it("unmounting the ring stops the camera", async () => {
+    tracker.impl = () => Promise.resolve(tracker.stop);
+    render(<Ring {...(props() as any)} />);
+    await enable();
+    render(<div />); // leaving the ring view unmounts Ring
+    expect(tracker.stop).toHaveBeenCalled();
+  });
+});
+

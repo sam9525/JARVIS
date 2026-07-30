@@ -14,6 +14,7 @@ import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { domainsOf } from "../graph/domain-colors";
 import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
 import { DOT } from "./MissionControl";
+import { useHandControl } from "../hands/use-hand-control";
 
 const TILE_W = 176;
 // the release's one performance rule: the centre graph loads only after
@@ -25,6 +26,9 @@ const DRAG_DEG_PER_PX = 0.35;
 const WHEEL_SNAP_MS = 200; // a wheel has no "release" — snap after this idle
 const DRAG_SUPPRESS_PX = 5; // past this travel a pointer-up is a drag, not a click
 const ENTER_STAGGER_MS = 70; // tiles fly out of the hub one after another on open
+// ring degrees per normalized unit of pinch travel — a hand crossing most of
+// the camera frame turns most of the ring. Starting value, tune on camera.
+const HAND_DEG_PER_UNIT = 300;
 
 type RingProps = {
   workspaces: Workspace[];
@@ -151,6 +155,24 @@ export default function Ring({
     else setRotation((r) => rotationTo(i, r, count));
   };
 
+  const hands = useHandControl({
+    rotate: (dx) => {
+      setDragging(true);
+      setRotation((r) => r - dx * HAND_DEG_PER_UNIT);
+    },
+    snap: () => {
+      setDragging(false);
+      setRotation((r) => snapRotation(r, count));
+    },
+    step: (dir) => {
+      if (count) setRotation((r) => snapRotation(r, count) - dir * (360 / count));
+    },
+    open: () => {
+      const w = workspaces[centeredIndex];
+      if (w) onOpen(w);
+    },
+  });
+
   const g = settledWs ? graphs.get(settledWs.id) : undefined;
   // same rule as the cards: absent from the map = still loading; empty on a
   // code workspace = never analyzed, which earns the index button
@@ -204,6 +226,36 @@ export default function Ring({
               height={height}
             />
           ))}
+      </div>
+
+      <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2">
+        <button
+          data-testid="hand-toggle"
+          onClick={(e) => {
+            e.stopPropagation();
+            hands.toggle();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className={
+            "flex items-center gap-1.5 rounded border bg-panel px-2 py-1 font-mono text-[10px] uppercase tracking-widest " +
+            (hands.enabled
+              ? "border-accent text-ink"
+              : "border-edge text-ink-dim hover:text-ink")
+          }
+        >
+          {hands.enabled && (
+            <span
+              data-testid="hand-live"
+              className="h-1.5 w-1.5 animate-pulse rounded-full bg-warm"
+            />
+          )}
+          hands
+        </button>
+        {hands.error && (
+          <span data-testid="hand-error" className="text-[10px] text-warm">
+            {hands.error}
+          </span>
+        )}
       </div>
 
       {tiles.map((t, i) => {
