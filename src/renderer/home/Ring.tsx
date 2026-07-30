@@ -58,8 +58,15 @@ export default function Ring({
   const count = workspaces.length;
   const [rotation, setRotation] = useState(0);
   const [settledId, setSettledId] = useState<string | null>(null);
+  // tiles animate to their new positions, except while a drag/wheel is driving
+  // them — a transition mid-drag just lags behind the pointer
+  const [dragging, setDragging] = useState(false);
   const stateRef = useRef<HighlightState>(emptyState());
-  const drag = useRef<{ lastX: number; travel: number } | null>(null);
+  const drag = useRef<{
+    lastX: number;
+    travel: number;
+    captured: boolean;
+  } | null>(null);
   const suppressClick = useRef(false);
   const wheelSnap = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -91,8 +98,7 @@ export default function Ring({
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     suppressClick.current = false;
-    drag.current = { lastX: e.clientX, travel: 0 };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    drag.current = { lastX: e.clientX, travel: 0, captured: false };
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -102,6 +108,14 @@ export default function Ring({
     if (dx === 0) return;
     d.lastX = e.clientX;
     d.travel += Math.abs(dx);
+    // capture only once this is a real drag: while a pointer is captured the
+    // browser retargets the click to the capturing element, so capturing on
+    // pointerdown means a tap on a tile never reaches the tile's onClick
+    if (!d.captured && d.travel > DRAG_SUPPRESS_PX) {
+      d.captured = true;
+      setDragging(true);
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    }
     // dragging right pulls the front of the ring right
     setRotation((r) => r - dx * DRAG_DEG_PER_PX);
   };
@@ -109,6 +123,7 @@ export default function Ring({
   const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
+    setDragging(false);
     if (!d) return;
     if (d.travel > DRAG_SUPPRESS_PX) suppressClick.current = true;
     setRotation((r) => snapRotation(r, count));
@@ -116,11 +131,12 @@ export default function Ring({
 
   const onWheel = (e: React.WheelEvent) => {
     setRotation((r) => r + e.deltaY * WHEEL_DEG);
+    setDragging(true);
     clearTimeout(wheelSnap.current);
-    wheelSnap.current = setTimeout(
-      () => setRotation((r) => snapRotation(r, count)),
-      WHEEL_SNAP_MS,
-    );
+    wheelSnap.current = setTimeout(() => {
+      setDragging(false);
+      setRotation((r) => snapRotation(r, count));
+    }, WHEEL_SNAP_MS);
   };
 
   // a click never both moves and commits: centred opens, anything else only
@@ -218,7 +234,10 @@ export default function Ring({
               zIndex: 10 + Math.round(t.depth * 100),
             }}
             className={
-              "absolute flex cursor-pointer select-none flex-col gap-1.5 rounded-lg border bg-panel p-2.5 transition-opacity " +
+              "absolute flex cursor-pointer select-none flex-col gap-1.5 rounded-lg border bg-panel p-2.5 " +
+              (dragging
+                ? "transition-opacity "
+                : "transition-[left,top,transform,opacity] duration-300 ease-out ") +
               (kind === "waiting"
                 ? "border-warm"
                 : t.centered
