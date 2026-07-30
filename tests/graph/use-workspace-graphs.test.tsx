@@ -14,6 +14,7 @@ const ws = (id: string, kind: Workspace["kind"]): Workspace => ({
   name: id,
   rootPath: `/tmp/${id}`,
   kind,
+  sourceId: kind === "vault" ? "vault" : "gitnexus",
 });
 
 const graphOf = (...ids: string[]): VaultGraph => ({
@@ -88,21 +89,23 @@ afterEach(() => {
 });
 
 describe("useWorkspaceGraphs", () => {
-  it("fetches a vault graph once, then serves the switch back from cache", async () => {
+  it("fetches each workspace's graph once — a switch back is served from cache", async () => {
     const vault = ws("v", "vault");
-    const activeIdRef = { current: null as string | null };
-    const h = renderHook(useWorkspaceGraphs, params({ activeIdRef }));
-
-    activeIdRef.current = "v";
-    await act(async () => h.result.openGraph(vault));
+    const other = ws("o", "vault");
+    const activeIdRef = { current: "v" as string | null };
+    const base = params({ activeIdRef, active: vault });
+    const h = renderHook(useWorkspaceGraphs, base);
     await settle();
     expect(h.result.graph.nodes.map((n) => n.id)).toEqual(["a"]);
     expect(jarvis.getGraph).toHaveBeenCalledTimes(1);
 
-    // leave and come back — the cached graph must not re-hit the main process
-    await act(async () => h.result.openGraph(vault));
+    activeIdRef.current = "o";
+    h.rerender({ ...base, active: other });
     await settle();
-    expect(jarvis.getGraph).toHaveBeenCalledTimes(1);
+    activeIdRef.current = "v";
+    h.rerender({ ...base, active: vault });
+    await settle();
+    expect(jarvis.getGraph).toHaveBeenCalledTimes(2);
     expect(h.result.graph.nodes.map((n) => n.id)).toEqual(["a"]);
   });
 
@@ -114,16 +117,17 @@ describe("useWorkspaceGraphs", () => {
         release = res;
       }),
     );
-    const h = renderHook(useWorkspaceGraphs, params({ activeIdRef }));
+    const base = params({ activeIdRef, active: ws("slow", "vault") });
+    const h = renderHook(useWorkspaceGraphs, base);
 
-    await act(async () => h.result.openGraph(ws("slow", "vault")));
-    activeIdRef.current = "other"; // user switched while the fetch was in flight
+    activeIdRef.current = "other";
+    h.rerender({ ...base, active: null });
     await act(async () => {
       release(graphOf("stale"));
     });
     await settle();
 
-    expect(h.result.graph.nodes).toEqual([]); // the late graph never landed
+    expect(h.result.graph.nodes).toEqual([]);
   });
 
   it("keeps file and symbol graphs in separate caches", async () => {
@@ -198,11 +202,12 @@ describe("useWorkspaceGraphs", () => {
 
   it("caches a watched graph so opening that workspace needs no fetch", async () => {
     const activeIdRef = { current: null as string | null };
-    const h = renderHook(useWorkspaceGraphs, params({ activeIdRef }));
+    const base = params({ activeIdRef });
+    const h = renderHook(useWorkspaceGraphs, base);
     await act(async () => h.result.applyWatchedGraph("v", graphOf("watched")));
 
     activeIdRef.current = "v";
-    await act(async () => h.result.openGraph(ws("v", "vault")));
+    h.rerender({ ...base, active: ws("v", "vault") });
     await settle();
     expect(jarvis.getGraph).not.toHaveBeenCalled();
     expect(h.result.graph.nodes.map((n) => n.id)).toEqual(["watched"]);
@@ -213,15 +218,8 @@ describe("useWorkspaceGraphs", () => {
     const activeIdRef = { current: "v" as string | null };
     const base = params({ activeIdRef, active: vault });
     const h = renderHook(useWorkspaceGraphs, base);
-
-    await act(async () => h.result.openGraph(vault));
     await settle();
     await act(async () => h.result.refresh());
-    await settle();
-    expect(h.result.graph.nodes.map((n) => n.id)).toEqual(["rescanned"]);
-
-    // and the refreshed graph is what a later open serves
-    await act(async () => h.result.openGraph(vault));
     await settle();
     expect(h.result.graph.nodes.map((n) => n.id)).toEqual(["rescanned"]);
   });

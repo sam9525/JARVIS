@@ -10,7 +10,7 @@ import type {
 import type { HighlightState } from "../session/highlight-store";
 import type { GraphFilters } from "../graph/graph-filter";
 import MiniGraph from "../graph/MiniGraph";
-import EmptyGraph, { type IndexState } from "../graph/EmptyGraph";
+import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { relativeTime } from "./relative-time";
 
 const CARD_W = 220;
@@ -23,7 +23,7 @@ const LABEL: Record<StatusKind, string> = {
   none: "no session",
 };
 
-const DOT: Record<StatusKind, string> = {
+export const DOT: Record<StatusKind, string> = {
   waiting: "bg-warm",
   running: "bg-accent",
   idle: "bg-ink-dim",
@@ -92,7 +92,7 @@ export default function MissionControl({
           const g = graphs.get(ws.id);
           // absent from the map = still loading; empty = analyzed to nothing,
           // or never analyzed at all. Only the second earns the button.
-          const needsIndex = ws.kind === "code" && !!g && g.nodes.length === 0;
+          const needsIndex = canIndex(ws) && !!g && g.nodes.length === 0;
           const idx = indexing[ws.id];
 
           return (
@@ -150,6 +150,7 @@ export default function MissionControl({
                   Claude happens to be doing */}
               <div
                 data-testid={`call-${ws.id}`}
+                title={st?.call || undefined}
                 className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11.5px] text-accent-soft"
               >
                 {st?.call || " "}

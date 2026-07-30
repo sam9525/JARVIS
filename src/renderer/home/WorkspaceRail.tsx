@@ -1,4 +1,5 @@
 import React from "react";
+import { SOURCE_LABELS } from "../../shared/types";
 import type {
   Workspace,
   WorkspaceStatus,
@@ -31,6 +32,16 @@ const LABEL: Record<StatusKind, string> = {
   none: "no session",
 };
 
+function groupBySource(workspaces: Workspace[]): Array<[string, Workspace[]]> {
+  const groups = new Map<string, Workspace[]>();
+  for (const ws of workspaces) {
+    const list = groups.get(ws.sourceId) ?? [];
+    list.push(ws);
+    groups.set(ws.sourceId, list);
+  }
+  return [...groups.entries()];
+}
+
 // Left-edge rail: one button per workspace, vault first. Initials only —
 // full name and live status in the tooltip.
 export default function WorkspaceRail({
@@ -58,35 +69,46 @@ export default function WorkspaceRail({
       >
         ⌂
       </button>
-      {workspaces.map((ws) => {
-        const st = byId.get(ws.id);
-        const badge = st ? BADGE[st.kind] : null;
-        const state = st ? LABEL[st.kind] : "no session";
-        const title =
-          `${ws.name} (${ws.kind}) — ${state}` +
-          (st?.call ? ` — ${st.call}` : "");
-        return (
-          <button
-            key={ws.id}
-            title={title}
-            onClick={() => onSelect(ws)}
-            className={
-              "relative h-9 w-9 cursor-pointer rounded-lg border text-[11px] uppercase transition-colors " +
-              (!homeActive && ws.id === activeId
-                ? "border-accent text-accent"
-                : "border-edge text-ink-dim hover:border-accent hover:text-accent")
-            }
+      {groupBySource(workspaces).map(([sourceId, group]) => (
+        <React.Fragment key={sourceId}>
+          <div
+            data-testid={`rail-group-${sourceId}`}
+            className="w-10 border-t border-edge pt-1 text-center text-[8px] uppercase tracking-widest text-ink-dim"
           >
-            {ws.name.slice(0, 2)}
-            {badge && (
-              <span
-                data-testid={`badge-${ws.id}`}
-                className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-panel ${badge}`}
-              />
-            )}
-          </button>
-        );
-      })}
+            {SOURCE_LABELS[sourceId] ?? sourceId}
+          </div>
+          {group.map((ws) => {
+            const st = byId.get(ws.id);
+            const badge = st ? BADGE[st.kind] : null;
+            const state = st ? LABEL[st.kind] : "no session";
+            const label = SOURCE_LABELS[ws.sourceId] ?? ws.sourceId;
+            const title =
+              `${ws.name} (${ws.kind} · ${label}) — ${state}` +
+              (st?.call ? ` — ${st.call}` : "");
+            return (
+              <button
+                key={ws.id}
+                title={title}
+                onClick={() => onSelect(ws)}
+                className={
+                  "relative h-9 w-9 cursor-pointer rounded-lg border text-[11px] uppercase transition-colors " +
+                  (!homeActive && ws.id === activeId
+                    ? "border-accent text-accent"
+                    : "border-edge text-ink-dim hover:border-accent hover:text-accent")
+                }
+              >
+                {ws.name.slice(0, 2)}
+                {badge && (
+                  <span
+                    data-testid={`badge-${ws.id}`}
+                    className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-panel ${badge}`}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </React.Fragment>
+      ))}
       <button
         data-testid="rail-add"
         title="Add a project folder"

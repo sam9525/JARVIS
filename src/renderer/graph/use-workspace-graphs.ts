@@ -66,36 +66,10 @@ export function useWorkspaceGraphs({
     [activeIdRef],
   );
 
-  const openGraph = useCallback(
-    (ws: Workspace) => {
-      if (ws.kind === "code") {
-        // the [active, codeGraphLevel] effect loads the right-level graph
-        setGraph(EMPTY);
-        setGraphLoading(true);
-        return;
-      }
-      const cached = fileCache.current.get(ws.id);
-      if (cached) {
-        show(ws.id, cached);
-        return;
-      }
-      setGraph(EMPTY);
-      setGraphLoading(true);
-      window.jarvis.getGraph(ws.id).then((g) => {
-        fileCache.current.set(ws.id, g);
-        show(ws.id, g);
-      });
-    },
-    [show],
-  );
-
-  // A code workspace's graph is chosen by codeGraphLevel: file graph from
-  // fileCache (loaded here or by cards/refresh), symbol graph from symbolCache.
-  // Vault graphs stay owned by openGraph.
   useEffect(() => {
     const ws = active;
-    if (!ws || ws.kind !== "code") return;
-    const symbol = codeGraphLevel === "symbol";
+    if (!ws) return;
+    const symbol = ws.kind === "code" && codeGraphLevel === "symbol";
     const cache = symbol ? symbolCache.current : fileCache.current;
     let cancelled = false;
     const cached = cache.get(ws.id);
@@ -103,13 +77,14 @@ export function useWorkspaceGraphs({
       show(ws.id, cached);
       return;
     }
+    setGraph(EMPTY);
     setGraphLoading(true);
     const load = symbol
       ? window.jarvis.getSymbolGraph(ws.id).then(capped)
       : window.jarvis.getGraph(ws.id);
     load
       .then((g) => {
-        cache.set(ws.id, g); // cache even if we navigated away meanwhile
+        cache.set(ws.id, g);
         if (!cancelled) show(ws.id, g);
       })
       .catch(() => setGraphLoading(false));
@@ -204,7 +179,7 @@ export function useWorkspaceGraphs({
         } else {
           setGraph(g);
           setLayoutEpoch((n) => n + 1);
-          if (ws.kind === "code") setGraphLoading(false);
+          setGraphLoading(false);
         }
       })
       .catch(console.error);
@@ -253,7 +228,6 @@ export function useWorkspaceGraphs({
     fleetEpoch,
     cardGraphs,
     indexing,
-    openGraph,
     applyWatchedGraph,
     refresh,
     indexProject,

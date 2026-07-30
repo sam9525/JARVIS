@@ -62,7 +62,11 @@ function startMcp(port: number) {
 
 // a listener stand-in that records what mcp.mjs sends it
 async function fakeListener(reply: unknown) {
-  const hits: Array<{ url: string; headers: http.IncomingHttpHeaders; body: string }> = [];
+  const hits: Array<{
+    url: string;
+    headers: http.IncomingHttpHeaders;
+    body: string;
+  }> = [];
   const server = http.createServer((req, res) => {
     let b = "";
     req.on("data", (c) => (b += c));
@@ -131,7 +135,10 @@ describe("mcp.mjs", () => {
       jsonrpc: "2.0",
       id: 4,
       method: "tools/call",
-      params: { name: "jarvis_send", arguments: { workspace: "X", prompt: "p" } },
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "X", prompt: "p" },
+      },
     });
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("no workspace");
@@ -155,7 +162,11 @@ describe("mcp.mjs", () => {
     expect(parseErr.error.code).toBe(-32700);
     const unknown = await request({ jsonrpc: "2.0", id: 6, method: "nope" });
     expect(unknown.error.code).toBe(-32601);
-    const alive = await request({ jsonrpc: "2.0", id: 7, method: "tools/list" });
+    const alive = await request({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "tools/list",
+    });
     expect(alive.result.tools).toHaveLength(2);
   });
 });

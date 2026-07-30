@@ -1,10 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
-import { exec } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
-import { scanVault } from "./vault-graph";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
 import { loadSettings, saveSettings } from "./settings";
@@ -15,13 +13,9 @@ import {
   readProjects,
   saveProjects,
 } from "./workspaces";
-import {
-  hasIndex,
-  insideGitRepo,
-  loadCodeGraph,
-  loadSymbolGraph,
-} from "./gitnexus-graph";
+import { resolveSourceId, sourceById } from "./graph-sources/registry";
 import { isDirectory } from "./is-directory";
+import { runAnalyze } from "./graph-sources/gitnexus-source";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { createOrchestrator } from "./orchestrate";
@@ -51,46 +45,6 @@ async function resolveRootPath(): Promise<string> {
   return picked[0];
 }
 
-// exec, not execFile: `gitnexus` is a .cmd shim on Windows and needs a shell —
-// same reason gitnexus-graph.ts uses exec. The only interpolated value is one
-// of two literal flags, so nothing user-supplied reaches the command line.
-// maxBuffer is per-call and defaults to 1 MB; analyze is chatty enough to blow
-// that, which would kill a long index mid-run.
-const ANALYZE_TIMEOUT_MS = 10 * 60 * 1000;
-
-async function runAnalyze(cwd: string): Promise<void> {
-  // gitnexus refuses a folder with no git history unless told to skip git;
-  // a project can perfectly well be worth indexing before it is a repo
-  const skipGit = (await insideGitRepo(cwd)) ? "" : " --skip-git";
-  return new Promise((resolve, reject) => {
-    exec(
-      `gitnexus analyze${skipGit}`,
-      {
-        cwd,
-        windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024,
-        // the button is disabled while this runs, so a hung analyze would park
-        // the card on "indexing…" with no way out — fail instead of never
-        timeout: ANALYZE_TIMEOUT_MS,
-      },
-      // stderr carries the actual reason ("Not inside a git repository", a
-      // parse failure); err.message alone is just the exit code
-      (err, _stdout, stderr) => {
-        if (!err) return resolve();
-        // a timeout kill leaves stderr empty and err.message unhelpfully generic
-        const killed = (err as { killed?: boolean }).killed;
-        reject(
-          new Error(
-            killed
-              ? `gitnexus analyze timed out after ${ANALYZE_TIMEOUT_MS / 60000} min`
-              : stderr.trim() || err.message,
-          ),
-        );
-      },
-    );
-  });
-}
-
 app.whenReady().then(async () => {
   const rootPath = await resolveRootPath(); // unchanged (vault picker)
   const projectsPath = path.join(
@@ -109,19 +63,9 @@ app.whenReady().then(async () => {
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
-  const loadGraph = async (ws: Workspace): Promise<VaultGraph> => {
-    if (ws.kind === "vault") return scanVault(ws.rootPath);
-    // a project added before it was ever analyzed has no registry entry, so
-    // asking the CLI would only produce "Repository not found"
-    if (!(await hasIndex(ws.rootPath))) return { nodes: [], edges: [] };
-    // keyed by registry name, not path: two registry entries sharing a name
-    // resolve to the same gitnexus index
-    return loadCodeGraph(ws.name).catch((err) => {
-      // gitnexus format drift / unreadable index → terminal-only, no crash
-      console.error(`code graph failed for ${ws.name}:`, err);
-      return { nodes: [], edges: [] };
-    });
-  };
+  const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
+    sourceById(ws.sourceId)?.load(ws) ??
+    Promise.resolve({ nodes: [], edges: [] });
   const graphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
@@ -138,18 +82,14 @@ app.whenReady().then(async () => {
   const symbolGraphs = new Map<string, Promise<VaultGraph>>();
   const symbolGraphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
-    if (!ws || ws.kind !== "code")
-      return Promise.resolve({ nodes: [], edges: [] });
+    if (!ws) return Promise.resolve({ nodes: [], edges: [] });
     let g = symbolGraphs.get(id);
     if (!g) {
-      g = (async () => {
-        if (!(await hasIndex(ws.rootPath))) return { nodes: [], edges: [] };
-        return loadSymbolGraph(ws.name).catch((err) => {
-          // gitnexus format drift / unreadable index → empty graph, no crash
-          console.error(`symbol graph failed for ${ws.name}:`, err);
-          return { nodes: [], edges: [] };
-        });
-      })();
+      // sources own their error handling; a source with no symbol level
+      // serves an empty graph rather than main knowing what a gitnexus is
+      g =
+        sourceById(ws.sourceId)?.loadSymbols?.(ws) ??
+        Promise.resolve({ nodes: [], edges: [] });
       symbolGraphs.set(id, g);
     }
     return g;
@@ -158,9 +98,23 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-workspaces", () => workspaces);
   ipcMain.handle("get-graph", (_e, id: string) => graphFor(id));
   ipcMain.handle("get-symbol-graph", (_e, id: string) => symbolGraphFor(id));
+  // returns the command that rebuilds this source, or null when it is fresh —
+  // a source with no reindexCommand never offers the button
+  ipcMain.handle(
+    "stale-reindex-command",
+    async (_e, id: string): Promise<string | null> => {
+      const ws = workspaces.find((w) => w.id === id);
+      const src = ws && sourceById(ws.sourceId);
+      if (!src?.stale || !src.reindexCommand) return null;
+      return (await src.stale(ws.rootPath)) ? src.reindexCommand : null;
+    },
+  );
   ipcMain.handle("rescan", async (_e, id: string) => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return { nodes: [], edges: [] };
+    // re-probe: a source can appear after boot (`/graphify .` or `gitnexus
+    // analyze` run in the workspace's own terminal), and refresh is how you say so
+    ws.sourceId = await resolveSourceId(ws);
     const g = await loadGraph(ws);
     graphs.set(id, Promise.resolve(g)); // assign only on success
     symbolGraphs.delete(id);
@@ -177,14 +131,18 @@ app.whenReady().then(async () => {
     const id = normalizeId(rootPathPicked);
     if (workspaces.some((w) => w.id === id)) return workspaces; // already here
 
-    // pushed, never reassigned: startListener holds this array through a
-    // () => workspaces getter and the IPC handlers reach it via .find
-    workspaces.push({
+    const ws: Workspace = {
       id,
       name: path.basename(rootPathPicked),
       rootPath: rootPathPicked,
       kind: "code",
-    });
+      sourceId: "unknown",
+    };
+    ws.sourceId = await resolveSourceId(ws);
+
+    // pushed, never reassigned: startListener holds this array through a
+    // () => workspaces getter and the IPC handlers reach it via .find
+    workspaces.push(ws);
     extraPaths.push(rootPathPicked);
     await saveProjects(projectsPath, extraPaths).catch(console.error);
     return workspaces;
@@ -208,6 +166,7 @@ app.whenReady().then(async () => {
       .catch(() => null);
     const name = nameFromRegistry(registry, ws.rootPath);
     if (name) ws.name = name;
+    ws.sourceId = await resolveSourceId(ws);
     graphs.delete(ws.id); // next get-graph/rescan re-reads the fresh index
     symbolGraphs.delete(ws.id);
     return { ok: true };

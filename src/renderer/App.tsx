@@ -14,6 +14,7 @@ import WorkspaceRail from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import TerminalPanel from "./terminal/TerminalPanel";
 import FleetGraph from "./graph/FleetGraph";
+import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
 import EmptyGraph from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
@@ -42,6 +43,7 @@ import { buildWikilinkResolver } from "../shared/wikilink";
 
 const HOME_VIEW_OPTIONS: { value: HomeView; label: string }[] = [
   { value: "cards", label: "Cards" },
+  { value: "ring", label: "Ring" },
   { value: "fleet", label: "Fleet" },
 ];
 
@@ -130,9 +132,8 @@ export default function App() {
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
       setReplayIndex(null); // the ref above already points at the live store
-      graphs.openGraph(ws);
     },
-    [onPreviewEvent, graphs.openGraph],
+    [onPreviewEvent],
   );
 
   useEffect(() => {
@@ -309,6 +310,23 @@ export default function App() {
                   layoutEpoch={graphs.fleetEpoch}
                   width={width}
                   height={height}
+                  onOpen={(ws) => {
+                    setShowHome(false);
+                    openWorkspace(ws);
+                  }}
+                />
+              ) : homeView === "ring" ? (
+                <Ring
+                  workspaces={workspaces}
+                  statuses={statuses}
+                  graphs={cardGraphs}
+                  getStore={storeFor}
+                  groups={settings.groups}
+                  view={settings.views["3d"]}
+                  width={width}
+                  height={height}
+                  indexing={indexing}
+                  onIndex={graphs.indexProject}
                   onOpen={(ws) => {
                     setShowHome(false);
                     openWorkspace(ws);

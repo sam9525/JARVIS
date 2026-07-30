@@ -138,4 +138,3 @@ describe("pty-manager", () => {
     expect(mgr.has("a")).toBe(false);
   });
 });
-

@@ -5,8 +5,27 @@ import WorkspaceRail from "../../src/renderer/home/WorkspaceRail";
 import type { Workspace, WorkspaceStatus } from "../../src/shared/types";
 
 const workspaces: Workspace[] = [
-  { id: "w1", name: "vault", rootPath: "D:\\vault", kind: "vault" },
-  { id: "w2", name: "gitnexus", rootPath: "D:\\gn", kind: "code" },
+  {
+    id: "w1",
+    name: "vault",
+    rootPath: "D:\\vault",
+    kind: "vault",
+    sourceId: "vault",
+  },
+  {
+    id: "w2",
+    name: "gitnexus",
+    rootPath: "D:\\gn",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
+  {
+    id: "w3",
+    name: "fresh",
+    rootPath: "D:\\fresh",
+    kind: "code",
+    sourceId: "unknown",
+  },
 ];
 
 const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
@@ -51,6 +70,22 @@ function walk(node: any, fn: (n: any) => boolean): any {
     return walk(children, fn);
   }
   return null;
+}
+
+function walkAll(node: any, fn: (n: any) => boolean, out: any[] = []): any[] {
+  if (!node || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const item of node) walkAll(item, fn, out);
+    return out;
+  }
+  if (fn(node)) out.push(node);
+  const children = node.props?.children;
+  if (Array.isArray(children)) {
+    for (const child of children) walkAll(child, fn, out);
+  } else if (children && typeof children === "object") {
+    walkAll(children, fn, out);
+  }
+  return out;
 }
 
 const screen = {
@@ -225,5 +260,50 @@ describe("WorkspaceRail badges", () => {
     );
     screen.getByTestId("rail-add").props.onClick();
     expect(fired).toBe(true);
+  });
+});
+
+describe("WorkspaceRail source groups", () => {
+  const renderRail = () =>
+    render(
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId="w1"
+        statuses={[]}
+        homeActive={false}
+        onHome={() => {}}
+        onSelect={() => {}}
+        onAddProject={() => {}}
+      />,
+    );
+
+  it("renders one caption per source, vault first, unknown labeled Unknown", () => {
+    renderRail();
+    const captions = walkAll(currentTree, (n) =>
+      /^rail-group-/.test(n.props?.["data-testid"] ?? ""),
+    ).map((n) => n.props["data-testid"]);
+    expect(captions).toEqual([
+      "rail-group-vault",
+      "rail-group-gitnexus",
+      "rail-group-unknown",
+    ]);
+  });
+
+  it("keeps every workspace button, grouped under its own caption", () => {
+    renderRail();
+    const buttons = walkAll(
+      currentTree,
+      (n) =>
+        typeof n.props?.title === "string" &&
+        !n.props["data-testid"] &&
+        /—/.test(n.props.title),
+    );
+    expect(buttons).toHaveLength(3);
+  });
+
+  it("puts the source label in the button tooltip", () => {
+    renderRail();
+    expect(screen.getByTitle(/gitnexus \(code · GitNexus\)/)).toBeTruthy();
+    expect(screen.getByTitle(/fresh \(code · Unknown\)/)).toBeTruthy();
   });
 });

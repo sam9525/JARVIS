@@ -1,6 +1,16 @@
 import React from "react";
+import type { Workspace } from "../../shared/types";
 
 export type IndexState = "idle" | "running" | "error";
+
+// gitnexus is the one source the app can index, so it is the one source this
+// panel can offer anything to; a bare folder counts because indexing is how it
+// becomes one. A graphify workspace with an empty graph has a broken
+// graph.json, not a missing index — offering the button there would quietly
+// convert it to a different source on the next boot.
+export const canIndex = (ws: Workspace): boolean =>
+  ws.kind === "code" &&
+  (ws.sourceId === "gitnexus" || ws.sourceId === "unknown");
 
 type EmptyGraphProps = {
   state: IndexState;

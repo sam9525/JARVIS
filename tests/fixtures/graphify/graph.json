@@ -1,0 +1,150 @@
+{
+  "directed": false,
+  "nodes": [
+    {
+      "id": "a_file",
+      "label": "a.ts",
+      "norm_label": "a.ts",
+      "file_type": "code",
+      "source_file": "src/a.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 0
+    },
+    {
+      "id": "a_fn",
+      "label": "loadThing",
+      "norm_label": "loadthing",
+      "file_type": "code",
+      "source_file": "src/a.ts",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 0
+    },
+    {
+      "id": "b_file",
+      "label": "b.ts",
+      "norm_label": "b.ts",
+      "file_type": "code",
+      "source_file": "src/b.ts",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 1
+    },
+    {
+      "id": "b_fn",
+      "label": "useThing",
+      "norm_label": "usething",
+      "file_type": "code",
+      "source_file": "src/b.ts",
+      "source_location": "L4",
+      "_origin": "ast",
+      "community": 1
+    },
+    {
+      "id": "readme",
+      "label": "README",
+      "norm_label": "readme",
+      "file_type": "document",
+      "source_file": "docs/readme.md",
+      "source_location": "L1",
+      "community": 1
+    },
+    {
+      "id": "ghost_session",
+      "label": "Session",
+      "norm_label": "session",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 0
+    },
+    {
+      "id": "url_note",
+      "label": "External doc",
+      "norm_label": "external doc",
+      "file_type": "concept",
+      "source_url": "https://example.com/doc",
+      "community": 1
+    }
+  ],
+  "links": [
+    {
+      "source": "a_file",
+      "target": "a_fn",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1,
+      "weight": 1,
+      "source_file": "src/a.ts",
+      "_origin": "ast"
+    },
+    {
+      "source": "b_file",
+      "target": "b_fn",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1,
+      "weight": 1,
+      "source_file": "src/b.ts",
+      "_origin": "ast"
+    },
+    {
+      "source": "a_fn",
+      "target": "b_fn",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1,
+      "weight": 1,
+      "source_file": "src/a.ts",
+      "_origin": "ast"
+    },
+    {
+      "source": "b_fn",
+      "target": "a_fn",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1,
+      "weight": 1,
+      "source_file": "src/b.ts",
+      "_origin": "ast"
+    },
+    {
+      "source": "a_fn",
+      "target": "readme",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.62,
+      "weight": 1,
+      "source_file": "src/a.ts"
+    },
+    {
+      "source": "a_fn",
+      "target": "ghost_session",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1,
+      "weight": 1,
+      "source_file": "src/a.ts",
+      "_origin": "ast"
+    },
+    {
+      "source": "a_fn",
+      "target": "a_fn",
+      "relation": "references",
+      "confidence": "AMBIGUOUS",
+      "confidence_score": 0.4,
+      "weight": 1,
+      "source_file": "src/a.ts"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "h1",
+      "members": ["a_fn", "b_fn", "readme_doc"],
+      "relation": "co_change"
+    }
+  ],
+  "built_at_commit": "abc123def4567890abc123def4567890abc123de"
+}

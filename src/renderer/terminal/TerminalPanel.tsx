@@ -95,6 +95,19 @@ export default function TerminalPanel({
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
   const status: Status = localStatuses[workspace.id] ?? { kind: "idle" };
+  // the reindex command comes from the workspace's own graph source — the
+  // panel never names gitnexus, so a graphify workspace gets `/graphify .`
+  const [reindexCommand, setReindexCommand] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setReindexCommand(null);
+    window.jarvis
+      .staleReindexCommand(workspace.id)
+      .then((cmd) => !cancelled && setReindexCommand(cmd));
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace.id]);
 
   const detailWs = inbox?.workspaces.find((w) => w.id === detailId);
   const detailStatus = inbox?.statuses.find((s) => s.workspaceId === detailId);
@@ -224,13 +237,11 @@ export default function TerminalPanel({
           {workspace.name}
           {status.kind === "exited" ? ` — exited (${status.code})` : ""}
         </span>
-        {workspace.staleIndex && status.kind === "running" && (
+        {reindexCommand && status.kind === "running" && (
           <button
             className="cursor-pointer text-amber-400 hover:text-amber-300"
-            title="GitNexus index is behind HEAD — type the reindex command"
-            onClick={() =>
-              window.jarvis.ptyInput(workspace.id, "npx gitnexus analyze")
-            }
+            title={`Graph is behind HEAD — type \`${reindexCommand}\``}
+            onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
           >
             index stale
           </button>

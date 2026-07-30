@@ -60,13 +60,20 @@ export interface VaultGraph {
 
 export type WorkspaceKind = "vault" | "code";
 
+export const SOURCE_LABELS: Record<string, string> = {
+  vault: "Vault",
+  gitnexus: "GitNexus",
+  graphify: "Graphify",
+  unknown: "Unknown",
+};
+
 export interface Workspace {
   id: string; // normalized absolute root path (lowercased, POSIX separators)
   name: string;
   rootPath: string;
   kind: WorkspaceKind;
-  staleIndex?: boolean; // code only: gitnexus index behind repo HEAD
-  isSelf?: boolean; // the cockpit's own repo — home's terminal is pinned here
+  sourceId: string;
+  isSelf?: boolean;
 }
 
 export interface Session {
@@ -82,7 +89,7 @@ export interface GraphGroup {
 
 export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
-export type HomeView = "cards" | "fleet";
+export type HomeView = "cards" | "ring" | "fleet";
 
 export interface DisplaySettings {
   textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
