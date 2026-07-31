@@ -40,6 +40,7 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
+import type { HandActions } from "./hands/use-hand-actions";
 
 const HOME_VIEW_OPTIONS: { value: HomeView; label: string }[] = [
   { value: "cards", label: "Cards" },
@@ -77,6 +78,8 @@ export default function App() {
   const storesRef = useRef(new Map<string, HighlightState>());
   const stateRef = useRef(emptyState());
   const activeIdRef = useRef<string | null>(null);
+  // whichever graph view is mounted registers its gesture map here
+  const handActionsRef = useRef<HandActions>({});
 
   const graphs = useWorkspaceGraphs({
     active,
@@ -327,6 +330,7 @@ export default function App() {
                   height={height}
                   indexing={indexing}
                   layoutEpoch={graphs.fleetEpoch}
+                  actionsRef={handActionsRef}
                   onIndex={graphs.indexProject}
                   onOpen={(ws) => {
                     setShowHome(false);
