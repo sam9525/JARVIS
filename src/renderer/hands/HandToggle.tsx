@@ -38,7 +38,7 @@ export default function HandToggle({
       data-testid="hand-toggle"
       title={title}
       onClick={onToggle}
-      className={`h-[30px] w-[30px] cursor-pointer rounded-full border bg-panel text-[13px] text-ink-dim transition-colors hover:text-accent ${border}`}
+      className={`h-[30px] w-[30px] cursor-pointer rounded-full border bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent ${border}`}
     >
       <span
         data-testid="hand-glyph"
