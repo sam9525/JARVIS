@@ -11,11 +11,15 @@ import {
 
 // a hand whose thumb–index separation is exactly `n` in normalized units
 const handWithNorm = (n: number, scale = 0.2): Landmark[] => {
-  const h: Landmark[] = Array.from({ length: 21 }, () => ({ x: 0, y: 0 }));
-  h[WRIST] = { x: 0.5, y: 0.8 };
-  h[MIDDLE_MCP] = { x: 0.5, y: 0.8 - scale };
-  h[THUMB_TIP] = { x: 0.3, y: 0.4 };
-  h[INDEX_TIP] = { x: 0.3 + n * scale, y: 0.4 };
+  const h: Landmark[] = Array.from({ length: 21 }, () => ({
+    x: 0,
+    y: 0,
+    z: 0,
+  }));
+  h[WRIST] = { x: 0.5, y: 0.8, z: 0 };
+  h[MIDDLE_MCP] = { x: 0.5, y: 0.8 - scale, z: 0 };
+  h[THUMB_TIP] = { x: 0.3, y: 0.4, z: 0 };
+  h[INDEX_TIP] = { x: 0.3 + n * scale, y: 0.4, z: 0 };
   return h;
 };
 
