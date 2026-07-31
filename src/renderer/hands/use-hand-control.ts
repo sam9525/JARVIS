@@ -30,7 +30,7 @@ export function useHandControl(actions: HandActions): {
     const engine = new GestureEngine();
     const apply = (ev: GestureEvent) => {
       const a = actionsRef.current;
-      if (ev.type === "rotate") a.rotate(ev.dx);
+      if (ev.type === "drag") a.rotate(ev.dx);
       else if (ev.type === "snap") a.snap();
       else if (ev.type === "step") a.step(ev.dir);
       else if (ev.type === "open") a.open();

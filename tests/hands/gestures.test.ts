@@ -4,7 +4,13 @@ import {
   fingerExtended,
   type GestureEvent,
 } from "../../src/renderer/hands/gestures";
-import { fistHand, palmHand, pinchedHand, twoFingerHand } from "./hands";
+import {
+  fistHand,
+  palmHand,
+  pinchedHand,
+  shifted,
+  twoFingerHand,
+} from "./hands";
 
 const types = (evs: GestureEvent[]) => evs.map((e) => e.type);
 
@@ -19,52 +25,35 @@ describe("fingerExtended", () => {
 });
 
 describe("GestureEngine: pinch drag", () => {
-  it("emits rotate while a pinch moves, then snap on release", () => {
+  it("emits drag on both axes while a pinch moves, then snap on release", () => {
     const g = new GestureEngine();
     g.update(pinchedHand(0.3), 0); // engage
-    const rotates: number[] = [];
+    const dxs: number[] = [];
+    const dys: number[] = [];
     for (let i = 1; i <= 5; i++) {
-      for (const ev of g.update(pinchedHand(0.3 + i * 0.1), i / 30))
-        if (ev.type === "rotate") rotates.push(ev.dx);
+      for (const ev of g.update(
+        shifted(pinchedHand(0.3), i * 0.1, i * 0.03),
+        i / 30,
+      ))
+        if (ev.type === "drag") {
+          dxs.push(ev.dx);
+          dys.push(ev.dy);
+        }
     }
-    expect(rotates.length).toBeGreaterThan(0);
-    expect(Math.max(...rotates)).toBeGreaterThan(0);
+    expect(dxs.length).toBeGreaterThan(0);
+    expect(Math.max(...dxs)).toBeGreaterThan(0);
+    expect(Math.max(...dys)).toBeGreaterThan(0);
     expect(types(g.update(palmHand(0.8), 6 / 30))).toContain("snap");
   });
 
-  it("a moved pinch is a drag: its release never counts toward a double-tap", () => {
+  it("a pinch double-tap no longer emits open", () => {
     const g = new GestureEngine();
-    g.update(pinchedHand(0.3), 0);
-    for (let i = 1; i <= 5; i++) g.update(pinchedHand(0.3 + i * 0.1), i / 30);
-    g.update(palmHand(0.8), 6 / 30); // release a drag
-    // quick clean tap right after — must NOT open (previous release was a drag)
-    g.update(pinchedHand(0.8), 9 / 30);
-    const evs = g.update(palmHand(0.8), 10 / 30);
+    g.update(palmHand(), 0);
+    g.update(pinchedHand(), 1 / 30);
+    g.update(palmHand(), 2 / 30);
+    g.update(pinchedHand(), 4 / 30);
+    const evs = g.update(palmHand(), 5 / 30);
     expect(types(evs)).toContain("snap");
-    expect(types(evs)).not.toContain("open");
-  });
-});
-
-describe("GestureEngine: double-tap", () => {
-  const tap = (g: GestureEngine, tEngage: number, tRelease: number) => {
-    g.update(pinchedHand(), tEngage);
-    return g.update(palmHand(), tRelease);
-  };
-
-  it("two stationary taps within 0.4 s open", () => {
-    const g = new GestureEngine();
-    g.update(palmHand(), 0);
-    expect(types(tap(g, 1 / 30, 2 / 30))).not.toContain("open");
-    // second engage at 0.133 s clears the 0.08 s re-arm from the first
-    const evs = tap(g, 4 / 30, 5 / 30);
-    expect(types(evs)).toContain("open");
-  });
-
-  it("a second tap past the 0.4 s window does not open", () => {
-    const g = new GestureEngine();
-    g.update(palmHand(), 0);
-    tap(g, 1 / 30, 2 / 30); // release at ~0.067
-    const evs = tap(g, 0.5, 0.55); // release 0.483 s after the first
     expect(types(evs)).not.toContain("open");
   });
 });

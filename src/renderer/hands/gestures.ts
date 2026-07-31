@@ -6,7 +6,7 @@ import { AnchorSmoother } from "./one-euro";
 import { PinchDetector, WRIST, type Landmark, type PinchState } from "./pinch";
 
 export type GestureEvent =
-  | { type: "rotate"; dx: number } // normalized hand units; sign matches pointer dx
+  | { type: "drag"; dx: number; dy: number } // normalized hand units; sign matches pointer
   | { type: "snap" }
   | { type: "open" }
   | { type: "step"; dir: 1 | -1 }
@@ -24,20 +24,24 @@ export function fingerExtended(hand: Landmark[], finger: Finger): boolean {
 }
 
 // starting values, to be tuned against a real camera (design §6)
-export const DOUBLE_TAP_S = 0.4; // widened from GazeControl's 0.35 — see MIN_REARM_S
-export const TAP_MOVE_MAX = 0.04; // past this travel a pinch is a drag, not a tap
 export const SWIPE_STEP = 0.15; // two-finger travel per ring step
 export const FIST_HOLD_S = 1.0;
 
-type Frame = { hand: Landmark[]; t: number; pinch: PinchState; x: number };
+type Frame = {
+  hand: Landmark[];
+  t: number;
+  pinch: PinchState;
+  x: number;
+  y: number;
+};
 
 export class GestureEngine {
   private pinchDet = new PinchDetector();
   private smoother = new AnchorSmoother();
+  private smootherY = new AnchorSmoother();
   private wasPinching = false;
   private lastX: number | null = null; // pinch-drag anchor
-  private travel = 0;
-  private lastTapT: number | null = null;
+  private lastY: number | null = null;
   private swipeLastX: number | null = null;
   private swipe = 0;
   private fistT: number | null = null;
@@ -54,7 +58,8 @@ export class GestureEngine {
     const pinch = this.pinchDet.update(hand, t);
     this.wasPinching = pinch.isPinching;
     const x = this.smoother.update(hand[WRIST].x, t);
-    const frame: Frame = { hand, t, pinch, x };
+    const y = this.smootherY.update(hand[WRIST].y, t);
+    const frame: Frame = { hand, t, pinch, x, y };
     const events: GestureEvent[] = [];
     for (const row of this.rows) events.push(...row(frame));
     return events;
@@ -66,6 +71,7 @@ export class GestureEngine {
     this.pinchDet = new PinchDetector();
     this.wasPinching = false;
     this.lastX = null;
+    this.lastY = null;
     this.swipeLastX = null;
     this.swipe = 0;
     this.fistT = null;
@@ -75,28 +81,23 @@ export class GestureEngine {
   private pinchDrag(f: Frame): GestureEvent[] {
     const events: GestureEvent[] = [];
     if (f.pinch.justEngaged) {
-      this.travel = 0;
       this.lastX = f.x;
-    } else if (f.pinch.isPinching && this.lastX !== null) {
+      this.lastY = f.y;
+    } else if (
+      f.pinch.isPinching &&
+      this.lastX !== null &&
+      this.lastY !== null
+    ) {
       const dx = f.x - this.lastX;
+      const dy = f.y - this.lastY;
       this.lastX = f.x;
-      this.travel += Math.abs(dx);
-      if (dx !== 0) events.push({ type: "rotate", dx });
+      this.lastY = f.y;
+      if (dx !== 0 || dy !== 0) events.push({ type: "drag", dx, dy });
     }
     if (f.pinch.justReleased) {
       this.lastX = null;
+      this.lastY = null;
       events.push({ type: "snap" });
-      if (this.travel <= TAP_MOVE_MAX) {
-        // double-tap window runs release-to-release, as in gazeos click.py
-        if (this.lastTapT !== null && f.t - this.lastTapT <= DOUBLE_TAP_S) {
-          this.lastTapT = null;
-          events.push({ type: "open" });
-        } else {
-          this.lastTapT = f.t;
-        }
-      } else {
-        this.lastTapT = null; // a drag is never half of a double-tap
-      }
     }
     return events;
   }

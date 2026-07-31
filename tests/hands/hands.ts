@@ -54,3 +54,7 @@ export const twoFingerHand = (x = 0.5): Landmark[] => {
   h[MIDDLE_TIP] = { x, y: 0.35, z: 0 };
   return h;
 };
+
+/** translate a whole hand — vertical pinch drags, etc. */
+export const shifted = (h: Landmark[], dx: number, dy: number): Landmark[] =>
+  h.map((p) => ({ x: p.x + dx, y: p.y + dy, z: p.z }));
