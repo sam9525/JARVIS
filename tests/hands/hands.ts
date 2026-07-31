@@ -64,6 +64,26 @@ export const flickHand = (x = 0.5, depth = -0.12): Landmark[] => {
   return h;
 };
 
+/** palm with the knuckle line (index MCP → pinky MCP) at `angle` radians */
+const INDEX_MCP = 5;
+const PINKY_MCP = 17;
+
+export const rolledPalmHand = (angle: number, x = 0.5): Landmark[] => {
+  const h = palmHand(x);
+  const r = 0.1;
+  h[INDEX_MCP] = {
+    x: x - r * Math.cos(angle),
+    y: 0.6 - r * Math.sin(angle),
+    z: 0,
+  };
+  h[PINKY_MCP] = {
+    x: x + r * Math.cos(angle),
+    y: 0.6 + r * Math.sin(angle),
+    z: 0,
+  };
+  return h;
+};
+
 /** translate a whole hand — vertical pinch drags, etc. */
 export const shifted = (h: Landmark[], dx: number, dy: number): Landmark[] =>
   h.map((p) => ({ x: p.x + dx, y: p.y + dy, z: p.z }));
