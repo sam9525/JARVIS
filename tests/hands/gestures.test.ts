@@ -83,21 +83,39 @@ describe("GestureEngine: two-finger step", () => {
 });
 
 describe("GestureEngine: fist off", () => {
-  it("a fist held 1 s emits off exactly once", () => {
+  it("a fist held 1 s emits disarm exactly once", () => {
     const g = new GestureEngine();
-    expect(types(g.update(fistHand(), 0))).not.toContain("off");
-    expect(types(g.update(fistHand(), 0.5))).not.toContain("off");
-    expect(types(g.update(fistHand(), 1.05))).toContain("off");
-    expect(types(g.update(fistHand(), 1.1))).not.toContain("off");
+    expect(types(g.update(fistHand(), 0))).not.toContain("disarm");
+    expect(types(g.update(fistHand(), 0.5))).not.toContain("disarm");
+    expect(types(g.update(fistHand(), 1.05))).toContain("disarm");
+    expect(types(g.update(fistHand(), 1.1))).not.toContain("disarm");
   });
 
   it("breaking the fist resets the hold timer", () => {
     const g = new GestureEngine();
     g.update(fistHand(), 0);
     g.update(palmHand(), 0.5); // broken
-    expect(types(g.update(fistHand(), 0.9))).not.toContain("off");
-    expect(types(g.update(fistHand(), 1.5))).not.toContain("off"); // only 0.6 s held
-    expect(types(g.update(fistHand(), 1.95))).toContain("off");
+    expect(types(g.update(fistHand(), 0.9))).not.toContain("disarm");
+    expect(types(g.update(fistHand(), 1.5))).not.toContain("disarm"); // only 0.6 s held
+    expect(types(g.update(fistHand(), 1.95))).toContain("disarm");
+  });
+});
+
+describe("GestureEngine: palm arm", () => {
+  it("a palm held 1 s emits arm exactly once", () => {
+    const g = new GestureEngine();
+    expect(types(g.update(palmHand(), 0))).not.toContain("arm");
+    expect(types(g.update(palmHand(), 0.5))).not.toContain("arm");
+    expect(types(g.update(palmHand(), 1.05))).toContain("arm");
+    expect(types(g.update(palmHand(), 1.1))).not.toContain("arm");
+  });
+
+  it("breaking the palm resets the hold", () => {
+    const g = new GestureEngine();
+    g.update(palmHand(), 0);
+    g.update(fistHand(), 0.5); // broken
+    expect(types(g.update(palmHand(), 0.9))).not.toContain("arm");
+    expect(types(g.update(palmHand(), 1.95))).toContain("arm"); // 1.05 s held
   });
 });
 

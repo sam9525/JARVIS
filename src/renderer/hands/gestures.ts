@@ -10,7 +10,8 @@ export type GestureEvent =
   | { type: "snap" }
   | { type: "open" }
   | { type: "step"; dir: 1 | -1 }
-  | { type: "off" };
+  | { type: "disarm" }
+  | { type: "arm" };
 
 const TIPS = { index: 8, middle: 12, ring: 16, pinky: 20 } as const;
 const PIPS = { index: 6, middle: 10, ring: 14, pinky: 18 } as const;
@@ -26,6 +27,7 @@ export function fingerExtended(hand: Landmark[], finger: Finger): boolean {
 // starting values, to be tuned against a real camera (design §6)
 export const SWIPE_STEP = 0.15; // two-finger travel per ring step
 export const FIST_HOLD_S = 1.0;
+export const PALM_HOLD_S = 1.0; // starting value, tune on a real camera
 
 type Frame = {
   hand: Landmark[];
@@ -45,12 +47,14 @@ export class GestureEngine {
   private swipeLastX: number | null = null;
   private swipe = 0;
   private fistT: number | null = null;
+  private palmT: number | null = null;
 
   // the gesture table — every row sees the same frame
   private rows: Array<(f: Frame) => GestureEvent[]> = [
     (f) => this.pinchDrag(f),
     (f) => this.twoFingerStep(f),
-    (f) => this.fistOff(f),
+    (f) => this.fistDisarm(f),
+    (f) => this.palmArm(f),
   ];
 
   update(hand: Landmark[] | null, t: number): GestureEvent[] {
@@ -75,6 +79,7 @@ export class GestureEngine {
     this.swipeLastX = null;
     this.swipe = 0;
     this.fistT = null;
+    this.palmT = null;
     return events;
   }
 
@@ -126,7 +131,7 @@ export class GestureEngine {
     return [{ type: "step", dir }];
   }
 
-  private fistOff(f: Frame): GestureEvent[] {
+  private fistDisarm(f: Frame): GestureEvent[] {
     const fist =
       !f.pinch.isPinching &&
       !fingerExtended(f.hand, "index") &&
@@ -143,6 +148,32 @@ export class GestureEngine {
     }
     if (f.t - this.fistT < FIST_HOLD_S) return [];
     this.fistT = null; // fire once; holding on restarts the clock
-    return [{ type: "off" }];
+    return [{ type: "disarm" }];
+  }
+
+  // all four fingers extended — the camera hand's posture, shared by palmArm
+  // and (Task 6) palmCamera, so the gate costs nothing extra (design §5)
+  private palmPosture(f: Frame): boolean {
+    return (
+      !f.pinch.isPinching &&
+      fingerExtended(f.hand, "index") &&
+      fingerExtended(f.hand, "middle") &&
+      fingerExtended(f.hand, "ring") &&
+      fingerExtended(f.hand, "pinky")
+    );
+  }
+
+  private palmArm(f: Frame): GestureEvent[] {
+    if (!this.palmPosture(f)) {
+      this.palmT = null;
+      return [];
+    }
+    if (this.palmT === null) {
+      this.palmT = f.t;
+      return [];
+    }
+    if (f.t - this.palmT < PALM_HOLD_S) return [];
+    this.palmT = null; // fire once; holding on restarts the clock
+    return [{ type: "arm" }];
   }
 }
