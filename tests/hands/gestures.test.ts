@@ -2,13 +2,18 @@ import { describe, it, expect } from "vitest";
 import {
   GestureEngine,
   fingerExtended,
+  ZOOM_MAX_RATE,
   type GestureEvent,
 } from "../../src/renderer/hands/gestures";
+import { ROLL_MAX_RAD_S } from "../../src/renderer/hands/roll";
 import {
   fistHand,
   flickHand,
   palmHand,
   pinchedHand,
+  rolledPalmHand,
+  rolledScaledPalm,
+  scaledPalmHand,
   shifted,
   twoFingerHand,
 } from "./hands";
@@ -155,6 +160,94 @@ describe("GestureEngine: forward tap", () => {
       evs.push(...g.update(twoFingerHand(0.1 + i * 0.08), i / 30));
     expect(types(evs)).toContain("step");
     expect(types(evs)).not.toContain("open");
+  });
+});
+
+describe("GestureEngine: palm camera", () => {
+  it("orbit follows the twist's direction; a still palm is silent", () => {
+    const g = new GestureEngine();
+    const vs: number[] = [];
+    for (let i = 0; i < 8; i++)
+      for (const ev of g.update(rolledPalmHand(i * 0.15), i / 30))
+        if (ev.type === "orbit") vs.push(ev.v);
+    expect(vs.length).toBeGreaterThan(0);
+    expect(vs.every((v) => v > 0)).toBe(true);
+
+    const back = new GestureEngine();
+    const neg: number[] = [];
+    for (let i = 0; i < 8; i++)
+      for (const ev of back.update(rolledPalmHand(-i * 0.15), i / 30))
+        if (ev.type === "orbit") neg.push(ev.v);
+    expect(neg.every((v) => v < 0)).toBe(true);
+
+    const still = new GestureEngine();
+    for (let i = 0; i < 8; i++)
+      expect(types(still.update(rolledPalmHand(0.3), i / 30))).not.toContain(
+        "orbit",
+      );
+  });
+
+  it("clamps a hard flick to ROLL_MAX_RAD_S", () => {
+    const g = new GestureEngine();
+    const vs: number[] = [];
+    for (let i = 0; i < 8; i++)
+      for (const ev of g.update(rolledPalmHand(i * 1.0), i / 30))
+        if (ev.type === "orbit") vs.push(ev.v);
+    expect(vs.length).toBeGreaterThan(0);
+    expect(vs.every((v) => v <= ROLL_MAX_RAD_S)).toBe(true);
+  });
+
+  it("push zooms in, pull zooms out, still emits nothing", () => {
+    const push = new GestureEngine();
+    const fs: number[] = [];
+    for (let i = 0; i < 8; i++)
+      for (const ev of push.update(scaledPalmHand(0.2 + i * 0.02), i / 30))
+        if (ev.type === "zoom") fs.push(ev.factor);
+    expect(fs.length).toBeGreaterThan(0);
+    expect(fs.every((f) => f > 1 && f <= ZOOM_MAX_RATE)).toBe(true);
+
+    const pull = new GestureEngine();
+    const gs: number[] = [];
+    for (let i = 0; i < 8; i++)
+      for (const ev of pull.update(scaledPalmHand(0.28 - i * 0.02), i / 30))
+        if (ev.type === "zoom") gs.push(ev.factor);
+    expect(gs.length).toBeGreaterThan(0);
+    expect(gs.every((f) => f < 1 && f >= 1 / ZOOM_MAX_RATE)).toBe(true);
+
+    const still = new GestureEngine();
+    for (let i = 0; i < 8; i++)
+      expect(types(still.update(scaledPalmHand(0.25), i / 30))).not.toContain(
+        "zoom",
+      );
+  });
+
+  it("the first signal across its dead zone claims the lock until the posture breaks", () => {
+    const g = new GestureEngine();
+    g.update(rolledScaledPalm(0, 0.2), 0); // baseline
+    // both cross on the same frame — orbit is checked first and wins
+    const evs = g.update(rolledScaledPalm(0.5, 0.3), 1 / 30);
+    expect(types(evs)).toContain("orbit");
+    expect(types(evs)).not.toContain("zoom");
+    // zoom-only motion while the posture holds stays locked out
+    expect(types(g.update(rolledScaledPalm(0.5, 0.35), 2 / 30))).not.toContain(
+      "zoom",
+    );
+    // break the posture; re-present with zoom-only motion — zoom now wins
+    g.update(fistHand(), 3 / 30);
+    g.update(scaledPalmHand(0.2), 4 / 30);
+    const evs3 = g.update(scaledPalmHand(0.26), 5 / 30);
+    expect(types(evs3)).toContain("zoom");
+    expect(types(evs3)).not.toContain("orbit");
+  });
+
+  it("a two-finger swipe emits neither orbit nor zoom (the palm gate)", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    for (let i = 0; i < 10; i++)
+      evs.push(...g.update(twoFingerHand(0.1 + i * 0.08), i / 30));
+    expect(types(evs)).toContain("step");
+    expect(types(evs)).not.toContain("orbit");
+    expect(types(evs)).not.toContain("zoom");
   });
 });
 

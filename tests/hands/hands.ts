@@ -84,6 +84,21 @@ export const rolledPalmHand = (angle: number, x = 0.5): Landmark[] => {
   return h;
 };
 
+/** rolled palm at a given hand scale (wrist→middle-MCP distance) */
+export const rolledScaledPalm = (
+  angle: number,
+  scale: number,
+  x = 0.5,
+): Landmark[] => {
+  const h = rolledPalmHand(angle, x);
+  h[MIDDLE_MCP] = { x, y: 0.8 - scale, z: 0 };
+  return h;
+};
+
+/** palm pushed/pulled: knuckle line still, only the scale changes — zoom */
+export const scaledPalmHand = (scale: number, x = 0.5): Landmark[] =>
+  rolledScaledPalm(0, scale, x);
+
 /** translate a whole hand — vertical pinch drags, etc. */
 export const shifted = (h: Landmark[], dx: number, dy: number): Landmark[] =>
   h.map((p) => ({ x: p.x + dx, y: p.y + dy, z: p.z }));

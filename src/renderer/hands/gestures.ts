@@ -10,6 +10,7 @@ import {
   type Landmark,
   type PinchState,
 } from "./pinch";
+import { knuckleAngle, RollTracker } from "./roll";
 
 export type GestureEvent =
   | { type: "drag"; dx: number; dy: number } // normalized hand units; sign matches pointer
@@ -17,7 +18,9 @@ export type GestureEvent =
   | { type: "open" }
   | { type: "step"; dir: 1 | -1 }
   | { type: "disarm" }
-  | { type: "arm" };
+  | { type: "arm" }
+  | { type: "orbit"; v: number } // signed rad/s, dead-zoned + clamped
+  | { type: "zoom"; factor: number }; // per-frame multiplicative ratio; >1 = zoom in
 
 const TIPS = { index: 8, middle: 12, ring: 16, pinky: 20 } as const;
 const PIPS = { index: 6, middle: 10, ring: 14, pinky: 18 } as const;
@@ -44,6 +47,17 @@ export const TAP_Z_ENGAGE = -0.35;
 export const TAP_Z_RELEASE = -0.2;
 export const TAP_DOUBLE_S = 0.5; // starting value, tune on a real camera
 
+// Zoom: full comfortable arm travel is only ~1.5× of raw scale, so the gain
+// exponent maps it to a useful range; the rate clamp keeps one dropped-
+// tracking frame from teleporting the camera. ZOOM_DEADZONE has its own unit:
+// the smoother's default 0.008 is a fraction of FRAME WIDTH tuned for wrist
+// position — scale sits around 0.15–0.3, where 0.008 swallows slow deliberate
+// zooms (design §5). Starting values, tune on a real camera; tune ZOOM_GAIN
+// together with ROLL_MIN_RAD_S — they decide which signal wins the axis lock.
+export const ZOOM_GAIN = 3;
+export const ZOOM_MAX_RATE = 1.15;
+export const ZOOM_DEADZONE = 0.002;
+
 const INDEX_MCP = 5;
 
 type Frame = {
@@ -67,12 +81,17 @@ export class GestureEngine {
   private palmT: number | null = null;
   private tapEngaged = false;
   private lastFlickT: number | null = null;
+  private palmLock: "orbit" | "zoom" | null = null;
+  private lastScale: number | null = null;
+  private roll = new RollTracker();
+  private scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
 
   // the gesture table — every row sees the same frame
   private rows: Array<(f: Frame) => GestureEvent[]> = [
     (f) => this.pinchDrag(f),
     (f) => this.twoFingerStep(f),
     (f) => this.forwardTap(f),
+    (f) => this.palmCamera(f),
     (f) => this.fistDisarm(f),
     (f) => this.palmArm(f),
   ];
@@ -102,6 +121,10 @@ export class GestureEngine {
     this.palmT = null;
     this.tapEngaged = false;
     this.lastFlickT = null;
+    this.palmLock = null;
+    this.lastScale = null;
+    this.roll.reset();
+    this.scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
     return events;
   }
 
@@ -221,6 +244,48 @@ export class GestureEngine {
       fingerExtended(f.hand, "ring") &&
       fingerExtended(f.hand, "pinky")
     );
+  }
+
+  // One row, not two: orbit and zoom share the lock, and two rows sharing
+  // mutable lock state would break "a row is a posture predicate plus a
+  // motion rule, readable on its own" (design §5). roll.ts owns the angle
+  // maths; the zoom scalar is three lines and stays inline.
+  private palmCamera(f: Frame): GestureEvent[] {
+    if (!this.palmPosture(f)) {
+      this.palmLock = null;
+      this.lastScale = null;
+      this.roll.reset();
+      this.scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
+      return [];
+    }
+    const v = this.roll.update(knuckleAngle(f.hand), f.t);
+    const wrist = f.hand[WRIST];
+    const mcp = f.hand[MIDDLE_MCP];
+    const scale = this.scaleSmoother.update(
+      Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y),
+      f.t,
+    );
+    // deadzone holds the smoothed value when still, so raw is exactly 1 and a
+    // still palm cannot creep the zoom — the same property ROLL_MIN_RAD_S
+    // buys for orbit
+    const raw =
+      this.lastScale === null || this.lastScale === 0
+        ? 1
+        : scale / this.lastScale;
+    this.lastScale = scale;
+    if (this.palmLock === null) {
+      if (v !== 0) this.palmLock = "orbit";
+      else if (raw !== 1) this.palmLock = "zoom";
+    }
+    if (this.palmLock === "orbit" && v !== 0) return [{ type: "orbit", v }];
+    if (this.palmLock === "zoom" && raw !== 1) {
+      const factor = Math.min(
+        ZOOM_MAX_RATE,
+        Math.max(1 / ZOOM_MAX_RATE, Math.pow(raw, ZOOM_GAIN)),
+      );
+      return [{ type: "zoom", factor }];
+    }
+    return [];
   }
 
   private palmArm(f: Frame): GestureEvent[] {
