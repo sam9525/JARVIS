@@ -94,6 +94,7 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   width: 900,
   height: 600,
   indexing: {},
+  layoutEpoch: 0,
   onIndex: () => undefined,
   onOpen: () => undefined,
   ...over,
@@ -348,5 +349,27 @@ describe("Ring: hand control", () => {
     await enable();
     render(<div />); // leaving the ring view unmounts Ring
     expect(tracker.stop).toHaveBeenCalled();
+  });
+});
+
+describe("Ring: refresh (layoutEpoch)", () => {
+  it("a bump returns a rotated ring to the front", () => {
+    render(<Ring {...(props() as any)} />);
+    act(() => byTestId("tile-w2")!.click()); // rotate away
+    expect(byTestId("tile-w2")!.hasAttribute("data-centered")).toBe(true);
+    render(<Ring {...(props({ layoutEpoch: 1 }) as any)} />);
+    expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(true);
+  });
+
+  // the bug: nothing remounts when already centred, so the forwarded epoch is
+  // the only thing that can re-arm the centre graph's one-time camera fit
+  it("a bump on an already-centred ring reaches the centre Graph3D without a remount", () => {
+    render(<Ring {...(props() as any)} />);
+    settle();
+    expect(graph3d.mock.calls.at(-1)![0].layoutEpoch).toBe(0);
+    render(<Ring {...(props({ layoutEpoch: 3 }) as any)} />);
+    // same workspace, no settle wait, no remount — just the new epoch
+    expect(graph3d.mock.calls.at(-1)![0].layoutEpoch).toBe(3);
+    expect(graph3d.mock.calls.at(-1)![0].graph.nodes[0].id).toBe("a");
   });
 });

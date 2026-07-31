@@ -40,6 +40,7 @@ type RingProps = {
   width: number;
   height: number;
   indexing: Record<string, { state: IndexState; error?: string }>;
+  layoutEpoch: number; // ↻ bumps this — reset rotation, re-arm the centre fit
   onIndex: (workspaceId: string) => void;
   onOpen: (ws: Workspace) => void;
 };
@@ -57,6 +58,7 @@ export default function Ring({
   width,
   height,
   indexing,
+  layoutEpoch,
   onIndex,
   onOpen,
 }: RingProps) {
@@ -92,6 +94,14 @@ export default function Ring({
   }, [rotation, centeredIndex, workspaces]);
 
   useEffect(() => () => clearTimeout(wheelSnap.current), []);
+
+  // ↻ resets the whole view: Graph3D re-arms its one-time fit off the epoch,
+  // returning the ring to the front is ours. Epoch 0 is the initial value, not
+  // a refresh — don't fight a fresh mount's state (design §2.1).
+  useEffect(() => {
+    if (layoutEpoch === 0) return;
+    setRotation(0);
+  }, [layoutEpoch]);
 
   const settledWs = workspaces.find((w) => w.id === settledId) ?? null;
 
@@ -221,7 +231,7 @@ export default function Ring({
               stateRef={stateRef}
               onNodeClick={() => undefined}
               focusNode={null}
-              layoutEpoch={0}
+              layoutEpoch={layoutEpoch}
               rotationPaused={false}
               width={width}
               height={height}

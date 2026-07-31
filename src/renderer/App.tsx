@@ -326,6 +326,7 @@ export default function App() {
                   width={width}
                   height={height}
                   indexing={indexing}
+                  layoutEpoch={graphs.fleetEpoch}
                   onIndex={graphs.indexProject}
                   onOpen={(ws) => {
                     setShowHome(false);
