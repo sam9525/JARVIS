@@ -380,6 +380,7 @@ export default function App() {
                   layoutEpoch={graphs.fleetEpoch}
                   width={width}
                   height={height}
+                  actionsRef={handActionsRef}
                   onOpen={(ws) => {
                     setShowHome(false);
                     openWorkspace(ws);
