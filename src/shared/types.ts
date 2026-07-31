@@ -127,6 +127,7 @@ export interface Settings {
   showOrphans: boolean;
   groups: Record<string, GraphGroup[]>; // per workspace id; first match wins
   views: Record<Dimensions, ViewSettings>;
+  handControl: boolean; // hands drive navigation; the webcam auto-starts when on
 }
 
 // a workspace's groups, or none if it has never been seeded
@@ -190,5 +191,6 @@ export function defaultSettings(): Settings {
     showOrphans: true,
     groups: {},
     views: { "2d": defaultView("2d"), "3d": defaultView("3d") },
+    handControl: false,
   };
 }
