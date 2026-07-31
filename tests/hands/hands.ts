@@ -15,11 +15,15 @@ const PINKY_TIP = 20;
 const PIPS = [6, 10, 14, 18];
 
 const base = (x: number): Landmark[] => {
-  const h: Landmark[] = Array.from({ length: 21 }, () => ({ x, y: 0.65 }));
-  h[WRIST] = { x, y: 0.8 };
-  h[MIDDLE_MCP] = { x, y: 0.6 };
-  for (const pip of PIPS) h[pip] = { x, y: 0.55 };
-  h[THUMB_TIP] = { x: x - 0.15, y: 0.65 }; // 0.15 from index tip → norm 0.75, no pinch
+  const h: Landmark[] = Array.from({ length: 21 }, () => ({
+    x,
+    y: 0.65,
+    z: 0,
+  }));
+  h[WRIST] = { x, y: 0.8, z: 0 };
+  h[MIDDLE_MCP] = { x, y: 0.6, z: 0 };
+  for (const pip of PIPS) h[pip] = { x, y: 0.55, z: 0 };
+  h[THUMB_TIP] = { x: x - 0.15, y: 0.65, z: 0 }; // 0.15 from index tip → norm 0.75, no pinch
   return h;
 };
 
@@ -29,8 +33,8 @@ export const fistHand = (x = 0.5): Landmark[] => base(x);
 /** thumb and index tips together (norm 0.1 < engage 0.35) */
 export const pinchedHand = (x = 0.5): Landmark[] => {
   const h = base(x);
-  h[THUMB_TIP] = { x, y: 0.5 };
-  h[INDEX_TIP] = { x: x + 0.02, y: 0.5 };
+  h[THUMB_TIP] = { x, y: 0.5, z: 0 };
+  h[INDEX_TIP] = { x: x + 0.02, y: 0.5, z: 0 };
   return h;
 };
 
@@ -38,15 +42,15 @@ export const pinchedHand = (x = 0.5): Landmark[] => {
 export const palmHand = (x = 0.5): Landmark[] => {
   const h = base(x);
   for (const tip of [INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP])
-    h[tip] = { x, y: 0.35 };
-  h[THUMB_TIP] = { x: x - 0.2, y: 0.5 };
+    h[tip] = { x, y: 0.35, z: 0 };
+  h[THUMB_TIP] = { x: x - 0.2, y: 0.5, z: 0 };
   return h;
 };
 
 /** index + middle extended, ring + pinky curled, no pinch */
 export const twoFingerHand = (x = 0.5): Landmark[] => {
   const h = base(x);
-  h[INDEX_TIP] = { x, y: 0.35 };
-  h[MIDDLE_TIP] = { x, y: 0.35 };
+  h[INDEX_TIP] = { x, y: 0.35, z: 0 };
+  h[MIDDLE_TIP] = { x, y: 0.35, z: 0 };
   return h;
 };

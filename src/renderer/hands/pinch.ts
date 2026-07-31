@@ -2,7 +2,10 @@
 // Port of gazeos/gesture/pinch.py. Distances normalize by wrist→middle-MCP
 // so distance from the camera does not matter. t is seconds.
 
-export type Landmark = { x: number; y: number };
+// z: MediaPipe normalized depth, negative toward the camera (wrist origin).
+// Kept for the forward-tap only — every distance below stays strictly 2D,
+// because z is much coarser than x/y (design §5).
+export type Landmark = { x: number; y: number; z: number };
 
 export const WRIST = 0;
 export const THUMB_TIP = 4;

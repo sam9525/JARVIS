@@ -53,8 +53,10 @@ export async function startHandTracker(
     const lm = result.landmarks[0];
     onFrame({
       // mirror x so moving the hand right reads as pointer-right — the same
-      // sign a mouse drag produces, which is what the gesture layer assumes
-      hand: lm ? lm.map((p) => ({ x: 1 - p.x, y: p.y })) : null,
+      // sign a mouse drag produces. z is NOT mirrored: MediaPipe's z is
+      // negative toward the camera and the tap detector's sign pin (design
+      // §5) depends on that staying true.
+      hand: lm ? lm.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) : null,
       t: performance.now() / 1000,
     });
   };
