@@ -22,6 +22,7 @@ function render(overrides: Partial<Settings> = {}) {
     search: "abc",
     onSearchChange: (s) => calls.search.push(s),
     onSettingsChange: (s) => calls.settings.push(s),
+    onHandControl: () => undefined,
     onResetHighlights: () => {
       calls.resets++;
     },
@@ -47,8 +48,8 @@ function sliderByLabel(section: any, label: string): any {
 describe("GraphSettingsPanel", () => {
   it("renders header + four sections, Forces collapsed by default", () => {
     const { el } = render();
-    // [header, Filters, Groups, Display, Forces]
-    expect(el.props.children).toHaveLength(5);
+    // [header, Filters, Groups, Display, Forces, hand control]
+    expect(el.props.children).toHaveLength(6);
     const forces = el.props.children[4];
     expect(forces.type).toBe("details");
     expect(forces.props.open).toBeUndefined();

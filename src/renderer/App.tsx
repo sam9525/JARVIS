@@ -40,7 +40,11 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
-import type { HandActions } from "./hands/use-hand-actions";
+import HandToggle from "./hands/HandToggle";
+import { useHandControl } from "./hands/use-hand-control";
+import { useHandActions, type HandActions } from "./hands/use-hand-actions";
+import type { Graph3DHandle } from "./graph/Graph3D";
+import type { GraphHandle } from "./graph/Graph";
 
 const HOME_VIEW_OPTIONS: { value: HomeView; label: string }[] = [
   { value: "cards", label: "Cards" },
@@ -213,6 +217,61 @@ export default function App() {
     window.jarvis.setSettings(s).catch(console.error);
   };
 
+  // this session's camera. Persisted as Settings.handControl, but kept
+  // separately so a tracker failure can stop the camera without touching the
+  // preference.
+  const [cameraOn, setCameraOn] = useState(false);
+  const graph3dHandle = useRef<Graph3DHandle | null>(null);
+  const graphHandle = useRef<GraphHandle | null>(null);
+
+  const hands = useHandControl({
+    cameraOn,
+    actionsRef: handActionsRef,
+    // a failure stops this session's camera without rewriting the preference:
+    // the setting stays on and the user decides whether to untick it. A
+    // failure that edited settings would quietly kill the feature and leave
+    // no trace of why (design §3).
+    onCameraFailed: () => setCameraOn(false),
+  });
+
+  // two affordances onto one value: the ✋ button and the panel checkbox both
+  // land here, so either turns the camera off — and a click after a tracker
+  // failure retries even though the persisted value is already true
+  const setHandControl = (on: boolean) => {
+    setCameraOn(on);
+    if (settings.handControl !== on)
+      updateSettings({ ...settings, handControl: on });
+  };
+
+  // auto-start at launch: turning hands on is a decision about how you drive
+  // the app, not one to re-make every session (design §3). Launch only —
+  // every later change goes through setHandControl.
+  useEffect(() => {
+    if (settingsReady && settings.handControl) setCameraOn(true);
+  }, [settingsReady]);
+
+  // Cards registers nothing, so a pulse there would claim hands drive
+  // something on the one view where they don't (design §3)
+  const hasActions = !(showHome && homeView === "cards");
+
+  // the workspace graph's own map; home views overwrite this during their
+  // render (App renders first), Cards leaves it empty. Deliberate cut: no
+  // drag on 3D — orbit is 3D's navigation (design §6).
+  useHandActions(
+    handActionsRef,
+    showHome
+      ? {}
+      : settings.dimensions === "3d"
+        ? {
+            orbit: (v) => graph3dHandle.current?.spin(v),
+            zoom: (f) => graph3dHandle.current?.zoom(f),
+          }
+        : {
+            drag: (dx, dy) => graphHandle.current?.pan(dx, dy),
+            zoom: (f) => graphHandle.current?.zoom(f),
+          },
+  );
+
   const domains = useMemo(() => domainsOf(graph), [graph]);
 
   // Seed a workspace's groups once, from its own top-level folders, the first
@@ -249,9 +308,17 @@ export default function App() {
 
   const view = settings.views[settings.dimensions];
 
-  // refresh + settings — shown on the workspace graph and the command center
+  // hands + refresh + settings — shown on the workspace graph and the command
+  // center
   const graphButtons = (
     <>
+      <HandToggle
+        cameraOn={cameraOn}
+        armed={hands.armed}
+        hasActions={hasActions}
+        error={hands.error}
+        onToggle={() => setHandControl(!cameraOn)}
+      />
       <button
         className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
         title="Refresh graph (F5)"
@@ -374,6 +441,7 @@ export default function App() {
                   focusNode={previewNode}
                   layoutEpoch={layoutEpoch}
                   rotationPaused={previewNode !== null}
+                  handleRef={graph3dHandle}
                   width={width}
                   height={height}
                 />
@@ -388,6 +456,7 @@ export default function App() {
                   onNodeClick={setPreviewNode}
                   focusNode={previewNode}
                   layoutEpoch={layoutEpoch}
+                  handleRef={graphHandle}
                   width={width}
                   height={height}
                 />
@@ -453,6 +522,7 @@ export default function App() {
           search={search}
           onSearchChange={setSearch}
           onSettingsChange={updateSettings}
+          onHandControl={setHandControl}
           onResetHighlights={() => resetHighlights(stateRef.current)}
           onClose={() => setShowSettings(false)}
           showSections={active?.kind !== "code"}

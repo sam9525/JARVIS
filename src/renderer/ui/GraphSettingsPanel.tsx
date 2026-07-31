@@ -62,6 +62,9 @@ type Props = {
   search: string; // transient, owned by App — never persisted
   onSearchChange: (text: string) => void;
   onSettingsChange: (s: Settings) => void;
+  // hand control is not a plain setting write: it also starts/stops this
+  // session's camera, so it goes through App rather than onSettingsChange
+  onHandControl: (on: boolean) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
   onClose: () => void;
   showSections: boolean; // code workspaces have no raw/wiki sections
@@ -73,6 +76,7 @@ export default function GraphSettingsPanel({
   search,
   onSearchChange,
   onSettingsChange,
+  onHandControl,
   onResetHighlights,
   onClose,
   showSections,
@@ -250,6 +254,17 @@ export default function GraphSettingsPanel({
           />
         ))}
       </details>
+
+      <label className="flex items-center justify-between gap-2 border-t border-edge py-2 text-ink-muted">
+        Hand control
+        <input
+          type="checkbox"
+          data-testid="hand-control-setting"
+          className="gs-switch"
+          checked={settings.handControl}
+          onChange={(e) => onHandControl(e.target.checked)}
+        />
+      </label>
     </div>
   );
 }
