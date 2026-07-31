@@ -55,6 +55,15 @@ export const twoFingerHand = (x = 0.5): Landmark[] => {
   return h;
 };
 
+/** two-finger posture with index+middle tips poked toward the camera.
+ *  depth −0.12 over hand scale 0.2 → signal −0.6, past TAP_Z_ENGAGE. */
+export const flickHand = (x = 0.5, depth = -0.12): Landmark[] => {
+  const h = twoFingerHand(x);
+  h[INDEX_TIP] = { ...h[INDEX_TIP], z: depth };
+  h[MIDDLE_TIP] = { ...h[MIDDLE_TIP], z: depth };
+  return h;
+};
+
 /** translate a whole hand — vertical pinch drags, etc. */
 export const shifted = (h: Landmark[], dx: number, dy: number): Landmark[] =>
   h.map((p) => ({ x: p.x + dx, y: p.y + dy, z: p.z }));

@@ -6,6 +6,7 @@ import {
 } from "../../src/renderer/hands/gestures";
 import {
   fistHand,
+  flickHand,
   palmHand,
   pinchedHand,
   shifted,
@@ -116,6 +117,44 @@ describe("GestureEngine: palm arm", () => {
     g.update(fistHand(), 0.5); // broken
     expect(types(g.update(palmHand(), 0.9))).not.toContain("arm");
     expect(types(g.update(palmHand(), 1.95))).toContain("arm"); // 1.05 s held
+  });
+});
+
+describe("GestureEngine: forward tap", () => {
+  const flick = (g: GestureEngine, t0: number) => {
+    g.update(flickHand(), t0); // poke in — past TAP_Z_ENGAGE
+    return g.update(twoFingerHand(), t0 + 1 / 30); // back out — past TAP_Z_RELEASE
+  };
+
+  it("one flick fires nothing; a second inside TAP_DOUBLE_S opens", () => {
+    const g = new GestureEngine();
+    g.update(twoFingerHand(), 0);
+    expect(types(flick(g, 1 / 30))).not.toContain("open");
+    expect(types(flick(g, 4 / 30))).toContain("open");
+  });
+
+  it("a second flick past the window does not open", () => {
+    const g = new GestureEngine();
+    g.update(twoFingerHand(), 0);
+    flick(g, 1 / 30);
+    expect(types(flick(g, 1.5))).not.toContain("open");
+  });
+
+  it("sub-threshold z noise fires nothing", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    for (let i = 0; i < 10; i++)
+      evs.push(...g.update(flickHand(0.5, i % 2 ? -0.03 : 0), i / 30)); // signal −0.15 > engage
+    expect(types(evs)).not.toContain("open");
+  });
+
+  it("a horizontal two-finger swipe still steps and never opens", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    for (let i = 0; i < 10; i++)
+      evs.push(...g.update(twoFingerHand(0.1 + i * 0.08), i / 30));
+    expect(types(evs)).toContain("step");
+    expect(types(evs)).not.toContain("open");
   });
 });
 

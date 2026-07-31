@@ -3,7 +3,13 @@
 // rule), not new control flow (design §6). t is seconds.
 
 import { AnchorSmoother } from "./one-euro";
-import { PinchDetector, WRIST, type Landmark, type PinchState } from "./pinch";
+import {
+  MIDDLE_MCP,
+  PinchDetector,
+  WRIST,
+  type Landmark,
+  type PinchState,
+} from "./pinch";
 
 export type GestureEvent =
   | { type: "drag"; dx: number; dy: number } // normalized hand units; sign matches pointer
@@ -29,6 +35,17 @@ export const SWIPE_STEP = 0.15; // two-finger travel per ring step
 export const FIST_HOLD_S = 1.0;
 export const PALM_HOLD_S = 1.0; // starting value, tune on a real camera
 
+// Forward-tap z hysteresis, in wrist-scale units. MediaPipe z is negative
+// toward the camera and hand-tracker.ts does not mirror it, so a poke drives
+// the signal MORE negative — pinned: TAP_Z_ENGAGE < TAP_Z_RELEASE < 0, the
+// same way PINCH_ENGAGE < PINCH_RELEASE pins the pinch (design §5).
+// Starting values, tune on a real camera.
+export const TAP_Z_ENGAGE = -0.35;
+export const TAP_Z_RELEASE = -0.2;
+export const TAP_DOUBLE_S = 0.5; // starting value, tune on a real camera
+
+const INDEX_MCP = 5;
+
 type Frame = {
   hand: Landmark[];
   t: number;
@@ -48,11 +65,14 @@ export class GestureEngine {
   private swipe = 0;
   private fistT: number | null = null;
   private palmT: number | null = null;
+  private tapEngaged = false;
+  private lastFlickT: number | null = null;
 
   // the gesture table — every row sees the same frame
   private rows: Array<(f: Frame) => GestureEvent[]> = [
     (f) => this.pinchDrag(f),
     (f) => this.twoFingerStep(f),
+    (f) => this.forwardTap(f),
     (f) => this.fistDisarm(f),
     (f) => this.palmArm(f),
   ];
@@ -80,6 +100,8 @@ export class GestureEngine {
     this.swipe = 0;
     this.fistT = null;
     this.palmT = null;
+    this.tapEngaged = false;
+    this.lastFlickT = null;
     return events;
   }
 
@@ -107,14 +129,18 @@ export class GestureEngine {
     return events;
   }
 
-  private twoFingerStep(f: Frame): GestureEvent[] {
-    const posture =
+  private twoFingerPosture(f: Frame): boolean {
+    return (
       !f.pinch.isPinching &&
       fingerExtended(f.hand, "index") &&
       fingerExtended(f.hand, "middle") &&
       !fingerExtended(f.hand, "ring") &&
-      !fingerExtended(f.hand, "pinky");
-    if (!posture) {
+      !fingerExtended(f.hand, "pinky")
+    );
+  }
+
+  private twoFingerStep(f: Frame): GestureEvent[] {
+    if (!this.twoFingerPosture(f)) {
       this.swipeLastX = null;
       this.swipe = 0;
       return [];
@@ -129,6 +155,40 @@ export class GestureEngine {
     const dir: 1 | -1 = this.swipe > 0 ? 1 : -1;
     this.swipe = 0; // re-arm: another SWIPE_STEP of travel = another step
     return [{ type: "step", dir }];
+  }
+
+  // Two forward flicks of index+middle open. z hysteresis in the shape of
+  // PinchDetector — the pattern, not the class, since the input is a
+  // different signal. Shares its posture with twoFingerStep and stays
+  // distinct by axis: step watches x, this watches z. Fallback if a real
+  // camera says z is unusable: dist2D(tip, MCP)/scale foreshortens the same
+  // way and drops into this hysteresis unchanged (design §5).
+  private forwardTap(f: Frame): GestureEvent[] {
+    if (!this.twoFingerPosture(f)) {
+      this.tapEngaged = false;
+      this.lastFlickT = null;
+      return [];
+    }
+    const wrist = f.hand[WRIST];
+    const mcp = f.hand[MIDDLE_MCP];
+    const scale = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+    if (scale === 0) return [];
+    const tips = f.hand[TIPS.index].z + f.hand[TIPS.middle].z;
+    const knuckles = f.hand[INDEX_MCP].z + f.hand[MIDDLE_MCP].z;
+    const signal = (tips - knuckles) / 2 / scale;
+    if (!this.tapEngaged) {
+      if (signal < TAP_Z_ENGAGE) this.tapEngaged = true;
+      return [];
+    }
+    if (signal > TAP_Z_RELEASE) {
+      this.tapEngaged = false;
+      if (this.lastFlickT !== null && f.t - this.lastFlickT <= TAP_DOUBLE_S) {
+        this.lastFlickT = null;
+        return [{ type: "open" }];
+      }
+      this.lastFlickT = f.t;
+    }
+    return [];
   }
 
   private fistDisarm(f: Frame): GestureEvent[] {
