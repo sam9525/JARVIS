@@ -195,7 +195,7 @@ export default function Ring({
   return (
     <div
       data-testid="ring"
-      className="relative h-full w-full touch-none overflow-hidden"
+      className="relative isolate h-full w-full touch-none overflow-hidden"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

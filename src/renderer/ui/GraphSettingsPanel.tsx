@@ -104,7 +104,7 @@ export default function GraphSettingsPanel({
     setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
 
   return (
-    <div className="fixed top-[50px] right-3 max-h-[calc(100vh-62px)] w-[260px] overflow-y-auto rounded-lg border border-edge bg-panel px-3 py-2.5 font-sans text-[13px] text-ink">
+    <div className="fixed top-[50px] right-3 z-50 max-h-[calc(100vh-62px)] w-[260px] overflow-y-auto rounded-lg border border-edge bg-panel px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="flex justify-end gap-1.5">
         <button
           className="cursor-pointer text-sm text-ink-dim hover:text-accent"
