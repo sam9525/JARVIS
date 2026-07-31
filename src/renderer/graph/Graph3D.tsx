@@ -134,7 +134,13 @@ export default function Graph3D({
   const spinTick = useCallback((now: number) => {
     const s = spinState.current;
     const controls = orbitControls();
-    if (!s || !controls) return;
+    if (!s) return;
+    // no controls this frame: drop the state rather than leaving it holding a
+    // dead rAF id, which would send every later spin() down the reuse branch
+    if (!controls) {
+      spinState.current = null;
+      return;
+    }
     const dt = Math.min(0.1, (now - s.last) / 1000);
     s.last = now;
     s.v = decaySpin(s.v, dt);
@@ -187,6 +193,11 @@ export default function Graph3D({
     cam.position.set(t.x + dx * s, t.y + dy * s, t.z + dz * s);
   }, []);
 
+  // [] deps: handleRef must keep a stable identity across renders — a caller
+  // handing over a fresh ref each render would never be re-published to.
+  // MUST stay declared above the rotationCtl effect below: cleanups run in
+  // declaration order, and a rest-path arm() running after that effect's
+  // clearTimeout would leak one 5s timer per ring settle.
   useEffect(() => {
     if (handleRef) handleRef.current = { spin, zoom: zoomBy };
     return () => {

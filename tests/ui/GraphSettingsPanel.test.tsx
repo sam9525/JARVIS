@@ -56,16 +56,24 @@ describe("GraphSettingsPanel", () => {
     expect(el.props.children[1].props.open).toBe(true); // Filters open
   });
 
-  it("reset restores defaults but keeps dimensions and groups", () => {
+  it("reset restores defaults but keeps dimensions, groups and hand control", () => {
     const groups = { ws1: [{ query: "tech/", color: "#aa00ff" }] };
-    const { el, calls } = render({ showTags: false, dimensions: "3d", groups });
+    const { el, calls } = render({
+      showTags: false,
+      dimensions: "3d",
+      groups,
+      handControl: true,
+    });
     const header = el.props.children[0];
     const resetBtn = header.props.children[0];
     resetBtn.props.onClick();
+    // handControl survives: this path can't stop the camera, so resetting it
+    // would leave the webcam live behind an unticked box
     expect(calls.settings[0]).toEqual({
       ...defaultSettings(),
       dimensions: "3d",
       groups,
+      handControl: true,
     });
     expect(calls.search[0]).toBe("");
     expect(calls.resets).toBe(1);

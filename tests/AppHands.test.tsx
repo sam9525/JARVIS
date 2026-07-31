@@ -152,6 +152,24 @@ describe("App: hand control", () => {
       "No camera available",
     );
     expect(setSettings).not.toHaveBeenCalled(); // preference untouched
+
+    // …and ✋ retries: cameraOn is false while the setting is still true, so
+    // the click must restart the tracker without writing settings. Persisting
+    // only inside a value-changed guard would leave the button dead here.
+    await act(async () => {
+      tracker.impl = () => Promise.resolve(tracker.stop);
+    });
+    await act(async () => {
+      byTestId("hand-toggle")!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(tracker.starts).toBe(2);
+    expect(byTestId("hand-toggle")!.getAttribute("title")).toContain(
+      "Hand control on",
+    ); // the error cleared
+    expect(setSettings).not.toHaveBeenCalled();
   });
 
   it("the pulse follows the view: Ring registers actions, Cards does not", async () => {

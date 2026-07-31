@@ -115,11 +115,14 @@ export default function GraphSettingsPanel({
           title="Restore defaults"
           onClick={() => {
             // reset re-tunes values; it must not eject the user from the 3D
-            // view or wipe their (auto-seeded) groups
+            // view, wipe their (auto-seeded) groups, or silently claim the
+            // camera is off — hand control is a mode, and this path can't
+            // stop the tracker (it doesn't go through onHandControl)
             onSettingsChange({
               ...defaultSettings(),
               dimensions: settings.dimensions,
               groups: settings.groups,
+              handControl: settings.handControl,
             });
             onSearchChange("");
             onResetHighlights();

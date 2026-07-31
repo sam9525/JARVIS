@@ -41,7 +41,15 @@ export async function startHandTracker(
   const video = document.createElement("video");
   video.srcObject = stream;
   video.muted = true;
-  await video.play();
+  try {
+    await video.play();
+  } catch {
+    // nothing has been returned yet, so a throw here would strand a live
+    // camera with no stop handle — tear down before rethrowing
+    landmarker.close();
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("Camera failed to start");
+  }
 
   let raf = 0;
   let lastVideoT = -1;
