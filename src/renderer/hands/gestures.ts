@@ -26,7 +26,10 @@ const TIPS = { index: 8, middle: 12, ring: 16, pinky: 20 } as const;
 const PIPS = { index: 6, middle: 10, ring: 14, pinky: 18 } as const;
 export type Finger = keyof typeof TIPS;
 
-// a finger is extended when its tip sits farther from the wrist than its PIP
+// a finger is extended when its tip sits farther from the wrist than its PIP.
+// Checked against whole-hand rotation and against foreshortening across the
+// knuckle line: the comparison survives both, so this is not the reason a
+// posture-gated gesture fails to fire. Left alone deliberately.
 export function fingerExtended(hand: Landmark[], finger: Finger): boolean {
   const wrist = hand[WRIST];
   const d = (i: number) => Math.hypot(hand[i].x - wrist.x, hand[i].y - wrist.y);
@@ -38,13 +41,23 @@ export const SWIPE_STEP = 0.15; // two-finger travel per ring step
 export const FIST_HOLD_S = 1.0;
 export const PALM_HOLD_S = 1.0; // starting value, tune on a real camera
 
+// ponytail: postures were read per frame, so one noisy frame — a borderline
+// finger flipping, which MediaPipe does constantly — cleared every
+// accumulator gated on that posture. That is why a roll stopped after one
+// throw and a swipe never reached SWIPE_STEP: both restarted from zero mid
+// gesture. A posture now survives its own dropout for this long.
+export const POSTURE_GRACE_S = 0.4;
+
 // Forward-tap z hysteresis, in wrist-scale units. MediaPipe z is negative
 // toward the camera and hand-tracker.ts does not mirror it, so a poke drives
 // the signal MORE negative — pinned: TAP_Z_ENGAGE < TAP_Z_RELEASE < 0, the
 // same way PINCH_ENGAGE < PINCH_RELEASE pins the pinch (design §5).
-// Starting values, tune on a real camera.
-export const TAP_Z_ENGAGE = -0.35;
-export const TAP_Z_RELEASE = -0.2;
+// ponytail: -0.35/-0.2 was a guess and the row reportedly never fires; z is
+// roughly x-scaled, so a tip sits ~0.05 ahead of its knuckle against a
+// ~0.2 wrist scale ≈ -0.25 peak, which -0.35 can't reach. Halved. Still a
+// guess — read `tap` off the HUD and set these from a real hand.
+export const TAP_Z_ENGAGE = -0.18;
+export const TAP_Z_RELEASE = -0.08;
 export const TAP_DOUBLE_S = 0.5; // starting value, tune on a real camera
 
 // Zoom: full comfortable arm travel is only ~1.5× of raw scale, so the gain
@@ -60,12 +73,53 @@ export const ZOOM_DEADZONE = 0.002;
 
 const INDEX_MCP = 5;
 
+// what the HUD renders — every threshold in this file is a guess until it is
+// read off a real hand, so the numbers behind each gate are published
+export type HandDebug = {
+  tracked: boolean;
+  pinch: number;
+  fingers: Record<Finger, boolean>;
+  posture: "palm" | "two" | "fist" | "none";
+  roll: number; // rad/s, post dead zone (0 = below ROLL_MIN_RAD_S)
+  swipe: number; // travel banked toward the next SWIPE_STEP
+  tap: number; // forward-tap z signal, vs TAP_Z_ENGAGE
+  events: string[];
+};
+
+const FINGERS_NONE: Record<Finger, boolean> = {
+  index: false,
+  middle: false,
+  ring: false,
+  pinky: false,
+};
+
+// a posture, held for POSTURE_GRACE_S past its last true frame
+class HeldPosture {
+  private lastTrue: number | null = null;
+  update(on: boolean, t: number): boolean {
+    if (on) {
+      this.lastTrue = t;
+      return true;
+    }
+    if (this.lastTrue !== null && t - this.lastTrue < POSTURE_GRACE_S)
+      return true;
+    this.lastTrue = null;
+    return false;
+  }
+  reset(): void {
+    this.lastTrue = null;
+  }
+}
+
 type Frame = {
   hand: Landmark[];
   t: number;
   pinch: PinchState;
   x: number;
   y: number;
+  twoFinger: boolean;
+  palm: boolean;
+  fist: boolean;
 };
 
 export class GestureEngine {
@@ -81,10 +135,13 @@ export class GestureEngine {
   private palmT: number | null = null;
   private tapEngaged = false;
   private lastFlickT: number | null = null;
-  private palmLock: "orbit" | "zoom" | null = null;
   private lastScale: number | null = null;
   private roll = new RollTracker();
   private scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
+  private twoFingerHeld = new HeldPosture();
+  private palmHeld = new HeldPosture();
+  private lastRollV = 0;
+  private lastTap = 0;
 
   // the gesture table — every row sees the same frame
   private rows: Array<(f: Frame) => GestureEvent[]> = [
@@ -96,15 +153,73 @@ export class GestureEngine {
     (f) => this.palmArm(f),
   ];
 
+  // Last frame's posture inputs, for tuning against a real camera — every
+  // threshold in this file is a guess until someone reads these numbers off
+  // their own hand. use-hand-control publishes it on window.__hands.
+  debug: HandDebug = {
+    tracked: false,
+    pinch: 0,
+    fingers: FINGERS_NONE,
+    posture: "none",
+    roll: 0,
+    swipe: 0,
+    tap: 0,
+    events: [],
+  };
+
   update(hand: Landmark[] | null, t: number): GestureEvent[] {
-    if (!hand) return this.handLost();
+    if (!hand) {
+      const lost = this.handLost();
+      this.debug = {
+        ...this.debug,
+        tracked: false,
+        pinch: 0,
+        fingers: FINGERS_NONE,
+        posture: "none",
+        roll: 0,
+        swipe: 0,
+        tap: 0,
+        events: lost.map((e) => e.type),
+      };
+      return lost;
+    }
     const pinch = this.pinchDet.update(hand, t);
     this.wasPinching = pinch.isPinching;
     const x = this.smoother.update(hand[WRIST].x, t);
     const y = this.smootherY.update(hand[WRIST].y, t);
-    const frame: Frame = { hand, t, pinch, x, y };
+    const fingers = {
+      index: fingerExtended(hand, "index"),
+      middle: fingerExtended(hand, "middle"),
+      ring: fingerExtended(hand, "ring"),
+      pinky: fingerExtended(hand, "pinky"),
+    };
+    const n = Object.values(fingers).filter(Boolean).length;
+    const palm = this.palmHeld.update(!pinch.isPinching && n === 4, t);
+    const twoFinger =
+      this.twoFingerHeld.update(
+        !pinch.isPinching &&
+          fingers.index &&
+          fingers.middle &&
+          !fingers.ring &&
+          !fingers.pinky,
+        t,
+      ) && !palm; // palm wins the overlap the grace windows can create
+    const fist = !pinch.isPinching && n === 0;
+    const frame: Frame = { hand, t, pinch, x, y, twoFinger, palm, fist };
     const events: GestureEvent[] = [];
     for (const row of this.rows) events.push(...row(frame));
+    this.debug = {
+      tracked: true,
+      pinch: pinch.normalizedDistance,
+      fingers,
+      posture: palm ? "palm" : twoFinger ? "two" : fist ? "fist" : "none",
+      roll: this.lastRollV,
+      swipe: this.swipe,
+      tap: this.lastTap,
+      // sticky: the HUD polls at 5 Hz and the tracker runs at 30, so a frame's
+      // events would be invisible four times out of five. This is "last fired".
+      events: events.length ? events.map((e) => e.type) : this.debug.events,
+    };
     return events;
   }
 
@@ -121,10 +236,13 @@ export class GestureEngine {
     this.palmT = null;
     this.tapEngaged = false;
     this.lastFlickT = null;
-    this.palmLock = null;
     this.lastScale = null;
     this.roll.reset();
     this.scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
+    this.twoFingerHeld.reset();
+    this.palmHeld.reset();
+    this.lastRollV = 0;
+    this.lastTap = 0;
     return events;
   }
 
@@ -152,18 +270,8 @@ export class GestureEngine {
     return events;
   }
 
-  private twoFingerPosture(f: Frame): boolean {
-    return (
-      !f.pinch.isPinching &&
-      fingerExtended(f.hand, "index") &&
-      fingerExtended(f.hand, "middle") &&
-      !fingerExtended(f.hand, "ring") &&
-      !fingerExtended(f.hand, "pinky")
-    );
-  }
-
   private twoFingerStep(f: Frame): GestureEvent[] {
-    if (!this.twoFingerPosture(f)) {
+    if (!f.twoFinger) {
       this.swipeLastX = null;
       this.swipe = 0;
       return [];
@@ -187,11 +295,12 @@ export class GestureEngine {
   // camera says z is unusable: dist2D(tip, MCP)/scale foreshortens the same
   // way and drops into this hysteresis unchanged (design §5).
   private forwardTap(f: Frame): GestureEvent[] {
-    if (!this.twoFingerPosture(f)) {
-      this.tapEngaged = false;
-      this.lastFlickT = null;
-      return [];
-    }
+    // Posture loss does NOT reset this row. Poking two fingers at the camera
+    // foreshortens them, and foreshortening is the one thing a 2D posture
+    // test cannot see — so the gate blinks out during the exact motion this
+    // row exists to detect, and clearing here meant a flick could never be
+    // completed or paired. TAP_DOUBLE_S is the bound; only handLost() clears.
+    if (!f.twoFinger) return [];
     const wrist = f.hand[WRIST];
     const mcp = f.hand[MIDDLE_MCP];
     const scale = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
@@ -199,6 +308,7 @@ export class GestureEngine {
     const tips = f.hand[TIPS.index].z + f.hand[TIPS.middle].z;
     const knuckles = f.hand[INDEX_MCP].z + f.hand[MIDDLE_MCP].z;
     const signal = (tips - knuckles) / 2 / scale;
+    this.lastTap = signal;
     if (!this.tapEngaged) {
       if (signal < TAP_Z_ENGAGE) this.tapEngaged = true;
       return [];
@@ -215,13 +325,7 @@ export class GestureEngine {
   }
 
   private fistDisarm(f: Frame): GestureEvent[] {
-    const fist =
-      !f.pinch.isPinching &&
-      !fingerExtended(f.hand, "index") &&
-      !fingerExtended(f.hand, "middle") &&
-      !fingerExtended(f.hand, "ring") &&
-      !fingerExtended(f.hand, "pinky");
-    if (!fist) {
+    if (!f.fist) {
       this.fistT = null;
       return [];
     }
@@ -234,31 +338,26 @@ export class GestureEngine {
     return [{ type: "disarm" }];
   }
 
-  // all four fingers extended — the camera hand's posture, shared by palmArm
-  // and (Task 6) palmCamera, so the gate costs nothing extra (design §5)
-  private palmPosture(f: Frame): boolean {
-    return (
-      !f.pinch.isPinching &&
-      fingerExtended(f.hand, "index") &&
-      fingerExtended(f.hand, "middle") &&
-      fingerExtended(f.hand, "ring") &&
-      fingerExtended(f.hand, "pinky")
-    );
-  }
-
-  // One row, not two: orbit and zoom share the lock, and two rows sharing
-  // mutable lock state would break "a row is a posture predicate plus a
-  // motion rule, readable on its own" (design §5). roll.ts owns the angle
-  // maths; the zoom scalar is three lines and stays inline.
+  // One row, not two: orbit and zoom are the same posture, and roll.ts owns
+  // the angle maths while the zoom scalar is three lines inline.
+  //
+  // ponytail: the axis lock is gone. It locked to whichever signal crossed
+  // its dead zone first, but orbit's signal is a derivative — it crosses on
+  // hand tremor alone, so orbit won every race and zoom was unreachable. The
+  // two signals are near-orthogonal anyway (rolling the hand barely changes
+  // wrist→MCP distance), so each dead zone is its own guard and both rows may
+  // fire on one frame. If roll turns out to bleed into scale on a real
+  // camera, raise ZOOM_DEADZONE — do not bring the race back.
   private palmCamera(f: Frame): GestureEvent[] {
-    if (!this.palmPosture(f)) {
-      this.palmLock = null;
+    if (!f.palm) {
       this.lastScale = null;
+      this.lastRollV = 0;
       this.roll.reset();
       this.scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
       return [];
     }
     const v = this.roll.update(knuckleAngle(f.hand), f.t);
+    this.lastRollV = v;
     const wrist = f.hand[WRIST];
     const mcp = f.hand[MIDDLE_MCP];
     const scale = this.scaleSmoother.update(
@@ -273,23 +372,20 @@ export class GestureEngine {
         ? 1
         : scale / this.lastScale;
     this.lastScale = scale;
-    if (this.palmLock === null) {
-      if (v !== 0) this.palmLock = "orbit";
-      else if (raw !== 1) this.palmLock = "zoom";
-    }
-    if (this.palmLock === "orbit" && v !== 0) return [{ type: "orbit", v }];
-    if (this.palmLock === "zoom" && raw !== 1) {
+    const events: GestureEvent[] = [];
+    if (v !== 0) events.push({ type: "orbit", v });
+    if (raw !== 1) {
       const factor = Math.min(
         ZOOM_MAX_RATE,
         Math.max(1 / ZOOM_MAX_RATE, Math.pow(raw, ZOOM_GAIN)),
       );
-      return [{ type: "zoom", factor }];
+      events.push({ type: "zoom", factor });
     }
-    return [];
+    return events;
   }
 
   private palmArm(f: Frame): GestureEvent[] {
-    if (!this.palmPosture(f)) {
+    if (!f.palm) {
       this.palmT = null;
       return [];
     }

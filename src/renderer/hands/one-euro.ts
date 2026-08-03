@@ -20,9 +20,15 @@ export class OneEuroFilter {
   private lastT: number | null = null;
   private lastX: number | null = null;
 
+  // beta has the unit 1/(signal units), so it does NOT survive the port the
+  // way minCutoff/dCutoff (both Hz) do: GazeControl's 0.007 was tuned against
+  // pixels, and landmarks are normalized 0..1 — ~640× smaller. At 0.007 the
+  // adaptive term contributed <1% and the filter degenerated into a fixed
+  // 1 Hz low-pass, i.e. constant lag that never backs off on fast motion.
+  // Callers on a different signal (roll feeds rad/s) must pass their own.
   constructor(
     private minCutoff = 1.0,
-    private beta = 0.007,
+    private beta = 4.0,
     private dCutoff = 1.0,
   ) {}
 

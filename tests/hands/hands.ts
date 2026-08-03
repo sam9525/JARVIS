@@ -14,6 +14,9 @@ const RING_TIP = 16;
 const PINKY_TIP = 20;
 const PIPS = [6, 10, 14, 18];
 
+const INDEX_MCP = 5;
+const PINKY_MCP = 17;
+
 const base = (x: number): Landmark[] => {
   const h: Landmark[] = Array.from({ length: 21 }, () => ({
     x,
@@ -22,9 +25,33 @@ const base = (x: number): Landmark[] => {
   }));
   h[WRIST] = { x, y: 0.8, z: 0 };
   h[MIDDLE_MCP] = { x, y: 0.6, z: 0 };
+  // the knuckle line spans ±0.1 about the middle MCP, so it has a real angle
+  // (atan2 → 0 at rest) instead of being degenerate until a roll helper
+  // pokes two points into it
+  h[INDEX_MCP] = { x: x - 0.1, y: 0.62, z: 0 };
+  h[PINKY_MCP] = { x: x + 0.1, y: 0.62, z: 0 };
   for (const pip of PIPS) h[pip] = { x, y: 0.55, z: 0 };
   h[THUMB_TIP] = { x: x - 0.15, y: 0.65, z: 0 }; // 0.15 from index tip → norm 0.75, no pinch
   return h;
+};
+
+// Rotate and scale a whole hand about the wrist. The old helpers displaced
+// two knuckles and left the fingers behind, so a "rolled" fixture was a hand
+// no camera could produce and a "pushed" one stretched a single knuckle —
+// neither could be used to reason about a posture gate.
+const transform = (h: Landmark[], angle: number, k: number): Landmark[] => {
+  const o = h[WRIST];
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return h.map((p) => {
+    const dx = (p.x - o.x) * k;
+    const dy = (p.y - o.y) * k;
+    return {
+      x: o.x + dx * cos - dy * sin,
+      y: o.y + dx * sin + dy * cos,
+      z: p.z,
+    };
+  });
 };
 
 /** all four fingers curled, no pinch — a fist */
@@ -64,36 +91,18 @@ export const flickHand = (x = 0.5, depth = -0.12): Landmark[] => {
   return h;
 };
 
-/** palm with the knuckle line (index MCP → pinky MCP) at `angle` radians */
-const INDEX_MCP = 5;
-const PINKY_MCP = 17;
+/** palm rolled so the knuckle line sits at `angle` radians — a whole-hand
+ *  rotation, so every finger stays as extended as it was at rest */
+export const rolledPalmHand = (angle: number, x = 0.5): Landmark[] =>
+  transform(palmHand(x), angle, 1);
 
-export const rolledPalmHand = (angle: number, x = 0.5): Landmark[] => {
-  const h = palmHand(x);
-  const r = 0.1;
-  h[INDEX_MCP] = {
-    x: x - r * Math.cos(angle),
-    y: 0.6 - r * Math.sin(angle),
-    z: 0,
-  };
-  h[PINKY_MCP] = {
-    x: x + r * Math.cos(angle),
-    y: 0.6 + r * Math.sin(angle),
-    z: 0,
-  };
-  return h;
-};
-
-/** rolled palm at a given hand scale (wrist→middle-MCP distance) */
+/** rolled palm at a given hand scale (wrist→middle-MCP distance); moving
+ *  toward the camera scales the whole hand, it does not stretch one knuckle */
 export const rolledScaledPalm = (
   angle: number,
   scale: number,
   x = 0.5,
-): Landmark[] => {
-  const h = rolledPalmHand(angle, x);
-  h[MIDDLE_MCP] = { x, y: 0.8 - scale, z: 0 };
-  return h;
-};
+): Landmark[] => transform(palmHand(x), angle, scale / 0.2);
 
 /** palm pushed/pulled: knuckle line still, only the scale changes — zoom */
 export const scaledPalmHand = (scale: number, x = 0.5): Landmark[] =>

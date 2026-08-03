@@ -53,7 +53,13 @@ export function useHandControl(opts: {
       else if (ev.type === "orbit") a.orbit?.(ev.v);
       else if (ev.type === "zoom") a.zoom?.(ev.factor);
     };
-    startHandTracker((f) => engine.update(f.hand, f.t).forEach(apply))
+    startHandTracker((f) => {
+      engine.update(f.hand, f.t).forEach(apply);
+      // tuning window: every threshold in gestures.ts is a guess until it is
+      // checked against a real hand. In devtools:
+      //   setInterval(() => console.log(window.__hands), 200)
+      (window as unknown as { __hands: unknown }).__hands = engine.debug;
+    })
       .then((s) => {
         if (cancelled) s();
         else stop = s;

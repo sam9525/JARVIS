@@ -28,6 +28,19 @@ describe("fingerExtended", () => {
     expect(fingerExtended(twoFingerHand(), "middle")).toBe(true);
     expect(fingerExtended(twoFingerHand(), "ring")).toBe(false);
   });
+
+  // pins the negative result: the posture gate was the prime suspect for
+  // "rotate is hard to hold", and it is not guilty — a whole-hand roll leaves
+  // every wrist distance untouched. Keep this so the suspicion stays retired.
+  it("survives a full roll of the hand in both directions", () => {
+    for (let a = -Math.PI; a <= Math.PI; a += Math.PI / 12) {
+      const rolled = rolledPalmHand(a);
+      for (const f of ["index", "middle", "ring", "pinky"] as const)
+        expect(fingerExtended(rolled, f), `${f} at ${a.toFixed(2)} rad`).toBe(
+          true,
+        );
+    }
+  });
 });
 
 describe("GestureEngine: pinch drag", () => {
@@ -85,6 +98,19 @@ describe("GestureEngine: two-finger step", () => {
     }
     expect(dirs.length).toBeGreaterThan(0);
     expect(dirs[0]).toBe(-1);
+  });
+
+  it("a one-frame posture dropout does not reset the swipe", () => {
+    const g = new GestureEngine();
+    const dirs: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      // every third frame the posture reads as a fist — MediaPipe noise
+      const h =
+        i % 3 === 2 ? fistHand(0.1 + i * 0.1) : twoFingerHand(0.1 + i * 0.1);
+      for (const ev of g.update(h, i / 30))
+        if (ev.type === "step") dirs.push(ev.dir);
+    }
+    expect(dirs.length).toBeGreaterThan(0);
   });
 });
 
@@ -221,23 +247,20 @@ describe("GestureEngine: palm camera", () => {
       );
   });
 
-  it("the first signal across its dead zone claims the lock until the posture breaks", () => {
+  // there is no axis lock: orbit won every race in practice (its signal is a
+  // derivative, so tremor crossed the dead zone first) and zoom was
+  // unreachable. Each dead zone guards its own axis instead.
+  it("roll and push on one frame emit both, and zoom stays reachable after a roll", () => {
     const g = new GestureEngine();
     g.update(rolledScaledPalm(0, 0.2), 0); // baseline
-    // both cross on the same frame — orbit is checked first and wins
     const evs = g.update(rolledScaledPalm(0.5, 0.3), 1 / 30);
     expect(types(evs)).toContain("orbit");
-    expect(types(evs)).not.toContain("zoom");
-    // zoom-only motion while the posture holds stays locked out
-    expect(types(g.update(rolledScaledPalm(0.5, 0.35), 2 / 30))).not.toContain(
+    expect(types(evs)).toContain("zoom");
+    // zoom-only motion right after a roll still reaches the camera — this is
+    // the case the lock used to swallow for the rest of the posture
+    expect(types(g.update(rolledScaledPalm(0.5, 0.35), 2 / 30))).toContain(
       "zoom",
     );
-    // break the posture; re-present with zoom-only motion — zoom now wins
-    g.update(fistHand(), 3 / 30);
-    g.update(scaledPalmHand(0.2), 4 / 30);
-    const evs3 = g.update(scaledPalmHand(0.26), 5 / 30);
-    expect(types(evs3)).toContain("zoom");
-    expect(types(evs3)).not.toContain("orbit");
   });
 
   it("a two-finger swipe emits neither orbit nor zoom (the palm gate)", () => {

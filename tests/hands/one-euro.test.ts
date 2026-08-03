@@ -20,10 +20,13 @@ describe("OneEuroFilter", () => {
     expect(out).toBeLessThan(1);
   });
 
-  // the 1-Euro property: lag shrinks as speed grows (beta scales the cutoff)
+  // the 1-Euro property: lag shrinks as speed grows (beta scales the cutoff).
+  // Asserted on the DEFAULT beta, in the normalized units the tracker feeds —
+  // the old test passed beta=1 explicitly and so never caught the shipped
+  // 0.007, which made this ratio ~1.0 (a fixed low-pass, not a 1-Euro filter).
   it("lags less on fast motion than on slow motion", () => {
     const lag = (step: number) => {
-      const f = new OneEuroFilter(1, 1, 1);
+      const f = new OneEuroFilter();
       let x = 0;
       let out = 0;
       for (let i = 1; i <= 30; i++) {
@@ -32,7 +35,7 @@ describe("OneEuroFilter", () => {
       }
       return (x - out) / step; // lag measured in per-frame steps
     };
-    expect(lag(0.05)).toBeLessThan(lag(0.001));
+    expect(lag(0.05)).toBeLessThan(lag(0.001) / 2);
   });
 });
 

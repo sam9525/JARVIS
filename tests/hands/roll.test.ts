@@ -22,7 +22,10 @@ describe("unwrap", () => {
 describe("knuckleAngle", () => {
   it("reads the fixture's knuckle line and guards the degenerate hand", () => {
     expect(knuckleAngle(rolledPalmHand(0.4))).toBeCloseTo(0.4, 6);
-    expect(knuckleAngle(palmHand())).toBeNull(); // MCPs coincide in the base fixture
+    expect(knuckleAngle(palmHand())).toBeCloseTo(0, 6); // knuckle line level at rest
+    const flat = palmHand();
+    flat[17] = { ...flat[5] }; // MCPs coincident — no line to measure
+    expect(knuckleAngle(flat)).toBeNull();
   });
 });
 
