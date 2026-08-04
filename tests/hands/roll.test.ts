@@ -40,7 +40,7 @@ describe("RollTracker", () => {
   });
 
   it("a drift below ROLL_MIN_RAD_S is silent (dead zone)", () => {
-    // 0.005 rad/frame at 30 fps = 0.15 rad/s < 0.8
+    // 0.005 rad/frame at 30 fps = 0.15 rad/s < ROLL_MIN_RAD_S (0.25)
     const out = feed(Array.from({ length: 10 }, (_, i) => i * 0.005));
     expect(out.every((v) => v === 0)).toBe(true);
   });

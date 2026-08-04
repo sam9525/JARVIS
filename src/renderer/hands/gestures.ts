@@ -10,7 +10,7 @@ import {
   type Landmark,
   type PinchState,
 } from "./pinch";
-import { knuckleAngle, RollTracker } from "./roll";
+import { INDEX_MCP, knuckleAngle, RollTracker } from "./roll";
 
 export type GestureEvent =
   | { type: "drag"; dx: number; dy: number } // normalized hand units; sign matches pointer
@@ -101,8 +101,6 @@ export const ZOOM_GAIN = 1;
 export const ZOOM_MAX_RATE = 1.15;
 export const ZOOM_DEADZONE = 0.008;
 
-const INDEX_MCP = 5;
-
 // what the HUD renders — every threshold in this file is a guess until it is
 // read off a real hand, so the numbers behind each gate are published
 export type HandDebug = {
@@ -111,7 +109,7 @@ export type HandDebug = {
   fingers: Record<Finger, boolean>;
   posture: "palms" | "palm" | "two" | "fist" | "none";
   roll: number; // rad/s, post dead zone (0 = below ROLL_MIN_RAD_S)
-  swipe: number; // hand speed in frame widths per second, vs SWIPE_SPEED
+  swipe: number; // index+middle fingertip speed, frame widths/s, vs SWIPE_SPEED
   tap: number; // finger length over this hand's straight, vs TAP_BEND_ENGAGE
   span: number; // wrist-to-wrist distance driving the zoom, 0 with one hand
   events: string[];
