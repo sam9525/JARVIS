@@ -483,13 +483,11 @@ export class GestureEngine {
       return [];
     }
     if (signal > straight * TAP_BEND_RELEASE) {
-      const held = f.t - this.bentT;
       this.bentT = null;
       // every release marks activity, including the one that opens: the step
       // row reads this to stand down, and lifting it on the opening frame
       // would let the tap's own drift step the ring as it opened
       this.tapActiveT = f.t;
-      if (held > TAP_HOLD_MAX_S) return []; // a posture, not a tap: bank nothing
       if (this.lastTapT !== null && f.t - this.lastTapT <= TAP_DOUBLE_S) {
         this.lastTapT = null;
         return [{ type: "open" }];
