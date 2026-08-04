@@ -520,3 +520,22 @@ describe("GestureEngine: leaving two-palm mode", () => {
     expect(types(evs)).toContain("snap");
   });
 });
+
+describe("GestureEngine: swipe at low frame rates", () => {
+  // the same 10-frame swipe, replayed at different capture rates. MediaPipe
+  // falls back to CPU inference with no GPU delegate, commonly 10-15fps, and
+  // the step gesture must survive that rather than silently not existing.
+  const stepsAt = (fps: number): number => {
+    const g = new GestureEngine();
+    let steps = 0;
+    for (let i = 0; i < 10; i++)
+      for (const ev of g.update(fingerSwipeHand(i * 0.06), i / fps))
+        if (ev.type === "step") steps++;
+    return steps;
+  };
+
+  it("steps at 8, 12, 20 and 30 fps alike", () => {
+    for (const fps of [8, 12, 20, 30])
+      expect({ fps, steps: stepsAt(fps) > 0 }).toEqual({ fps, steps: true });
+  });
+});

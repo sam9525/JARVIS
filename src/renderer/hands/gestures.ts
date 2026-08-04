@@ -413,7 +413,13 @@ export class GestureEngine {
       return 0;
     }
     this.trail.push({ x, t });
-    while (this.trail.length > 1 && t - this.trail[0].t > SWIPE_WINDOW_S)
+    // Trim by age, but never below the 3 samples the reading needs. A pure
+    // age trim meant three samples had to fit inside SWIPE_WINDOW_S, i.e.
+    // >=13.3fps, and below that the trail could never reach 3 so speed was
+    // permanently 0 — the step gesture did not exist and read from the HUD
+    // exactly like a still hand. The window is the target interval, not a
+    // hard cap: at low capture rates the measurement stretches instead.
+    while (this.trail.length > 3 && t - this.trail[0].t > SWIPE_WINDOW_S)
       this.trail.shift();
     const dt = t - this.trail[0].t;
     return this.trail.length < 3 || dt <= 0 ? 0 : (x - this.trail[0].x) / dt;
