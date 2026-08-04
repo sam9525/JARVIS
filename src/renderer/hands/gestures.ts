@@ -37,14 +37,38 @@ export function fingerExtended(hand: Landmark[], finger: Finger): boolean {
 }
 
 // starting values, to be tuned against a real camera (design §6)
-export const SWIPE_STEP = 0.1; // two-finger travel per ring step
 export const FIST_HOLD_S = 1.0;
 export const PALM_HOLD_S = 1.0; // starting value, tune on a real camera
+
+// A swipe is a fast movement, so it is measured as one — frame widths per
+// second, with a cooldown after each step. Banked travel (the old SWIPE_STEP)
+// could not tell a flick from a drift, fired once per fixed distance so one
+// sweep stepped four times, and counted the return stroke as a swipe the
+// other way: every step right was undone by the hand coming back to a
+// comfortable position. The cooldown swallows that return and caps a held
+// sweep at about two steps a second.
+//
+// Measured over a window off the RAW fingertips, not frame-to-frame off the
+// smoothed wrist anchor. One frame's delta is noise, and AnchorSmoother's job
+// is to steady a drag anchor — it lags a flick badly and its dead zone
+// quantizes slow motion to zero, so a deliberate swipe came out under
+// threshold. The tips read a knuckle-pivot swing as well as a whole-hand
+// sweep; the wrist only read the sweep.
+export const SWIPE_SPEED = 0.4;
+export const SWIPE_WINDOW_S = 0.15;
+export const SWIPE_COOLDOWN_S = 0.45;
+// Fingers move in a tap, the hand moves in a swipe. Above this the hand is
+// swiping, so the tap must not engage: a fast sweep blurs the landmarks, the
+// finger-length ratio dips through the shallow TAP_BEND_ENGAGE, and the tap
+// row then stood the step row down for a full TAP_DOUBLE_S — the swipe
+// suppressed itself. Generous on purpose, so a tap with an unsteady hand
+// still registers.
+export const TAP_STILL_SPEED = 1.0;
 
 // Postures read per frame flicker — a borderline finger flips for a frame,
 // which MediaPipe does constantly — and every accumulator gated on one
 // restarted mid-gesture: a roll stopped after a single throw, a swipe never
-// reached SWIPE_STEP. A posture survives its own dropout for this long.
+// built up speed. A posture survives its own dropout for this long.
 export const POSTURE_GRACE_S = 0.4;
 
 // Tap hysteresis on MCP→tip length, as FRACTIONS of this hand's own
@@ -87,7 +111,7 @@ export type HandDebug = {
   fingers: Record<Finger, boolean>;
   posture: "palms" | "palm" | "two" | "fist" | "none";
   roll: number; // rad/s, post dead zone (0 = below ROLL_MIN_RAD_S)
-  swipe: number; // travel banked toward the next SWIPE_STEP
+  swipe: number; // hand speed in frame widths per second, vs SWIPE_SPEED
   tap: number; // finger length over this hand's straight, vs TAP_BEND_ENGAGE
   span: number; // wrist-to-wrist distance driving the zoom, 0 with one hand
   events: string[];
@@ -147,6 +171,7 @@ type Frame = {
   palm: boolean;
   bothPalms: boolean;
   fist: boolean;
+  speed: number; // signed frame widths per second, over SWIPE_WINDOW_S
 };
 
 export class GestureEngine {
@@ -156,13 +181,14 @@ export class GestureEngine {
   private wasPinching = false;
   private lastX: number | null = null; // pinch-drag anchor
   private lastY: number | null = null;
-  private swipeLastX: number | null = null;
-  private swipe = 0;
+  private trail: Array<{ x: number; t: number }> = []; // raw wrist x, one window deep
+  private lastStepT: number | null = null;
   private fistT: number | null = null;
   private palmT: number | null = null;
   private bentT: number | null = null; // when the fingers went bent, if they are
   private tapMax = 0; // this hand's straight index+middle length, measured
-  private lastTapT: number | null = null;
+  private lastTapT: number | null = null; // one tap banked, waiting for its pair
+  private tapActiveT: number | null = null; // last tap activity of any kind
   private lastSpan: number | null = null;
   private roll = new RollTracker();
   private spanSmoother = new AnchorSmoother(ZOOM_DEADZONE);
@@ -235,6 +261,14 @@ export class GestureEngine {
       palm,
       bothPalms,
       fist,
+      // the fingertips, not the wrist: swinging the fingers at the knuckle
+      // with the wrist planted is a swipe too, and the tips move whenever the
+      // wrist does, so this reads whole-hand sweeps unchanged
+      speed: this.speedOf(
+        (hand[TIPS.index].x + hand[TIPS.middle].x) / 2,
+        t,
+        twoFinger,
+      ),
     };
     // Two palms is a mode, not a row: while both are up the one-hand table
     // stands down, so spreading the hands to zoom cannot also roll the camera
@@ -255,7 +289,7 @@ export class GestureEngine {
               ? "fist"
               : "none",
       roll: this.lastRollV,
-      swipe: this.swipe,
+      swipe: frame.speed,
       tap: this.lastTap,
       span: this.lastSpan ?? 0,
       events: this.sticky(events),
@@ -276,13 +310,14 @@ export class GestureEngine {
     this.wasPinching = false;
     this.lastX = null;
     this.lastY = null;
-    this.swipeLastX = null;
-    this.swipe = 0;
+    this.trail = [];
+    this.lastStepT = null;
     this.fistT = null;
     this.palmT = null;
     this.bentT = null;
     this.tapMax = 0;
     this.lastTapT = null;
+    this.tapActiveT = null;
     this.lastSpan = null;
     this.roll.reset();
     this.spanSmoother = new AnchorSmoother(ZOOM_DEADZONE);
@@ -327,31 +362,37 @@ export class GestureEngine {
   private tapInFlight(t: number): boolean {
     return (
       this.bentT !== null ||
-      (this.lastTapT !== null && t - this.lastTapT <= TAP_DOUBLE_S)
+      (this.tapActiveT !== null && t - this.tapActiveT <= TAP_DOUBLE_S)
     );
   }
 
+  // Fingertip speed over the last SWIPE_WINDOW_S, measured only while two
+  // fingers are up so motion from before the posture cannot swipe. Three is
+  // the floor — two intervals average out a single noisy frame, and it is
+  // reached in ~70 ms. A time-based floor is what NOT to use here: it reports
+  // 0 during warm-up, and 0 reads as "the hand is still", which let a swipe
+  // bank a phantom tap in its own first frames and then suppress itself.
+  private speedOf(x: number, t: number, held: boolean): number {
+    if (!held) {
+      this.trail = [];
+      return 0;
+    }
+    this.trail.push({ x, t });
+    while (this.trail.length > 1 && t - this.trail[0].t > SWIPE_WINDOW_S)
+      this.trail.shift();
+    const dt = t - this.trail[0].t;
+    return this.trail.length < 3 || dt <= 0 ? 0 : (x - this.trail[0].x) / dt;
+  }
+
   private twoFingerStep(f: Frame): GestureEvent[] {
-    if (!f.twoFinger) {
-      this.swipeLastX = null;
-      this.swipe = 0;
+    if (!f.twoFinger) return [];
+    if (this.tapInFlight(f.t)) return []; // the fingers are the gesture, not the hand
+    if (Math.abs(f.speed) < SWIPE_SPEED) return [];
+    // the rest of this flick, and the return stroke that follows it
+    if (this.lastStepT !== null && f.t - this.lastStepT < SWIPE_COOLDOWN_S)
       return [];
-    }
-    if (this.tapInFlight(f.t)) {
-      this.swipeLastX = f.x; // follow the hand, bank none of it
-      this.swipe = 0;
-      return [];
-    }
-    if (this.swipeLastX === null) {
-      this.swipeLastX = f.x;
-      return [];
-    }
-    this.swipe += f.x - this.swipeLastX;
-    this.swipeLastX = f.x;
-    if (Math.abs(this.swipe) < SWIPE_STEP) return [];
-    const dir: 1 | -1 = this.swipe > 0 ? 1 : -1;
-    this.swipe = 0; // re-arm: another SWIPE_STEP of travel = another step
-    return [{ type: "step", dir }];
+    this.lastStepT = f.t;
+    return [{ type: "step", dir: f.speed > 0 ? 1 : -1 }];
   }
 
   // Two taps of index+middle open — bend and straighten, twice, like a double
@@ -386,12 +427,21 @@ export class GestureEngine {
     const straight = this.tapMax;
     this.lastTap = signal / straight; // the HUD shows what the gate compares
     if (this.bentT === null) {
-      if (signal < straight * TAP_BEND_ENGAGE) this.bentT = f.t;
+      // a hand this fast is swiping, and a blurred swipe reads as bent
+      if (Math.abs(f.speed) > TAP_STILL_SPEED) return [];
+      if (signal < straight * TAP_BEND_ENGAGE) {
+        this.bentT = f.t;
+        this.tapActiveT = f.t;
+      }
       return [];
     }
     if (signal > straight * TAP_BEND_RELEASE) {
       const held = f.t - this.bentT;
       this.bentT = null;
+      // every release marks activity, including the one that opens: the step
+      // row reads this to stand down, and lifting it on the opening frame
+      // would let the tap's own drift step the ring as it opened
+      this.tapActiveT = f.t;
       if (held > TAP_HOLD_MAX_S) return []; // a posture, not a tap: bank nothing
       if (this.lastTapT !== null && f.t - this.lastTapT <= TAP_DOUBLE_S) {
         this.lastTapT = null;

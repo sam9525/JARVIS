@@ -7,6 +7,7 @@ import {
 } from "../../src/renderer/hands/gestures";
 import { ROLL_MAX_RAD_S } from "../../src/renderer/hands/roll";
 import {
+  fingerSwipeHand,
   fistHand,
   palmHand,
   pinchedHand,
@@ -112,7 +113,55 @@ describe("GestureEngine: two-finger step", () => {
     expect(dirs.length).toBeGreaterThan(0);
   });
 
-  it("a one-frame posture dropout does not reset the swipe", () => {
+  it("swinging just the fingers steps — the wrist need not move", () => {
+    const g = new GestureEngine();
+    const dirs: number[] = [];
+    const wrists = new Set<number>();
+    for (let i = 0; i < 8; i++) {
+      const h = fingerSwipeHand(-0.1 + i * 0.03);
+      wrists.add(h[0].x);
+      for (const ev of g.update(h, i / 30))
+        if (ev.type === "step") dirs.push(ev.dir);
+    }
+    expect(wrists.size).toBe(1); // the wrist really did hold still
+    expect(dirs).toEqual([1]);
+  });
+
+  // a swipe is speed, not banked distance: these three are what the
+  // accumulator could not tell apart
+  it("a slow drift never steps, however far the hand travels", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    // 0.01 per frame = 0.3/s, under SWIPE_SPEED — but 0.6 of travel in total
+    for (let i = 0; i < 60; i++)
+      evs.push(...g.update(twoFingerHand(0.2 + i * 0.01), i / 30));
+    expect(types(evs)).not.toContain("step");
+  });
+
+  it("one long sweep is one step, not one per fixed distance", () => {
+    const g = new GestureEngine();
+    const dirs: number[] = [];
+    // 0.05 per frame over 8 frames — 0.4 of travel, four steps under the old
+    // SWIPE_STEP of 0.1
+    for (let i = 0; i < 8; i++)
+      for (const ev of g.update(twoFingerHand(0.2 + i * 0.05), i / 30))
+        if (ev.type === "step") dirs.push(ev.dir);
+    expect(dirs).toEqual([1]);
+  });
+
+  it("the hand coming back does not step the other way", () => {
+    const g = new GestureEngine();
+    const dirs: number[] = [];
+    const at = (x: number, t: number) => {
+      for (const ev of g.update(twoFingerHand(x), t))
+        if (ev.type === "step") dirs.push(ev.dir);
+    };
+    for (let i = 0; i < 6; i++) at(0.3 + i * 0.05, i / 30); // swipe right
+    for (let i = 0; i < 6; i++) at(0.55 - i * 0.05, (6 + i) / 30); // and back
+    expect(dirs).toEqual([1]);
+  });
+
+  it("a one-frame posture dropout does not stop the swipe", () => {
     const g = new GestureEngine();
     const dirs: number[] = [];
     for (let i = 0; i < 10; i++) {
@@ -236,11 +285,12 @@ describe("GestureEngine: two-finger tap", () => {
     const evs: GestureEvent[] = [];
     let x = 0.3;
     g.update(twoFingerHand(x), 0);
-    // 0.06 of sideways drift per frame — 0.24 over the pair, 2x SWIPE_STEP
+    // 0.03 of drift per frame — ~0.7/s, over SWIPE_SPEED so the step row would
+    // fire, under TAP_STILL_SPEED so the tap still counts as one
     for (const t0 of [1 / 30, 4 / 30]) {
-      x += 0.06;
+      x += 0.03;
       evs.push(...g.update(tapHand(x), t0));
-      x += 0.06;
+      x += 0.03;
       evs.push(...g.update(twoFingerHand(x), t0 + 1 / 30));
     }
     expect(types(evs)).toContain("open");

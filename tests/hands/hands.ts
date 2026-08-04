@@ -106,6 +106,15 @@ export const tapHand = (x = 0.5, k = 0.3): Landmark[] => {
   return h;
 };
 
+/** two-finger posture with the fingers swung `dx` sideways at the knuckle:
+ *  the tips move, the wrist does not move at all */
+export const fingerSwipeHand = (dx: number, x = 0.5): Landmark[] => {
+  const h = twoFingerHand(x);
+  for (const tip of [INDEX_TIP, MIDDLE_TIP])
+    h[tip] = { ...h[tip], x: h[tip].x + dx };
+  return h;
+};
+
 /** a tap bent far enough that the thumb sits on the bent index tip — what a
  *  real tap does, and what PinchDetector reads as a pinch */
 export const pinchingTapHand = (x = 0.5): Landmark[] => {
