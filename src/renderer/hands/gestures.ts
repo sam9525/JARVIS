@@ -37,36 +37,43 @@ export function fingerExtended(hand: Landmark[], finger: Finger): boolean {
 }
 
 // starting values, to be tuned against a real camera (design §6)
-export const SWIPE_STEP = 0.15; // two-finger travel per ring step
+export const SWIPE_STEP = 0.1; // two-finger travel per ring step
 export const FIST_HOLD_S = 1.0;
 export const PALM_HOLD_S = 1.0; // starting value, tune on a real camera
 
-// ponytail: postures were read per frame, so one noisy frame — a borderline
-// finger flipping, which MediaPipe does constantly — cleared every
-// accumulator gated on that posture. That is why a roll stopped after one
-// throw and a swipe never reached SWIPE_STEP: both restarted from zero mid
-// gesture. A posture now survives its own dropout for this long.
+// Postures read per frame flicker — a borderline finger flips for a frame,
+// which MediaPipe does constantly — and every accumulator gated on one
+// restarted mid-gesture: a roll stopped after a single throw, a swipe never
+// reached SWIPE_STEP. A posture survives its own dropout for this long.
 export const POSTURE_GRACE_S = 0.4;
 
-// Forward-tap z hysteresis, in wrist-scale units. MediaPipe z is negative
-// toward the camera and hand-tracker.ts does not mirror it, so a poke drives
-// the signal MORE negative — pinned: TAP_Z_ENGAGE < TAP_Z_RELEASE < 0, the
-// same way PINCH_ENGAGE < PINCH_RELEASE pins the pinch (design §5).
-// ponytail: -0.35/-0.2 was a guess and the row reportedly never fires; z is
-// roughly x-scaled, so a tip sits ~0.05 ahead of its knuckle against a
-// ~0.2 wrist scale ≈ -0.25 peak, which -0.35 can't reach. Halved. Still a
-// guess — read `tap` off the HUD and set these from a real hand.
-export const TAP_Z_ENGAGE = -0.18;
-export const TAP_Z_RELEASE = -0.08;
-export const TAP_DOUBLE_S = 0.5; // starting value, tune on a real camera
+// Tap hysteresis on MCP→tip length, as FRACTIONS of this hand's own
+// straight-finger length rather than absolutes: that length over wrist→MCP
+// depends on finger-to-palm proportion and on how far the camera angle
+// flattens the hand, so no constant is right for every hand. ENGAGE < RELEASE
+// pins it the way PINCH_ENGAGE < PINCH_RELEASE pins the pinch; low is bent.
+// The 12% dip is deliberately shallow, and the cost is that a 12% wobble
+// repeated inside TAP_DOUBLE_S can open something — walk this pair back first
+// if stray opens appear.
+export const TAP_BEND_ENGAGE = 0.88;
+export const TAP_BEND_RELEASE = 0.95;
+// the running max bleeds ~15%/s toward the current length: one frame of
+// MediaPipe overshoot must not raise the bar for the rest of the session
+export const TAP_MAX_DECAY = 0.995;
+export const TAP_DOUBLE_S = 1.0; // two taps is a rhythm, not a timing feat
+// A tap is quick. Unbounded, any straightening completes one — a hand resting
+// slightly curled sits engaged indefinitely, so merely extending the fingers
+// fired a tap. Held longer than this it is a posture, and is discarded.
+export const TAP_HOLD_MAX_S = 0.45;
 
 // Zoom: full comfortable arm travel is only ~1.5× of raw scale, so the gain
 // exponent maps it to a useful range; the rate clamp keeps one dropped-
 // tracking frame from teleporting the camera. ZOOM_DEADZONE has its own unit:
 // the smoother's default 0.008 is a fraction of FRAME WIDTH tuned for wrist
 // position — scale sits around 0.15–0.3, where 0.008 swallows slow deliberate
-// zooms (design §5). Starting values, tune on a real camera; tune ZOOM_GAIN
-// together with ROLL_MIN_RAD_S — they decide which signal wins the axis lock.
+// zooms (design §5). Starting values, tune on a real camera; ZOOM_DEADZONE is
+// orbit's only defence against roll bleeding into scale, now that the axis
+// lock is gone (see palmCamera).
 export const ZOOM_GAIN = 3;
 export const ZOOM_MAX_RATE = 1.15;
 export const ZOOM_DEADZONE = 0.002;
@@ -82,7 +89,7 @@ export type HandDebug = {
   posture: "palm" | "two" | "fist" | "none";
   roll: number; // rad/s, post dead zone (0 = below ROLL_MIN_RAD_S)
   swipe: number; // travel banked toward the next SWIPE_STEP
-  tap: number; // forward-tap z signal, vs TAP_Z_ENGAGE
+  tap: number; // finger length over this hand's straight, vs TAP_BEND_ENGAGE
   events: string[];
 };
 
@@ -91,6 +98,17 @@ const FINGERS_NONE: Record<Finger, boolean> = {
   middle: false,
   ring: false,
   pinky: false,
+};
+
+// every reading a lost hand has; only `events` survives it
+const DEBUG_UNTRACKED: Omit<HandDebug, "events"> = {
+  tracked: false,
+  pinch: 0,
+  fingers: FINGERS_NONE,
+  posture: "none",
+  roll: 0,
+  swipe: 0,
+  tap: 0,
 };
 
 // a posture, held for POSTURE_GRACE_S past its last true frame
@@ -133,8 +151,9 @@ export class GestureEngine {
   private swipe = 0;
   private fistT: number | null = null;
   private palmT: number | null = null;
-  private tapEngaged = false;
-  private lastFlickT: number | null = null;
+  private bentT: number | null = null; // when the fingers went bent, if they are
+  private tapMax = 0; // this hand's straight index+middle length, measured
+  private lastTapT: number | null = null;
   private lastScale: number | null = null;
   private roll = new RollTracker();
   private scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
@@ -146,41 +165,22 @@ export class GestureEngine {
   // the gesture table — every row sees the same frame
   private rows: Array<(f: Frame) => GestureEvent[]> = [
     (f) => this.pinchDrag(f),
+    // before the step row, so the frame a bend engages on is already
+    // suppressed there rather than banking one last slice of travel
+    (f) => this.twoFingerTap(f),
     (f) => this.twoFingerStep(f),
-    (f) => this.forwardTap(f),
     (f) => this.palmCamera(f),
     (f) => this.fistDisarm(f),
     (f) => this.palmArm(f),
   ];
 
-  // Last frame's posture inputs, for tuning against a real camera — every
-  // threshold in this file is a guess until someone reads these numbers off
-  // their own hand. use-hand-control publishes it on window.__hands.
-  debug: HandDebug = {
-    tracked: false,
-    pinch: 0,
-    fingers: FINGERS_NONE,
-    posture: "none",
-    roll: 0,
-    swipe: 0,
-    tap: 0,
-    events: [],
-  };
+  // use-hand-control publishes this on window.__hands; HandsHud renders it
+  debug: HandDebug = { ...DEBUG_UNTRACKED, events: [] };
 
   update(hand: Landmark[] | null, t: number): GestureEvent[] {
     if (!hand) {
       const lost = this.handLost();
-      this.debug = {
-        ...this.debug,
-        tracked: false,
-        pinch: 0,
-        fingers: FINGERS_NONE,
-        posture: "none",
-        roll: 0,
-        swipe: 0,
-        tap: 0,
-        events: lost.map((e) => e.type),
-      };
+      this.debug = { ...DEBUG_UNTRACKED, events: this.sticky(lost) };
       return lost;
     }
     const pinch = this.pinchDet.update(hand, t);
@@ -194,16 +194,17 @@ export class GestureEngine {
       pinky: fingerExtended(hand, "pinky"),
     };
     const n = Object.values(fingers).filter(Boolean).length;
+    // Two fingers tolerates one stray extended finger — a half-curled ring
+    // sits right on the tip-vs-PIP line and flickers, which shut both
+    // two-finger rows out — and ignores the pinch, because bending the
+    // fingers carries the index tip toward the thumb, so a tap arrives as a
+    // pinch and the drag row would eat it. Safe in both directions: a real
+    // pinch curls the middle finger and so cannot satisfy this, and palm is
+    // still the only posture with all four.
     const palm = this.palmHeld.update(!pinch.isPinching && n === 4, t);
     const twoFinger =
-      this.twoFingerHeld.update(
-        !pinch.isPinching &&
-          fingers.index &&
-          fingers.middle &&
-          !fingers.ring &&
-          !fingers.pinky,
-        t,
-      ) && !palm; // palm wins the overlap the grace windows can create
+      this.twoFingerHeld.update(fingers.index && fingers.middle && n <= 3, t) &&
+      !palm; // palm wins the overlap the grace windows can create
     const fist = !pinch.isPinching && n === 0;
     const frame: Frame = { hand, t, pinch, x, y, twoFinger, palm, fist };
     const events: GestureEvent[] = [];
@@ -216,11 +217,15 @@ export class GestureEngine {
       roll: this.lastRollV,
       swipe: this.swipe,
       tap: this.lastTap,
-      // sticky: the HUD polls at 5 Hz and the tracker runs at 30, so a frame's
-      // events would be invisible four times out of five. This is "last fired".
-      events: events.length ? events.map((e) => e.type) : this.debug.events,
+      events: this.sticky(events),
     };
     return events;
+  }
+
+  // the HUD polls at 5 Hz and the tracker runs at 30, so a frame's events
+  // would be invisible four times out of five — this reads "last fired"
+  private sticky(events: GestureEvent[]): string[] {
+    return events.length ? events.map((e) => e.type) : this.debug.events;
   }
 
   // hand out of view: end an in-flight pinch cleanly, reset transient state
@@ -234,8 +239,9 @@ export class GestureEngine {
     this.swipe = 0;
     this.fistT = null;
     this.palmT = null;
-    this.tapEngaged = false;
-    this.lastFlickT = null;
+    this.bentT = null;
+    this.tapMax = 0;
+    this.lastTapT = null;
     this.lastScale = null;
     this.roll.reset();
     this.scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
@@ -247,6 +253,7 @@ export class GestureEngine {
   }
 
   private pinchDrag(f: Frame): GestureEvent[] {
+    if (f.twoFinger) return []; // a tap's bend looks like a pinch; two fingers win
     const events: GestureEvent[] = [];
     if (f.pinch.justEngaged) {
       this.lastX = f.x;
@@ -270,9 +277,26 @@ export class GestureEngine {
     return events;
   }
 
+  // A tap in flight — the bend, plus the gap while its pair is still
+  // possible. The hand drifts sideways while tapping and that drift is not a
+  // swipe: untreated, a tap opened the project and stepped past it on the
+  // way. Expires with the pairing window, so one stray bend cannot leave the
+  // ring unswipeable.
+  private tapInFlight(t: number): boolean {
+    return (
+      this.bentT !== null ||
+      (this.lastTapT !== null && t - this.lastTapT <= TAP_DOUBLE_S)
+    );
+  }
+
   private twoFingerStep(f: Frame): GestureEvent[] {
     if (!f.twoFinger) {
       this.swipeLastX = null;
+      this.swipe = 0;
+      return [];
+    }
+    if (this.tapInFlight(f.t)) {
+      this.swipeLastX = f.x; // follow the hand, bank none of it
       this.swipe = 0;
       return [];
     }
@@ -288,38 +312,50 @@ export class GestureEngine {
     return [{ type: "step", dir }];
   }
 
-  // Two forward flicks of index+middle open. z hysteresis in the shape of
-  // PinchDetector — the pattern, not the class, since the input is a
-  // different signal. Shares its posture with twoFingerStep and stays
-  // distinct by axis: step watches x, this watches z. Fallback if a real
-  // camera says z is unusable: dist2D(tip, MCP)/scale foreshortens the same
-  // way and drops into this hysteresis unchanged (design §5).
-  private forwardTap(f: Frame): GestureEvent[] {
-    // Posture loss does NOT reset this row. Poking two fingers at the camera
-    // foreshortens them, and foreshortening is the one thing a 2D posture
-    // test cannot see — so the gate blinks out during the exact motion this
-    // row exists to detect, and clearing here meant a flick could never be
+  // Two taps of index+middle open — bend and straighten, twice, like a double
+  // click. Hysteresis in the shape of PinchDetector (the pattern, not the
+  // class: different signal). Shares its posture with twoFingerStep and stays
+  // distinct by axis — step watches the wrist's x, this watches finger length,
+  // and a swipe holds the fingers straight throughout. Do not reach back for
+  // MediaPipe z: with the fingers pointing up, tips and knuckles sit at the
+  // same depth and the signal is flat (design §5).
+  private twoFingerTap(f: Frame): GestureEvent[] {
+    // Posture loss does NOT reset this row. A deep bend reads as "not
+    // extended", so the gate blinks out during the exact motion this row
+    // exists to detect, and clearing here meant a tap could never be
     // completed or paired. TAP_DOUBLE_S is the bound; only handLost() clears.
     if (!f.twoFinger) return [];
     const wrist = f.hand[WRIST];
     const mcp = f.hand[MIDDLE_MCP];
     const scale = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
     if (scale === 0) return [];
-    const tips = f.hand[TIPS.index].z + f.hand[TIPS.middle].z;
-    const knuckles = f.hand[INDEX_MCP].z + f.hand[MIDDLE_MCP].z;
-    const signal = (tips - knuckles) / 2 / scale;
-    this.lastTap = signal;
-    if (!this.tapEngaged) {
-      if (signal < TAP_Z_ENGAGE) this.tapEngaged = true;
+    const len = (tip: number, knuckle: number) =>
+      Math.hypot(
+        f.hand[tip].x - f.hand[knuckle].x,
+        f.hand[tip].y - f.hand[knuckle].y,
+      );
+    const signal =
+      (len(TIPS.index, INDEX_MCP) + len(TIPS.middle, MIDDLE_MCP)) / 2 / scale;
+    // straight-finger length measured rather than assumed. Tracked only while
+    // the fingers read straight: bleeding during a bend would sink the bar
+    // onto the bent length and the ratio would cross RELEASE on its own.
+    if (this.bentT === null)
+      this.tapMax = Math.max(signal, this.tapMax * TAP_MAX_DECAY);
+    const straight = this.tapMax;
+    this.lastTap = signal / straight; // the HUD shows what the gate compares
+    if (this.bentT === null) {
+      if (signal < straight * TAP_BEND_ENGAGE) this.bentT = f.t;
       return [];
     }
-    if (signal > TAP_Z_RELEASE) {
-      this.tapEngaged = false;
-      if (this.lastFlickT !== null && f.t - this.lastFlickT <= TAP_DOUBLE_S) {
-        this.lastFlickT = null;
+    if (signal > straight * TAP_BEND_RELEASE) {
+      const held = f.t - this.bentT;
+      this.bentT = null;
+      if (held > TAP_HOLD_MAX_S) return []; // a posture, not a tap: bank nothing
+      if (this.lastTapT !== null && f.t - this.lastTapT <= TAP_DOUBLE_S) {
+        this.lastTapT = null;
         return [{ type: "open" }];
       }
-      this.lastFlickT = f.t;
+      this.lastTapT = f.t;
     }
     return [];
   }

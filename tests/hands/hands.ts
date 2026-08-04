@@ -82,12 +82,35 @@ export const twoFingerHand = (x = 0.5): Landmark[] => {
   return h;
 };
 
-/** two-finger posture with index+middle tips poked toward the camera.
- *  depth −0.12 over hand scale 0.2 → signal −0.6, past TAP_Z_ENGAGE. */
-export const flickHand = (x = 0.5, depth = -0.12): Landmark[] => {
+/** index + middle extended with the ring half-open — the posture a real hand
+ *  makes, where one folded finger sits on the tip-vs-PIP line and reads
+ *  extended. Must still count as two fingers. */
+export const strayFingerHand = (x = 0.5): Landmark[] => {
   const h = twoFingerHand(x);
-  h[INDEX_TIP] = { ...h[INDEX_TIP], z: depth };
-  h[MIDDLE_TIP] = { ...h[MIDDLE_TIP], z: depth };
+  h[RING_TIP] = { x, y: 0.35, z: 0 };
+  return h;
+};
+
+/** two-finger posture with index+middle bent back toward their knuckles — the
+ *  tap. `k` is the fraction of extension kept, which is exactly the ratio the
+ *  tap gate reads: 1 is straight, 0.3 is well past TAP_BEND_ENGAGE. */
+export const tapHand = (x = 0.5, k = 0.3): Landmark[] => {
+  const h = twoFingerHand(x);
+  const bend = (tip: number, knuckle: number) => {
+    const t = h[tip];
+    const m = h[knuckle];
+    h[tip] = { x: m.x + (t.x - m.x) * k, y: m.y + (t.y - m.y) * k, z: t.z };
+  };
+  bend(INDEX_TIP, INDEX_MCP);
+  bend(MIDDLE_TIP, MIDDLE_MCP);
+  return h;
+};
+
+/** a tap bent far enough that the thumb sits on the bent index tip — what a
+ *  real tap does, and what PinchDetector reads as a pinch */
+export const pinchingTapHand = (x = 0.5): Landmark[] => {
+  const h = tapHand(x);
+  h[THUMB_TIP] = { ...h[INDEX_TIP] };
   return h;
 };
 

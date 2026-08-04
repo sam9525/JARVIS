@@ -8,13 +8,15 @@ import {
 import { ROLL_MAX_RAD_S } from "../../src/renderer/hands/roll";
 import {
   fistHand,
-  flickHand,
   palmHand,
   pinchedHand,
+  pinchingTapHand,
   rolledPalmHand,
   rolledScaledPalm,
   scaledPalmHand,
   shifted,
+  strayFingerHand,
+  tapHand,
   twoFingerHand,
 } from "./hands";
 
@@ -100,6 +102,17 @@ describe("GestureEngine: two-finger step", () => {
     expect(dirs[0]).toBe(-1);
   });
 
+  // the two reasons the row never fired on a real camera
+  it("a stray extended ring finger still reads as the two-finger posture", () => {
+    const g = new GestureEngine();
+    const dirs: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      for (const ev of g.update(strayFingerHand(0.1 + i * 0.1), i / 30))
+        if (ev.type === "step") dirs.push(ev.dir);
+    }
+    expect(dirs.length).toBeGreaterThan(0);
+  });
+
   it("a one-frame posture dropout does not reset the swipe", () => {
     const g = new GestureEngine();
     const dirs: number[] = [];
@@ -151,32 +164,88 @@ describe("GestureEngine: palm arm", () => {
   });
 });
 
-describe("GestureEngine: forward tap", () => {
-  const flick = (g: GestureEngine, t0: number) => {
-    g.update(flickHand(), t0); // poke in — past TAP_Z_ENGAGE
-    return g.update(twoFingerHand(), t0 + 1 / 30); // back out — past TAP_Z_RELEASE
+describe("GestureEngine: two-finger tap", () => {
+  const tap = (g: GestureEngine, t0: number) => {
+    g.update(tapHand(), t0); // bent — past TAP_BEND_ENGAGE
+    return g.update(twoFingerHand(), t0 + 1 / 30); // straight — past TAP_BEND_RELEASE
   };
 
-  it("one flick fires nothing; a second inside TAP_DOUBLE_S opens", () => {
+  it("one tap fires nothing; a second inside TAP_DOUBLE_S opens", () => {
     const g = new GestureEngine();
     g.update(twoFingerHand(), 0);
-    expect(types(flick(g, 1 / 30))).not.toContain("open");
-    expect(types(flick(g, 4 / 30))).toContain("open");
+    expect(types(tap(g, 1 / 30))).not.toContain("open");
+    expect(types(tap(g, 4 / 30))).toContain("open");
   });
 
-  it("a second flick past the window does not open", () => {
+  it("a second tap past the window does not open", () => {
     const g = new GestureEngine();
     g.update(twoFingerHand(), 0);
-    flick(g, 1 / 30);
-    expect(types(flick(g, 1.5))).not.toContain("open");
+    tap(g, 1 / 30);
+    expect(types(tap(g, 1.5))).not.toContain("open");
   });
 
-  it("sub-threshold z noise fires nothing", () => {
+  it("a finger wobble short of the bend threshold fires nothing", () => {
     const g = new GestureEngine();
     const evs: GestureEvent[] = [];
     for (let i = 0; i < 10; i++)
-      evs.push(...g.update(flickHand(0.5, i % 2 ? -0.03 : 0), i / 30)); // signal −0.15 > engage
+      evs.push(...g.update(tapHand(0.5, i % 2 ? 0.95 : 1), i / 30)); // dips to 0.95 of straight, engage is 0.88
     expect(types(evs)).not.toContain("open");
+  });
+
+  // the reason the row never fired on a real hand: bending the fingers puts
+  // the index tip on the thumb, so the tap arrived as a pinch
+  it("a tap the pinch detector also sees still opens, and does not snap", () => {
+    const g = new GestureEngine();
+    g.update(twoFingerHand(), 0);
+    const evs: GestureEvent[] = [];
+    for (const t0 of [1 / 30, 4 / 30]) {
+      evs.push(...g.update(pinchingTapHand(), t0));
+      evs.push(...g.update(twoFingerHand(), t0 + 1 / 30));
+    }
+    expect(types(evs)).toContain("open");
+    expect(types(evs)).not.toContain("snap");
+  });
+
+  // straightening alone must not count: a hand at rest sits slightly curled,
+  // and that used to leave the row engaged with nothing but an extension
+  // needed to fire it
+  it("a slow curl and straighten is a posture, not a tap", () => {
+    const g = new GestureEngine();
+    g.update(twoFingerHand(), 0);
+    const evs: GestureEvent[] = [];
+    for (const t0 of [0.1, 1.6]) {
+      evs.push(...g.update(tapHand(), t0)); // bent...
+      evs.push(...g.update(tapHand(), t0 + 0.9)); // ...and held
+      evs.push(...g.update(twoFingerHand(), t0 + 1.0));
+    }
+    expect(types(evs)).not.toContain("open");
+  });
+
+  it("a long hold banks nothing, so the tap after it cannot open alone", () => {
+    const g = new GestureEngine();
+    g.update(twoFingerHand(), 0);
+    const evs: GestureEvent[] = [];
+    for (let i = 1; i < 600; i++) evs.push(...g.update(tapHand(), i / 30)); // 20 s bent
+    evs.push(...g.update(twoFingerHand(), 20.1)); // straighten — discarded
+    evs.push(...g.update(tapHand(), 20.2)); // one real tap...
+    evs.push(...g.update(twoFingerHand(), 20.3)); // ...is still only one
+    expect(types(evs)).not.toContain("open");
+  });
+
+  it("a tap does not step, however far the hand drifts while tapping", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    let x = 0.3;
+    g.update(twoFingerHand(x), 0);
+    // 0.06 of sideways drift per frame — 0.24 over the pair, 2x SWIPE_STEP
+    for (const t0 of [1 / 30, 4 / 30]) {
+      x += 0.06;
+      evs.push(...g.update(tapHand(x), t0));
+      x += 0.06;
+      evs.push(...g.update(twoFingerHand(x), t0 + 1 / 30));
+    }
+    expect(types(evs)).toContain("open");
+    expect(types(evs)).not.toContain("step");
   });
 
   it("a horizontal two-finger swipe still steps and never opens", () => {
