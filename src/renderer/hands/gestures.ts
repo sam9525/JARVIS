@@ -197,6 +197,7 @@ export class GestureEngine {
   private bothPalmsHeld = new HeldPosture();
   private lastRollV = 0;
   private lastTap = 0;
+  private wasBothPalms = false;
 
   // the one-hand gesture table — every row sees the same frame
   private rows: Array<(f: Frame) => GestureEvent[]> = [
@@ -273,7 +274,12 @@ export class GestureEngine {
     // Two palms is a mode, not a row: while both are up the one-hand table
     // stands down, so spreading the hands to zoom cannot also roll the camera
     // or re-arm the session off the leading hand.
-    const events = this.twoPalmZoom(frame);
+    // The rising edge is the only moment the one-hand rows can hand back
+    // what they are holding — after this frame they do not run at all.
+    const events: GestureEvent[] =
+      bothPalms && !this.wasBothPalms ? this.endOneHand() : [];
+    this.wasBothPalms = bothPalms;
+    events.push(...this.twoPalmZoom(frame));
     if (!bothPalms) for (const row of this.rows) events.push(...row(frame));
     this.debug = {
       tracked: true,
@@ -326,13 +332,42 @@ export class GestureEngine {
     this.bothPalmsHeld.reset();
     this.lastRollV = 0;
     this.lastTap = 0;
+    this.wasBothPalms = false;
+    return events;
+  }
+
+  // The one-hand rows' own resets, run from outside them. Two-palm mode
+  // stands those rows down, but they are also the only place their own
+  // state is cleared, so freezing them left a stale roll angle to discharge
+  // in one frame, hold clocks that had already run past their thresholds,
+  // and a drag anchor with no way to close. Deliberately NOT handLost(): the
+  // hand is still here, so the postures, the tap row and the swipe trail
+  // keep everything they know.
+  private endOneHand(): GestureEvent[] {
+    // an open drag anchor is the whole test for an owed snap — it survives
+    // the frame the pinch released on, which is exactly the frame the rows
+    // stopped running and could not emit it themselves
+    const events: GestureEvent[] = this.lastX !== null ? [{ type: "snap" }] : [];
+    this.lastX = null;
+    this.lastY = null;
+    this.fistT = null;
+    this.palmT = null;
+    this.roll.reset();
+    this.lastRollV = 0;
     return events;
   }
 
   private pinchDrag(f: Frame): GestureEvent[] {
     if (f.twoFinger) return []; // a tap's bend looks like a pinch; two fingers win
     const events: GestureEvent[] = [];
-    if (f.pinch.justEngaged) {
+    // Level-triggered, not edge-triggered. `justEngaged` is a single frame
+    // and it is computed at the top of update(), outside the rows — so the
+    // two-palm gate and the twoFinger early return above can both eat it,
+    // and an edge-only anchor then leaves lastX null with the pinch still
+    // closed: the drag branch below can never run and pan is dead until a
+    // full release. Adopting the anchor whenever a pinch is open with no
+    // anchor costs one frame of travel and cannot dead-end.
+    if (f.pinch.justEngaged || (f.pinch.isPinching && this.lastX === null)) {
       this.lastX = f.x;
       this.lastY = f.y;
     } else if (

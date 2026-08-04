@@ -414,3 +414,68 @@ describe("GestureEngine: hand loss", () => {
     expect(g.update(null, 2 / 30)).toEqual([]);
   });
 });
+
+describe("GestureEngine: leaving two-palm mode", () => {
+  // Both palms up for `frames` at 30fps starting at t=0, primary hand at 0.3
+  // and second at 0.7. Returns the next timestamp to use.
+  const twoPalm = (g: GestureEngine, frames: number, t0 = 0): number => {
+    let t = t0;
+    for (let i = 0; i < frames; i++, t += 1 / 30)
+      g.update(palmHand(0.3), t, palmHand(0.7));
+    return t;
+  };
+
+  it("a hand held still after a zoom does not spin the camera", () => {
+    const g = new GestureEngine();
+    g.update(palmHand(), 0);
+    // the primary hand rolls while the hands spread — which is what wrists
+    // do when you pull them apart — so the frozen roll angle has a delta to
+    // discharge on the way out
+    let t = 1 / 30;
+    for (let i = 0; i < 15; i++, t += 1 / 30)
+      g.update(rolledPalmHand(i * 0.055, 0.3), t, palmHand(0.7));
+    const still = rolledPalmHand(14 * 0.055, 0.3);
+    const evs: GestureEvent[] = [];
+    for (let i = 0; i < 20; i++, t += 1 / 30) evs.push(...g.update(still, t));
+    expect(types(evs)).not.toContain("orbit");
+  });
+
+  it("does not re-arm on the way out — a fresh palm hold is still required", () => {
+    const g = new GestureEngine();
+    g.update(palmHand(), 0); // one palm first: this is what banks palmT
+    const t = twoPalm(g, 60, 1 / 30); // 2s of two-palm mode
+    const evs: GestureEvent[] = [];
+    // past the 0.4s posture grace, but well under PALM_HOLD_S from the exit
+    for (let i = 0; i < 18; i++) evs.push(...g.update(palmHand(), t + i / 30));
+    expect(types(evs)).not.toContain("arm");
+  });
+
+  it("does not disarm on the way out — a fresh fist hold is still required", () => {
+    const g = new GestureEngine();
+    // a brief fist, well under FIST_HOLD_S, correctly disarms nothing
+    for (let i = 0; i < 12; i++) g.update(fistHand(), i / 30);
+    const t = twoPalm(g, 48, 12 / 30);
+    const evs: GestureEvent[] = [];
+    // past the grace window; a real disarm needs a full second beyond it
+    for (let i = 0; i < 21; i++) evs.push(...g.update(fistHand(), t + i / 30));
+    expect(types(evs)).not.toContain("disarm");
+  });
+
+  it("pans on the first pinch after a zoom", () => {
+    const g = new GestureEngine();
+    let t = twoPalm(g, 10);
+    const evs: GestureEvent[] = [];
+    for (let i = 0; i < 30; i++, t += 1 / 30)
+      evs.push(...g.update(shifted(pinchedHand(), i * 0.02, 0), t));
+    expect(types(evs)).toContain("drag");
+  });
+
+  it("snaps a drag that is still open when the second palm arrives", () => {
+    const g = new GestureEngine();
+    g.update(pinchedHand(0.3), 0);
+    g.update(shifted(pinchedHand(0.3), 0.05, 0), 1 / 30);
+    // the pinch opens into a palm on the same frame the second palm appears
+    const evs = g.update(palmHand(0.3), 2 / 30, palmHand(0.7));
+    expect(types(evs)).toContain("snap");
+  });
+});
