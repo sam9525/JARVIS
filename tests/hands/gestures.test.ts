@@ -489,6 +489,12 @@ describe("GestureEngine: leaving two-palm mode", () => {
     // past the 0.4s posture grace, but well under PALM_HOLD_S from the exit
     for (let i = 0; i < 18; i++) evs.push(...g.update(palmHand(), t + i / 30));
     expect(types(evs)).not.toContain("arm");
+    // and a fresh hold DOES still work past the grace: three negatives here
+    // would also pass a teardown that cleared too much and never re-armed at
+    // all. 0.4s of bothPalmsHeld grace plus a full fresh PALM_HOLD_S after
+    // the last two-handed frame is enough.
+    for (let i = 18; i < 44; i++) evs.push(...g.update(palmHand(), t + i / 30));
+    expect(types(evs)).toContain("arm");
   });
 
   it("does not disarm on the way out — a fresh fist hold is still required", () => {
@@ -537,5 +543,30 @@ describe("GestureEngine: swipe at low frame rates", () => {
   it("steps at 8, 12, 20 and 30 fps alike", () => {
     for (const fps of [8, 12, 20, 30])
       expect({ fps, steps: stepsAt(fps) > 0 }).toEqual({ fps, steps: true });
+  });
+
+  // stepsAt's shape holds sample count fixed and lets real speed scale with
+  // fps, which is what proves the floor is reached at low frame rates. It
+  // cannot also prove the floor isn't oversensitive: "a slow drift never
+  // steps" above only runs at 30fps, where 3 samples already fit inside
+  // SWIPE_WINDOW_S and the length > 3 floor never engages, so that test
+  // exercises the old trim guard, not this one. Here the per-frame
+  // displacement is scaled by the frame interval (speed / fps) so the real
+  // velocity stays ~0.3 frame-widths/s — under SWIPE_SPEED — at every rate,
+  // rather than a fixed per-frame delta that would drift the actual speed as
+  // fps changes.
+  const driftStepsAt = (fps: number): number => {
+    const g = new GestureEngine();
+    let steps = 0;
+    const speed = 0.3; // frame-widths/s, under SWIPE_SPEED (0.4)
+    for (let i = 0; i < 10; i++)
+      for (const ev of g.update(fingerSwipeHand((speed * i) / fps), i / fps))
+        if (ev.type === "step") steps++;
+    return steps;
+  };
+
+  it("a sub-threshold drift never steps, however low the frame rate", () => {
+    for (const fps of [8, 10, 12, 13, 14, 15, 20, 30])
+      expect({ fps, steps: driftStepsAt(fps) }).toEqual({ fps, steps: 0 });
   });
 });

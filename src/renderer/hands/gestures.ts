@@ -352,6 +352,7 @@ export class GestureEngine {
     this.palmT = null;
     this.roll.reset();
     this.lastRollV = 0;
+    this.lastTap = 0;
     return events;
   }
 
