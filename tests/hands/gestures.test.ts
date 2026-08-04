@@ -307,6 +307,47 @@ describe("GestureEngine: two-finger tap", () => {
   });
 });
 
+describe("GestureEngine: an abandoned bend", () => {
+  // a clean two-finger swipe: tips sweep 0.06 of frame width per frame
+  const swipe = (g: GestureEngine, t0: number): string[] => {
+    const seen: string[] = [];
+    for (let i = 0; i < 10; i++)
+      seen.push(...types(g.update(fingerSwipeHand(i * 0.06), t0 + i / 30)));
+    return seen;
+  };
+
+  it("does not block stepping once it is older than a tap can be", () => {
+    const g = new GestureEngine();
+    g.update(twoFingerHand(), 0);
+    g.update(tapHand(), 1 / 30); // bend, and never straighten
+    // change posture and stay there — the tap row's gate is shut throughout,
+    // so nothing inside it can ever reach the release branch
+    let t = 2 / 30;
+    for (let i = 0; i < 60; i++, t += 1 / 30) g.update(palmHand(), t);
+    // Let palm's posture grace window (POSTURE_GRACE_S = 0.4) expire so twoFinger
+    // can become true during the swipe. Without this delay, twoFinger stays false
+    // and stepping is blocked by the posture gate, not by tapInFlight.
+    for (let i = 0; i < 13; i++, t += 1 / 30) g.update(twoFingerHand(), t);
+    expect(swipe(g, t)).toContain("step");
+  });
+
+  it("still opens on a real double tap", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    // straight first to establish this hand's straight-finger length, then
+    // bend/straighten twice — the double click
+    const frames = [
+      twoFingerHand(),
+      tapHand(),
+      twoFingerHand(),
+      tapHand(),
+      twoFingerHand(),
+    ];
+    frames.forEach((h, i) => evs.push(...g.update(h, i / 30)));
+    expect(types(evs)).toContain("open");
+  });
+});
+
 describe("GestureEngine: palm camera", () => {
   it("orbit follows the twist's direction; a still palm is silent", () => {
     const g = new GestureEngine();

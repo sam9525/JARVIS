@@ -438,6 +438,18 @@ export class GestureEngine {
   // MediaPipe z: with the fingers pointing up, tips and knuckles sit at the
   // same depth and the signal is flat (design §5).
   private twoFingerTap(f: Frame): GestureEvent[] {
+    // A bend outliving TAP_HOLD_MAX_S is a posture, not a tap — but the
+    // release branch below is the only place that verdict was reached, and
+    // it is unreachable while the two-finger gate is shut. So a bend
+    // abandoned into another posture pinned tapInFlight() true forever and
+    // twoFingerStep stayed dead until the hand left frame. Same bound,
+    // applied where a shut gate cannot hide it. Discarded outright: routing
+    // it through the release branch would re-stamp tapActiveT and block
+    // stepping for a further TAP_DOUBLE_S.
+    if (this.bentT !== null && f.t - this.bentT > TAP_HOLD_MAX_S) {
+      this.bentT = null;
+      this.tapActiveT = null;
+    }
     // Posture loss does NOT reset this row. A deep bend reads as "not
     // extended", so the gate blinks out during the exact motion this row
     // exists to detect, and clearing here meant a tap could never be
