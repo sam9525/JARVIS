@@ -119,17 +119,11 @@ export const pinchingTapHand = (x = 0.5): Landmark[] => {
 export const rolledPalmHand = (angle: number, x = 0.5): Landmark[] =>
   transform(palmHand(x), angle, 1);
 
-/** rolled palm at a given hand scale (wrist→middle-MCP distance); moving
- *  toward the camera scales the whole hand, it does not stretch one knuckle */
-export const rolledScaledPalm = (
-  angle: number,
-  scale: number,
-  x = 0.5,
-): Landmark[] => transform(palmHand(x), angle, scale / 0.2);
-
-/** palm pushed/pulled: knuckle line still, only the scale changes — zoom */
+/** palm at a given hand scale (wrist→middle-MCP distance): moving toward the
+ *  camera scales the whole hand, it does not stretch one knuckle. Zoom no
+ *  longer reads this — the test that pins that keeps the fixture. */
 export const scaledPalmHand = (scale: number, x = 0.5): Landmark[] =>
-  rolledScaledPalm(0, scale, x);
+  transform(palmHand(x), 0, scale / 0.2);
 
 /** translate a whole hand — vertical pinch drags, etc. */
 export const shifted = (h: Landmark[], dx: number, dy: number): Landmark[] =>

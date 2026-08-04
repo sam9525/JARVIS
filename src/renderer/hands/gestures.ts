@@ -66,17 +66,16 @@ export const TAP_DOUBLE_S = 1.0; // two taps is a rhythm, not a timing feat
 // fired a tap. Held longer than this it is a posture, and is discarded.
 export const TAP_HOLD_MAX_S = 0.45;
 
-// Zoom: full comfortable arm travel is only ~1.5× of raw scale, so the gain
-// exponent maps it to a useful range; the rate clamp keeps one dropped-
-// tracking frame from teleporting the camera. ZOOM_DEADZONE has its own unit:
-// the smoother's default 0.008 is a fraction of FRAME WIDTH tuned for wrist
-// position — scale sits around 0.15–0.3, where 0.008 swallows slow deliberate
-// zooms (design §5). Starting values, tune on a real camera; ZOOM_DEADZONE is
-// orbit's only defence against roll bleeding into scale, now that the axis
-// lock is gone (see palmCamera).
-export const ZOOM_GAIN = 3;
+// Zoom is the span between two palms — hands apart zooms in, the way every
+// touchscreen pinch works. One palm pushed at the camera used to drive it,
+// but that signal is wrist→MCP distance, which barely moves over the whole
+// comfortable arm travel and shares its posture with the orbit. Two hands
+// spread across most of the frame instead, so the gain needs no amplification
+// (the one-hand version needed 3). Both units are fractions of frame width.
+// The rate clamp keeps one dropped-tracking frame from teleporting the camera.
+export const ZOOM_GAIN = 1;
 export const ZOOM_MAX_RATE = 1.15;
-export const ZOOM_DEADZONE = 0.002;
+export const ZOOM_DEADZONE = 0.008;
 
 const INDEX_MCP = 5;
 
@@ -86,10 +85,11 @@ export type HandDebug = {
   tracked: boolean;
   pinch: number;
   fingers: Record<Finger, boolean>;
-  posture: "palm" | "two" | "fist" | "none";
+  posture: "palms" | "palm" | "two" | "fist" | "none";
   roll: number; // rad/s, post dead zone (0 = below ROLL_MIN_RAD_S)
   swipe: number; // travel banked toward the next SWIPE_STEP
   tap: number; // finger length over this hand's straight, vs TAP_BEND_ENGAGE
+  span: number; // wrist-to-wrist distance driving the zoom, 0 with one hand
   events: string[];
 };
 
@@ -109,6 +109,7 @@ const DEBUG_UNTRACKED: Omit<HandDebug, "events"> = {
   roll: 0,
   swipe: 0,
   tap: 0,
+  span: 0,
 };
 
 // a posture, held for POSTURE_GRACE_S past its last true frame
@@ -129,14 +130,22 @@ class HeldPosture {
   }
 }
 
+// all four fingers extended — the camera hand
+const isPalm = (hand: Landmark[]): boolean =>
+  (["index", "middle", "ring", "pinky"] as const).every((f) =>
+    fingerExtended(hand, f),
+  );
+
 type Frame = {
   hand: Landmark[];
+  second: Landmark[] | null;
   t: number;
   pinch: PinchState;
   x: number;
   y: number;
   twoFinger: boolean;
   palm: boolean;
+  bothPalms: boolean;
   fist: boolean;
 };
 
@@ -154,15 +163,16 @@ export class GestureEngine {
   private bentT: number | null = null; // when the fingers went bent, if they are
   private tapMax = 0; // this hand's straight index+middle length, measured
   private lastTapT: number | null = null;
-  private lastScale: number | null = null;
+  private lastSpan: number | null = null;
   private roll = new RollTracker();
-  private scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
+  private spanSmoother = new AnchorSmoother(ZOOM_DEADZONE);
   private twoFingerHeld = new HeldPosture();
   private palmHeld = new HeldPosture();
+  private bothPalmsHeld = new HeldPosture();
   private lastRollV = 0;
   private lastTap = 0;
 
-  // the gesture table — every row sees the same frame
+  // the one-hand gesture table — every row sees the same frame
   private rows: Array<(f: Frame) => GestureEvent[]> = [
     (f) => this.pinchDrag(f),
     // before the step row, so the frame a bend engages on is already
@@ -177,7 +187,11 @@ export class GestureEngine {
   // use-hand-control publishes this on window.__hands; HandsHud renders it
   debug: HandDebug = { ...DEBUG_UNTRACKED, events: [] };
 
-  update(hand: Landmark[] | null, t: number): GestureEvent[] {
+  update(
+    hand: Landmark[] | null,
+    t: number,
+    second: Landmark[] | null = null,
+  ): GestureEvent[] {
     if (!hand) {
       const lost = this.handLost();
       this.debug = { ...DEBUG_UNTRACKED, events: this.sticky(lost) };
@@ -206,17 +220,44 @@ export class GestureEngine {
       this.twoFingerHeld.update(fingers.index && fingers.middle && n <= 3, t) &&
       !palm; // palm wins the overlap the grace windows can create
     const fist = !pinch.isPinching && n === 0;
-    const frame: Frame = { hand, t, pinch, x, y, twoFinger, palm, fist };
-    const events: GestureEvent[] = [];
-    for (const row of this.rows) events.push(...row(frame));
+    const bothPalms = this.bothPalmsHeld.update(
+      palm && second !== null && isPalm(second),
+      t,
+    );
+    const frame: Frame = {
+      hand,
+      second,
+      t,
+      pinch,
+      x,
+      y,
+      twoFinger,
+      palm,
+      bothPalms,
+      fist,
+    };
+    // Two palms is a mode, not a row: while both are up the one-hand table
+    // stands down, so spreading the hands to zoom cannot also roll the camera
+    // or re-arm the session off the leading hand.
+    const events = this.twoPalmZoom(frame);
+    if (!bothPalms) for (const row of this.rows) events.push(...row(frame));
     this.debug = {
       tracked: true,
       pinch: pinch.normalizedDistance,
       fingers,
-      posture: palm ? "palm" : twoFinger ? "two" : fist ? "fist" : "none",
+      posture: bothPalms
+        ? "palms"
+        : palm
+          ? "palm"
+          : twoFinger
+            ? "two"
+            : fist
+              ? "fist"
+              : "none",
       roll: this.lastRollV,
       swipe: this.swipe,
       tap: this.lastTap,
+      span: this.lastSpan ?? 0,
       events: this.sticky(events),
     };
     return events;
@@ -242,11 +283,12 @@ export class GestureEngine {
     this.bentT = null;
     this.tapMax = 0;
     this.lastTapT = null;
-    this.lastScale = null;
+    this.lastSpan = null;
     this.roll.reset();
-    this.scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
+    this.spanSmoother = new AnchorSmoother(ZOOM_DEADZONE);
     this.twoFingerHeld.reset();
     this.palmHeld.reset();
+    this.bothPalmsHeld.reset();
     this.lastRollV = 0;
     this.lastTap = 0;
     return events;
@@ -360,6 +402,34 @@ export class GestureEngine {
     return [];
   }
 
+  // Both palms up: the span between the wrists drives the zoom, hands apart
+  // to zoom in. Raw frame-width distance, not normalized by hand scale —
+  // dividing by a small noisy number to gain depth-invariance is a bad trade
+  // when both hands moving toward the camera reads as zoom-in anyway.
+  private twoPalmZoom(f: Frame): GestureEvent[] {
+    if (!f.bothPalms || !f.second) {
+      this.lastSpan = null;
+      this.spanSmoother = new AnchorSmoother(ZOOM_DEADZONE);
+      return [];
+    }
+    const a = f.hand[WRIST];
+    const b = f.second[WRIST];
+    const span = this.spanSmoother.update(
+      Math.hypot(b.x - a.x, b.y - a.y),
+      f.t,
+    );
+    const last = this.lastSpan;
+    this.lastSpan = span;
+    // the deadzone holds the smoothed value when still, so the ratio is
+    // exactly 1 and held hands cannot creep the camera
+    if (last === null || last === 0 || span === last) return [];
+    const factor = Math.min(
+      ZOOM_MAX_RATE,
+      Math.max(1 / ZOOM_MAX_RATE, Math.pow(span / last, ZOOM_GAIN)),
+    );
+    return [{ type: "zoom", factor }];
+  }
+
   private fistDisarm(f: Frame): GestureEvent[] {
     if (!f.fist) {
       this.fistT = null;
@@ -374,50 +444,18 @@ export class GestureEngine {
     return [{ type: "disarm" }];
   }
 
-  // One row, not two: orbit and zoom are the same posture, and roll.ts owns
-  // the angle maths while the zoom scalar is three lines inline.
-  //
-  // ponytail: the axis lock is gone. It locked to whichever signal crossed
-  // its dead zone first, but orbit's signal is a derivative — it crosses on
-  // hand tremor alone, so orbit won every race and zoom was unreachable. The
-  // two signals are near-orthogonal anyway (rolling the hand barely changes
-  // wrist→MCP distance), so each dead zone is its own guard and both rows may
-  // fire on one frame. If roll turns out to bleed into scale on a real
-  // camera, raise ZOOM_DEADZONE — do not bring the race back.
+  // Orbit only — roll.ts owns the angle maths. Zoom used to ride along here
+  // as wrist→MCP scale, sharing the posture; it moved to two palms because
+  // that distance barely changes across the whole comfortable arm travel.
   private palmCamera(f: Frame): GestureEvent[] {
     if (!f.palm) {
-      this.lastScale = null;
       this.lastRollV = 0;
       this.roll.reset();
-      this.scaleSmoother = new AnchorSmoother(ZOOM_DEADZONE);
       return [];
     }
     const v = this.roll.update(knuckleAngle(f.hand), f.t);
     this.lastRollV = v;
-    const wrist = f.hand[WRIST];
-    const mcp = f.hand[MIDDLE_MCP];
-    const scale = this.scaleSmoother.update(
-      Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y),
-      f.t,
-    );
-    // deadzone holds the smoothed value when still, so raw is exactly 1 and a
-    // still palm cannot creep the zoom — the same property ROLL_MIN_RAD_S
-    // buys for orbit
-    const raw =
-      this.lastScale === null || this.lastScale === 0
-        ? 1
-        : scale / this.lastScale;
-    this.lastScale = scale;
-    const events: GestureEvent[] = [];
-    if (v !== 0) events.push({ type: "orbit", v });
-    if (raw !== 1) {
-      const factor = Math.min(
-        ZOOM_MAX_RATE,
-        Math.max(1 / ZOOM_MAX_RATE, Math.pow(raw, ZOOM_GAIN)),
-      );
-      events.push({ type: "zoom", factor });
-    }
-    return events;
+    return v === 0 ? [] : [{ type: "orbit", v }];
   }
 
   private palmArm(f: Frame): GestureEvent[] {

@@ -12,7 +12,6 @@ import {
   pinchedHand,
   pinchingTapHand,
   rolledPalmHand,
-  rolledScaledPalm,
   scaledPalmHand,
   shifted,
   strayFingerHand,
@@ -292,46 +291,6 @@ describe("GestureEngine: palm camera", () => {
     expect(vs.every((v) => v <= ROLL_MAX_RAD_S)).toBe(true);
   });
 
-  it("push zooms in, pull zooms out, still emits nothing", () => {
-    const push = new GestureEngine();
-    const fs: number[] = [];
-    for (let i = 0; i < 8; i++)
-      for (const ev of push.update(scaledPalmHand(0.2 + i * 0.02), i / 30))
-        if (ev.type === "zoom") fs.push(ev.factor);
-    expect(fs.length).toBeGreaterThan(0);
-    expect(fs.every((f) => f > 1 && f <= ZOOM_MAX_RATE)).toBe(true);
-
-    const pull = new GestureEngine();
-    const gs: number[] = [];
-    for (let i = 0; i < 8; i++)
-      for (const ev of pull.update(scaledPalmHand(0.28 - i * 0.02), i / 30))
-        if (ev.type === "zoom") gs.push(ev.factor);
-    expect(gs.length).toBeGreaterThan(0);
-    expect(gs.every((f) => f < 1 && f >= 1 / ZOOM_MAX_RATE)).toBe(true);
-
-    const still = new GestureEngine();
-    for (let i = 0; i < 8; i++)
-      expect(types(still.update(scaledPalmHand(0.25), i / 30))).not.toContain(
-        "zoom",
-      );
-  });
-
-  // there is no axis lock: orbit won every race in practice (its signal is a
-  // derivative, so tremor crossed the dead zone first) and zoom was
-  // unreachable. Each dead zone guards its own axis instead.
-  it("roll and push on one frame emit both, and zoom stays reachable after a roll", () => {
-    const g = new GestureEngine();
-    g.update(rolledScaledPalm(0, 0.2), 0); // baseline
-    const evs = g.update(rolledScaledPalm(0.5, 0.3), 1 / 30);
-    expect(types(evs)).toContain("orbit");
-    expect(types(evs)).toContain("zoom");
-    // zoom-only motion right after a roll still reaches the camera — this is
-    // the case the lock used to swallow for the rest of the posture
-    expect(types(g.update(rolledScaledPalm(0.5, 0.35), 2 / 30))).toContain(
-      "zoom",
-    );
-  });
-
   it("a two-finger swipe emits neither orbit nor zoom (the palm gate)", () => {
     const g = new GestureEngine();
     const evs: GestureEvent[] = [];
@@ -340,6 +299,60 @@ describe("GestureEngine: palm camera", () => {
     expect(types(evs)).toContain("step");
     expect(types(evs)).not.toContain("orbit");
     expect(types(evs)).not.toContain("zoom");
+  });
+});
+
+describe("GestureEngine: two-palm zoom", () => {
+  // both hands as palms, `gap` apart and centred — the whole signal is the
+  // span between the two wrists
+  const spread = (g: GestureEngine, i: number, gap: number) =>
+    g.update(palmHand(0.5 - gap / 2), i / 30, palmHand(0.5 + gap / 2));
+
+  it("hands apart zooms in, together zooms out, held still emits nothing", () => {
+    const apart = new GestureEngine();
+    const fs: number[] = [];
+    for (let i = 0; i < 8; i++)
+      for (const ev of spread(apart, i, 0.2 + i * 0.06))
+        if (ev.type === "zoom") fs.push(ev.factor);
+    expect(fs.length).toBeGreaterThan(0);
+    expect(fs.every((f) => f > 1 && f <= ZOOM_MAX_RATE)).toBe(true);
+
+    const together = new GestureEngine();
+    const gs: number[] = [];
+    for (let i = 0; i < 8; i++)
+      for (const ev of spread(together, i, 0.7 - i * 0.06))
+        if (ev.type === "zoom") gs.push(ev.factor);
+    expect(gs.length).toBeGreaterThan(0);
+    expect(gs.every((f) => f < 1 && f >= 1 / ZOOM_MAX_RATE)).toBe(true);
+
+    const still = new GestureEngine();
+    for (let i = 0; i < 8; i++)
+      expect(types(spread(still, i, 0.4))).not.toContain("zoom");
+  });
+
+  it("one palm alone no longer zooms — the second hand is the gesture", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    for (let i = 0; i < 8; i++)
+      evs.push(...g.update(scaledPalmHand(0.2 + i * 0.02), i / 30));
+    expect(types(evs)).not.toContain("zoom");
+  });
+
+  // the one-hand table stands down while both palms are up, so a hand that
+  // rolls as it spreads cannot spin the camera at the same time
+  it("a roll while both palms are up does not orbit", () => {
+    const g = new GestureEngine();
+    const evs: GestureEvent[] = [];
+    for (let i = 0; i < 8; i++)
+      evs.push(
+        ...g.update(
+          rolledPalmHand(i * 0.15, 0.4 - i * 0.02),
+          i / 30,
+          palmHand(0.6 + i * 0.02),
+        ),
+      );
+    expect(types(evs)).toContain("zoom");
+    expect(types(evs)).not.toContain("orbit");
   });
 });
 

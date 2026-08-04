@@ -3,7 +3,13 @@
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
 import type { Landmark } from "./pinch";
 
-export type HandFrame = { hand: Landmark[] | null; t: number }; // t in seconds
+// t in seconds. `second` is the other hand when one is in frame — only the
+// two-palm zoom reads it; every other gesture is one-handed.
+export type HandFrame = {
+  hand: Landmark[] | null;
+  second: Landmark[] | null;
+  t: number;
+};
 
 // Local assets (Task 2): the CSP's default-src 'self' forbids the CDN fetch
 // every MediaPipe example uses, so wasm + model ship in public/hands/.
@@ -31,7 +37,7 @@ export async function startHandTracker(
     landmarker = await HandLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
       runningMode: "VIDEO",
-      numHands: 1,
+      numHands: 2, // the zoom needs both palms; the rest use landmarks[0]
     });
   } catch {
     stream.getTracks().forEach((track) => track.stop());
@@ -58,13 +64,13 @@ export async function startHandTracker(
     if (video.currentTime === lastVideoT) return; // no new camera frame yet
     lastVideoT = video.currentTime;
     const result = landmarker.detectForVideo(video, performance.now());
-    const lm = result.landmarks[0];
+    // mirror x so moving the hand right reads as pointer-right — the same sign
+    // a mouse drag produces. z is passed through untouched and unused.
+    const mirror = (lm: Landmark[] | undefined) =>
+      lm ? lm.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) : null;
     onFrame({
-      // mirror x so moving the hand right reads as pointer-right — the same
-      // sign a mouse drag produces. z is NOT mirrored: MediaPipe's z is
-      // negative toward the camera and the tap detector's sign pin (design
-      // §5) depends on that staying true.
-      hand: lm ? lm.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) : null,
+      hand: mirror(result.landmarks[0]),
+      second: mirror(result.landmarks[1]),
       t: performance.now() / 1000,
     });
   };

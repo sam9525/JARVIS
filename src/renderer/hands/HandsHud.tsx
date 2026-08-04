@@ -26,7 +26,7 @@ export default function HandsHud() {
       <div>{d.tracked ? `posture ${d.posture}` : "no hand"}</div>
       <div>
         pinch {num(d.pinch)} · roll {num(d.roll)} · swipe {num(d.swipe)} · tap{" "}
-        {num(d.tap)}
+        {num(d.tap)} · span {num(d.span)}
       </div>
       {d.events.length > 0 && (
         <div className="text-accent">last {d.events.join(" ")}</div>
