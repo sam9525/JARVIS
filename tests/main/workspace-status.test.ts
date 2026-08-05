@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { createStatusStore, STALE_MS } from "../../src/main/workspace-status";
+import {
+  createStatusStore,
+  STALE_MS,
+  EXPIRE_MS,
+} from "../../src/main/workspace-status";
 import type { StatusEvent, ToolEvent } from "../../src/shared/types";
 
 const ev = (over: Partial<StatusEvent>): StatusEvent => ({
@@ -258,6 +262,59 @@ describe("status store restore", () => {
       kind: "running",
       call: "Bash(ls)",
       message: "", // a new session id clears the restored message
+    });
+  });
+});
+
+describe("status store expiry", () => {
+  // an idle workspace whose terminal has closed — the common expirable shape
+  const dead = () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", message: "done", ts: 1000 }));
+    s.ptyExited("w1", 1000);
+    return s;
+  };
+
+  it("expires a dead-pty entry once past EXPIRE_MS — the whole row goes", () => {
+    const s = dead();
+    expect(s.sweep(1000 + EXPIRE_MS)).toBe(true);
+    expect(s.snapshot()).toEqual([]);
+  });
+
+  it("does not expire at EXPIRE_MS - 1, and a no-op sweep returns false", () => {
+    const s = dead();
+    expect(s.sweep(1000 + EXPIRE_MS - 1)).toBe(false);
+    expect(s.snapshot()).toHaveLength(1);
+    expect(s.sweep(1000 + EXPIRE_MS)).toBe(true);
+  });
+
+  it("keeps an entry with a live terminal no matter how long it is quiet", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ kind: "idle", ts: 1000 }));
+    expect(s.sweep(1000 + EXPIRE_MS * 10)).toBe(false);
+    expect(kindOf(s)).toBe("idle");
+  });
+
+  it("a restored row older than EXPIRE_MS is gone after one sweep", () => {
+    const s = createStatusStore();
+    s.restore([{ workspaceId: "w1", message: "old news", since: 0 }]);
+    expect(s.sweep(EXPIRE_MS)).toBe(true);
+    expect(s.snapshot()).toEqual([]);
+  });
+
+  it("an expired workspace reappears with correct state on a later event", () => {
+    const s = dead();
+    s.sweep(1000 + EXPIRE_MS);
+    s.applyStatus(
+      ev({ kind: "running", call: "Read(a.ts)", ts: 2000 + EXPIRE_MS }),
+    );
+    expect(s.snapshot()[0]).toMatchObject({
+      workspaceId: "w1",
+      kind: "running",
+      call: "Read(a.ts)",
+      message: "", // forgetting, not tombstoning — the row is brand new
+      reads: 0,
     });
   });
 });

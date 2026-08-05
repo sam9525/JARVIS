@@ -9,6 +9,10 @@ import type {
 // "running" forever. Staleness closes that gap.
 export const STALE_MS = 60000;
 
+// an inbox row from a project last touched days ago should not sit forever:
+// 6h of wall-clock idleness with no live terminal and the whole row goes
+export const EXPIRE_MS = 6 * 60 * 60 * 1000;
+
 interface Entry {
   kind: StatusKind;
   call: string;
@@ -164,7 +168,9 @@ export function createStatusStore(): StatusStore {
 
     sweep(now) {
       let changed = false;
-      for (const e of entries.values()) {
+      // collect, then delete — never delete mid-iteration
+      const expired: string[] = [];
+      for (const [id, e] of entries) {
         // demote only; staleness must never invent "waiting"
         if (
           e.kind === "running" &&
@@ -175,8 +181,13 @@ export function createStatusStore(): StatusStore {
           e.since = now;
           changed = true;
         }
+        // forgetting, not tombstoning: the next hook event recreates the
+        // entry. A live terminal keeps its row no matter how quiet — a card
+        // reading "no session" beside an open terminal would be a lie.
+        if (!e.ptyAlive && now - e.lastEventAt >= EXPIRE_MS) expired.push(id);
       }
-      return changed;
+      for (const id of expired) entries.delete(id);
+      return changed || expired.length > 0;
     },
 
     snapshot() {
