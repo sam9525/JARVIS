@@ -93,14 +93,14 @@ export function useWorkspaceGraphs({
     };
   }, [active, codeGraphLevel, show]);
 
-  // Card graphs load one at a time, reusing whatever normal use already
-  // cached. Cards render their frame and status immediately and fill in.
+  // Card graphs load in parallel, reusing whatever normal use already cached —
+  // total wait is the slowest single scan, not the sum (same shape as the
+  // fleet refresh below). Each card still paints as its own fetch lands.
   useEffect(() => {
     if (!showHome) return;
     let cancelled = false;
-    (async () => {
-      for (const ws of workspaces) {
-        if (cancelled) return;
+    void Promise.all(
+      workspaces.map(async (ws) => {
         try {
           const cached = fileCache.current.get(ws.id);
           const g = cached ?? (await window.jarvis.getGraph(ws.id));
@@ -112,8 +112,8 @@ export function useWorkspaceGraphs({
           // from loading — that card simply keeps its empty canvas
           console.error("card graph failed for", ws.id, err);
         }
-      }
-    })();
+      }),
+    );
     return () => {
       cancelled = true;
     };
