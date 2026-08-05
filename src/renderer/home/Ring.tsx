@@ -201,6 +201,45 @@ export default function Ring({
   const domains = useMemo(() => (g ? domainsOf(g) : []), [g]);
   const idx = settledWs ? indexing[settledWs.id] : undefined;
 
+  // rotation is component state, so every pointermove/wheel tick re-renders
+  // the ring; memoizing the centre element keeps those renders from
+  // reconciling the graph at all, and stabilizes the onNodeClick literal
+  // (v0.3.5 §5.3). deps are what the element actually reads — refs
+  // (stateRef, centreHandle) are stable by construction.
+  const centreGraph = useMemo(() => {
+    if (!settledWs || !g || needsIndex) return null;
+    return (
+      <Graph3D
+        // remount per workspace: a fresh mount re-fits the camera and
+        // starts a clean simulation — exactly the one settle we pay for
+        key={settledWs.id}
+        graph={g}
+        domains={domains}
+        groups={groups[settledWs.id] ?? NO_GROUPS}
+        display={view.display}
+        forces={view.forces}
+        stateRef={stateRef}
+        handleRef={centreHandle}
+        onNodeClick={() => undefined}
+        focusNode={null}
+        layoutEpoch={layoutEpoch}
+        rotationPaused={false}
+        width={width}
+        height={height}
+      />
+    );
+  }, [
+    settledWs,
+    g,
+    needsIndex,
+    domains,
+    groups,
+    view,
+    layoutEpoch,
+    width,
+    height,
+  ]);
+
   return (
     <div
       data-testid="ring"
@@ -228,24 +267,7 @@ export default function Ring({
               />
             </div>
           ) : (
-            <Graph3D
-              // remount per workspace: a fresh mount re-fits the camera and
-              // starts a clean simulation — exactly the one settle we pay for
-              key={settledWs.id}
-              graph={g}
-              domains={domains}
-              groups={groups[settledWs.id] ?? NO_GROUPS}
-              display={view.display}
-              forces={view.forces}
-              stateRef={stateRef}
-              handleRef={centreHandle}
-              onNodeClick={() => undefined}
-              focusNode={null}
-              layoutEpoch={layoutEpoch}
-              rotationPaused={false}
-              width={width}
-              height={height}
-            />
+            centreGraph
           ))}
       </div>
 

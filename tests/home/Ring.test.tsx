@@ -263,6 +263,16 @@ describe("Ring", () => {
     settle();
     expect(byTestId("ring-centre")!.className).toContain("pointer-events-none");
   });
+
+  it("a rotation change does not re-render the centre Graph3D", () => {
+    render(<Ring {...(props() as any)} />);
+    settle();
+    const renders = graph3d.mock.calls.length;
+    wheel(10); // 2° — the same tile stays centred, but the ring re-renders
+    // the memoized element keeps its identity, so React never reconciles the
+    // centre graph — render count is the strong form of "no remount"
+    expect(graph3d.mock.calls.length).toBe(renders);
+  });
 });
 
 describe("Ring: hand actions", () => {
