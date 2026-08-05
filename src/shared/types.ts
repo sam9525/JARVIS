@@ -87,6 +87,13 @@ export interface GraphGroup {
   color: string; // "#rrggbb"
 }
 
+// THE empty groups value. A fresh [] per render is an identity change that
+// makes Graph3D refresh() — rebuild sprites for — every node in the scene
+// (v0.3.5 §5). Deliberately not readonly/frozen: every consumer types
+// GraphGroup[], nothing mutates a groups array, and the casts would cost
+// more than the immutability buys.
+export const NO_GROUPS: GraphGroup[] = [];
+
 export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";

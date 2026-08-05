@@ -7,7 +7,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
-import { SOURCE_LABELS } from "../../shared/types";
+import { NO_GROUPS, SOURCE_LABELS } from "../../shared/types";
 import { emptyState, type HighlightState } from "../session/highlight-store";
 import Graph3D, { type Graph3DHandle } from "../graph/Graph3D";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
@@ -234,7 +234,7 @@ export default function Ring({
               key={settledWs.id}
               graph={g}
               domains={domains}
-              groups={groups[settledWs.id] ?? []}
+              groups={groups[settledWs.id] ?? NO_GROUPS}
               display={view.display}
               forces={view.forces}
               stateRef={stateRef}

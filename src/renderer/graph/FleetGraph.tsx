@@ -5,6 +5,7 @@ import type {
   VaultGraph,
   Workspace,
 } from "../../shared/types";
+import { NO_GROUPS } from "../../shared/types";
 import Graph, { type GraphHandle } from "./Graph";
 import Graph3D, { type Graph3DHandle } from "./Graph3D";
 import { emptyState } from "../session/highlight-store";
@@ -78,7 +79,7 @@ export default function FleetGraph({
     <Graph3D
       graph={fleet}
       domains={domains}
-      groups={[]}
+      groups={NO_GROUPS}
       haloGroups={FLEET_HALO_GROUPS}
       display={view.display}
       forces={view.forces}
@@ -96,7 +97,7 @@ export default function FleetGraph({
     <Graph
       graph={fleet}
       domains={domains}
-      groups={[]}
+      groups={NO_GROUPS}
       display={view.display}
       forces={view.forces}
       stateRef={stateRef}
