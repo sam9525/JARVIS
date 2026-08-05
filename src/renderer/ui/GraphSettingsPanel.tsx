@@ -62,6 +62,9 @@ type Props = {
   search: string; // transient, owned by App — never persisted
   onSearchChange: (text: string) => void;
   onSettingsChange: (s: Settings) => void;
+  // hand control is not a plain setting write: it also starts/stops this
+  // session's camera, so it goes through App rather than onSettingsChange
+  onHandControl: (on: boolean) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
   onClose: () => void;
   showSections: boolean; // code workspaces have no raw/wiki sections
@@ -73,6 +76,7 @@ export default function GraphSettingsPanel({
   search,
   onSearchChange,
   onSettingsChange,
+  onHandControl,
   onResetHighlights,
   onClose,
   showSections,
@@ -104,18 +108,21 @@ export default function GraphSettingsPanel({
     setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
 
   return (
-    <div className="fixed top-[50px] right-3 max-h-[calc(100vh-62px)] w-[260px] overflow-y-auto rounded-lg border border-edge bg-panel px-3 py-2.5 font-sans text-[13px] text-ink">
+    <div className="fixed top-[50px] right-3 z-50 max-h-[calc(100vh-62px)] w-[260px] overflow-y-auto rounded-lg border border-edge bg-panel px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="flex justify-end gap-1.5">
         <button
           className="cursor-pointer text-sm text-ink-dim hover:text-accent"
           title="Restore defaults"
           onClick={() => {
             // reset re-tunes values; it must not eject the user from the 3D
-            // view or wipe their (auto-seeded) groups
+            // view, wipe their (auto-seeded) groups, or silently claim the
+            // camera is off — hand control is a mode, and this path can't
+            // stop the tracker (it doesn't go through onHandControl)
             onSettingsChange({
               ...defaultSettings(),
               dimensions: settings.dimensions,
               groups: settings.groups,
+              handControl: settings.handControl,
             });
             onSearchChange("");
             onResetHighlights();
@@ -250,6 +257,17 @@ export default function GraphSettingsPanel({
           />
         ))}
       </details>
+
+      <label className="flex items-center justify-between gap-2 border-t border-edge py-2 text-ink-muted">
+        Hand control
+        <input
+          type="checkbox"
+          data-testid="hand-control-setting"
+          className="gs-switch"
+          checked={settings.handControl}
+          onChange={(e) => onHandControl(e.target.checked)}
+        />
+      </label>
     </div>
   );
 }

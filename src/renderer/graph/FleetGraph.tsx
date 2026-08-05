@@ -5,11 +5,12 @@ import type {
   VaultGraph,
   Workspace,
 } from "../../shared/types";
-import Graph from "./Graph";
-import Graph3D from "./Graph3D";
+import Graph, { type GraphHandle } from "./Graph";
+import Graph3D, { type Graph3DHandle } from "./Graph3D";
 import { emptyState } from "../session/highlight-store";
 import { domainsOf } from "./domain-colors";
 import { buildFleetGraph, FLEET_ROOT } from "./fleet-graph";
+import { useHandActions, type HandActions } from "../hands/use-hand-actions";
 
 // one light-blue backdrop for the whole fleet: a single halo whose query `::`
 // matches every fleet id (all are `a::b`, `hub::x`, or `root::jarvis`), so it
@@ -26,6 +27,7 @@ export default function FleetGraph({
   layoutEpoch,
   width,
   height,
+  actionsRef,
   onOpen,
 }: {
   workspaces: Workspace[];
@@ -35,6 +37,7 @@ export default function FleetGraph({
   layoutEpoch: number; // bumped by ↻ so the fleet re-fits after a re-scan
   width: number;
   height: number;
+  actionsRef: React.MutableRefObject<HandActions>; // hand gestures land here
   onOpen: (ws: Workspace) => void;
 }) {
   const fleet = useMemo(
@@ -43,6 +46,23 @@ export default function FleetGraph({
   );
   const domains = useMemo(() => domainsOf(fleet), [fleet]);
   const stateRef = useRef(emptyState());
+  const handle3d = useRef<Graph3DHandle | null>(null);
+  const handle2d = useRef<GraphHandle | null>(null);
+
+  // palm is the camera hand here too; the fleet has no ring to pinch, so 2D
+  // pinch-drag pans the canvas and 3D registers no drag at all (design §6)
+  useHandActions(
+    actionsRef,
+    dimensions === "3d"
+      ? {
+          orbit: (v) => handle3d.current?.spin(v),
+          zoom: (f) => handle3d.current?.zoom(f),
+        }
+      : {
+          drag: (dx, dy) => handle2d.current?.pan(dx, dy),
+          zoom: (f) => handle2d.current?.zoom(f),
+        },
+  );
 
   // node id is `${wsId}::rest`, hub is `hub::${wsId}`, root is FLEET_ROOT
   const onNodeClick = (id: string) => {
@@ -63,6 +83,7 @@ export default function FleetGraph({
       display={view.display}
       forces={view.forces}
       stateRef={stateRef}
+      handleRef={handle3d}
       onNodeClick={onNodeClick}
       focusNode={null}
       layoutEpoch={layoutEpoch}
@@ -79,6 +100,7 @@ export default function FleetGraph({
       display={view.display}
       forces={view.forces}
       stateRef={stateRef}
+      handleRef={handle2d}
       onNodeClick={onNodeClick}
       focusNode={null}
       layoutEpoch={layoutEpoch}

@@ -18,6 +18,7 @@ import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import { useSpriteMaterials } from "./sprite-materials";
 import { useMergedLinks } from "./use-merged-links";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
+import { clampSpin, decaySpin, SPIN_PER_RAD_S } from "./spin";
 import SpriteText from "three-spritetext";
 import { nodeLabelText } from "./node-label";
 import {
@@ -45,6 +46,11 @@ const ROTATE_SPEED = 1;
 const LABEL_DISTANCE_SCALE = 4500;
 
 type Coords = { x: number; y: number; z: number };
+
+export type Graph3DHandle = {
+  spin(v: number): void; // engine rad/s — a fresh throw of the flywheel
+  zoom(factor: number): void; // per-frame ratio; >1 moves the camera closer
+};
 
 // ArrowHelper owns a line + cone material apiece and nothing else disposes
 // them, so emptying the trail group has to walk them by hand.
@@ -76,6 +82,7 @@ type GraphProps = {
   width: number; // measured graph-slot size from GraphSlot's ResizeObserver
   height: number;
   lite?: boolean; // static fleet view: cheaper spheres, merged link layer, normal-blend glow, no highlight polling
+  handleRef?: React.MutableRefObject<Graph3DHandle | null>;
 };
 
 export default function Graph3D({
@@ -93,6 +100,7 @@ export default function Graph3D({
   width,
   height,
   lite = false,
+  handleRef,
 }: GraphProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
@@ -103,6 +111,100 @@ export default function Graph3D({
   const pausedRef = useRef(rotationPaused);
   pausedRef.current = rotationPaused;
   const rotationCtl = useRef<{ stop: () => void; arm: () => void }>();
+
+  // palm-orbit flywheel: throw, coast, stop. Runs its own rAF only while
+  // spinning — controls.update() rides react-force-graph's internal loop,
+  // which exposes no per-frame hook of ours to borrow (design §5).
+  const spinState = useRef<{ v: number; raf: number; last: number } | null>(
+    null,
+  );
+
+  const orbitControls = () =>
+    fgRef.current?.controls() as
+      | { autoRotate: boolean; autoRotateSpeed: number; target: Vector3 }
+      | undefined;
+
+  const stopSpinLoop = useCallback(() => {
+    if (spinState.current) {
+      cancelAnimationFrame(spinState.current.raf);
+      spinState.current = null;
+    }
+  }, []);
+
+  const spinTick = useCallback((now: number) => {
+    const s = spinState.current;
+    const controls = orbitControls();
+    if (!s) return;
+    // no controls this frame: drop the state rather than leaving it holding a
+    // dead rAF id, which would send every later spin() down the reuse branch
+    if (!controls) {
+      spinState.current = null;
+      return;
+    }
+    const dt = Math.min(0.1, (now - s.last) / 1000);
+    s.last = now;
+    s.v = decaySpin(s.v, dt);
+    if (s.v === 0) {
+      // rest: hand the camera back exactly like a mouse drag ending —
+      // restore the ambient speed, stop, re-arm the idle timer (which
+      // consults pausedRef, so a paused graph stays still)
+      controls.autoRotateSpeed = ROTATE_SPEED;
+      controls.autoRotate = false;
+      rotationCtl.current?.arm();
+      spinState.current = null;
+      return;
+    }
+    controls.autoRotateSpeed = s.v;
+    s.raf = requestAnimationFrame(spinTick);
+  }, []);
+
+  const spin = useCallback(
+    (v: number) => {
+      const controls = orbitControls();
+      if (!controls) return;
+      rotationCtl.current?.stop(); // explicit input outranks the idle drift
+      const speed = clampSpin(v * SPIN_PER_RAD_S);
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = speed;
+      if (spinState.current) {
+        spinState.current.v = speed;
+      } else {
+        spinState.current = { v: speed, raf: 0, last: performance.now() };
+        spinState.current.raf = requestAnimationFrame(spinTick);
+      }
+    },
+    [spinTick],
+  );
+
+  const zoomBy = useCallback((factor: number) => {
+    const cam = fgRef.current?.camera();
+    const controls = orbitControls();
+    if (!cam || !controls || factor <= 0) return;
+    const t = controls.target;
+    const dx = cam.position.x - t.x;
+    const dy = cam.position.y - t.y;
+    const dz = cam.position.z - t.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return;
+    // factor > 1 zooms in: shrink the camera→target distance, same clamp as
+    // the 2D view's minZoom/maxZoom analog
+    const next = Math.min(CAM.max, Math.max(CAM.min, len / factor));
+    const s = next / len;
+    cam.position.set(t.x + dx * s, t.y + dy * s, t.z + dz * s);
+  }, []);
+
+  // [] deps: handleRef must keep a stable identity across renders — a caller
+  // handing over a fresh ref each render would never be re-published to.
+  // MUST stay declared above the rotationCtl effect below: cleanups run in
+  // declaration order, and a rest-path arm() running after that effect's
+  // clearTimeout would leak one 5s timer per ring settle.
+  useEffect(() => {
+    if (handleRef) handleRef.current = { spin, zoom: zoomBy };
+    return () => {
+      if (handleRef) handleRef.current = null;
+      stopSpinLoop(); // the ring remounts per settle — never leak a loop
+    };
+  }, []);
 
   // a rescan hands over brand-new node objects, so the simulation restarts
   // on its own; we only need to let onEngineStop re-fit the camera

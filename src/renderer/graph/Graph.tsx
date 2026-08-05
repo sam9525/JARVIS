@@ -20,6 +20,15 @@ import { endId, type LinkObj, type NodeObj } from "./link-ends";
 
 const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
 
+export type GraphHandle = {
+  pan(dx: number, dy: number): void; // normalized hand units; content follows the hand
+  zoom(factor: number): void; // multiplicative; clamped by minZoom/maxZoom
+};
+
+// px of pan per normalized hand unit — a hand crossing most of the camera
+// frame pans most of the slot. Starting value, tune on a real camera.
+export const PAN_PX_PER_UNIT = 900;
+
 type GraphProps = {
   graph: VaultGraph; // may be filtered
   domains: string[]; // from the FULL graph — keeps palette indices stable
@@ -35,6 +44,7 @@ type GraphProps = {
   // card mode: no zoom floor (a 220px card fits at ~0.15, far below ZOOM.min),
   // a tight margin, and a refit every tick so the settle stays inside the card
   thumbnail?: boolean;
+  handleRef?: React.MutableRefObject<GraphHandle | null>;
 };
 
 export default function Graph({
@@ -50,12 +60,39 @@ export default function Graph({
   width,
   height,
   thumbnail = false,
+  handleRef,
 }: GraphProps) {
   const fitPadding = thumbnail ? 4 : 40;
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
   const fgRef = useRef<ForceGraphMethods>();
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
+
+  useEffect(() => {
+    if (!handleRef) return;
+    handleRef.current = {
+      pan: (dx, dy) => {
+        const fg = fgRef.current;
+        if (!fg) return;
+        const k = fg.zoom();
+        const c = fg.centerAt();
+        // divide by zoom so a hand unit is screen distance, not graph distance;
+        // content follows the hand, so the centre moves the other way
+        fg.centerAt(
+          c.x - (dx * PAN_PX_PER_UNIT) / k,
+          c.y - (dy * PAN_PX_PER_UNIT) / k,
+        );
+      },
+      zoom: (factor) => {
+        const fg = fgRef.current;
+        if (!fg || factor <= 0) return;
+        fg.zoom(fg.zoom() * factor);
+      },
+    };
+    return () => {
+      handleRef.current = null;
+    };
+  }, []);
 
   // a rescan hands over brand-new node objects, so the simulation restarts
   // on its own; we only need to let onEngineStop re-fit the camera

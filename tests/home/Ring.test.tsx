@@ -16,6 +16,7 @@ vi.mock("../../src/renderer/graph/Graph3D", () => ({
 }));
 
 import Ring from "../../src/renderer/home/Ring";
+import type { HandActions } from "../../src/renderer/hands/use-hand-actions";
 import { emptyState } from "../../src/renderer/session/highlight-store";
 import { defaultSettings } from "../../src/shared/types";
 import type {
@@ -77,6 +78,8 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   width: 900,
   height: 600,
   indexing: {},
+  layoutEpoch: 0,
+  actionsRef: { current: {} as HandActions },
   onIndex: () => undefined,
   onOpen: () => undefined,
   ...over,
@@ -259,5 +262,73 @@ describe("Ring", () => {
     render(<Ring {...(props() as any)} />);
     settle();
     expect(byTestId("ring-centre")!.className).toContain("pointer-events-none");
+  });
+});
+
+describe("Ring: hand actions", () => {
+  it("registers its map and steps the ring through it", () => {
+    const actionsRef = { current: {} as HandActions };
+    render(<Ring {...(props({ actionsRef }) as any)} />);
+    expect(actionsRef.current.drag).toBeDefined();
+    act(() => actionsRef.current.step!(1));
+    expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(false);
+  });
+
+  it("open acts on the live centred workspace, not a mount-time snapshot", () => {
+    const onOpen = vi.fn();
+    const actionsRef = { current: {} as HandActions };
+    render(<Ring {...(props({ actionsRef, onOpen }) as any)} />);
+    act(() => actionsRef.current.step!(1)); // dir 1 → w3 centred
+    act(() => actionsRef.current.open!());
+    expect(onOpen).toHaveBeenCalledWith(workspaces[2]);
+  });
+
+  it("orbit and zoom drive the centre graph's handle", () => {
+    const actionsRef = { current: {} as HandActions };
+    render(<Ring {...(props({ actionsRef }) as any)} />);
+    settle();
+    const handleRef = graph3d.mock.calls.at(-1)![0].handleRef;
+    expect(handleRef).toBeDefined();
+    const spin = vi.fn();
+    const zoom = vi.fn();
+    handleRef.current = { spin, zoom };
+    act(() => actionsRef.current.orbit!(2));
+    act(() => actionsRef.current.zoom!(1.1));
+    expect(spin).toHaveBeenCalledWith(2);
+    expect(zoom).toHaveBeenCalledWith(1.1);
+  });
+
+  it("clears the map on unmount", () => {
+    const actionsRef = { current: {} as HandActions };
+    render(<Ring {...(props({ actionsRef }) as any)} />);
+    render(<div />);
+    expect(actionsRef.current.step).toBeUndefined();
+  });
+
+  it("no longer owns a hand toggle", () => {
+    render(<Ring {...(props() as any)} />);
+    expect(byTestId("hand-toggle")).toBeNull();
+  });
+});
+
+describe("Ring: refresh (layoutEpoch)", () => {
+  it("a bump returns a rotated ring to the front", () => {
+    render(<Ring {...(props() as any)} />);
+    act(() => byTestId("tile-w2")!.click()); // rotate away
+    expect(byTestId("tile-w2")!.hasAttribute("data-centered")).toBe(true);
+    render(<Ring {...(props({ layoutEpoch: 1 }) as any)} />);
+    expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(true);
+  });
+
+  // the bug: nothing remounts when already centred, so the forwarded epoch is
+  // the only thing that can re-arm the centre graph's one-time camera fit
+  it("a bump on an already-centred ring reaches the centre Graph3D without a remount", () => {
+    render(<Ring {...(props() as any)} />);
+    settle();
+    expect(graph3d.mock.calls.at(-1)![0].layoutEpoch).toBe(0);
+    render(<Ring {...(props({ layoutEpoch: 3 }) as any)} />);
+    // same workspace, no settle wait, no remount — just the new epoch
+    expect(graph3d.mock.calls.at(-1)![0].layoutEpoch).toBe(3);
+    expect(graph3d.mock.calls.at(-1)![0].graph.nodes[0].id).toBe("a");
   });
 });

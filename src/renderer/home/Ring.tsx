@@ -9,11 +9,12 @@ import type {
 } from "../../shared/types";
 import { SOURCE_LABELS } from "../../shared/types";
 import { emptyState, type HighlightState } from "../session/highlight-store";
-import Graph3D from "../graph/Graph3D";
+import Graph3D, { type Graph3DHandle } from "../graph/Graph3D";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { domainsOf } from "../graph/domain-colors";
 import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
 import { DOT } from "./MissionControl";
+import { useHandActions, type HandActions } from "../hands/use-hand-actions";
 
 const TILE_W = 176;
 // the release's one performance rule: the centre graph loads only after
@@ -25,6 +26,9 @@ const DRAG_DEG_PER_PX = 0.35;
 const WHEEL_SNAP_MS = 200; // a wheel has no "release" — snap after this idle
 const DRAG_SUPPRESS_PX = 5; // past this travel a pointer-up is a drag, not a click
 const ENTER_STAGGER_MS = 70; // tiles fly out of the hub one after another on open
+// ring degrees per normalized unit of pinch travel — a hand crossing most of
+// the camera frame turns most of the ring. Starting value, tune on camera.
+const HAND_DEG_PER_UNIT = 300;
 
 type RingProps = {
   workspaces: Workspace[];
@@ -36,6 +40,8 @@ type RingProps = {
   width: number;
   height: number;
   indexing: Record<string, { state: IndexState; error?: string }>;
+  layoutEpoch: number; // ↻ bumps this — reset rotation, re-arm the centre fit
+  actionsRef: React.MutableRefObject<HandActions>; // hand gestures land here
   onIndex: (workspaceId: string) => void;
   onOpen: (ws: Workspace) => void;
 };
@@ -53,6 +59,8 @@ export default function Ring({
   width,
   height,
   indexing,
+  layoutEpoch,
+  actionsRef,
   onIndex,
   onOpen,
 }: RingProps) {
@@ -69,6 +77,7 @@ export default function Ring({
     captured: boolean;
   } | null>(null);
   const suppressClick = useRef(false);
+  const centreHandle = useRef<Graph3DHandle | null>(null);
   const wheelSnap = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -88,6 +97,14 @@ export default function Ring({
   }, [rotation, centeredIndex, workspaces]);
 
   useEffect(() => () => clearTimeout(wheelSnap.current), []);
+
+  // ↻ resets the whole view: Graph3D re-arms its one-time fit off the epoch,
+  // returning the ring to the front is ours. Epoch 0 is the initial value, not
+  // a refresh — don't fight a fresh mount's state (design §2.1).
+  useEffect(() => {
+    if (layoutEpoch === 0) return;
+    setRotation(0);
+  }, [layoutEpoch]);
 
   const settledWs = workspaces.find((w) => w.id === settledId) ?? null;
 
@@ -151,6 +168,31 @@ export default function Ring({
     else setRotation((r) => rotationTo(i, r, count));
   };
 
+  // pinch is the content hand (the ring), palm is the camera hand (the
+  // centre graph — orbit and zoom, but not drag: it is still not a pointer
+  // control surface). Registered during render so `open` reads the live
+  // centeredIndex (design §4, §6).
+  useHandActions(actionsRef, {
+    drag: (dx) => {
+      setDragging(true);
+      setRotation((r) => r - dx * HAND_DEG_PER_UNIT);
+    },
+    snap: () => {
+      setDragging(false);
+      setRotation((r) => snapRotation(r, count));
+    },
+    step: (dir) => {
+      if (count)
+        setRotation((r) => snapRotation(r, count) - dir * (360 / count));
+    },
+    open: () => {
+      const w = workspaces[centeredIndex];
+      if (w) onOpen(w);
+    },
+    orbit: (v) => centreHandle.current?.spin(v),
+    zoom: (f) => centreHandle.current?.zoom(f),
+  });
+
   const g = settledWs ? graphs.get(settledWs.id) : undefined;
   // same rule as the cards: absent from the map = still loading; empty on a
   // code workspace = never analyzed, which earns the index button
@@ -162,7 +204,7 @@ export default function Ring({
   return (
     <div
       data-testid="ring"
-      className="relative h-full w-full touch-none overflow-hidden"
+      className="relative isolate h-full w-full touch-none overflow-hidden"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -196,9 +238,10 @@ export default function Ring({
               display={view.display}
               forces={view.forces}
               stateRef={stateRef}
+              handleRef={centreHandle}
               onNodeClick={() => undefined}
               focusNode={null}
-              layoutEpoch={0}
+              layoutEpoch={layoutEpoch}
               rotationPaused={false}
               width={width}
               height={height}

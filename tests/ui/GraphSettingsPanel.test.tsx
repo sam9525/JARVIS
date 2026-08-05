@@ -22,6 +22,7 @@ function render(overrides: Partial<Settings> = {}) {
     search: "abc",
     onSearchChange: (s) => calls.search.push(s),
     onSettingsChange: (s) => calls.settings.push(s),
+    onHandControl: () => undefined,
     onResetHighlights: () => {
       calls.resets++;
     },
@@ -47,24 +48,32 @@ function sliderByLabel(section: any, label: string): any {
 describe("GraphSettingsPanel", () => {
   it("renders header + four sections, Forces collapsed by default", () => {
     const { el } = render();
-    // [header, Filters, Groups, Display, Forces]
-    expect(el.props.children).toHaveLength(5);
+    // [header, Filters, Groups, Display, Forces, hand control]
+    expect(el.props.children).toHaveLength(6);
     const forces = el.props.children[4];
     expect(forces.type).toBe("details");
     expect(forces.props.open).toBeUndefined();
     expect(el.props.children[1].props.open).toBe(true); // Filters open
   });
 
-  it("reset restores defaults but keeps dimensions and groups", () => {
+  it("reset restores defaults but keeps dimensions, groups and hand control", () => {
     const groups = { ws1: [{ query: "tech/", color: "#aa00ff" }] };
-    const { el, calls } = render({ showTags: false, dimensions: "3d", groups });
+    const { el, calls } = render({
+      showTags: false,
+      dimensions: "3d",
+      groups,
+      handControl: true,
+    });
     const header = el.props.children[0];
     const resetBtn = header.props.children[0];
     resetBtn.props.onClick();
+    // handControl survives: this path can't stop the camera, so resetting it
+    // would leave the webcam live behind an unticked box
     expect(calls.settings[0]).toEqual({
       ...defaultSettings(),
       dimensions: "3d",
       groups,
+      handControl: true,
     });
     expect(calls.search[0]).toBe("");
     expect(calls.resets).toBe(1);

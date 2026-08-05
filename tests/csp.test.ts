@@ -24,4 +24,13 @@ describe("index.html Content-Security-Policy", () => {
     // img-src must not allow arbitrary remote hosts
     expect(csp).toMatch(/img-src 'self' data:(;|$)/);
   });
+
+  // v0.3.3: hand tracking compiles MediaPipe WASM, which needs
+  // 'wasm-unsafe-eval'. That token permits WASM compilation and nothing
+  // else — no inline scripts, no JS eval(). Pinned exactly so the
+  // directive cannot drift further without failing here.
+  it("pins script-src to exactly 'self' 'wasm-unsafe-eval'", () => {
+    const csp = match ? match[1] : "";
+    expect(csp).toMatch(/script-src 'self' 'wasm-unsafe-eval'(;|$)/);
+  });
 });

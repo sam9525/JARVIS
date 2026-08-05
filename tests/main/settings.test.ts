@@ -261,4 +261,24 @@ describe("settings", () => {
     );
     expect((await loadSettings(file)).codeGraphLevel).toBe("file"); // bad value ignored
   });
+
+  it("defaults handControl off", () => {
+    expect(defaultSettings().handControl).toBe(false);
+  });
+
+  it("a pre-v0.3.4 settings file loads without the key and stays off", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(
+      file,
+      JSON.stringify({ sectionFilter: "raw" }), // no handControl key
+      "utf8",
+    );
+    expect((await loadSettings(file)).handControl).toBe(false);
+  });
+
+  it("round-trips a persisted handControl: true", async () => {
+    const file = await tmpFile();
+    await fs.writeFile(file, JSON.stringify({ handControl: true }), "utf8");
+    expect((await loadSettings(file)).handControl).toBe(true);
+  });
 });
