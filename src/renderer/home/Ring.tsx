@@ -277,9 +277,13 @@ export default function Ring({
                 "--ring-dx": `${t.x * (width * 0.4)}px`,
                 "--ring-dy": `${t.y * (height * 0.36)}px`,
                 animationDelay: `${i * ENTER_STAGGER_MS}ms`,
-                left: "calc(50% + var(--ring-dx))",
-                top: "calc(50% + var(--ring-dy))",
-                transform: "translate3d(-50%, -50%, 0) scale(var(--ring-s))",
+                // ring offsets live in the transform, not left/top: moving a
+                // tile is then composite-only instead of layout+paint per
+                // frame for every tile (v0.3.5 §5.2)
+                left: "50%",
+                top: "50%",
+                transform:
+                  "translate3d(calc(-50% + var(--ring-dx)), calc(-50% + var(--ring-dy)), 0) scale(var(--ring-s))",
                 opacity: 0.35 + 0.65 * t.depth,
                 zIndex: 10 + Math.round(t.depth * 100),
               } as React.CSSProperties
@@ -288,7 +292,7 @@ export default function Ring({
               "ring-tile-in absolute flex cursor-pointer select-none flex-col gap-1.5 rounded-lg border bg-panel p-2.5 " +
               (dragging
                 ? "transition-opacity "
-                : "transition-[left,top,transform,opacity] duration-300 ease-out ") +
+                : "transition-[transform,opacity] duration-300 ease-out ") +
               (kind === "waiting"
                 ? "border-warm"
                 : t.centered
