@@ -209,7 +209,7 @@ export class GestureEngine {
     (f) => this.palmArm(f),
   ];
 
-  // use-hand-control publishes this on window.__hands; HandsHud renders it
+  // use-hand-control publishes this on window.__hands as a console debugging aid
   debug: HandDebug = { ...DEBUG_UNTRACKED, events: [] };
 
   update(
@@ -345,7 +345,8 @@ export class GestureEngine {
     // an open drag anchor is the whole test for an owed snap — it survives
     // the frame the pinch released on, which is exactly the frame the rows
     // stopped running and could not emit it themselves
-    const events: GestureEvent[] = this.lastX !== null ? [{ type: "snap" }] : [];
+    const events: GestureEvent[] =
+      this.lastX !== null ? [{ type: "snap" }] : [];
     this.lastX = null;
     this.lastY = null;
     this.fistT = null;

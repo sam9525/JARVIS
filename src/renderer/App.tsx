@@ -41,7 +41,6 @@ import type {
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
-import HandsHud from "./hands/HandsHud";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import type { Graph3DHandle } from "./graph/Graph3D";
@@ -339,7 +338,6 @@ export default function App() {
 
   return (
     <div className="flex h-full w-full">
-      {cameraOn && <HandsHud />}
       <WorkspaceRail
         workspaces={workspaces}
         activeId={active?.id ?? null}
