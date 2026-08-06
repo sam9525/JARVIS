@@ -71,9 +71,10 @@ let container: HTMLDivElement;
 const render = (el: React.ReactElement) => act(() => root.render(el));
 
 beforeEach(() => {
-  // Graph3D runs 250/500ms polling intervals whose first tick calls
-  // refresh() regardless of props — fake the timers (but NOT rAF, which the
-  // §3 spin test measures) so only prop-identity changes can refresh here
+  // Graph3D runs a 500ms polling interval whose first tick calls refresh()
+  // regardless of props (the 250ms interval only toggles sprite visibility)
+  // — fake the timers (but NOT rAF, which the §3 spin test measures) so only
+  // prop-identity changes can refresh here
   vi.useFakeTimers({
     toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
   });

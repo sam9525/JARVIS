@@ -207,7 +207,7 @@ export default function Ring({
   // (v0.3.5 §5.3). deps are what the element actually reads — refs
   // (stateRef, centreHandle) are stable by construction.
   const centreGraph = useMemo(() => {
-    if (!settledWs || !g || needsIndex) return null;
+    if (!settledWs || !g) return null;
     return (
       <Graph3D
         // remount per workspace: a fresh mount re-fits the camera and
@@ -228,17 +228,7 @@ export default function Ring({
         height={height}
       />
     );
-  }, [
-    settledWs,
-    g,
-    needsIndex,
-    domains,
-    groups,
-    view,
-    layoutEpoch,
-    width,
-    height,
-  ]);
+  }, [settledWs, g, domains, groups, view, layoutEpoch, width, height]);
 
   return (
     <div

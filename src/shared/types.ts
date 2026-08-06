@@ -137,12 +137,14 @@ export interface Settings {
   handControl: boolean; // hands drive navigation; the webcam auto-starts when on
 }
 
-// a workspace's groups, or none if it has never been seeded
+// a workspace's groups, or NO_GROUPS if it has never been seeded — a fresh []
+// per call would be the same identity-change refresh storm NO_GROUPS exists
+// to avoid (v0.3.5 §5).
 export function groupsFor(
   settings: Settings,
   id: string | null | undefined,
 ): GraphGroup[] {
-  return (id && settings.groups[id]) || [];
+  return (id && settings.groups[id]) || NO_GROUPS;
 }
 
 // force defaults equal the d3 defaults in 2d; 3d values are the hand-tuned
