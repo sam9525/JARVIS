@@ -12,6 +12,7 @@ import { emptyState, type HighlightState } from "../session/highlight-store";
 import Graph3D, { type Graph3DHandle } from "../graph/Graph3D";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { domainsOf } from "../graph/domain-colors";
+import { filterGraph, type GraphFilters } from "../graph/graph-filter";
 import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
 import { DOT } from "./MissionControl";
 import { useHandActions, type HandActions } from "../hands/use-hand-actions";
@@ -38,6 +39,10 @@ type RingProps = {
   getStore: (workspaceId: string) => HighlightState;
   groups: Record<string, GraphGroup[]>; // per workspace id
   view: ViewSettings; // the 3d view — the centre graph renders with it
+  // the section/tag/orphan filters the workspace view uses, so the centre graph
+  // is the same graph opening the workspace gives you; search is left out on
+  // purpose — it belongs to the workspace you have open, not to every tile
+  filters: Omit<GraphFilters, "search">;
   width: number;
   height: number;
   indexing: Record<string, { state: IndexState; error?: string }>;
@@ -57,6 +62,7 @@ export default function Ring({
   getStore,
   groups,
   view,
+  filters,
   width,
   height,
   indexing,
@@ -205,12 +211,39 @@ export default function Ring({
     zoom: (f) => centreHandle.current?.zoom(f),
   });
 
-  const g = settledWs ? graphs.get(settledWs.id) : undefined;
+  const raw = settledWs ? graphs.get(settledWs.id) : undefined;
   // same rule as the cards: absent from the map = still loading; empty on a
-  // code workspace = never analyzed, which earns the index button
+  // code workspace = never analyzed, which earns the index button. Judged on
+  // the unfiltered graph — a filter that hides everything is not "never
+  // analyzed".
   const needsIndex =
-    !!settledWs && canIndex(settledWs) && !!g && !g.nodes.length;
-  const domains = useMemo(() => (g ? domainsOf(g) : []), [g]);
+    !!settledWs && canIndex(settledWs) && !!raw && !raw.nodes.length;
+  // depends on the filter FIELDS, not the object: a fresh-but-equal filters
+  // object each render would hand force-graph new data and restart the settle
+  const g = useMemo(
+    () =>
+      raw
+        ? filterGraph(raw, {
+            // code workspaces have no sections; force "both" so nothing
+            // vanishes, exactly as App does for the open workspace
+            sectionFilter:
+              settledWs?.kind === "code" ? "both" : filters.sectionFilter,
+            search: "",
+            showTags: filters.showTags,
+            showOrphans: filters.showOrphans,
+          })
+        : undefined,
+    [
+      raw,
+      settledWs,
+      filters.sectionFilter,
+      filters.showTags,
+      filters.showOrphans,
+    ],
+  );
+  // palette indices come off the FULL graph, same as the workspace view — a
+  // filter must not recolour the nodes it leaves behind
+  const domains = useMemo(() => (raw ? domainsOf(raw) : []), [raw]);
   const idx = settledWs ? indexing[settledWs.id] : undefined;
 
   // rotation is component state, so every pointermove/wheel tick re-renders

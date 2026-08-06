@@ -394,6 +394,11 @@ export default function App() {
                   getStore={storeFor}
                   groups={settings.groups}
                   view={settings.views["3d"]}
+                  filters={{
+                    sectionFilter: settings.sectionFilter,
+                    showTags: settings.showTags,
+                    showOrphans: settings.showOrphans,
+                  }}
                   width={width}
                   height={height}
                   indexing={indexing}
