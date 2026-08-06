@@ -101,10 +101,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// flush the settle debounce (300 ms) and the wheel-snap timer (200 ms)
+// flush the tile entrance (500 ms + stagger), the settle debounce (300 ms)
+// and the wheel-snap timer (200 ms)
 const settle = () =>
   act(() => {
-    vi.advanceTimersByTime(600);
+    vi.advanceTimersByTime(1000);
   });
 
 const wheel = (deltaY: number) =>
@@ -171,6 +172,20 @@ describe("Ring", () => {
     settle();
     expect(graph3d).toHaveBeenCalled();
     expect(graph3d.mock.calls[0][0].graph.nodes[0].id).toBe("a");
+  });
+
+  it("holds the centre graph until the tile entrance has finished", () => {
+    render(<Ring {...(props() as any)} />);
+    // 3 tiles: 500 ms fly-out + 2 × 70 ms stagger = 640 ms, well past the
+    // 300 ms settle debounce
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(graph3d).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(graph3d).toHaveBeenCalled();
   });
 
   it("spinning past tiles starts one simulation, not one per tile", () => {

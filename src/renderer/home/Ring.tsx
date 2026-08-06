@@ -26,6 +26,7 @@ const DRAG_DEG_PER_PX = 0.35;
 const WHEEL_SNAP_MS = 200; // a wheel has no "release" — snap after this idle
 const DRAG_SUPPRESS_PX = 5; // past this travel a pointer-up is a drag, not a click
 const ENTER_STAGGER_MS = 70; // tiles fly out of the hub one after another on open
+const ENTER_MS = 500; // one tile's fly-out — must match .ring-tile-in in index.css
 // ring degrees per normalized unit of pinch travel — a hand crossing most of
 // the camera frame turns most of the ring. Starting value, tune on camera.
 const HAND_DEG_PER_UNIT = 300;
@@ -88,11 +89,22 @@ export default function Ring({
   );
   const { tiles, centeredIndex } = ringLayout(count, rotation);
 
+  // the entrance animation gets the screen to itself: until the last tile has
+  // landed, the settle can't fire, so the centre graph's own fade-in reads as
+  // the next beat instead of racing the ring. A deadline, not a delay — a
+  // wheel mid-entrance must not push it further out.
+  const enterDone = useRef(
+    Date.now() + ENTER_MS + Math.max(0, count - 1) * ENTER_STAGGER_MS,
+  );
+
   // debounce the centred workspace into settledId; every rotation change
   // resets the timer, so only a stop loads a graph
   useEffect(() => {
     const id = workspaces[centeredIndex]?.id ?? null;
-    const t = setTimeout(() => setSettledId(id), SETTLE_MS);
+    const t = setTimeout(
+      () => setSettledId(id),
+      Math.max(SETTLE_MS, enterDone.current - Date.now()),
+    );
     return () => clearTimeout(t);
   }, [rotation, centeredIndex, workspaces]);
 
