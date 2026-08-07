@@ -1,7 +1,10 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { startDevProbes } from "./dev-probes";
 import "./index.css";
+
+if (import.meta.env.DEV) startDevProbes();
 
 const container = document.getElementById("root");
 if (!container) {

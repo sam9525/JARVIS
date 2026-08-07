@@ -95,10 +95,9 @@ export default function Ring({
   );
   const { tiles, centeredIndex } = ringLayout(count, rotation);
 
-  // the entrance animation gets the screen to itself: until the last tile has
-  // landed, the settle can't fire, so the centre graph's own fade-in reads as
-  // the next beat instead of racing the ring. A deadline, not a delay — a
-  // wheel mid-entrance must not push it further out.
+  // the settle cannot fire until the last tile has landed, so the centre
+  // graph's fade-in follows the ring's entrance instead of racing it. A
+  // deadline, not a delay — a wheel mid-entrance must not push it further out.
   const enterDone = useRef(
     Date.now() + ENTER_MS + Math.max(0, count - 1) * ENTER_STAGGER_MS,
   );
@@ -214,7 +213,7 @@ export default function Ring({
   const raw = settledWs ? graphs.get(settledWs.id) : undefined;
   // same rule as the cards: absent from the map = still loading; empty on a
   // code workspace = never analyzed, which earns the index button. Judged on
-  // the unfiltered graph — a filter that hides everything is not "never
+  // the unfiltered graph, since a filter hiding everything is not "never
   // analyzed".
   const needsIndex =
     !!settledWs && canIndex(settledWs) && !!raw && !raw.nodes.length;
