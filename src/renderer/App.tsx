@@ -254,22 +254,21 @@ export default function App() {
   // something on the one view where they don't (design §3)
   const hasActions = !(showHome && homeView === "cards");
 
-  // the workspace graph's own map; home views overwrite this during their
-  // render (App renders first), Cards leaves it empty. Deliberate cut: no
-  // drag on 3D — orbit is 3D's navigation (design §6).
+  // the workspace graph's own map, registered only while a workspace is on
+  // screen; on home the mounted view owns the map outright. Deliberate cut:
+  // no drag on 3D — orbit is 3D's navigation (design §6).
   useHandActions(
     handActionsRef,
-    showHome
-      ? {}
-      : settings.dimensions === "3d"
-        ? {
-            orbit: (v) => graph3dHandle.current?.spin(v),
-            zoom: (f) => graph3dHandle.current?.zoom(f),
-          }
-        : {
-            drag: (dx, dy) => graphHandle.current?.pan(dx, dy),
-            zoom: (f) => graphHandle.current?.zoom(f),
-          },
+    settings.dimensions === "3d"
+      ? {
+          orbit: (v) => graph3dHandle.current?.spin(v),
+          zoom: (f) => graph3dHandle.current?.zoom(f),
+        }
+      : {
+          drag: (dx, dy) => graphHandle.current?.pan(dx, dy),
+          zoom: (f) => graphHandle.current?.zoom(f),
+        },
+    !showHome,
   );
 
   const domains = useMemo(() => domainsOf(graph), [graph]);

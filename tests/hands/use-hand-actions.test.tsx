@@ -58,6 +58,42 @@ describe("useHandActions", () => {
     expect(calls).toEqual(["fleet"]); // ring's cleanup must not have wiped fleet's map
   });
 
+  // App holds the workspace map but stays mounted on the home screen, where a
+  // view owns the map instead. A disabled caller has to stay silent there:
+  // writing an empty map would clobber the owner, undone only if that owner
+  // re-renders in the same pass.
+  it("a disabled caller neither registers nor clobbers the owner", () => {
+    const refObj = { current: {} as HandActions };
+    const calls: string[] = [];
+    function Disabled() {
+      useHandActions(refObj, { open: () => calls.push("parent") }, false);
+      return null;
+    }
+    // the disabled caller renders AFTER the owner, so an unconditional write
+    // would land on top of the owner's map
+    render(
+      <>
+        <Host label="view" refObj={refObj} calls={calls} />
+        <Disabled />
+      </>,
+    );
+    refObj.current.open?.();
+    expect(calls).toEqual(["view"]);
+  });
+
+  it("a disabled caller owns nothing, so its unmount clears nothing", () => {
+    const refObj = { current: {} as HandActions };
+    const calls: string[] = [];
+    function Parent() {
+      useHandActions(refObj, { open: () => calls.push("parent") }, false);
+      return null;
+    }
+    render(<Host label="view" refObj={refObj} calls={calls} />);
+    render(<Parent />); // view unmounts, disabled parent takes its place
+    render(<div />);
+    expect(refObj.current.open).toBeUndefined();
+  });
+
   it("re-registers each render so actions close over live state", () => {
     const refObj = { current: {} as HandActions };
     let seen = 0;
