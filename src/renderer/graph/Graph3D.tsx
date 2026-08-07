@@ -45,6 +45,15 @@ const ROTATE_SPEED = 1;
 // hides labels sooner, matching the 2D slider's direction. 15 → 300 units.
 const LABEL_DISTANCE_SCALE = 4500;
 
+type NodeAdornment = {
+  group: Group;
+  glow: Sprite;
+  readRing: Sprite;
+  matchRing: Sprite;
+  focusRing: Sprite;
+  label: SpriteText;
+};
+
 type Coords = { x: number; y: number; z: number };
 
 export type Graph3DHandle = {
@@ -108,6 +117,7 @@ export default function Graph3D({
   // Entries for removed nodes go stale but are never visited (sweep iterates
   // current data.nodes) — harmless.
   const sprites = useRef(new Map<string, SpriteText>());
+  const nodeAdornments = useRef(new Map<string, NodeAdornment>());
   const pausedRef = useRef(rotationPaused);
   pausedRef.current = rotationPaused;
   const rotationCtl = useRef<{ stop: () => void; arm: () => void }>();
@@ -115,7 +125,13 @@ export default function Graph3D({
   // palm-orbit flywheel: throw, coast, stop. Runs its own rAF only while
   // spinning — controls.update() rides react-force-graph's internal loop,
   // which exposes no per-frame hook of ours to borrow (design §5).
-  const spinState = useRef<{ v: number; raf: number; last: number } | null>(
+  //
+  // Holds the throw (v0) and its timestamp (t0), not a running speed: the
+  // coast is a closed form of wall-clock elapsed, so it reaches rest at the
+  // same moment however few frames arrive. Compounding a decay per tick would
+  // instead measure the coast in frames, stretching it whenever the loop is
+  // starved — which is precisely when a heavy spin is on screen.
+  const spinState = useRef<{ v0: number; t0: number; raf: number } | null>(
     null,
   );
 
@@ -141,10 +157,8 @@ export default function Graph3D({
       spinState.current = null;
       return;
     }
-    const dt = Math.min(0.1, (now - s.last) / 1000);
-    s.last = now;
-    s.v = decaySpin(s.v, dt);
-    if (s.v === 0) {
+    const v = decaySpin(s.v0, (now - s.t0) / 1000);
+    if (v === 0) {
       // rest: hand the camera back exactly like a mouse drag ending —
       // restore the ambient speed, stop, re-arm the idle timer (which
       // consults pausedRef, so a paused graph stays still)
@@ -154,7 +168,7 @@ export default function Graph3D({
       spinState.current = null;
       return;
     }
-    controls.autoRotateSpeed = s.v;
+    controls.autoRotateSpeed = v;
     s.raf = requestAnimationFrame(spinTick);
   }, []);
 
@@ -164,12 +178,27 @@ export default function Graph3D({
       if (!controls) return;
       rotationCtl.current?.stop(); // explicit input outranks the idle drift
       const speed = clampSpin(v * SPIN_PER_RAD_S);
+      if (speed === 0) return;
+      const now = performance.now();
+      const current = spinState.current
+        ? decaySpin(spinState.current.v0, (now - spinState.current.t0) / 1000)
+        : 0;
+      if (
+        current !== 0 &&
+        Math.sign(speed) === Math.sign(current) &&
+        Math.abs(speed) <= Math.abs(current)
+      ) {
+        controls.autoRotateSpeed = current;
+        return;
+      }
       controls.autoRotate = true;
       controls.autoRotateSpeed = speed;
+      // a fresh throw restarts the clock, coasting from the new speed
       if (spinState.current) {
-        spinState.current.v = speed;
+        spinState.current.v0 = speed;
+        spinState.current.t0 = now;
       } else {
-        spinState.current = { v: speed, raf: 0, last: performance.now() };
+        spinState.current = { v0: speed, t0: now, raf: 0 };
         spinState.current.raf = requestAnimationFrame(spinTick);
       }
     },
@@ -179,7 +208,9 @@ export default function Graph3D({
   const zoomBy = useCallback((factor: number) => {
     const cam = fgRef.current?.camera();
     const controls = orbitControls();
-    if (!cam || !controls || factor <= 0) return;
+    // `!(factor > 0)` also rejects NaN, which fails every comparison and would
+    // otherwise reach cam.position.set — an unrecoverable camera
+    if (!cam || !controls || !(factor > 0)) return;
     const t = controls.target;
     const dx = cam.position.x - t.x;
     const dy = cam.position.y - t.y;
@@ -441,6 +472,65 @@ export default function Graph3D({
     else rotationCtl.current?.arm();
   }, [rotationPaused]);
 
+  // highlights always win, then group color, then domain palette; heat
+  // brightens whichever won rather than replacing it
+  const displayColor = useCallback(
+    (node: NodeObj): string => {
+      const id = String(node.id);
+      const hk = hlKey(node as { id: string | number; file?: string });
+      const t = heatOf(stateRef.current, hk);
+      // modified recolors the sphere; a read gets a ring sprite (Task 3)
+      if (nodeDisplay(stateRef.current, hk) === "modified")
+        return brighten(COLORS.modified, t);
+      return brighten(
+        baseNodeColor(
+          { id, type: node.type, domain: node.domain },
+          domains,
+          groups,
+        ),
+        t,
+      );
+    },
+    [stateRef, domains, groups],
+  );
+
+  const updateNodeAdornment = useCallback(
+    (node: NodeObj, item: NodeAdornment, now: number) => {
+      const id = String(node.id);
+      const hk = hlKey(node as { id: string | number; file?: string });
+      const r = displayRadius(
+        node.r ?? 4,
+        display.nodeSize,
+        heatOf(stateRef.current, hk),
+      );
+      const sphereR = sphereRadius(r);
+      item.glow.scale.setScalar(sphereR * 4);
+      item.glow.material = materials.glow(displayColor(node));
+      item.readRing.scale.setScalar(sphereR * 3);
+      item.readRing.visible = nodeDisplay(stateRef.current, hk) === "ring";
+      item.matchRing.scale.setScalar(sphereR * 3.3);
+      item.matchRing.visible =
+        matchProgress(stateRef.current, now) !== null &&
+        stateRef.current.matched.has(hk);
+      item.focusRing.scale.setScalar(sphereR * 3.6);
+      item.focusRing.visible = id === focusNode;
+      item.label.position.set(0, -(r + 4), 0);
+    },
+    [display.nodeSize, materials, displayColor, stateRef, focusNode],
+  );
+
+  const updateAllNodeAdornments = useCallback(() => {
+    const now = performance.now();
+    for (const n of data.nodes as NodeObj[]) {
+      const item = nodeAdornments.current.get(String(n.id));
+      if (item) updateNodeAdornment(n, item, now);
+    }
+  }, [data, updateNodeAdornment]);
+
+  useEffect(() => {
+    updateAllNodeAdornments();
+  }, [updateAllNodeAdornments]);
+
   // ponytail: rings/colors are baked into node objects, so poll the store's
   // rev counter and re-run accessors once per change (covers add AND reset).
   // Trail arrows rebuild every tick (cheap — dozens at most) to track drift.
@@ -452,7 +542,7 @@ export default function Graph3D({
       expireMatches(s, performance.now());
       if (s.rev !== lastRev.current) {
         lastRev.current = s.rev;
-        fgRef.current?.refresh();
+        updateAllNodeAdornments();
       }
       const g = trailGroup.current;
       if (!g) return;
@@ -487,7 +577,7 @@ export default function Graph3D({
       }
     }, 500);
     return () => clearInterval(id);
-  }, [stateRef, nodeById, display.nodeSize, lite]);
+  }, [stateRef, nodeById, display.nodeSize, lite, updateAllNodeAdornments]);
 
   // ponytail: label visibility is a 4×/s distance sweep, not per-frame
   // projection math like 2D. Ceiling: hook onEngineTick if the interval lags.
@@ -528,82 +618,33 @@ export default function Graph3D({
     fgRef.current?.refresh();
   }, [display, groups, linkMaterial, liteLinkMaterial]);
 
-  // highlights always win, then group color, then domain palette; heat
-  // brightens whichever won rather than replacing it
-  const displayColor = useCallback(
-    (node: NodeObj): string => {
-      const id = String(node.id);
-      const hk = hlKey(node as { id: string | number; file?: string });
-      const t = heatOf(stateRef.current, hk);
-      // modified recolors the sphere; a read gets a ring sprite (Task 3)
-      if (nodeDisplay(stateRef.current, hk) === "modified")
-        return brighten(COLORS.modified, t);
-      return brighten(
-        baseNodeColor(
-          { id, type: node.type, domain: node.domain },
-          domains,
-          groups,
-        ),
-        t,
-      );
-    },
-    [stateRef, domains, groups],
-  );
-
   const nodeThreeObject = useCallback(
     (node: NodeObj) => {
       const id = String(node.id);
-      const hk = hlKey(node as { id: string | number; file?: string });
-      const obj = new Group();
-      // soft radial "box shadow" behind the sphere, in the node's color
-      const r = displayRadius(
-        node.r ?? 4,
-        display.nodeSize,
-        heatOf(stateRef.current, hk),
-      );
-      const sphereR = sphereRadius(r);
-      const glow = new Sprite(materials.glow(displayColor(node)));
-      glow.scale.setScalar(sphereR * 4);
-      obj.add(glow);
-      if (nodeDisplay(stateRef.current, hk) === "ring") {
-        const ring = new Sprite(materials.ring(COLORS.ring));
-        ring.scale.setScalar(sphereR * 3);
-        obj.add(ring);
+      let item = nodeAdornments.current.get(id);
+      if (!item) {
+        const group = new Group();
+        const glow = new Sprite(materials.glow(displayColor(node)));
+        const readRing = new Sprite(materials.ring(COLORS.ring));
+        const matchRing = new Sprite(materials.ring(COLORS.match));
+        const focusRing = new Sprite(materials.ring(COLORS.hover));
+        const label = new SpriteText(nodeLabelText(id, node.type));
+        label.color = COLORS.label;
+        label.textHeight = 4;
+        label.visible = sprites.current.get(id)?.visible ?? true;
+        group.add(glow);
+        group.add(readRing);
+        group.add(matchRing);
+        group.add(focusRing);
+        group.add(label as unknown as Sprite);
+        item = { group, glow, readRing, matchRing, focusRing, label };
+        nodeAdornments.current.set(id, item);
+        sprites.current.set(id, label);
       }
-      // matched by the last search — binary on/off, not a fade: node
-      // appearance here is baked and only re-runs on a rev change, and
-      // re-baking every frame is the cost this design avoids.
-      // matchProgress gates it as well as the set does, because a frozen replay
-      // state never expires its matches — without this, 3D would hold the rings
-      // for the whole scrub while 2D drops them one event later.
-      if (
-        matchProgress(stateRef.current, performance.now()) !== null &&
-        stateRef.current.matched.has(hk)
-      ) {
-        const ring = new Sprite(materials.ring(COLORS.match));
-        ring.scale.setScalar(sphereR * 3.3);
-        obj.add(ring);
-      }
-      // the node whose preview is open
-      if (id === focusNode) {
-        const ring = new Sprite(materials.ring(COLORS.hover));
-        ring.scale.setScalar(sphereR * 3.6);
-        obj.add(ring);
-      }
-      const sprite = new SpriteText(nodeLabelText(id, node.type));
-      sprite.color = COLORS.label;
-      sprite.textHeight = 4;
-      // sit just below the sphere; re-created on refresh() so a nodeSize
-      // slider change re-derives the offset
-      sprite.position.set(0, -(r + 4), 0);
-      // refresh() recreates sprites with visible=true; inherit the previous
-      // visibility so far labels don't strobe between distance sweeps
-      sprite.visible = sprites.current.get(id)?.visible ?? true;
-      sprites.current.set(id, sprite);
-      obj.add(sprite as unknown as Sprite);
-      return obj;
+      updateNodeAdornment(node, item, performance.now());
+      return item.group;
     },
-    [display.nodeSize, materials, displayColor, stateRef, focusNode],
+    [materials, displayColor, updateNodeAdornment],
   );
 
   return (

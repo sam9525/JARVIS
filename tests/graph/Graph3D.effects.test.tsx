@@ -106,4 +106,56 @@ describe("Graph3D: the refresh storm (v0.3.5 §5.1)", () => {
     render(<Graph3D {...(p as any)} groups={[...NO_GROUPS]} />);
     expect(fg.refresh).toHaveBeenCalledTimes(1);
   });
+
+  it("a highlight rev tick updates in place instead of refreshing the scene", () => {
+    const p = props();
+    render(<Graph3D {...(p as any)} />);
+
+    p.stateRef.current.rev++;
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(fg.refresh).not.toHaveBeenCalled();
+  });
+});
+
+// A NaN written to the camera is not a dropped frame but a dead view for the
+// rest of the session, so the hand handle refuses one.
+describe("Graph3D: the hand handle refuses non-finite input", () => {
+  const withCamera = () => {
+    const position = { x: 0, y: 0, z: 100, set: vi.fn() };
+    const controls = {
+      target: { x: 0, y: 0, z: 0 },
+      autoRotate: false,
+      autoRotateSpeed: 1,
+      minDistance: 0,
+      maxDistance: 0,
+      enableDamping: false,
+      dampingFactor: 0,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    fg.camera.mockReturnValue({ position });
+    fg.controls.mockReturnValue(controls);
+    return { position, controls };
+  };
+
+  it("zoom(NaN) never reaches cam.position.set", () => {
+    const { position } = withCamera();
+    const handleRef = { current: null as any };
+    render(<Graph3D {...(props() as any)} handleRef={handleRef} />);
+    handleRef.current.zoom(NaN);
+    expect(position.set).not.toHaveBeenCalled();
+    handleRef.current.zoom(1.2); // a real factor still moves the camera
+    expect(position.set).toHaveBeenCalled();
+  });
+
+  it("spin(NaN) leaves autoRotateSpeed a finite number", () => {
+    const { controls } = withCamera();
+    const handleRef = { current: null as any };
+    render(<Graph3D {...(props() as any)} handleRef={handleRef} />);
+    handleRef.current.spin(NaN);
+    expect(Number.isFinite(controls.autoRotateSpeed)).toBe(true);
+  });
 });

@@ -13,6 +13,12 @@ describe("spin", () => {
     expect(clampSpin(3)).toBe(3);
   });
 
+  it("collapses non-finite to rest — NaN reaching the camera freezes it", () => {
+    expect(clampSpin(NaN)).toBe(0);
+    expect(clampSpin(Infinity)).toBe(0);
+    expect(clampSpin(-Infinity)).toBe(0);
+  });
+
   it("decay preserves sign and shrinks magnitude", () => {
     expect(decaySpin(10, 0.1)).toBeGreaterThan(0);
     expect(decaySpin(10, 0.1)).toBeLessThan(10);
@@ -33,5 +39,22 @@ describe("spin", () => {
 
   it("a value below SPIN_REST snaps straight to 0", () => {
     expect(decaySpin(SPIN_REST / 2, 1 / 60)).toBe(0);
+  });
+
+  // Graph3D coasts by calling this with the total seconds since the throw, so
+  // a starved rAF loop still comes to rest on time. Compounding a decay per
+  // tick would measure the coast in frames instead, stretching it several-fold
+  // at 10 fps.
+  it("rest arrives at the same elapsed time however few samples land", () => {
+    const restAfter = (fps: number) => {
+      for (let n = 1; n <= fps * 30; n++) {
+        const elapsed = n / fps;
+        if (decaySpin(SPIN_MAX, elapsed) === 0) return elapsed;
+      }
+      return Infinity;
+    };
+    expect(restAfter(60)).toBeLessThan(4);
+    // one sample every 200 ms resolves the same instant to within its step
+    expect(Math.abs(restAfter(5) - restAfter(60))).toBeLessThan(0.2);
   });
 });
