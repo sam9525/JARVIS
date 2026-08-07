@@ -41,6 +41,7 @@ const base = {
   hasActions: true,
   error: null as string | null,
   onToggle: () => undefined,
+  onRearm: () => undefined,
 };
 
 describe("HandToggle", () => {
@@ -56,10 +57,29 @@ describe("HandToggle", () => {
     expect(classTokens(button())).toContain("border-accent");
   });
 
-  it("disarmed: pulse only — losing the border is the whole signal", () => {
+  it("disarmed: dashed accent — the camera is on, so it must not read as off", () => {
     render(<HandToggle {...base} cameraOn armed={false} />);
-    expect(glyph().className).toContain("animate-pulse");
-    expect(classTokens(button())).not.toContain("border-accent");
+    const tokens = classTokens(button());
+    expect(tokens).toContain("border-dashed");
+    expect(tokens).toContain("border-accent"); // not the camera-off border-edge
+    expect(button().getAttribute("title")).toContain("camera still on");
+  });
+
+  it("clicking while disarmed re-arms instead of cutting the camera", () => {
+    const onToggle = vi.fn();
+    const onRearm = vi.fn();
+    render(
+      <HandToggle
+        {...base}
+        cameraOn
+        armed={false}
+        onToggle={onToggle}
+        onRearm={onRearm}
+      />,
+    );
+    act(() => button().click());
+    expect(onRearm).toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
   it("no actions on this view: border without pulse, title says why", () => {

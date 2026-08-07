@@ -42,6 +42,7 @@ function Host({
       data-testid="probe"
       data-armed={String(h.armed)}
       data-error={h.error ?? ""}
+      onClick={h.rearm}
     />
   );
 }
@@ -112,6 +113,23 @@ describe("useHandControl", () => {
     feed(palmHand(), 4.1);
     expect(probe().getAttribute("data-armed")).toBe("true");
     expect(tracker.starts).toBe(1); // arming never restarts the camera
+    feed(pinchedHand(0.3), 5);
+    feed(pinchedHand(0.5), 5.1);
+    expect(drag).toHaveBeenCalled();
+  });
+
+  it("rearm() restores gestures without touching the camera", async () => {
+    tracker.impl = () => Promise.resolve(tracker.stop);
+    const drag = vi.fn();
+    actionsRef.current = { drag };
+    render(host(true));
+    await flush();
+    disarmByFist();
+    expect(probe().getAttribute("data-armed")).toBe("false");
+    act(() => probe().click()); // the ✋ button's path
+    expect(probe().getAttribute("data-armed")).toBe("true");
+    expect(tracker.stop).not.toHaveBeenCalled();
+    expect(tracker.starts).toBe(1);
     feed(pinchedHand(0.3), 5);
     feed(pinchedHand(0.5), 5.1);
     expect(drag).toHaveBeenCalled();

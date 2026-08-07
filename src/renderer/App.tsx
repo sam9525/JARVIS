@@ -318,6 +318,7 @@ export default function App() {
         hasActions={hasActions}
         error={hands.error}
         onToggle={() => setHandControl(!cameraOn)}
+        onRearm={hands.rearm}
       />
       <button
         className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
