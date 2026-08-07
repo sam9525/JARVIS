@@ -103,17 +103,21 @@ export default function Graph({
 
   // A parked card never runs onRenderFramePost, which is where the open view
   // expires matches and repaints. Poll the store's rev counter instead and
-  // refresh on change — the same trick Graph3D uses for its baked-in accessors.
+  // nudge the canvas on change.
   const lastRev = useRef(-1);
   useEffect(() => {
     if (!thumbnail) return;
     const id = setInterval(() => {
       const s = stateRef.current;
       expireMatches(s, performance.now());
-      if (s.rev !== lastRev.current) {
-        lastRev.current = s.rev;
-        fgRef.current?.refresh();
-      }
+      if (s.rev === lastRev.current) return;
+      lastRev.current = s.rev;
+      // ponytail: force-graph flips its internal needsRedraw on any zoom set,
+      // so re-setting the value it already has buys one frame with no visual
+      // change. The 2D component has no refresh() — that is 3D-only. Ceiling:
+      // if force-graph ever exposes a real redraw, use it instead.
+      const fg = fgRef.current;
+      if (fg) fg.zoom(fg.zoom());
     }, 250);
     return () => clearInterval(id);
   }, [thumbnail, stateRef]);
