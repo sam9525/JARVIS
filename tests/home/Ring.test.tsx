@@ -75,6 +75,7 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   getStore: () => emptyState(),
   groups: {},
   view: defaultSettings().views["3d"],
+  filters: { sectionFilter: "both", showTags: true, showOrphans: true },
   width: 900,
   height: 600,
   indexing: {},
@@ -101,10 +102,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// flush the settle debounce (300 ms) and the wheel-snap timer (200 ms)
+// flush the tile entrance (500 ms + stagger), the settle debounce (300 ms)
+// and the wheel-snap timer (200 ms)
 const settle = () =>
   act(() => {
-    vi.advanceTimersByTime(600);
+    vi.advanceTimersByTime(1000);
   });
 
 const wheel = (deltaY: number) =>
@@ -171,6 +173,71 @@ describe("Ring", () => {
     settle();
     expect(graph3d).toHaveBeenCalled();
     expect(graph3d.mock.calls[0][0].graph.nodes[0].id).toBe("a");
+  });
+
+  it("centres the same filtered graph the workspace view would show", () => {
+    const sectioned: VaultGraph = {
+      nodes: [
+        { id: "a", type: "note", section: "wiki" },
+        { id: "b", type: "note", section: "journal" },
+      ],
+      edges: [],
+    };
+    render(
+      <Ring
+        {...(props({
+          graphs: new Map<string, VaultGraph>([["w1", sectioned]]),
+          filters: {
+            sectionFilter: "wiki",
+            showTags: true,
+            showOrphans: true,
+          },
+        }) as any)}
+      />,
+    );
+    settle();
+    const ids = graph3d.mock.calls[0][0].graph.nodes.map((n: any) => n.id);
+    expect(ids).toEqual(["a"]);
+  });
+
+  it("keeps both sections on a code workspace, which has none", () => {
+    const sectioned: VaultGraph = {
+      nodes: [
+        { id: "x.ts", type: "note" },
+        { id: "y.ts", type: "note" },
+      ],
+      edges: [],
+    };
+    render(
+      <Ring
+        {...(props({
+          graphs: new Map<string, VaultGraph>([["w2", sectioned]]),
+          filters: {
+            sectionFilter: "wiki",
+            showTags: true,
+            showOrphans: true,
+          },
+        }) as any)}
+      />,
+    );
+    act(() => byTestId("tile-w2")!.click()); // centre the code workspace
+    settle();
+    const ids = graph3d.mock.calls[0][0].graph.nodes.map((n: any) => n.id);
+    expect(ids).toEqual(["x.ts", "y.ts"]);
+  });
+
+  it("holds the centre graph until the tile entrance has finished", () => {
+    render(<Ring {...(props() as any)} />);
+    // 3 tiles: 500 ms fly-out + 2 × 70 ms stagger = 640 ms, well past the
+    // 300 ms settle debounce
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(graph3d).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(graph3d).toHaveBeenCalled();
   });
 
   it("spinning past tiles starts one simulation, not one per tile", () => {
@@ -262,6 +329,16 @@ describe("Ring", () => {
     render(<Ring {...(props() as any)} />);
     settle();
     expect(byTestId("ring-centre")!.className).toContain("pointer-events-none");
+  });
+
+  it("a rotation change does not re-render the centre Graph3D", () => {
+    render(<Ring {...(props() as any)} />);
+    settle();
+    const renders = graph3d.mock.calls.length;
+    wheel(10); // 2° — the same tile stays centred, but the ring re-renders
+    // the memoized element keeps its identity, so React never reconciles the
+    // centre graph — render count is the strong form of "no remount"
+    expect(graph3d.mock.calls.length).toBe(renders);
   });
 });
 

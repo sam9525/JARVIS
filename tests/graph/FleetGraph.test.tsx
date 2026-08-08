@@ -6,9 +6,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // this suite is about FleetGraph's hand-action wiring, not the graphs
-// themselves — Graph/Graph3D are stubbed out entirely
+// themselves — Graph/Graph3D are stubbed out entirely. Graph3D also records
+// the `groups` prop it was handed, so the NO_GROUPS identity regression
+// (v0.3.5 §5) has a discriminating test at this call site.
+const graph3dCalls = vi.hoisted(() => ({ groups: [] as unknown[] }));
 vi.mock("../../src/renderer/graph/Graph", () => ({ default: () => null }));
-vi.mock("../../src/renderer/graph/Graph3D", () => ({ default: () => null }));
+vi.mock("../../src/renderer/graph/Graph3D", () => ({
+  default: (props: { groups: unknown }) => {
+    graph3dCalls.groups.push(props.groups);
+    return null;
+  },
+}));
 
 import FleetGraph from "../../src/renderer/graph/FleetGraph";
 import type { HandActions } from "../../src/renderer/hands/use-hand-actions";
@@ -94,5 +102,15 @@ describe("FleetGraph: hand actions", () => {
     render(<FleetGraph {...(props({ actionsRef }) as any)} />);
     render(<div />);
     expect(actionsRef.current.orbit).toBeUndefined();
+  });
+});
+
+describe("FleetGraph: groups identity (v0.3.5 §5 regression)", () => {
+  it("passes the same groups reference to Graph3D across renders", () => {
+    graph3dCalls.groups.length = 0;
+    render(<FleetGraph {...(props() as any)} />);
+    render(<FleetGraph {...(props() as any)} />);
+    expect(graph3dCalls.groups.length).toBe(2);
+    expect(graph3dCalls.groups[0]).toBe(graph3dCalls.groups[1]);
   });
 });

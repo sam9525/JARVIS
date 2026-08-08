@@ -232,13 +232,9 @@
   @keyframes ring-tile-in {
     from {
       opacity: 0;
-      /* undo the tile's own left/top offset — it starts stacked at the hub */
-      transform: translate3d(
-          calc(-50% - var(--ring-dx)),
-          calc(-50% - var(--ring-dy)),
-          0
-        )
-        scale(calc(var(--ring-s) * 0.4));
+      /* the resting transform carries the ring offset — starting without it
+         means starting stacked at the hub */
+      transform: translate3d(-50%, -50%, 0) scale(calc(var(--ring-s) * 0.4));
     }
   }
   .ring-tile-in {

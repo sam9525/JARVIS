@@ -3,7 +3,13 @@
 // armed/disarmed belongs to this hook and is session-only. A tracker failure
 // surfaces as `error` and stops this session's camera via onCameraFailed —
 // never by rewriting the user's setting (design §3).
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 import { GestureEngine, type GestureEvent } from "./gestures";
 import { startHandTracker } from "./hand-tracker";
 import type { HandActions } from "./use-hand-actions";
@@ -12,13 +18,20 @@ export function useHandControl(opts: {
   cameraOn: boolean;
   actionsRef: MutableRefObject<HandActions>;
   onCameraFailed: () => void;
-}): { armed: boolean; error: string | null } {
+}): { armed: boolean; error: string | null; rearm: () => void } {
   const { cameraOn, actionsRef, onCameraFailed } = opts;
   const [armed, setArmed] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const armedRef = useRef(true);
   const failedRef = useRef(onCameraFailed);
   failedRef.current = onCameraFailed;
+
+  // the pointer's way out of a disarm, alongside the held open palm. Touches
+  // nothing but `armed` — the camera belongs to the switch.
+  const rearm = useCallback(() => {
+    armedRef.current = true;
+    setArmed(true);
+  }, []);
 
   useEffect(() => {
     if (!cameraOn) return;
@@ -75,5 +88,5 @@ export function useHandControl(opts: {
     };
   }, [cameraOn, actionsRef]);
 
-  return { armed, error };
+  return { armed, error, rearm };
 }

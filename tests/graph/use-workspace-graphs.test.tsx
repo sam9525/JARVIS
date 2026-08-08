@@ -279,4 +279,36 @@ describe("useWorkspaceGraphs", () => {
       "ok",
     ]);
   });
+
+  it("starts every card fetch before any resolves", async () => {
+    // never-resolving fetches: the sequential loop would be stuck on the
+    // first await with the second workspace not yet requested
+    jarvis.getGraph.mockImplementation(
+      () => new Promise<VaultGraph>(() => undefined),
+    );
+    const list = [ws("v", "vault"), ws("c", "code")];
+    renderHook(
+      useWorkspaceGraphs,
+      params({ showHome: true, workspaces: list }),
+    );
+    await settle();
+    expect(jarvis.getGraph).toHaveBeenCalledTimes(2);
+  });
+
+  it("writes nothing into cardGraphs after leaving the command center mid-load", async () => {
+    let release!: (g: VaultGraph) => void;
+    jarvis.getGraph.mockReturnValue(
+      new Promise<VaultGraph>((res) => {
+        release = res;
+      }),
+    );
+    const base = params({ showHome: true, workspaces: [ws("v", "vault")] });
+    const h = renderHook(useWorkspaceGraphs, base);
+    h.rerender({ ...base, showHome: false }); // cancels the load effect
+    await act(async () => {
+      release(graphOf("late"));
+    });
+    await settle();
+    expect(h.result.cardGraphs.size).toBe(0);
+  });
 });

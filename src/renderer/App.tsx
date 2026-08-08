@@ -41,7 +41,6 @@ import type {
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
-import HandsHud from "./hands/HandsHud";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import type { Graph3DHandle } from "./graph/Graph3D";
@@ -255,22 +254,21 @@ export default function App() {
   // something on the one view where they don't (design §3)
   const hasActions = !(showHome && homeView === "cards");
 
-  // the workspace graph's own map; home views overwrite this during their
-  // render (App renders first), Cards leaves it empty. Deliberate cut: no
-  // drag on 3D — orbit is 3D's navigation (design §6).
+  // the workspace graph's own map, registered only while a workspace is on
+  // screen; on home the mounted view owns the map outright. Deliberate cut:
+  // no drag on 3D — orbit is 3D's navigation (design §6).
   useHandActions(
     handActionsRef,
-    showHome
-      ? {}
-      : settings.dimensions === "3d"
-        ? {
-            orbit: (v) => graph3dHandle.current?.spin(v),
-            zoom: (f) => graph3dHandle.current?.zoom(f),
-          }
-        : {
-            drag: (dx, dy) => graphHandle.current?.pan(dx, dy),
-            zoom: (f) => graphHandle.current?.zoom(f),
-          },
+    settings.dimensions === "3d"
+      ? {
+          orbit: (v) => graph3dHandle.current?.spin(v),
+          zoom: (f) => graph3dHandle.current?.zoom(f),
+        }
+      : {
+          drag: (dx, dy) => graphHandle.current?.pan(dx, dy),
+          zoom: (f) => graphHandle.current?.zoom(f),
+        },
+    !showHome,
   );
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
@@ -319,6 +317,7 @@ export default function App() {
         hasActions={hasActions}
         error={hands.error}
         onToggle={() => setHandControl(!cameraOn)}
+        onRearm={hands.rearm}
       />
       <button
         className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
@@ -339,7 +338,6 @@ export default function App() {
 
   return (
     <div className="flex h-full w-full">
-      {cameraOn && <HandsHud />}
       <WorkspaceRail
         workspaces={workspaces}
         activeId={active?.id ?? null}
@@ -396,6 +394,11 @@ export default function App() {
                   getStore={storeFor}
                   groups={settings.groups}
                   view={settings.views["3d"]}
+                  filters={{
+                    sectionFilter: settings.sectionFilter,
+                    showTags: settings.showTags,
+                    showOrphans: settings.showOrphans,
+                  }}
                   width={width}
                   height={height}
                   indexing={indexing}

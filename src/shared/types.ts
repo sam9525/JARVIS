@@ -87,6 +87,13 @@ export interface GraphGroup {
   color: string; // "#rrggbb"
 }
 
+// THE empty groups value. A fresh [] per render is an identity change that
+// makes Graph3D refresh() — rebuild sprites for — every node in the scene
+// (v0.3.5 §5). Deliberately not readonly/frozen: every consumer types
+// GraphGroup[], nothing mutates a groups array, and the casts would cost
+// more than the immutability buys.
+export const NO_GROUPS: GraphGroup[] = [];
+
 export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
@@ -130,12 +137,14 @@ export interface Settings {
   handControl: boolean; // hands drive navigation; the webcam auto-starts when on
 }
 
-// a workspace's groups, or none if it has never been seeded
+// a workspace's groups, or NO_GROUPS if it has never been seeded — a fresh []
+// per call would be the same identity-change refresh storm NO_GROUPS exists
+// to avoid (v0.3.5 §5).
 export function groupsFor(
   settings: Settings,
   id: string | null | undefined,
 ): GraphGroup[] {
-  return (id && settings.groups[id]) || [];
+  return (id && settings.groups[id]) || NO_GROUPS;
 }
 
 // force defaults equal the d3 defaults in 2d; 3d values are the hand-tuned

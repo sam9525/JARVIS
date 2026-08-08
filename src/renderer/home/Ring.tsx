@@ -7,11 +7,12 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
-import { SOURCE_LABELS } from "../../shared/types";
+import { NO_GROUPS, SOURCE_LABELS } from "../../shared/types";
 import { emptyState, type HighlightState } from "../session/highlight-store";
 import Graph3D, { type Graph3DHandle } from "../graph/Graph3D";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { domainsOf } from "../graph/domain-colors";
+import { filterGraph, type GraphFilters } from "../graph/graph-filter";
 import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
 import { DOT } from "./MissionControl";
 import { useHandActions, type HandActions } from "../hands/use-hand-actions";
@@ -26,6 +27,7 @@ const DRAG_DEG_PER_PX = 0.35;
 const WHEEL_SNAP_MS = 200; // a wheel has no "release" — snap after this idle
 const DRAG_SUPPRESS_PX = 5; // past this travel a pointer-up is a drag, not a click
 const ENTER_STAGGER_MS = 70; // tiles fly out of the hub one after another on open
+const ENTER_MS = 500; // one tile's fly-out — must match .ring-tile-in in index.css
 // ring degrees per normalized unit of pinch travel — a hand crossing most of
 // the camera frame turns most of the ring. Starting value, tune on camera.
 const HAND_DEG_PER_UNIT = 300;
@@ -37,6 +39,10 @@ type RingProps = {
   getStore: (workspaceId: string) => HighlightState;
   groups: Record<string, GraphGroup[]>; // per workspace id
   view: ViewSettings; // the 3d view — the centre graph renders with it
+  // the section/tag/orphan filters the workspace view uses, so the centre graph
+  // is the same graph opening the workspace gives you; search is left out on
+  // purpose — it belongs to the workspace you have open, not to every tile
+  filters: Omit<GraphFilters, "search">;
   width: number;
   height: number;
   indexing: Record<string, { state: IndexState; error?: string }>;
@@ -56,6 +62,7 @@ export default function Ring({
   getStore,
   groups,
   view,
+  filters,
   width,
   height,
   indexing,
@@ -88,11 +95,21 @@ export default function Ring({
   );
   const { tiles, centeredIndex } = ringLayout(count, rotation);
 
+  // the settle cannot fire until the last tile has landed, so the centre
+  // graph's fade-in follows the ring's entrance instead of racing it. A
+  // deadline, not a delay — a wheel mid-entrance must not push it further out.
+  const enterDone = useRef(
+    Date.now() + ENTER_MS + Math.max(0, count - 1) * ENTER_STAGGER_MS,
+  );
+
   // debounce the centred workspace into settledId; every rotation change
   // resets the timer, so only a stop loads a graph
   useEffect(() => {
     const id = workspaces[centeredIndex]?.id ?? null;
-    const t = setTimeout(() => setSettledId(id), SETTLE_MS);
+    const t = setTimeout(
+      () => setSettledId(id),
+      Math.max(SETTLE_MS, enterDone.current - Date.now()),
+    );
     return () => clearTimeout(t);
   }, [rotation, centeredIndex, workspaces]);
 
@@ -193,13 +210,69 @@ export default function Ring({
     zoom: (f) => centreHandle.current?.zoom(f),
   });
 
-  const g = settledWs ? graphs.get(settledWs.id) : undefined;
+  const raw = settledWs ? graphs.get(settledWs.id) : undefined;
   // same rule as the cards: absent from the map = still loading; empty on a
-  // code workspace = never analyzed, which earns the index button
+  // code workspace = never analyzed, which earns the index button. Judged on
+  // the unfiltered graph, since a filter hiding everything is not "never
+  // analyzed".
   const needsIndex =
-    !!settledWs && canIndex(settledWs) && !!g && !g.nodes.length;
-  const domains = useMemo(() => (g ? domainsOf(g) : []), [g]);
+    !!settledWs && canIndex(settledWs) && !!raw && !raw.nodes.length;
+  // depends on the filter FIELDS, not the object: a fresh-but-equal filters
+  // object each render would hand force-graph new data and restart the settle
+  const g = useMemo(
+    () =>
+      raw
+        ? filterGraph(raw, {
+            // code workspaces have no sections; force "both" so nothing
+            // vanishes, exactly as App does for the open workspace
+            sectionFilter:
+              settledWs?.kind === "code" ? "both" : filters.sectionFilter,
+            search: "",
+            showTags: filters.showTags,
+            showOrphans: filters.showOrphans,
+          })
+        : undefined,
+    [
+      raw,
+      settledWs,
+      filters.sectionFilter,
+      filters.showTags,
+      filters.showOrphans,
+    ],
+  );
+  // palette indices come off the FULL graph, same as the workspace view — a
+  // filter must not recolour the nodes it leaves behind
+  const domains = useMemo(() => (raw ? domainsOf(raw) : []), [raw]);
   const idx = settledWs ? indexing[settledWs.id] : undefined;
+
+  // rotation is component state, so every pointermove/wheel tick re-renders
+  // the ring; memoizing the centre element keeps those renders from
+  // reconciling the graph at all, and stabilizes the onNodeClick literal
+  // (v0.3.5 §5.3). deps are what the element actually reads — refs
+  // (stateRef, centreHandle) are stable by construction.
+  const centreGraph = useMemo(() => {
+    if (!settledWs || !g) return null;
+    return (
+      <Graph3D
+        // remount per workspace: a fresh mount re-fits the camera and
+        // starts a clean simulation — exactly the one settle we pay for
+        key={settledWs.id}
+        graph={g}
+        domains={domains}
+        groups={groups[settledWs.id] ?? NO_GROUPS}
+        display={view.display}
+        forces={view.forces}
+        stateRef={stateRef}
+        handleRef={centreHandle}
+        onNodeClick={() => undefined}
+        focusNode={null}
+        layoutEpoch={layoutEpoch}
+        rotationPaused={false}
+        width={width}
+        height={height}
+      />
+    );
+  }, [settledWs, g, domains, groups, view, layoutEpoch, width, height]);
 
   return (
     <div
@@ -228,24 +301,7 @@ export default function Ring({
               />
             </div>
           ) : (
-            <Graph3D
-              // remount per workspace: a fresh mount re-fits the camera and
-              // starts a clean simulation — exactly the one settle we pay for
-              key={settledWs.id}
-              graph={g}
-              domains={domains}
-              groups={groups[settledWs.id] ?? []}
-              display={view.display}
-              forces={view.forces}
-              stateRef={stateRef}
-              handleRef={centreHandle}
-              onNodeClick={() => undefined}
-              focusNode={null}
-              layoutEpoch={layoutEpoch}
-              rotationPaused={false}
-              width={width}
-              height={height}
-            />
+            centreGraph
           ))}
       </div>
 
@@ -277,9 +333,13 @@ export default function Ring({
                 "--ring-dx": `${t.x * (width * 0.4)}px`,
                 "--ring-dy": `${t.y * (height * 0.36)}px`,
                 animationDelay: `${i * ENTER_STAGGER_MS}ms`,
-                left: "calc(50% + var(--ring-dx))",
-                top: "calc(50% + var(--ring-dy))",
-                transform: "translate3d(-50%, -50%, 0) scale(var(--ring-s))",
+                // ring offsets live in the transform, not left/top: moving a
+                // tile is then composite-only instead of layout+paint per
+                // frame for every tile (v0.3.5 §5.2)
+                left: "50%",
+                top: "50%",
+                transform:
+                  "translate3d(calc(-50% + var(--ring-dx)), calc(-50% + var(--ring-dy)), 0) scale(var(--ring-s))",
                 opacity: 0.35 + 0.65 * t.depth,
                 zIndex: 10 + Math.round(t.depth * 100),
               } as React.CSSProperties
@@ -288,7 +348,7 @@ export default function Ring({
               "ring-tile-in absolute flex cursor-pointer select-none flex-col gap-1.5 rounded-lg border bg-panel p-2.5 " +
               (dragging
                 ? "transition-opacity "
-                : "transition-[left,top,transform,opacity] duration-300 ease-out ") +
+                : "transition-[transform,opacity] duration-300 ease-out ") +
               (kind === "waiting"
                 ? "border-warm"
                 : t.centered
