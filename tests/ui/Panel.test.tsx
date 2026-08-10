@@ -74,11 +74,17 @@ describe("Panel", () => {
     expect(off).toContain("bg-panel/55");
   });
 
-  it("collapses to the title bar, hiding the body", () => {
+  it("collapses to the title bar, hiding the body and the resize grip", () => {
     const state = { ...STATE, collapsed: true };
     const html = renderToStaticMarkup(<Panel {...base} state={state} />);
     expect(html).toContain("SESSION // JARVIS");
     expect(html).not.toContain("body");
+    // the grip lives in the same conditional block as the body; assert it
+    // directly rather than inferring its absence
+    expect(html).not.toContain("panel-grip-terminal");
+    expect(renderToStaticMarkup(<Panel {...base} />)).toContain(
+      "panel-grip-terminal",
+    );
     const el = Panel({ ...base, state }) as React.ReactElement;
     expect(el.props.style.height).toBe(TITLE_BAR_H);
   });
