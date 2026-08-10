@@ -18,6 +18,8 @@ import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
 import EmptyGraph from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
+import Bezel from "./ui/Bezel";
+import { BTN_IDLE } from "./ui/hud";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
 import {
   applyEvent,
@@ -307,6 +309,20 @@ export default function App() {
 
   const view = settings.views[settings.dimensions];
 
+  const telemetry = showHome
+    ? `COMMAND CENTER · ${workspaces.length} WORKSPACES · ` +
+      `${statuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
+      `${statuses.filter((s) => s.kind === "running").length} RUNNING`
+    : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
+      `EDGES ${graph.edges.length} · ` +
+      `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;
+
+  const activeStatus = statuses.find((s) => s.workspaceId === active?.id);
+  const footRight = showHome
+    ? `FLEET READS ${statuses.reduce((n, s) => n + s.reads, 0)} · ` +
+      `EDITS ${statuses.reduce((n, s) => n + s.edits, 0)}`
+    : `READS ${activeStatus?.reads ?? 0} · EDITS ${activeStatus?.edits ?? 0}`;
+
   // hands + refresh + settings — shown on the workspace graph and the command
   // center
   const graphButtons = (
@@ -320,14 +336,14 @@ export default function App() {
         onRearm={hands.rearm}
       />
       <button
-        className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        className={BTN_IDLE + " text-[13px]"}
         title="Refresh graph (F5)"
         onClick={refreshGraph}
       >
         ↻
       </button>
       <button
-        className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        className={BTN_IDLE + " text-[13px]"}
         title="Graph settings"
         onClick={() => setShowSettings((v) => !v)}
       >
@@ -337,19 +353,7 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-full w-full">
-      <WorkspaceRail
-        workspaces={workspaces}
-        activeId={active?.id ?? null}
-        statuses={statuses}
-        homeActive={showHome}
-        onAddProject={addProject}
-        onHome={() => setShowHome(true)}
-        onSelect={(ws) => {
-          setShowHome(false);
-          openWorkspace(ws);
-        }}
-      />
+    <div className="relative h-full w-full overflow-hidden bg-abyss">
       {!showHome && previewNode && active && (
         <Preview
           nodeId={previewNode}
@@ -363,14 +367,6 @@ export default function App() {
         {({ width, height }) =>
           showHome ? (
             <>
-              <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-                <Segmented
-                  options={HOME_VIEW_OPTIONS}
-                  value={homeView}
-                  onChange={setHomeView}
-                />
-                {graphButtons}
-              </div>
               {homeView === "fleet" ? (
                 <FleetGraph
                   workspaces={workspaces}
@@ -478,32 +474,62 @@ export default function App() {
                     />
                   </div>
                 )}
-
-              <Timeline
-                log={(active && logsRef.current.get(active.id)) || []}
-                index={replayIndex}
-                onScrub={onScrub}
-              />
-              {/* absolute within the graph slot, not fixed to the viewport —
-                so this sits at the slot's own right edge (left of the
-                terminal panel, whatever its current width) instead of
-                overlapping the terminal when it's open */}
-              <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-                {active?.kind === "code" && (
-                  <Segmented
-                    options={GRAPH_LEVEL_OPTIONS}
-                    value={settings.codeGraphLevel}
-                    onChange={(codeGraphLevel: CodeGraphLevel) =>
-                      updateSettings({ ...settings, codeGraphLevel })
-                    }
-                  />
-                )}
-                {graphButtons}
-              </div>
             </>
           )
         }
       </GraphSlot>
+      {/* The wrapper spans the full window height but the rail's own column
+          is mostly empty below the pips — without this the left 56px of a
+          full-bleed graph would be a dead strip. The buttons re-enable
+          themselves; see the note below. */}
+      <div className="pointer-events-none absolute top-0 left-0 z-20 h-full [&_button]:pointer-events-auto">
+        <WorkspaceRail
+          workspaces={workspaces}
+          activeId={active?.id ?? null}
+          statuses={statuses}
+          homeActive={showHome}
+          onAddProject={addProject}
+          onHome={() => setShowHome(true)}
+          onSelect={(ws) => {
+            setShowHome(false);
+            openWorkspace(ws);
+          }}
+        />
+      </div>
+      <div className="pointer-events-none absolute top-14 right-8 z-20 flex items-center gap-2 [&>*]:pointer-events-auto">
+        {showHome ? (
+          <Segmented
+            options={HOME_VIEW_OPTIONS}
+            value={homeView}
+            onChange={setHomeView}
+          />
+        ) : (
+          active?.kind === "code" && (
+            <Segmented
+              options={GRAPH_LEVEL_OPTIONS}
+              value={settings.codeGraphLevel}
+              onChange={(codeGraphLevel: CodeGraphLevel) =>
+                updateSettings({ ...settings, codeGraphLevel })
+              }
+            />
+          )
+        )}
+        {graphButtons}
+      </div>
+      <Bezel
+        title="JARVIS · V0.3.6"
+        telemetry={telemetry}
+        footRight={footRight}
+        footLeft={
+          showHome ? null : (
+            <Timeline
+              log={(active && logsRef.current.get(active.id)) || []}
+              index={replayIndex}
+              onScrub={onScrub}
+            />
+          )
+        }
+      />
       {/* terminals live in a module-level map, so swapping which one is on
           screen costs no session and no scrollback. On a workspace it's that
           workspace's own terminal; home always shows the cockpit's own repo
