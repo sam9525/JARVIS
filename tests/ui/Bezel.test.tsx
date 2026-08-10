@@ -26,9 +26,25 @@ describe("Bezel", () => {
     expect(html).toContain("hud-c4");
   });
 
-  it("never intercepts pointer events — the graph is underneath", () => {
-    const html = renderToStaticMarkup(<Bezel {...PROPS} />);
-    expect(html).toContain("pointer-events-none");
+  it("makes every chrome layer pointer-transparent except footLeft", () => {
+    // asserting the string appears *somewhere* proves nothing — the vignette
+    // alone would satisfy it while four labels silently block the graph
+    const el = Bezel(PROPS) as React.ReactElement;
+    const layers = React.Children.toArray(el.props.children) as any[];
+    const cls = (n: any) => String(n?.props?.className ?? "");
+    const foot = layers.find((n) => cls(n).includes("bottom-3 left-8"));
+    expect(foot).toBeDefined();
+    expect(cls(foot)).not.toContain("pointer-events-none");
+    const others = layers.filter((n) => n !== foot);
+    expect(others.length).toBeGreaterThan(3);
+    for (const layer of others)
+      expect(cls(layer)).toContain("pointer-events-none");
+  });
+
+  it("renders with no footLeft — the home layout passes null", () => {
+    const html = renderToStaticMarkup(<Bezel {...PROPS} footLeft={null} />);
+    expect(html).toContain("JARVIS");
+    expect(html).toContain("READS 128");
   });
 
   it("carries the scanline and vignette overlays", () => {

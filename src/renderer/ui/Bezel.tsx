@@ -23,17 +23,30 @@ export default function Bezel({
         <span className="hud-c3" />
         <span className="hud-c4" />
       </div>
-      <div className={LBL_CY + " absolute top-3 left-8 z-10"}>{title}</div>
-      <div className={LBL_DIM + " absolute top-3 left-[152px] z-10"}>
+      <div
+        className={LBL_CY + " pointer-events-none absolute top-3 left-8 z-10"}
+      >
+        {title}
+      </div>
+      <div
+        className={
+          LBL_DIM + " pointer-events-none absolute top-3 left-[152px] z-10"
+        }
+      >
         {telemetry}
       </div>
-      <div className="hud-tickrail absolute top-[29px] left-[152px] z-10 flex w-[250px] gap-[5px] overflow-hidden">
+      <div className="hud-tickrail pointer-events-none absolute top-[29px] left-[152px] z-10 flex w-[250px] gap-[5px] overflow-hidden">
         {Array.from({ length: 50 }, (_, i) => (
           <i key={i} className="h-[5px] w-px flex-none bg-edge" />
         ))}
       </div>
+      {/* the one interactive layer: the replay scrubber lives here */}
       <div className="absolute bottom-3 left-8 z-20">{footLeft}</div>
-      <div className={LBL_DIM + " absolute right-9 bottom-3 z-10"}>
+      <div
+        className={
+          LBL_DIM + " pointer-events-none absolute right-9 bottom-3 z-10"
+        }
+      >
         {footRight}
       </div>
       <div className="hud-vignette pointer-events-none absolute inset-0 z-[49]" />
