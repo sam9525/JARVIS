@@ -1,0 +1,134 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-empty-function */
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("react", async () => {
+  const actual = (await vi.importActual("react")) as any;
+  return {
+    ...actual,
+    useRef: (init: any) => ({ current: init }),
+    useCallback: (fn: any) => fn,
+    useEffect: () => {},
+  };
+});
+
+import Panel from "../../src/renderer/ui/Panel";
+import { TITLE_BAR_H } from "../../src/renderer/ui/panel-layout";
+import type { PanelState } from "../../src/shared/types";
+
+// depth-first, source order
+const walk = (n: any): any[] =>
+  !n || typeof n !== "object"
+    ? []
+    : Array.isArray(n)
+      ? n.flatMap(walk)
+      : [n, ...walk(n.props?.children)];
+
+const STATE: PanelState = {
+  x: 100,
+  y: 80,
+  w: 320,
+  h: 400,
+  collapsed: false,
+  z: 3,
+};
+const base = {
+  id: "terminal" as const,
+  title: "SESSION // JARVIS",
+  state: STATE,
+  focused: true,
+  onChange: vi.fn(),
+  onFocus: vi.fn(),
+  children: <div>body</div>,
+};
+
+describe("Panel", () => {
+  it("positions itself from its state", () => {
+    const el = Panel(base) as React.ReactElement;
+    expect(el.props.style).toMatchObject({
+      left: 100,
+      top: 80,
+      width: 320,
+      zIndex: 3,
+    });
+  });
+
+  it("renders the title and the body", () => {
+    const html = renderToStaticMarkup(<Panel {...base} />);
+    expect(html).toContain("SESSION // JARVIS");
+    expect(html).toContain("body");
+  });
+
+  it("renders a corner-bracket frame, not a rounded card", () => {
+    const html = renderToStaticMarkup(<Panel {...base} />);
+    expect(html).toContain("hud-frame");
+    expect(html).not.toMatch(/rounded-(?!full)/);
+  });
+
+  it("drops to the unfocused fill when not focused", () => {
+    const on = renderToStaticMarkup(<Panel {...base} />);
+    const off = renderToStaticMarkup(<Panel {...base} focused={false} />);
+    expect(on).toContain("bg-panel/80");
+    expect(off).toContain("bg-panel/55");
+  });
+
+  it("collapses to the title bar, hiding the body", () => {
+    const state = { ...STATE, collapsed: true };
+    const html = renderToStaticMarkup(<Panel {...base} state={state} />);
+    expect(html).toContain("SESSION // JARVIS");
+    expect(html).not.toContain("body");
+    const el = Panel({ ...base, state }) as React.ReactElement;
+    expect(el.props.style.height).toBe(TITLE_BAR_H);
+  });
+
+  it("renders nothing when the deck is cleared", () => {
+    expect(Panel({ ...base, hidden: true })).toBeNull();
+  });
+
+  it("collapses through onChange when the caret is clicked", () => {
+    const onChange = vi.fn();
+    const caret = walk(Panel({ ...base, onChange })).find(
+      (n: any) => n.props?.["data-testid"] === "panel-collapse-terminal",
+    );
+    expect(caret).toBeDefined();
+    caret.props.onClick();
+    expect(onChange).toHaveBeenCalledWith({ ...STATE, collapsed: true });
+  });
+
+  it("expands again from the collapsed state", () => {
+    const onChange = vi.fn();
+    const state = { ...STATE, collapsed: true };
+    const caret = walk(Panel({ ...base, state, onChange })).find(
+      (n: any) => n.props?.["data-testid"] === "panel-collapse-terminal",
+    );
+    caret.props.onClick();
+    expect(onChange).toHaveBeenCalledWith({ ...STATE, collapsed: false });
+  });
+
+  it("does not start a title-bar drag from the caret", () => {
+    const stopPropagation = vi.fn();
+    const caret = walk(Panel(base)).find(
+      (n: any) => n.props?.["data-testid"] === "panel-collapse-terminal",
+    );
+    caret.props.onPointerDown({ stopPropagation });
+    expect(stopPropagation).toHaveBeenCalled();
+  });
+
+  it("shows a close control only when onClose is given", () => {
+    expect(renderToStaticMarkup(<Panel {...base} />)).not.toContain(
+      "panel-close-terminal",
+    );
+    expect(
+      renderToStaticMarkup(<Panel {...base} onClose={vi.fn()} />),
+    ).toContain("panel-close-terminal");
+  });
+
+  it("raises itself on a pointer down anywhere in the panel", () => {
+    const onFocus = vi.fn();
+    const el = Panel({ ...base, onFocus }) as React.ReactElement;
+    el.props.onPointerDown({ stopPropagation: vi.fn() });
+    expect(onFocus).toHaveBeenCalled();
+  });
+});
