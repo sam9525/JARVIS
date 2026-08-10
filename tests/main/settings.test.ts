@@ -11,6 +11,12 @@ async function tmpFile(): Promise<string> {
   return path.join(dir, "jarvis-settings.json");
 }
 
+async function writeSettings(obj: unknown): Promise<string> {
+  const f = await tmpFile();
+  await fs.writeFile(f, JSON.stringify(obj), "utf8");
+  return f;
+}
+
 describe("settings", () => {
   it("round-trips save → load", async () => {
     const file = await tmpFile();
@@ -280,5 +286,58 @@ describe("settings", () => {
     const file = await tmpFile();
     await fs.writeFile(file, JSON.stringify({ handControl: true }), "utf8");
     expect((await loadSettings(file)).handControl).toBe(true);
+  });
+
+  it("defaults panels to two empty layouts", async () => {
+    const f = await writeSettings({});
+    const s = await loadSettings(f);
+    expect(s.panels).toEqual({ home: {}, workspace: {} });
+  });
+
+  it("keeps a well-formed panel", async () => {
+    const f = await writeSettings({
+      panels: {
+        workspace: {
+          terminal: { x: 10, y: 20, w: 300, h: 400, collapsed: false, z: 2 },
+        },
+      },
+    });
+    const s = await loadSettings(f);
+    expect(s.panels.workspace.terminal).toEqual({
+      x: 10,
+      y: 20,
+      w: 300,
+      h: 400,
+      collapsed: false,
+      z: 2,
+    });
+    expect(s.panels.home).toEqual({});
+  });
+
+  it("drops a panel with a non-finite coordinate", async () => {
+    const f = await writeSettings({
+      panels: {
+        workspace: {
+          terminal: { x: NaN, y: 20, w: 300, h: 400, collapsed: false, z: 1 },
+        },
+      },
+    });
+    expect((await loadSettings(f)).panels.workspace).toEqual({});
+  });
+
+  it("drops an unknown panel id", async () => {
+    const f = await writeSettings({
+      panels: {
+        workspace: {
+          bogus: { x: 1, y: 1, w: 300, h: 400, collapsed: false, z: 1 },
+        },
+      },
+    });
+    expect((await loadSettings(f)).panels.workspace).toEqual({});
+  });
+
+  it("ignores a panels value that is not an object", async () => {
+    const f = await writeSettings({ panels: "nope" });
+    expect((await loadSettings(f)).panels).toEqual({ home: {}, workspace: {} });
   });
 });
