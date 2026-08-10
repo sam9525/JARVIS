@@ -218,9 +218,9 @@ describe("TerminalPanel panel shell", () => {
     expect(classes.some((c: string) => c.includes("cursor-col-resize"))).toBe(
       false,
     );
-    expect(
-      nodes.some((n: any) => n.props?.title === "Open terminal"),
-    ).toBe(false);
+    expect(nodes.some((n: any) => n.props?.title === "Open terminal")).toBe(
+      false,
+    );
   });
 
   it("puts the inbox above the terminal body", () => {

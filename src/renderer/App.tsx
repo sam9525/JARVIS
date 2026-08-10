@@ -669,7 +669,6 @@ export default function App() {
             onSettingsChange={updateSettings}
             onHandControl={setHandControl}
             onResetHighlights={() => resetHighlights(stateRef.current)}
-            onClose={() => setShowSettings(false)}
             showSections={active?.kind !== "code"}
           />
         </Panel>

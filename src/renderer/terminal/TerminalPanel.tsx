@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
+import { LBL_AM } from "../ui/hud";
 import type {
   StatusKind,
   Workspace,
@@ -252,7 +253,7 @@ export default function TerminalPanel({
       <div className="relative min-h-0 flex-1" data-testid="terminal-body">
         {reindexCommand && status.kind === "running" && (
           <button
-            className="absolute top-1 right-2 z-10 cursor-pointer font-hud text-[9px] tracking-[0.2em] text-warm uppercase hover:text-amber-300"
+            className={LBL_AM + " absolute top-1 right-2 z-10 cursor-pointer"}
             title={`Graph is behind HEAD — type \`${reindexCommand}\``}
             onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
           >
@@ -266,7 +267,9 @@ export default function TerminalPanel({
               className="cursor-pointer rounded-md border border-edge px-4 py-2 text-[13px] text-ink-dim hover:border-accent hover:text-accent"
               onClick={() => launch()}
             >
-              {status.kind === "exited" ? "Relaunch Claude" : "Launch Claude"}
+              {status.kind === "exited"
+                ? `Relaunch Claude — exited (${status.code})`
+                : "Launch Claude"}
             </button>
             <button
               className="cursor-pointer rounded-md border border-amber-500/40 px-4 py-2 text-[13px] text-amber-400 hover:border-amber-400 hover:text-amber-300"

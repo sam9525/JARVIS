@@ -66,7 +66,6 @@ type Props = {
   // session's camera, so it goes through App rather than onSettingsChange
   onHandControl: (on: boolean) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
-  onClose: () => void;
   showSections: boolean; // code workspaces have no raw/wiki sections
 };
 
@@ -78,7 +77,6 @@ export default function GraphSettingsPanel({
   onSettingsChange,
   onHandControl,
   onResetHighlights,
-  onClose,
   showSections,
 }: Props) {
   const set = (patch: Partial<Settings>) =>

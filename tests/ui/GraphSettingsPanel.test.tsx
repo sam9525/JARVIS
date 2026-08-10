@@ -8,12 +8,10 @@ function render(overrides: Partial<Settings> = {}) {
   const calls: {
     settings: Settings[];
     search: string[];
-    closed: boolean;
     resets: number;
   } = {
     settings: [],
     search: [],
-    closed: false,
     resets: 0,
   };
   const el = GraphSettingsPanel({
@@ -25,9 +23,6 @@ function render(overrides: Partial<Settings> = {}) {
     onHandControl: () => undefined,
     onResetHighlights: () => {
       calls.resets++;
-    },
-    onClose: () => {
-      calls.closed = true;
     },
     showSections: true,
   }) as any;

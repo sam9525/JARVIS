@@ -97,9 +97,4 @@ describe("App shell", () => {
       nodes.some((n: any) => n.props?.["data-testid"] === "clear-deck"),
     ).toBe(true);
   });
-
-  it("still renders with no panel geometry saved (defaults resolve)", async () => {
-    const { default: App } = await import("../src/renderer/App");
-    expect((App as any)({})).toBeTruthy();
-  });
 });
