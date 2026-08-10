@@ -89,4 +89,17 @@ describe("App shell", () => {
       "[&_button]:pointer-events-auto",
     );
   });
+
+  it("keeps the panels docked above the ground until Task 9 floats them", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const nodes = walk((App as any)({}));
+    const dock = nodes.find(
+      (n: any) =>
+        typeof n.props?.className === "string" &&
+        n.props.className.includes("z-30") &&
+        n.props.className.includes("flex"),
+    );
+    expect(dock).toBeDefined();
+    expect(dock.props.className).toContain("pointer-events-none");
+  });
 });

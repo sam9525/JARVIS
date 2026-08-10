@@ -354,15 +354,6 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-abyss">
-      {!showHome && previewNode && active && (
-        <Preview
-          nodeId={previewNode}
-          workspace={active}
-          resolveLink={resolveLink}
-          onNavigate={setPreviewNode}
-          onClose={() => setPreviewNode(null)}
-        />
-      )}
       <GraphSlot>
         {({ width, height }) =>
           showHome ? (
@@ -530,23 +521,42 @@ export default function App() {
           )
         }
       />
-      {/* terminals live in a module-level map, so swapping which one is on
-          screen costs no session and no scrollback. On a workspace it's that
-          workspace's own terminal; home always shows the cockpit's own repo
-          (falling back to the vault) plus the fleet inbox. */}
-      {(() => {
-        const ws = showHome
-          ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
-          : active;
-        return (
-          ws && (
-            <TerminalPanel
-              workspace={ws}
-              inbox={showHome ? { workspaces, statuses } : undefined}
+      {/* TEMPORARY SCAFFOLDING — deleted in Task 9.
+          The root stopped being `flex`, which both panels rely on for sizing
+          and paint order. This restores their docked layout above the ground
+          until the floating panel layer replaces it. Pointer events are
+          inherited rather than re-enabled with a [&>*] variant: that variant
+          ties on specificity with `pointer-events-none` and would resolve by
+          stylesheet order. */}
+      <div className="pointer-events-none absolute inset-0 z-30 flex pl-14">
+        {!showHome && previewNode && active && (
+          <div className="pointer-events-auto flex">
+            <Preview
+              nodeId={previewNode}
+              workspace={active}
+              resolveLink={resolveLink}
+              onNavigate={setPreviewNode}
+              onClose={() => setPreviewNode(null)}
             />
-          )
-        );
-      })()}
+          </div>
+        )}
+        <div className="flex-1" />
+        {(() => {
+          const ws = showHome
+            ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
+            : active;
+          return (
+            ws && (
+              <div className="pointer-events-auto flex">
+                <TerminalPanel
+                  workspace={ws}
+                  inbox={showHome ? { workspaces, statuses } : undefined}
+                />
+              </div>
+            )
+          );
+        })()}
+      </div>
       {showSettings && (
         <GraphSettingsPanel
           settings={settings}
