@@ -131,6 +131,20 @@
   .hud-glow-warm {
     box-shadow: 0 0 12px color-mix(in srgb, var(--color-warm) 30%, transparent);
   }
+  .hud-scan {
+    background: repeating-linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-accent) 3%, transparent) 0 1px,
+      transparent 1px 3px
+    );
+  }
+  .hud-vignette {
+    background: radial-gradient(
+      ellipse at center,
+      transparent 42%,
+      color-mix(in srgb, var(--color-abyss) 78%, transparent) 100%
+    );
+  }
 
   .preview-body {
     overflow-wrap: break-word;
