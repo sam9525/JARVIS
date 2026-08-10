@@ -17,15 +17,25 @@ describe("Segmented", () => {
     expect(html).toContain("Fleet");
   });
 
-  it("marks only the selected option active", () => {
+  it("marks only the selected option active, with no pill radius", () => {
     const el = Segmented({
       options: OPTIONS,
       value: "cards",
       onChange: vi.fn(),
     }) as React.ReactElement;
     const [cards, fleet] = el.props.children;
-    expect(cards.props.className).toContain("bg-edge");
-    expect(fleet.props.className).not.toContain("bg-edge");
+    expect(cards.props.className).toContain("bg-accent/15");
+    expect(fleet.props.className).not.toContain("bg-accent/15");
+    expect(el.props.className).not.toMatch(/rounded/);
+  });
+
+  it("labels are uppercase HUD micro-type", () => {
+    const el = Segmented({
+      options: OPTIONS,
+      value: "cards",
+      onChange: vi.fn(),
+    }) as React.ReactElement;
+    expect(el.props.children[0].props.className).toContain("uppercase");
   });
 
   it("reports the clicked option's value", () => {
