@@ -12,9 +12,15 @@ export const FRAME_DIM = FRAME + " hud-frame-dim";
 export const GLASS = "bg-panel/80 border border-accent/20";
 export const GLASS_UN = "bg-panel/55 border border-accent/10";
 
-/** micro-label: the HUD's only body type */
-export const LBL =
-  "font-hud text-[9px] uppercase tracking-[0.22em] text-ink-dim";
+/**
+ * Micro-label: the HUD's only body type. LBL carries no colour on purpose. A
+ * variant appending one on top of a baked-in `text-ink-dim` would ship two
+ * text-colour utilities in a single class string, and which one wins is
+ * decided by Tailwind's generated stylesheet order, not by position in the
+ * string — so the variant would render correctly only by luck.
+ */
+export const LBL = "font-hud text-[9px] uppercase tracking-[0.22em]";
+export const LBL_DIM = LBL + " text-ink-dim";
 export const LBL_CY = LBL + " text-accent hud-bloom";
 export const LBL_AM = LBL + " text-warm hud-bloom-warm";
 

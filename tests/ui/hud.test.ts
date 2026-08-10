@@ -4,6 +4,8 @@ import {
   GLASS,
   GLASS_UN,
   LBL,
+  LBL_CY,
+  LBL_DIM,
   panelClass,
   pipClass,
 } from "../../src/renderer/ui/hud";
@@ -41,5 +43,15 @@ describe("hud vocabulary", () => {
         .join(" ");
     expect(resting(pipClass("idle", true))).toContain("accent");
     expect(resting(pipClass("idle", false))).not.toContain("accent");
+  });
+
+  it("keeps LBL colourless so no variant stacks two text colours", () => {
+    // two text-* utilities in one string resolve by stylesheet order, not by
+    // string order — a variant built on a coloured base is correct by luck
+    const colours = (c: string) =>
+      c.split(" ").filter((t) => t.startsWith("text-") && !t.includes("["));
+    expect(colours(LBL)).toEqual([]);
+    expect(colours(LBL_DIM)).toEqual(["text-ink-dim"]);
+    expect(colours(LBL_CY)).toEqual(["text-accent"]);
   });
 });

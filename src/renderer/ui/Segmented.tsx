@@ -1,4 +1,5 @@
 import React from "react";
+import { LBL_CY, LBL_DIM } from "./hud";
 
 type Props<T extends string> = {
   options: { value: T; label: string }[];
@@ -19,10 +20,10 @@ export default function Segmented<T extends string>({
         <button
           key={o.value}
           className={
-            "cursor-pointer px-2.5 py-1 font-hud text-[9px] uppercase tracking-[0.2em] transition-colors " +
+            "cursor-pointer px-2.5 py-1 transition-colors " +
             (o.value === value
-              ? "bg-accent/15 text-accent hud-bloom"
-              : "text-ink-dim hover:text-ink-muted")
+              ? LBL_CY + " bg-accent/15"
+              : LBL_DIM + " hover:text-ink-muted")
           }
           onClick={() => onChange(o.value)}
         >
