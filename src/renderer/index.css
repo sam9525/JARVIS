@@ -11,6 +11,7 @@
   --color-ink: #f0f7fa;
   --color-ink-muted: #b0d2de;
   --color-ink-dim: #5a7a8a;
+  --font-hud: Bahnschrift, "DIN Condensed", Oswald, sans-serif;
 }
 
 @layer base {
@@ -67,6 +68,70 @@
     transform: translateX(16px);
     background: var(--color-accent);
   }
+
+  /* ── HUD skin ──────────────────────────────────────────────────────────
+     A frame draws four corner brackets and nothing else: no border, no fill,
+     no radius. The corners are ::before/::after plus two child spans, so one
+     element carries all four without extra wrappers. */
+  .hud-frame::before,
+  .hud-frame::after,
+  .hud-frame > .hud-c3,
+  .hud-frame > .hud-c4 {
+    content: "";
+    position: absolute;
+    width: 13px;
+    height: 13px;
+    border-color: var(--color-accent);
+    border-style: solid;
+    border-width: 0;
+  }
+  .hud-frame::before {
+    top: 0;
+    left: 0;
+    border-left-width: 1px;
+    border-top-width: 1px;
+  }
+  .hud-frame::after {
+    top: 0;
+    right: 0;
+    border-right-width: 1px;
+    border-top-width: 1px;
+  }
+  .hud-frame > .hud-c3 {
+    bottom: 0;
+    left: 0;
+    border-left-width: 1px;
+    border-bottom-width: 1px;
+  }
+  .hud-frame > .hud-c4 {
+    bottom: 0;
+    right: 0;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+  }
+  .hud-frame-dim::before,
+  .hud-frame-dim::after,
+  .hud-frame-dim > .hud-c3,
+  .hud-frame-dim > .hud-c4 {
+    border-color: var(--color-edge);
+  }
+
+  .hud-bloom {
+    text-shadow: 0 0 6px
+      color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+  .hud-bloom-warm {
+    text-shadow: 0 0 6px color-mix(in srgb, var(--color-warm) 50%, transparent);
+  }
+  .hud-glow-accent {
+    box-shadow:
+      0 0 12px color-mix(in srgb, var(--color-accent) 35%, transparent),
+      inset 0 0 8px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  }
+  .hud-glow-warm {
+    box-shadow: 0 0 12px color-mix(in srgb, var(--color-warm) 30%, transparent);
+  }
+
   .preview-body {
     overflow-wrap: break-word;
   }
