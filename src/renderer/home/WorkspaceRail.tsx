@@ -5,7 +5,7 @@ import type {
   WorkspaceStatus,
   StatusKind,
 } from "../../shared/types";
-import { LBL_DIM, pipClass } from "../ui/hud";
+import { BTN, BTN_IDLE, LBL_DIM, pipClass } from "../ui/hud";
 
 type WorkspaceRailProps = {
   workspaces: Workspace[];
@@ -62,10 +62,10 @@ export default function WorkspaceRail({
         title="Mission control — all workspaces"
         onClick={onHome}
         className={
-          "mb-1 flex h-[27px] w-[27px] cursor-pointer items-center justify-center rounded-full border text-[13px] transition-colors " +
-          (homeActive
-            ? "border-accent text-accent hud-glow-accent"
-            : "border-edge text-ink-dim hover:border-accent hover:text-accent")
+          homeActive
+            ? BTN +
+              " mb-1 rounded-full text-[13px] border-accent text-accent hud-glow-accent"
+            : BTN_IDLE + " mb-1 rounded-full text-[13px]"
         }
       >
         ⌂
@@ -115,7 +115,7 @@ export default function WorkspaceRail({
         data-testid="rail-add"
         title="Add a project folder"
         onClick={onAddProject}
-        className="flex h-[27px] w-[27px] cursor-pointer items-center justify-center rounded-full border border-dashed border-edge text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        className={BTN_IDLE + " rounded-full border-dashed text-[13px]"}
       >
         +
       </button>

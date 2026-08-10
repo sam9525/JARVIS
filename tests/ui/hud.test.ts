@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  BTN,
+  BTN_IDLE,
   FRAME,
   GLASS,
   GLASS_UN,
@@ -53,5 +55,21 @@ describe("hud vocabulary", () => {
     expect(colours(LBL)).toEqual([]);
     expect(colours(LBL_DIM)).toEqual(["text-ink-dim"]);
     expect(colours(LBL_CY)).toEqual(["text-accent"]);
+  });
+
+  it("keeps BTN free of font-size and colour so call sites can set both", () => {
+    // same reasoning as LBL: two utilities for one CSS property resolve by
+    // stylesheet order. The rail's active home pip overrides both.
+    expect(BTN).not.toMatch(/text-\[\d/);
+    expect(BTN).not.toMatch(/text-(ink|accent|warm)/);
+    expect(BTN).not.toMatch(/border-(edge|accent|warm)/);
+    expect(BTN_IDLE).toContain("border-edge");
+    expect(BTN_IDLE).toContain("text-ink-dim");
+  });
+
+  it("an active pip outranks even the warm waiting state", () => {
+    expect(pipClass("waiting", true)).toContain("accent");
+    expect(pipClass("waiting", true)).not.toContain("warm");
+    expect(pipClass("waiting", false)).toContain("warm");
   });
 });

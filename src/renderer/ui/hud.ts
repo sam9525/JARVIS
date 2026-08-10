@@ -30,8 +30,20 @@ export const CAPBAR =
 export const PIP =
   "flex h-[27px] w-[27px] items-center justify-center rounded-full border text-[9.5px] tracking-[0.1em] transition-colors";
 
+/**
+ * Square icon button. Geometry only — no font-size and no colour. A caller
+ * appending either on top of a baked-in one would stack two utilities for the
+ * same CSS property in one class string, and Tailwind resolves that by
+ * generated stylesheet order rather than string order (the footgun documented
+ * on LBL above). The rail's active home pip must override the colour and set a
+ * larger glyph, so both have to come from the call site.
+ */
 export const BTN =
-  "flex h-[27px] w-[27px] cursor-pointer items-center justify-center border border-edge text-[11px] text-ink-dim transition-colors hover:border-accent hover:text-accent";
+  "flex h-[27px] w-[27px] cursor-pointer items-center justify-center border transition-colors";
+
+/** the common case: an inactive control that lights up on hover */
+export const BTN_IDLE =
+  BTN + " border-edge text-ink-dim hover:border-accent hover:text-accent";
 
 /** an unfocused panel drops to 55% so the graph reads through it */
 export function panelClass(focused: boolean): string {
