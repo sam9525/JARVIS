@@ -65,7 +65,7 @@ describe("GraphSettingsPanel", () => {
       handControl: true,
     });
     const header = el.props.children[0];
-    const resetBtn = header.props.children[0];
+    const resetBtn = header.props.children;
     resetBtn.props.onClick();
     // handControl survives: this path can't stop the camera, so resetting it
     // would leave the webcam live behind an unticked box
@@ -77,13 +77,6 @@ describe("GraphSettingsPanel", () => {
     });
     expect(calls.search[0]).toBe("");
     expect(calls.resets).toBe(1);
-  });
-
-  it("close button calls onClose", () => {
-    const { el, calls } = render();
-    const closeBtn = el.props.children[0].props.children[1];
-    closeBtn.props.onClick();
-    expect(calls.closed).toBe(true);
   });
 
   it("new group gets a random hex color and empty query", () => {

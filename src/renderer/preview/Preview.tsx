@@ -64,18 +64,8 @@ export default function Preview({
   return (
     <div
       ref={panelRef}
-      className="my-2.5 ml-2.5 w-[min(560px,40vw)] flex-none overflow-y-auto overflow-x-hidden rounded-[10px] border border-edge bg-panel px-4 py-3 font-sans text-sm leading-relaxed text-ink"
+      className="h-full overflow-x-hidden overflow-y-auto px-4 py-3 font-sans text-sm leading-relaxed text-ink"
     >
-      <div className="sticky -top-3 -mx-4 mb-3 flex items-baseline justify-between bg-panel px-4 py-2">
-        <div className="text-xs text-ink-dim">{nodeId}</div>
-        <button
-          className="cursor-pointer text-sm text-ink-dim hover:text-accent"
-          title="Close"
-          onClick={onClose}
-        >
-          ✕
-        </button>
-      </div>
       {isCode ? (
         <div
           className="code-preview"

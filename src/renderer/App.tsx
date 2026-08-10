@@ -19,6 +19,8 @@ import Segmented from "./ui/Segmented";
 import EmptyGraph from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
+import Panel from "./ui/Panel";
+import { clampAll, defaultPanel, raise } from "./ui/panel-layout";
 import { BTN_IDLE } from "./ui/hud";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
 import {
@@ -36,6 +38,9 @@ import { createPreviewOpener } from "./preview/preview-opener";
 import type {
   CodeGraphLevel,
   HomeView,
+  PanelId,
+  PanelMap,
+  PanelState,
   Settings,
   ToolEvent,
   Workspace,
@@ -78,6 +83,78 @@ export default function App() {
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
+
+  const [focusedPanel, setFocusedPanel] = useState<PanelId>("terminal");
+  const [deckCleared, setDeckCleared] = useState(false);
+  // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
+  // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
+  // than a visible failure
+  const [viewport, setViewport] = useState(() => ({
+    width: window.innerWidth || 1280,
+    height: window.innerHeight || 800,
+  }));
+
+  useEffect(() => {
+    const onResize = () =>
+      setViewport({
+        width: window.innerWidth || 1280,
+        height: window.innerHeight || 800,
+      });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const layoutId = showHome ? "home" : "workspace";
+  const panels: PanelMap = settings.panels[layoutId];
+
+  const panelState = (id: PanelId): PanelState =>
+    panels[id] ?? defaultPanel(id, viewport);
+
+  // Debounced: a drag would otherwise rewrite jarvis-settings.json once per
+  // frame. Renderer state updates immediately; only the disk write waits.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setPanel = useCallback(
+    (id: PanelId, next: PanelState) => {
+      setSettings((s) => {
+        const merged: Settings = {
+          ...s,
+          panels: {
+            ...s.panels,
+            [layoutId]: { ...s.panels[layoutId], [id]: next },
+          },
+        };
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(
+          () => window.jarvis.setSettings(merged).catch(console.error),
+          400,
+        );
+        return merged;
+      });
+    },
+    [layoutId],
+  );
+
+  // a panel saved on a bigger monitor must not stay off-screen here
+  useEffect(() => {
+    if (!settingsReady) return;
+    setSettings((s) => ({
+      ...s,
+      panels: {
+        home: clampAll(s.panels.home, viewport),
+        workspace: clampAll(s.panels.workspace, viewport),
+      },
+    }));
+  }, [settingsReady, viewport]);
+
+  const focusPanel = useCallback(
+    (id: PanelId) => {
+      setFocusedPanel(id);
+      const next = raise({ ...panels, [id]: panelState(id) }, id);
+      const p = next[id];
+      if (p) setPanel(id, p);
+    },
+    [panels, setPanel],
+  );
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
   // so retargeting .current on switch is all a switch needs
@@ -349,6 +426,14 @@ export default function App() {
       >
         ⚙
       </button>
+      <button
+        data-testid="clear-deck"
+        className={BTN_IDLE + " border-dashed text-[13px]"}
+        title={deckCleared ? "Show panels" : "Clear the deck"}
+        onClick={() => setDeckCleared((v) => !v)}
+      >
+        ▤
+      </button>
     </>
   );
 
@@ -521,54 +606,73 @@ export default function App() {
           )
         }
       />
-      {/* TEMPORARY SCAFFOLDING — deleted in Task 9.
-          The root stopped being `flex`, which both panels rely on for sizing
-          and paint order. This restores their docked layout above the ground
-          until the floating panel layer replaces it. Pointer events are
-          inherited rather than re-enabled with a [&>*] variant: that variant
-          ties on specificity with `pointer-events-none` and would resolve by
-          stylesheet order. */}
-      <div className="pointer-events-none absolute inset-0 z-30 flex pl-14">
-        {!showHome && previewNode && active && (
-          <div className="pointer-events-auto flex">
-            <Preview
-              nodeId={previewNode}
-              workspace={active}
-              resolveLink={resolveLink}
-              onNavigate={setPreviewNode}
-              onClose={() => setPreviewNode(null)}
+      {!showHome && previewNode && active && (
+        <Panel
+          id="preview"
+          title={`PREVIEW · ${previewNode.toUpperCase()}`}
+          state={panelState("preview")}
+          focused={focusedPanel === "preview"}
+          hidden={deckCleared}
+          onChange={(next) => setPanel("preview", next)}
+          onFocus={() => focusPanel("preview")}
+          onClose={() => setPreviewNode(null)}
+        >
+          <Preview
+            nodeId={previewNode}
+            workspace={active}
+            resolveLink={resolveLink}
+            onNavigate={setPreviewNode}
+            onClose={() => setPreviewNode(null)}
+          />
+        </Panel>
+      )}
+
+      {(() => {
+        const ws = showHome
+          ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
+          : active;
+        if (!ws) return null;
+        return (
+          <Panel
+            id="terminal"
+            title={`${showHome ? "ORCHESTRATOR" : "SESSION"} // ${ws.name.toUpperCase()}`}
+            state={panelState("terminal")}
+            focused={focusedPanel === "terminal"}
+            hidden={deckCleared}
+            onChange={(next) => setPanel("terminal", next)}
+            onFocus={() => focusPanel("terminal")}
+          >
+            <TerminalPanel
+              workspace={ws}
+              inbox={showHome ? { workspaces, statuses } : undefined}
             />
-          </div>
-        )}
-        <div className="flex-1" />
-        {(() => {
-          const ws = showHome
-            ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
-            : active;
-          return (
-            ws && (
-              <div className="pointer-events-auto flex">
-                <TerminalPanel
-                  workspace={ws}
-                  inbox={showHome ? { workspaces, statuses } : undefined}
-                />
-              </div>
-            )
-          );
-        })()}
-      </div>
+          </Panel>
+        );
+      })()}
+
       {showSettings && (
-        <GraphSettingsPanel
-          settings={settings}
-          activeId={active?.id ?? null}
-          search={search}
-          onSearchChange={setSearch}
-          onSettingsChange={updateSettings}
-          onHandControl={setHandControl}
-          onResetHighlights={() => resetHighlights(stateRef.current)}
+        <Panel
+          id="settings"
+          title="GRAPH SETTINGS"
+          state={panelState("settings")}
+          focused={focusedPanel === "settings"}
+          hidden={deckCleared}
+          onChange={(next) => setPanel("settings", next)}
+          onFocus={() => focusPanel("settings")}
           onClose={() => setShowSettings(false)}
-          showSections={active?.kind !== "code"}
-        />
+        >
+          <GraphSettingsPanel
+            settings={settings}
+            activeId={active?.id ?? null}
+            search={search}
+            onSearchChange={setSearch}
+            onSettingsChange={updateSettings}
+            onHandControl={setHandControl}
+            onResetHighlights={() => resetHighlights(stateRef.current)}
+            onClose={() => setShowSettings(false)}
+            showSections={active?.kind !== "code"}
+          />
+        </Panel>
       )}
     </div>
   );

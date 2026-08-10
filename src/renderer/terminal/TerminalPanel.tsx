@@ -89,8 +89,6 @@ export default function TerminalPanel({
   const [localStatuses, setLocalStatuses] = useState<Record<string, Status>>(
     {},
   );
-  const [width, setWidth] = useState(480);
-  const [collapsed, setCollapsed] = useState(true);
   // a permission-free session is the one action here with no undo, so it costs
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
@@ -145,11 +143,9 @@ export default function TerminalPanel({
   }, []);
 
   // Attach the active workspace's terminal element to the panel and keep the
-  // pty's cols/rows in step with it. One ResizeObserver covers all three ways
-  // the element can change size — window resize, splitter drag, collapse —
-  // which is why `width` is deliberately not a dependency here.
+  // pty's cols/rows in step with it. One ResizeObserver covers all the ways
+  // the element can change size — window resize, panel drag/resize.
   useEffect(() => {
-    if (collapsed) return;
     const host = hostRef.current;
     if (!host) return;
     const e = entryFor(workspace.id);
@@ -163,7 +159,7 @@ export default function TerminalPanel({
     const observer = new ResizeObserver(refit);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [workspace.id, collapsed]);
+  }, [workspace.id]);
 
   const launch = (dangerous = false) => {
     const e = entryFor(workspace.id);
@@ -192,69 +188,8 @@ export default function TerminalPanel({
       });
   };
 
-  const startDrag = (ev: React.MouseEvent) => {
-    ev.preventDefault();
-    const startX = ev.clientX;
-    const startW = width;
-    const move = (m: MouseEvent) =>
-      setWidth(
-        Math.min(
-          Math.max(startW + (startX - m.clientX), 300),
-          window.innerWidth - 240,
-        ),
-      );
-    const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  };
-
-  if (collapsed) {
-    return (
-      <button
-        className="fixed top-1/2 right-0 z-10 cursor-pointer rounded-l-md border border-edge bg-panel px-1 py-3 text-[11px] text-ink-dim hover:text-accent"
-        title="Open terminal"
-        onClick={() => setCollapsed(false)}
-      >
-        {">_"}
-      </button>
-    );
-  }
-
   return (
-    <div
-      className="relative flex flex-none flex-col border-l border-edge bg-panel"
-      style={{ width }}
-    >
-      <div
-        className="absolute top-0 bottom-0 left-0 w-1 cursor-col-resize"
-        onMouseDown={startDrag}
-      />
-      <div className="flex items-center gap-2 border-b border-edge px-3 py-1.5 text-[12px] text-ink-dim">
-        <span className="flex-1 truncate">
-          {workspace.name}
-          {status.kind === "exited" ? ` — exited (${status.code})` : ""}
-        </span>
-        {reindexCommand && status.kind === "running" && (
-          <button
-            className="cursor-pointer text-amber-400 hover:text-amber-300"
-            title={`Graph is behind HEAD — type \`${reindexCommand}\``}
-            onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
-          >
-            index stale
-          </button>
-        )}
-        <button
-          className="cursor-pointer hover:text-accent"
-          title="Collapse"
-          onClick={() => setCollapsed(true)}
-        >
-          »
-        </button>
-      </div>
-
+    <div className="relative flex h-full flex-col">
       {inbox && (
         <div
           className="max-h-[45%] min-h-0 flex-none border-b border-edge"
@@ -314,7 +249,16 @@ export default function TerminalPanel({
           </div>
         </div>
       )}
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1" data-testid="terminal-body">
+        {reindexCommand && status.kind === "running" && (
+          <button
+            className="absolute top-1 right-2 z-10 cursor-pointer font-hud text-[9px] tracking-[0.2em] text-warm uppercase hover:text-amber-300"
+            title={`Graph is behind HEAD — type \`${reindexCommand}\``}
+            onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
+          >
+            index stale
+          </button>
+        )}
         <div ref={hostRef} className="h-full w-full" />
         {status.kind !== "running" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">

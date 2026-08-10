@@ -46,12 +46,27 @@ vi.mock("@xterm/addon-fit", () => ({
 import TerminalPanel from "../../src/renderer/terminal/TerminalPanel";
 import type { Workspace } from "../../src/shared/types";
 
+const walk = (n: any): any[] =>
+  !n || typeof n !== "object"
+    ? []
+    : Array.isArray(n)
+      ? n.flatMap(walk)
+      : [n, ...walk(n.props?.children)];
+
 const workspace: Workspace = {
   id: "w1",
   name: "vault",
   rootPath: "D:\\vault",
   kind: "vault",
   sourceId: "vault",
+};
+
+const WS: Workspace = {
+  id: "d:/x",
+  name: "Xray",
+  rootPath: "D:/x",
+  kind: "code" as const,
+  sourceId: "gitnexus",
 };
 
 const ptyLaunch = vi.fn(async () => ({ ok: true, hooksOk: true }));
@@ -124,9 +139,6 @@ function findButton(tree: any, match: RegExp): any {
 
 describe("TerminalPanel dangerous launch", () => {
   it("spawns nothing on the first click and names the consequence", () => {
-    // the panel starts collapsed — expand it the way a user does
-    findButton(render(), /">_"|>_/).onClick();
-
     const armButton = findButton(render(), /without permission prompts/);
     armButton.onClick();
 
@@ -143,7 +155,6 @@ describe("TerminalPanel dangerous launch", () => {
   });
 
   it("leaves the safe launch a single click", () => {
-    findButton(render(), /">_"|>_/).onClick();
     findButton(render(), /Launch Claude/).onClick();
     expect(ptyLaunch).toHaveBeenCalledTimes(1);
     expect(ptyLaunch.mock.calls[0][3]).toBe(false);
@@ -170,14 +181,12 @@ describe("TerminalPanel inbox", () => {
     find(tree, (n) => n.props?.["data-testid"] === "inbox-detail");
 
   it("is home-only — a workspace terminal shows no inbox", () => {
-    findButton(render(), /">_"|>_/).onClick();
     expect(
       find(render(), (n) => n.props?.["data-testid"] === "terminal-inbox"),
     ).toBeUndefined();
   });
 
   it("opens a detail panel from a row, and closes it on a second click", () => {
-    findButton(open(), /">_"|>_/).onClick();
     expect(detail(open())).toBeUndefined();
 
     const row = find(open(), (n) => typeof n.props?.onSelect === "function");
@@ -190,7 +199,6 @@ describe("TerminalPanel inbox", () => {
 
   // the message is Claude's markdown — rendered, not shown as **literal**
   it("renders the message through the preview pipeline", () => {
-    findButton(open(), /">_"|>_/).onClick();
     find(open(), (n) => typeof n.props?.onSelect === "function").props.onSelect(
       workspace,
     );
@@ -198,5 +206,37 @@ describe("TerminalPanel inbox", () => {
       String(n.props?.className ?? "").includes("preview-body"),
     );
     expect(body.props.dangerouslySetInnerHTML).toBeDefined();
+  });
+});
+
+describe("TerminalPanel panel shell", () => {
+  it("no longer owns a width splitter or a collapse tab", () => {
+    const nodes = walk((TerminalPanel as any)({ workspace: WS }));
+    const classes = nodes
+      .map((n: any) => n.props?.className)
+      .filter((c: any) => typeof c === "string");
+    expect(classes.some((c: string) => c.includes("cursor-col-resize"))).toBe(
+      false,
+    );
+    expect(
+      nodes.some((n: any) => n.props?.title === "Open terminal"),
+    ).toBe(false);
+  });
+
+  it("puts the inbox above the terminal body", () => {
+    const nodes = walk(
+      (TerminalPanel as any)({
+        workspace: WS,
+        inbox: { workspaces: [WS], statuses: [] },
+      }),
+    );
+    const inbox = nodes.findIndex(
+      (n: any) => n.props?.["data-testid"] === "terminal-inbox",
+    );
+    const body = nodes.findIndex(
+      (n: any) => n.props?.["data-testid"] === "terminal-body",
+    );
+    expect(inbox).toBeGreaterThan(-1);
+    expect(body).toBeGreaterThan(inbox);
   });
 });

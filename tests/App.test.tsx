@@ -90,16 +90,16 @@ describe("App shell", () => {
     );
   });
 
-  it("keeps the panels docked above the ground until Task 9 floats them", async () => {
+  it("offers a clear-the-deck control", async () => {
     const { default: App } = await import("../src/renderer/App");
     const nodes = walk((App as any)({}));
-    const dock = nodes.find(
-      (n: any) =>
-        typeof n.props?.className === "string" &&
-        n.props.className.includes("z-30") &&
-        n.props.className.includes("flex"),
-    );
-    expect(dock).toBeDefined();
-    expect(dock.props.className).toContain("pointer-events-none");
+    expect(
+      nodes.some((n: any) => n.props?.["data-testid"] === "clear-deck"),
+    ).toBe(true);
+  });
+
+  it("still renders with no panel geometry saved (defaults resolve)", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    expect((App as any)({})).toBeTruthy();
   });
 });
