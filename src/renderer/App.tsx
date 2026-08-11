@@ -20,7 +20,13 @@ import EmptyGraph from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
 import Panel from "./ui/Panel";
-import { clampAll, defaultPanel, raise } from "./ui/panel-layout";
+import {
+  clampAll,
+  defaultPanel,
+  grabTarget,
+  movePanel,
+  raise,
+} from "./ui/panel-layout";
 import { BTN_IDLE } from "./ui/hud";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
 import {
@@ -48,6 +54,7 @@ import type {
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
+import HandCursor from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import type { Graph3DHandle } from "./graph/Graph3D";
@@ -303,6 +310,13 @@ export default function App() {
   const graph3dHandle = useRef<Graph3DHandle | null>(null);
   const graphHandle = useRef<GraphHandle | null>(null);
 
+  // screen-pixel cursor, mirrored: the webcam image is not flipped, so a hand
+  // moving right in the frame must move the dot right on screen
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  // which panel a pinch grabbed, decided once at drag start
+  const grabbedRef = useRef<PanelId | null>(null);
+
   const hands = useHandControl({
     cameraOn,
     actionsRef: handActionsRef,
@@ -333,6 +347,33 @@ export default function App() {
   // something on the one view where they don't (design §3)
   const hasActions = !(showHome && homeView === "cards");
 
+  const onCursor = useCallback((nx: number, ny: number) => {
+    const p = {
+      x: (1 - nx) * window.innerWidth,
+      y: ny * window.innerHeight,
+    };
+    cursorRef.current = p;
+    setCursor(p);
+  }, []);
+
+  const onHandDrag = useCallback(
+    (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
+      const id = grabTarget(panels, cursorRef.current, grabbedRef.current);
+      grabbedRef.current = id;
+      if (!id) return fallback(dx, dy);
+      const px = -dx * window.innerWidth;
+      const py = dy * window.innerHeight;
+      setPanel(
+        id,
+        movePanel(panelState(id), px, py, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+      );
+    },
+    [panels, setPanel],
+  );
+
   // the workspace graph's own map, registered only while a workspace is on
   // screen; on home the mounted view owns the map outright. Deliberate cut:
   // no drag on 3D — orbit is 3D's navigation (design §6).
@@ -340,11 +381,22 @@ export default function App() {
     handActionsRef,
     settings.dimensions === "3d"
       ? {
+          cursor: onCursor,
           orbit: (v) => graph3dHandle.current?.spin(v),
           zoom: (f) => graph3dHandle.current?.zoom(f),
+          // eslint-disable-next-line @typescript-eslint/no-empty-function
+          drag: (dx, dy) => onHandDrag(dx, dy, () => {}),
+          snap: () => {
+            grabbedRef.current = null;
+          },
         }
       : {
-          drag: (dx, dy) => graphHandle.current?.pan(dx, dy),
+          cursor: onCursor,
+          drag: (dx, dy) =>
+            onHandDrag(dx, dy, (a, b) => graphHandle.current?.pan(a, b)),
+          snap: () => {
+            grabbedRef.current = null;
+          },
           zoom: (f) => graphHandle.current?.zoom(f),
         },
     !showHome,
@@ -673,6 +725,11 @@ export default function App() {
           />
         </Panel>
       )}
+      <HandCursor
+        x={cursor?.x ?? 0}
+        y={cursor?.y ?? 0}
+        visible={cameraOn && hands.armed && cursor !== null}
+      />
     </div>
   );
 }
