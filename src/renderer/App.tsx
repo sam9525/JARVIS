@@ -12,6 +12,7 @@ import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
 import WorkspaceRail from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
+import HomeHeader from "./home/HomeHeader";
 import TerminalPanel from "./terminal/TerminalPanel";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
@@ -28,7 +29,7 @@ import {
   raise,
   snapToEdges,
 } from "./ui/panel-layout";
-import { BTN_IDLE } from "./ui/hud";
+import { BTN_IDLE, TOP_ROW } from "./ui/hud";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
 import {
   applyEvent,
@@ -512,6 +513,14 @@ export default function App() {
       `EDITS ${statuses.reduce((n, s) => n + s.edits, 0)}`
     : `READS ${activeStatus?.reads ?? 0} · EDITS ${activeStatus?.edits ?? 0}`;
 
+  const homeViewToggle = (
+    <Segmented
+      options={HOME_VIEW_OPTIONS}
+      value={homeView}
+      onChange={setHomeView}
+    />
+  );
+
   // hands + refresh + settings — shown on the workspace graph and the command
   // center
   const graphButtons = (
@@ -684,15 +693,14 @@ export default function App() {
           }}
         />
       </div>
-      <div className="pointer-events-none absolute top-14 right-8 z-20 flex items-center gap-2 [&>*]:pointer-events-auto">
-        {showHome ? (
-          <Segmented
-            options={HOME_VIEW_OPTIONS}
-            value={homeView}
-            onChange={setHomeView}
-          />
-        ) : (
-          active?.kind === "code" && (
+      {showHome ? (
+        <HomeHeader statuses={statuses}>
+          {homeViewToggle}
+          {graphButtons}
+        </HomeHeader>
+      ) : (
+        <div className={TOP_ROW}>
+          {active?.kind === "code" && (
             <Segmented
               options={GRAPH_LEVEL_OPTIONS}
               value={settings.codeGraphLevel}
@@ -700,10 +708,10 @@ export default function App() {
                 updateSettings({ ...settings, codeGraphLevel })
               }
             />
-          )
-        )}
-        {graphButtons}
-      </div>
+          )}
+          {graphButtons}
+        </div>
+      )}
       <Bezel
         title="JARVIS · V0.3.6"
         telemetry={telemetry}

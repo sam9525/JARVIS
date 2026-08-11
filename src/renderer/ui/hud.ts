@@ -24,6 +24,15 @@ export const LBL_DIM = LBL + " text-ink-dim";
 export const LBL_CY = LBL + " text-accent hud-bloom";
 export const LBL_AM = LBL + " text-warm hud-bloom-warm";
 
+/**
+ * The top-right control row, sharing the bezel's title line. Home and the
+ * workspace view both hang their controls here, so the ✋ ↻ ⚙ cluster never
+ * moves when you open a workspace. Transparent to the pointer except its
+ * buttons — a full-bleed graph lives underneath.
+ */
+export const TOP_ROW =
+  "pointer-events-none absolute top-2 right-9 z-20 flex items-center gap-3 [&_button]:pointer-events-auto";
+
 export const CAPBAR =
   "flex items-center justify-between px-2.5 py-1 border-b border-accent/20 cursor-move select-none";
 

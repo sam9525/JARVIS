@@ -1,0 +1,57 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect } from "vitest";
+import HomeHeader from "../../src/renderer/home/HomeHeader";
+import type { WorkspaceStatus } from "../../src/shared/types";
+
+const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
+  workspaceId: "w1",
+  kind: "idle",
+  call: "",
+  since: 0,
+  reads: 0,
+  edits: 0,
+  ...over,
+});
+
+// same shallow shim as the other home tests — HomeHeader is hook-free
+function find(node: any, fn: (n: any) => boolean): any {
+  if (!node || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = find(item, fn);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (fn(node)) return node;
+  return find(node.props?.children, fn);
+}
+
+const summaryOf = (statuses: WorkspaceStatus[]) =>
+  find(
+    HomeHeader({ statuses }),
+    (n) => n.props?.["data-testid"] === "mc-summary",
+  )?.props.children;
+
+describe("HomeHeader", () => {
+  it("summarises the fleet, and says so when nothing is running", () => {
+    expect(summaryOf([])).toBe("no active sessions");
+    expect(
+      summaryOf([
+        status({ workspaceId: "w1", kind: "waiting" }),
+        status({ workspaceId: "w2", kind: "running" }),
+      ]),
+    ).toBe("1 waiting · 1 running");
+  });
+
+  it("carries the controls the App hands it, over every home view", () => {
+    const tree = HomeHeader({
+      statuses: [],
+      children: { type: "b", props: { "data-testid": "ctl" } } as any,
+    });
+    expect(find(tree, (n) => n.props?.["data-testid"] === "ctl")).toBeTruthy();
+    // the bar floats over Ring/Fleet: it must not eat their drag gestures
+    expect(tree.props.className).toContain("pointer-events-none");
+    expect(tree.props.className).toContain("[&_button]:pointer-events-auto");
+  });
+});

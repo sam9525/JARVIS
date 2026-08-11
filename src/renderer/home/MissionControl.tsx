@@ -70,21 +70,8 @@ export default function MissionControl({
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
 
   return (
-    <div className="h-full overflow-y-auto p-5">
-      {/* pr keeps the summary left of the App-level Cards|Fleet + graph-controls
-          overlay (top-right); the border-b still spans full width */}
-      <div className="mb-4 flex items-baseline justify-between border-b border-edge pb-3 pr-48">
-        <span className="text-[15px] font-semibold text-ink">
-          All workspaces
-        </span>
-        <span
-          data-testid="mc-summary"
-          className="font-mono text-[11px] tracking-wide text-ink-dim"
-        >
-          {summary(statuses)}
-        </span>
-      </div>
-
+    // pt clears the App-level HomeHeader, which floats over all three home views
+    <div className="h-full overflow-y-auto px-5 pt-12 pb-5">
       <div className="flex flex-wrap gap-3.5">
         {workspaces.map((ws) => {
           const st = byId.get(ws.id);
@@ -207,14 +194,4 @@ export default function MissionControl({
       </div>
     </div>
   );
-}
-
-function summary(statuses: WorkspaceStatus[]): string {
-  const n = (k: StatusKind) => statuses.filter((s) => s.kind === k).length;
-  const parts = [
-    n("waiting") && `${n("waiting")} waiting`,
-    n("running") && `${n("running")} running`,
-    n("idle") && `${n("idle")} idle`,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "no active sessions";
 }

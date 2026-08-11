@@ -188,23 +188,6 @@ describe("MissionControl", () => {
     expect(onSelect).toHaveBeenCalledWith(workspaces[1]);
   });
 
-  it("summarises the fleet, and says so when nothing is running", () => {
-    render(<MissionControl {...(props() as any)} />);
-    expect(screen.byTestId("mc-summary").text).toBe("no active sessions");
-
-    render(
-      <MissionControl
-        {...(props({
-          statuses: [
-            status({ workspaceId: "w1", kind: "waiting" }),
-            status({ workspaceId: "w2", kind: "running" }),
-          ],
-        }) as any)}
-      />,
-    );
-    expect(screen.byTestId("mc-summary").text).toBe("1 waiting · 1 running");
-  });
-
   it("renders a card for a workspace whose graph has not loaded yet", () => {
     render(<MissionControl {...(props() as any)} />);
     expect(screen.byTestId("card-w1")).toBeTruthy();
