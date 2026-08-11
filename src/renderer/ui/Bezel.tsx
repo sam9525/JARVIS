@@ -35,10 +35,12 @@ export default function Bezel({
       >
         {telemetry}
       </div>
-      <div className="hud-tickrail pointer-events-none absolute top-[29px] left-[152px] z-10 flex w-[250px] gap-[5px] overflow-hidden">
-        {Array.from({ length: 50 }, (_, i) => (
-          <i key={i} className="h-[5px] w-px flex-none bg-edge" />
-        ))}
+      <div className="pointer-events-none absolute top-[29px] left-[152px] z-10 w-[250px] overflow-hidden">
+        <div className="hud-tickrail flex gap-[5px]">
+          {Array.from({ length: 50 }, (_, i) => (
+            <i key={i} className="h-[5px] w-px flex-none bg-edge" />
+          ))}
+        </div>
       </div>
       {/* the one interactive layer: the replay scrubber lives here */}
       <div className="absolute inset-x-8 bottom-3 z-20">{footLeft}</div>
