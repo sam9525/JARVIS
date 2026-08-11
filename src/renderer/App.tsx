@@ -26,6 +26,7 @@ import {
   grabTarget,
   movePanel,
   raise,
+  snapToEdges,
 } from "./ui/panel-layout";
 import { BTN_IDLE } from "./ui/hud";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
@@ -78,6 +79,11 @@ export default function App() {
   const [statuses, setStatuses] = useState<WorkspaceStatus[]>([]);
   const [previewNode, setPreviewNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
+  // Mirrors `settings` synchronously (updated every render, below) so the
+  // debounced disk-write timer in `setPanel` always captures the latest
+  // value instead of whatever was current when the timer was armed (I4).
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   // Graphs mount only after settings load: swapping the forces/display prop
   // identities while react-force-graph-3d's first async graphData flush is
   // still pending reheats an engine whose layout doesn't exist yet — the
@@ -119,24 +125,26 @@ export default function App() {
 
   // Debounced: a drag would otherwise rewrite jarvis-settings.json once per
   // frame. Renderer state updates immediately; only the disk write waits.
+  // Scheduling lives here, not inside the `setSettings` updater — updaters
+  // must be pure, and React 18 StrictMode runs them twice.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setPanel = useCallback(
     (id: PanelId, next: PanelState) => {
-      setSettings((s) => {
-        const merged: Settings = {
-          ...s,
-          panels: {
-            ...s.panels,
-            [layoutId]: { ...s.panels[layoutId], [id]: next },
-          },
-        };
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(
-          () => window.jarvis.setSettings(merged).catch(console.error),
-          400,
-        );
-        return merged;
-      });
+      setSettings((s) => ({
+        ...s,
+        panels: {
+          ...s.panels,
+          [layoutId]: { ...s.panels[layoutId], [id]: next },
+        },
+      }));
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      // reads settingsRef at fire time, not whatever was current when the
+      // timer was armed — an `updateSettings` write in between must not be
+      // clobbered by a stale snapshot (I4)
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        window.jarvis.setSettings(settingsRef.current).catch(console.error);
+      }, 400);
     },
     [layoutId],
   );
@@ -405,6 +413,21 @@ export default function App() {
     [liveWorkspacePanels, setPanel],
   );
 
+  // Edge-snap whatever the pinch was holding when it released (spec §7),
+  // then clear the latch so the next pinch decides afresh.
+  const snapGrabbed = useCallback(() => {
+    const id = grabbedRef.current;
+    if (id)
+      setPanel(
+        id,
+        snapToEdges(panelState(id), {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+      );
+    grabbedRef.current = undefined;
+  }, [setPanel, panels]);
+
   // the workspace graph's own map, registered only while a workspace is on
   // screen; on home the mounted view owns the map outright. Deliberate cut:
   // no drag on 3D — orbit is 3D's navigation (design §6).
@@ -417,17 +440,13 @@ export default function App() {
           zoom: (f) => graph3dHandle.current?.zoom(f),
           // eslint-disable-next-line @typescript-eslint/no-empty-function
           drag: (dx, dy) => onHandDrag(dx, dy, () => {}),
-          snap: () => {
-            grabbedRef.current = undefined; // next pinch decides afresh
-          },
+          snap: snapGrabbed,
         }
       : {
           cursor: onCursor,
           drag: (dx, dy) =>
             onHandDrag(dx, dy, (a, b) => graphHandle.current?.pan(a, b)),
-          snap: () => {
-            grabbedRef.current = undefined; // next pinch decides afresh
-          },
+          snap: snapGrabbed,
           zoom: (f) => graphHandle.current?.zoom(f),
         },
     !showHome,
