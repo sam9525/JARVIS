@@ -32,7 +32,7 @@ describe("Bezel", () => {
     const el = Bezel(PROPS) as React.ReactElement;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
-    const foot = layers.find((n) => cls(n).includes("bottom-3 left-8"));
+    const foot = layers.find((n) => cls(n).includes("inset-x-8 bottom-3"));
     expect(foot).toBeDefined();
     expect(cls(foot)).not.toContain("pointer-events-none");
     const others = layers.filter((n) => n !== foot);
@@ -57,5 +57,17 @@ describe("Bezel", () => {
     const html = renderToStaticMarkup(<Bezel {...PROPS} />);
     expect(html).toContain("hud-tickrail");
     expect(html).toContain("hud-sweep");
+  });
+
+  it("gives the foot-left wrapper real extents so Timeline can fill it (C1)", () => {
+    const el = Bezel(PROPS) as React.ReactElement;
+    const layers = React.Children.toArray(el.props.children) as any[];
+    const cls = (n: any) => String(n?.props?.className ?? "");
+    const foot = layers.find((n) => cls(n).includes("inset-x-8 bottom-3"));
+    expect(foot).toBeDefined();
+    // inset-x-8 sets both left and right, so the wrapper has a real width
+    // instead of shrink-wrapping to 0 around its absolutely-positioned child
+    expect(cls(foot)).toContain("inset-x-8");
+    expect(cls(foot)).not.toContain("left-8 z");
   });
 });

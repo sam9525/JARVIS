@@ -41,7 +41,7 @@ export default function Bezel({
         ))}
       </div>
       {/* the one interactive layer: the replay scrubber lives here */}
-      <div className="absolute bottom-3 left-8 z-20">{footLeft}</div>
+      <div className="absolute inset-x-8 bottom-3 z-20">{footLeft}</div>
       <div
         className={
           LBL_DIM + " pointer-events-none absolute right-9 bottom-3 z-10"
