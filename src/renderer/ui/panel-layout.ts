@@ -96,7 +96,8 @@ export function raise(panels: PanelMap, id: PanelId): PanelMap {
   const target = panels[id];
   if (!target) return panels;
   const top = Math.max(...Object.values(panels).map((p) => p.z));
-  if (target.z === top) return panels;
+  const normalised = top === Z_BASE + Object.keys(panels).length - 1;
+  if (target.z === top && normalised) return panels;
   // Renormalise rather than `top + 1`: three panels never need more than
   // three z values, and this keeps the whole stack inside the spec's 20-40
   // band forever instead of climbing through the bezel and overlay on every

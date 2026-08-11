@@ -141,8 +141,11 @@ describe("raise", () => {
     expect(next.terminal!.z).toBeGreaterThan(next.preview!.z);
   });
 
-  it("is a no-op for a panel already on top", () => {
-    const panels: PanelMap = { terminal: at(0, 0, 300, 400, 9) };
+  it("is a no-op for a panel already on top and normalised", () => {
+    const panels: PanelMap = {
+      terminal: at(0, 0, 300, 400, Z_BASE + 1),
+      preview: at(0, 0, 300, 400, Z_BASE),
+    };
     expect(raise(panels, "terminal")).toEqual(panels);
   });
 
@@ -272,5 +275,20 @@ describe("z-index band (I2)", () => {
     const next = raise(panels, "terminal");
     expect(next.terminal!.z).toBeGreaterThan(next.preview!.z);
     expect(next.terminal!.z).toBeGreaterThan(next.settings!.z);
+  });
+
+  it("renormalises a lone legacy panel stuck below the band into it", () => {
+    // a layout with exactly one panel ever focused/moved has a one-entry
+    // map — `target.z === top` is trivially true there, so a stale z:1
+    // (below the bezel at 10 and the overlay at 15) must still fall
+    // through to renormalisation instead of short-circuiting as a no-op
+    const panels: PanelMap = { terminal: at(0, 0, 300, 400, 1) };
+    const next = raise(panels, "terminal");
+    expect(next.terminal!.z).toBe(Z_BASE);
+  });
+
+  it("is a no-op for a one-entry map already normalised at Z_BASE", () => {
+    const panels: PanelMap = { terminal: at(0, 0, 300, 400, Z_BASE) };
+    expect(raise(panels, "terminal")).toBe(panels);
   });
 });
