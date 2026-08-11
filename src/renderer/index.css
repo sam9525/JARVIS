@@ -149,12 +149,13 @@
   /* ── level-2 idle motion ───────────────────────────────────────────────
      transform/opacity only, so every one of these composites on the GPU with
      no layout and no JS timer. Deliberately excluded: boot sequence, CRT
-     flicker, and any animation over terminal or preview body text. */
-  @keyframes hud-spinslow {
-    to {
-      transform: rotate(360deg);
-    }
-  }
+     flicker, and any animation over terminal or preview body text.
+
+     Also excluded, and worth recording: the rotating arc around the focused
+     node. The graph is canvas, so no CSS class can reach it, and animating it
+     canvas-side would force a continuous full-graph redraw — defeating the
+     very reason level 2 keeps its motion in CSS on DOM elements. The focused
+     node keeps its static accent ring. */
   @keyframes hud-sweep-kf {
     0% {
       transform: translateY(-40px);
@@ -183,11 +184,6 @@
       transform: translateX(-24px);
     }
   }
-  .hud-rotarc {
-    animation: hud-spinslow 14s linear infinite;
-    transform-box: fill-box;
-    transform-origin: center;
-  }
   .hud-sweep {
     background: linear-gradient(
       to bottom,
@@ -206,7 +202,6 @@
 
   /* motion is decoration; the readouts underneath are the information */
   @media (prefers-reduced-motion: reduce) {
-    .hud-rotarc,
     .hud-sweep,
     .hud-breathe,
     .hud-tickrail {
