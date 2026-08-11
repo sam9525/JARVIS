@@ -10,6 +10,8 @@ export const MIN_H = 120;
 export const SNAP_PX = 16;
 /** the bezel's own inset — panels stop at the frame, not the window edge */
 export const BEZEL_INSET = 10;
+/** spec §3: panels occupy z 20-40, above the bezel (10) and overlay (15) */
+export const Z_BASE = 20;
 
 export type Viewport = { width: number; height: number };
 
@@ -38,7 +40,7 @@ export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
     w: number;
     h: number;
   }): PanelState {
-    return clampToViewport({ ...r, collapsed: false, z: 1 }, vp);
+    return clampToViewport({ ...r, collapsed: false, z: Z_BASE }, vp);
   }
 }
 
@@ -95,7 +97,19 @@ export function raise(panels: PanelMap, id: PanelId): PanelMap {
   if (!target) return panels;
   const top = Math.max(...Object.values(panels).map((p) => p.z));
   if (target.z === top) return panels;
-  return { ...panels, [id]: { ...target, z: top + 1 } };
+  // Renormalise rather than `top + 1`: three panels never need more than
+  // three z values, and this keeps the whole stack inside the spec's 20-40
+  // band forever instead of climbing through the bezel and overlay on every
+  // focus change.
+  const rest = (Object.keys(panels) as PanelId[])
+    .filter((pid) => pid !== id)
+    .sort((a, b) => panels[a]!.z - panels[b]!.z);
+  const next: PanelMap = {};
+  rest.forEach((pid, i) => {
+    next[pid] = { ...panels[pid]!, z: Z_BASE + i };
+  });
+  next[id] = { ...target, z: Z_BASE + rest.length };
+  return { ...panels, ...next };
 }
 
 /** topmost-first, so an overlap resolves to what the user can actually see */

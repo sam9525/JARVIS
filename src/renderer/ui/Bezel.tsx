@@ -50,8 +50,10 @@ export default function Bezel({
         {footRight}
       </div>
       <div className="hud-sweep pointer-events-none absolute inset-x-0 h-7 z-[48]" />
-      <div className="hud-vignette pointer-events-none absolute inset-0 z-[49]" />
-      <div className="hud-scan pointer-events-none absolute inset-0 z-50" />
+      {/* overlay: z15, below the panel band (20-40) — §8 excludes scanlines
+          over terminal/preview body text, so these must sit under panels */}
+      <div className="hud-vignette pointer-events-none absolute inset-0 z-[15]" />
+      <div className="hud-scan pointer-events-none absolute inset-0 z-[15]" />
     </>
   );
 }

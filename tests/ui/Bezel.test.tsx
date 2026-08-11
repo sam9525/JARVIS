@@ -70,4 +70,16 @@ describe("Bezel", () => {
     expect(cls(foot)).toContain("inset-x-8");
     expect(cls(foot)).not.toContain("left-8 z");
   });
+
+  it("puts the scanline and vignette below the panel band, not above it (I6)", () => {
+    const el = Bezel(PROPS) as React.ReactElement;
+    const layers = React.Children.toArray(el.props.children) as any[];
+    const cls = (n: any) => String(n?.props?.className ?? "");
+    const vignette = layers.find((n) => cls(n).includes("hud-vignette"));
+    const scan = layers.find((n) => cls(n).includes("hud-scan"));
+    expect(cls(vignette)).toContain("z-[15]");
+    expect(cls(scan)).toContain("z-[15]");
+    expect(cls(vignette)).not.toMatch(/z-\[?4?9\]?/);
+    expect(cls(scan)).not.toContain("z-50");
+  });
 });

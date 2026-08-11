@@ -5,6 +5,7 @@ import {
   MIN_W,
   SNAP_PX,
   TITLE_BAR_H,
+  Z_BASE,
   clampAll,
   clampToViewport,
   defaultPanel,
@@ -235,5 +236,41 @@ describe("grabTarget", () => {
 describe("TITLE_BAR_H", () => {
   it("is tall enough to be a hand-drag target", () => {
     expect(TITLE_BAR_H).toBeGreaterThanOrEqual(24);
+  });
+});
+
+describe("z-index band (I2)", () => {
+  it("defaultPanel starts inside the spec's 20-40 panel band", () => {
+    for (const id of ["terminal", "preview", "settings"] as const) {
+      const z = defaultPanel(id, VP).z;
+      expect(z).toBeGreaterThanOrEqual(20);
+      expect(z).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it("raise renormalises instead of growing without bound", () => {
+    let panels: PanelMap = {
+      terminal: at(0, 0, 300, 400, Z_BASE),
+      preview: at(0, 0, 300, 400, Z_BASE + 1),
+    };
+    // toggle focus back and forth well past what `top + 1` could sustain
+    // inside the 20-40 band
+    for (let i = 0; i < 50; i++)
+      panels = raise(panels, i % 2 === 0 ? "terminal" : "preview");
+    for (const p of Object.values(panels)) {
+      expect(p.z).toBeGreaterThanOrEqual(20);
+      expect(p.z).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it("still puts the raised panel strictly above the others after renormalising", () => {
+    const panels: PanelMap = {
+      terminal: at(0, 0, 300, 400, Z_BASE),
+      preview: at(0, 0, 300, 400, Z_BASE + 1),
+      settings: at(0, 0, 300, 400, Z_BASE + 2),
+    };
+    const next = raise(panels, "terminal");
+    expect(next.terminal!.z).toBeGreaterThan(next.preview!.z);
+    expect(next.terminal!.z).toBeGreaterThan(next.settings!.z);
   });
 });
