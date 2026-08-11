@@ -225,6 +225,8 @@ export default function App() {
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
       setReplayIndex(null); // the ref above already points at the live store
+      // a mid-drag switch must not latch across workspaces (ledger #11)
+      grabbedRef.current = undefined;
     },
     [onPreviewEvent],
   );
@@ -331,6 +333,11 @@ export default function App() {
     onCameraFailed: () => setCameraOn(false),
   });
 
+  // a disarm mid-drag must not latch across the re-arm either (ledger #11)
+  useEffect(() => {
+    if (!hands.armed) grabbedRef.current = undefined;
+  }, [hands.armed]);
+
   // two affordances onto one value: the ✋ button and the panel checkbox both
   // land here, so either turns the camera off — and a click after a tracker
   // failure retries even though the persisted value is already true
@@ -360,9 +367,27 @@ export default function App() {
     setCursor(p);
   }, []);
 
+  // Only panels the workspace view is actually rendering may be grabbed. The
+  // persisted geometry map (`panels`) also carries panels that are closed or
+  // deck-cleared; hit-testing against it latches a dead title bar, silently
+  // drags an invisible panel, and refuses to pan the graph for the rest of
+  // the gesture (I1).
+  const liveWorkspacePanels = useCallback((): PanelMap => {
+    if (deckCleared) return {};
+    const live: PanelMap = {};
+    if (active) live.terminal = panelState("terminal");
+    if (previewNode !== null && active) live.preview = panelState("preview");
+    if (showSettings) live.settings = panelState("settings");
+    return live;
+  }, [deckCleared, active, previewNode, showSettings, panels]);
+
   const onHandDrag = useCallback(
     (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
-      const id = grabTarget(panels, cursorRef.current, grabbedRef.current);
+      const id = grabTarget(
+        liveWorkspacePanels(),
+        cursorRef.current,
+        grabbedRef.current,
+      );
       grabbedRef.current = id;
       if (!id) return fallback(dx, dy);
       // no negation: `dx` is documented "sign matches pointer", and both
@@ -377,7 +402,7 @@ export default function App() {
         }),
       );
     },
-    [panels, setPanel],
+    [liveWorkspacePanels, setPanel],
   );
 
   // the workspace graph's own map, registered only while a workspace is on
