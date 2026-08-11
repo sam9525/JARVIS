@@ -55,7 +55,7 @@ import type {
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
-import HandCursor from "./hands/HandCursor";
+import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import type { Graph3DHandle } from "./graph/Graph3D";
@@ -324,8 +324,16 @@ export default function App() {
   // it at the camera boundary ("mirror x so moving the hand right reads as
   // pointer-right — the same sign a mouse drag produces"), so `nx` arrives
   // already in pointer space. Mirroring again sends the dot the wrong way.
-  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  //
+  // Position is not React state: it arrives at tracker frame rate (~30Hz)
+  // and is written straight to HandCursor's DOM node through the imperative
+  // handle, so a moving hand does not reconcile the whole App tree on every
+  // frame (I8). `hasCursor` is the one part that does need a render — the
+  // one-time flip from "no frame yet" to "showing the dot".
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const handCursorRef = useRef<HandCursorHandle>(null);
+  const hasCursorRef = useRef(false);
+  const [hasCursor, setHasCursor] = useState(false);
   // Which panel a pinch grabbed. `undefined` means "not decided yet this
   // gesture"; `null` means "decided: nothing" — the distinction is what stops
   // a graph pan that sweeps across a title bar from yanking that panel.
@@ -367,12 +375,14 @@ export default function App() {
   const hasActions = !(showHome && homeView === "cards");
 
   const onCursor = useCallback((nx: number, ny: number) => {
-    const p = {
-      x: nx * window.innerWidth,
-      y: ny * window.innerHeight,
-    };
-    cursorRef.current = p;
-    setCursor(p);
+    const x = nx * window.innerWidth;
+    const y = ny * window.innerHeight;
+    cursorRef.current = { x, y };
+    handCursorRef.current?.setPosition(x, y);
+    if (!hasCursorRef.current) {
+      hasCursorRef.current = true;
+      setHasCursor(true);
+    }
   }, []);
 
   // Only panels the workspace view is actually rendering may be grabbed. The
@@ -776,13 +786,14 @@ export default function App() {
         </Panel>
       )}
       {/* `!showHome`: only the workspace graph registers `cursor`, so on Home
-          the state would freeze at its last workspace value and leave a
-          stationary ghost dot on a view where hands drive nothing (design §3,
+          the dot would otherwise freeze at its last workspace position and
+          sit there stationary on a view where hands drive nothing (design §3,
           the same reason Cards suppresses the ✋ pulse). */}
       <HandCursor
-        x={cursor?.x ?? 0}
-        y={cursor?.y ?? 0}
-        visible={cameraOn && hands.armed && !showHome && cursor !== null}
+        ref={handCursorRef}
+        initialX={cursorRef.current?.x ?? 0}
+        initialY={cursorRef.current?.y ?? 0}
+        visible={cameraOn && hands.armed && !showHome && hasCursor}
       />
     </div>
   );
