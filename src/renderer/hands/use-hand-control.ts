@@ -59,6 +59,7 @@ export function useHandControl(opts: {
         return;
       }
       const a = actionsRef.current;
+      if (ev.type === "cursor") return a.cursor?.(ev.x, ev.y);
       if (ev.type === "drag") a.drag?.(ev.dx, ev.dy);
       else if (ev.type === "snap") a.snap?.();
       else if (ev.type === "step") a.step?.(ev.dir);

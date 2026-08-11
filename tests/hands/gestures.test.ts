@@ -570,3 +570,35 @@ describe("GestureEngine: swipe at low frame rates", () => {
       expect({ fps, steps: driftStepsAt(fps) }).toEqual({ fps, steps: 0 });
   });
 });
+
+describe("GestureEngine: cursor", () => {
+  it("emits a cursor every tracked frame", () => {
+    const e = new GestureEngine();
+    const cursor = e
+      .update(palmHand(0.5), 0)
+      .find((ev) => ev.type === "cursor");
+    expect(cursor).toBeDefined();
+    expect(cursor).toMatchObject({ type: "cursor" });
+  });
+
+  it("emits a cursor in two-palm mode too, so the dot cannot go stale", () => {
+    const e = new GestureEngine();
+    const events = e.update(palmHand(0.3), 0, palmHand(0.7));
+    expect(events.some((ev) => ev.type === "cursor")).toBe(true);
+  });
+
+  it("emits no cursor when the hand is lost", () => {
+    const e = new GestureEngine();
+    e.update(palmHand(0.5), 0);
+    expect(e.update(null, 0.1).some((ev) => ev.type === "cursor")).toBe(false);
+  });
+
+  it("leaves the pinch drag it rides alongside untouched", () => {
+    const e = new GestureEngine();
+    e.update(pinchedHand(0.5), 0);
+    const drag = e
+      .update(shifted(pinchedHand(0.5), 0.1, 0), 0.1)
+      .find((ev) => ev.type === "drag");
+    expect(drag).toBeDefined();
+  });
+});

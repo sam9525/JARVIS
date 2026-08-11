@@ -20,7 +20,8 @@ export type GestureEvent =
   | { type: "disarm" }
   | { type: "arm" }
   | { type: "orbit"; v: number } // signed rad/s, dead-zoned + clamped
-  | { type: "zoom"; factor: number }; // per-frame multiplicative ratio; >1 = zoom in
+  | { type: "zoom"; factor: number } // per-frame multiplicative ratio; >1 = zoom in
+  | { type: "cursor"; x: number; y: number }; // normalized 0..1 frame coords
 
 const TIPS = { index: 8, middle: 12, ring: 16, pinky: 20 } as const;
 const PIPS = { index: 6, middle: 10, ring: 14, pinky: 18 } as const;
@@ -274,8 +275,11 @@ export class GestureEngine {
     // or re-arm the session off the leading hand.
     // The rising edge is the only moment the one-hand rows can hand back
     // what they are holding — after this frame they do not run at all.
-    const events: GestureEvent[] =
-      bothPalms && !this.wasBothPalms ? this.endOneHand() : [];
+    // The cursor is published every tracked frame, in both one- and two-hand
+    // modes: the hit-test that routes a pinch needs a position even on the
+    // frame the pinch closes, and two-palm mode must not park a stale dot.
+    const events: GestureEvent[] = [{ type: "cursor", x: frame.x, y: frame.y }];
+    if (bothPalms && !this.wasBothPalms) events.push(...this.endOneHand());
     this.wasBothPalms = bothPalms;
     events.push(...this.twoPalmZoom(frame));
     if (!bothPalms) for (const row of this.rows) events.push(...row(frame));
