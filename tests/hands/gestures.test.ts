@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   GestureEngine,
   fingerExtended,
+  PALM_HOLD_S,
   ZOOM_MAX_RATE,
   type GestureEvent,
 } from "../../src/renderer/hands/gestures";
@@ -572,13 +573,32 @@ describe("GestureEngine: swipe at low frame rates", () => {
 });
 
 describe("GestureEngine: cursor", () => {
-  it("emits a cursor every tracked frame", () => {
+  it("emits a cursor every tracked frame, in normalized frame coords", () => {
     const e = new GestureEngine();
     const cursor = e
       .update(palmHand(0.5), 0)
-      .find((ev) => ev.type === "cursor");
+      .find((ev) => ev.type === "cursor") as
+      { x: number; y: number } | undefined;
     expect(cursor).toBeDefined();
-    expect(cursor).toMatchObject({ type: "cursor" });
+    // asserting only `type` would pass with x/y swapped, stale or NaN
+    expect(Number.isFinite(cursor!.x)).toBe(true);
+    expect(Number.isFinite(cursor!.y)).toBe(true);
+    expect(cursor!.x).toBeGreaterThanOrEqual(0);
+    expect(cursor!.x).toBeLessThanOrEqual(1);
+    expect(cursor!.y).toBeGreaterThanOrEqual(0);
+    expect(cursor!.y).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps the last real gesture in the debug readout, not the cursor", () => {
+    // regression guard: the cursor fires every frame, so an unfiltered
+    // sticky() would report "cursor" forever and hide every real gesture
+    const e = new GestureEngine();
+    e.update(palmHand(0.5), 0);
+    e.update(palmHand(0.5), PALM_HOLD_S + 0.1);
+    expect(e.debug.events).toContain("arm");
+    e.update(palmHand(0.5), PALM_HOLD_S + 0.2); // a quiet frame
+    expect(e.debug.events).toContain("arm");
+    expect(e.debug.events).not.toContain("cursor");
   });
 
   it("emits a cursor in two-palm mode too, so the dot cannot go stale", () => {
@@ -593,12 +613,13 @@ describe("GestureEngine: cursor", () => {
     expect(e.update(null, 0.1).some((ev) => ev.type === "cursor")).toBe(false);
   });
 
-  it("leaves the pinch drag it rides alongside untouched", () => {
+  it("rides alongside a pinch drag in the same frame, without disturbing it", () => {
     const e = new GestureEngine();
     e.update(pinchedHand(0.5), 0);
-    const drag = e
+    const types = e
       .update(shifted(pinchedHand(0.5), 0.1, 0), 0.1)
-      .find((ev) => ev.type === "drag");
-    expect(drag).toBeDefined();
+      .map((ev) => ev.type);
+    expect(types).toContain("drag");
+    expect(types).toContain("cursor"); // co-presence is the point of the test
   });
 });

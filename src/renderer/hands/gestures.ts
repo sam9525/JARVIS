@@ -306,9 +306,13 @@ export class GestureEngine {
   }
 
   // the HUD polls at 5 Hz and the tracker runs at 30, so a frame's events
-  // would be invisible four times out of five — this reads "last fired"
+  // would be invisible four times out of five — this reads "last fired".
+  // The cursor is excluded on purpose: it fires every tracked frame, so
+  // counting it would keep `events` permanently non-empty and this would
+  // only ever report "cursor".
   private sticky(events: GestureEvent[]): string[] {
-    return events.length ? events.map((e) => e.type) : this.debug.events;
+    const fired = events.filter((e) => e.type !== "cursor").map((e) => e.type);
+    return fired.length ? fired : this.debug.events;
   }
 
   // hand out of view: end an in-flight pinch cleanly, reset transient state
