@@ -355,4 +355,41 @@ describe("WorkspaceRail source groups", () => {
     );
     expect(html).toContain("border-accent");
   });
+
+  it("breathes only the pips with a live session", () => {
+    const statuses = [
+      {
+        workspaceId: WS.id,
+        kind: "running" as const,
+        call: "",
+        since: 0,
+        reads: 0,
+        edits: 0,
+      },
+    ];
+    const live = renderToStaticMarkup(
+      WorkspaceRail({
+        workspaces: [WS],
+        activeId: null,
+        statuses,
+        homeActive: true,
+        onHome: vi.fn(),
+        onSelect: vi.fn(),
+        onAddProject: vi.fn(),
+      }) as React.ReactElement,
+    );
+    const idle = renderToStaticMarkup(
+      WorkspaceRail({
+        workspaces: [WS],
+        activeId: null,
+        statuses: [],
+        homeActive: true,
+        onHome: vi.fn(),
+        onSelect: vi.fn(),
+        onAddProject: vi.fn(),
+      }) as React.ReactElement,
+    );
+    expect(live).toContain("hud-breathe");
+    expect(idle).not.toContain("hud-breathe");
+  });
 });

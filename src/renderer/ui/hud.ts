@@ -55,9 +55,12 @@ export function panelClass(focused: boolean): string {
  * an idle workspace you are inside must still read as the current one.
  */
 export function pipClass(kind: StatusKind, active: boolean): string {
-  if (active) return PIP + " border-accent text-accent hud-glow-accent";
-  if (kind === "waiting") return PIP + " border-warm text-warm hud-glow-warm";
-  if (kind === "running") return PIP + " border-accent/60 text-accent/80";
+  const live = kind === "waiting" || kind === "running" ? " hud-breathe" : "";
+  if (active) return PIP + " border-accent text-accent hud-glow-accent" + live;
+  if (kind === "waiting")
+    return PIP + " border-warm text-warm hud-glow-warm" + live;
+  if (kind === "running")
+    return PIP + " border-accent/60 text-accent/80" + live;
   return (
     PIP + " border-edge text-ink-dim hover:border-accent hover:text-accent"
   );

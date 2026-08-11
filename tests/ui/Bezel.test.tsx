@@ -52,4 +52,10 @@ describe("Bezel", () => {
     expect(html).toContain("hud-scan");
     expect(html).toContain("hud-vignette");
   });
+
+  it("carries the sweep and the drifting tick rail", () => {
+    const html = renderToStaticMarkup(<Bezel {...PROPS} />);
+    expect(html).toContain("hud-tickrail");
+    expect(html).toContain("hud-sweep");
+  });
 });

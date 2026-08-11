@@ -146,6 +146,77 @@
     );
   }
 
+  /* ── level-2 idle motion ───────────────────────────────────────────────
+     transform/opacity only, so every one of these composites on the GPU with
+     no layout and no JS timer. Deliberately excluded: boot sequence, CRT
+     flicker, and any animation over terminal or preview body text. */
+  @keyframes hud-spinslow {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes hud-sweep-kf {
+    0% {
+      transform: translateY(-40px);
+      opacity: 0;
+    }
+    12%,
+    88% {
+      opacity: 0.5;
+    }
+    100% {
+      transform: translateY(100vh);
+      opacity: 0;
+    }
+  }
+  @keyframes hud-breathe-kf {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @keyframes hud-tick-kf {
+    to {
+      transform: translateX(-24px);
+    }
+  }
+  .hud-rotarc {
+    animation: hud-spinslow 14s linear infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .hud-sweep {
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      color-mix(in srgb, var(--color-accent) 12%, transparent),
+      transparent
+    );
+    animation: hud-sweep-kf 7s linear infinite;
+  }
+  .hud-breathe {
+    animation: hud-breathe-kf 2.6s ease-in-out infinite;
+  }
+  .hud-tickrail {
+    animation: hud-tick-kf 1.6s linear infinite;
+  }
+
+  /* motion is decoration; the readouts underneath are the information */
+  @media (prefers-reduced-motion: reduce) {
+    .hud-rotarc,
+    .hud-sweep,
+    .hud-breathe,
+    .hud-tickrail {
+      animation: none;
+    }
+    .hud-sweep {
+      opacity: 0;
+    }
+  }
+
   .preview-body {
     overflow-wrap: break-word;
   }
