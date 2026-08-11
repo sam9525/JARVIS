@@ -144,8 +144,12 @@ export function clampAll(panels: PanelMap, vp: Viewport): PanelMap {
 export function grabTarget(
   panels: PanelMap,
   cursor: { x: number; y: number } | null,
-  held: PanelId | null,
+  held: PanelId | null | undefined,
 ): PanelId | null {
-  if (held) return held;
+  // `undefined` = not decided yet this gesture; `null` = decided, nothing
+  // grabbed. Both are sticky: a drag that began over bare ground must keep
+  // panning even if it later sweeps across a title bar, or a graph pan would
+  // yank whatever panel it passed over.
+  if (held !== undefined) return held;
   return cursor ? titleBarAt(panels, cursor.x, cursor.y) : null;
 }

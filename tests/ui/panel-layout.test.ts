@@ -210,19 +210,25 @@ describe("grabTarget", () => {
   const panels: PanelMap = { terminal: at(100, 100, 300, 400, 1) };
 
   it("latches the panel whose title bar the pinch closed over", () => {
-    expect(grabTarget(panels, { x: 120, y: 105 }, null)).toBe("terminal");
+    expect(grabTarget(panels, { x: 120, y: 105 }, undefined)).toBe("terminal");
   });
 
   it("returns null for a pinch that closed over bare ground — graph pans", () => {
-    expect(grabTarget(panels, { x: 900, y: 800 }, null)).toBeNull();
+    expect(grabTarget(panels, { x: 900, y: 800 }, undefined)).toBeNull();
   });
 
   it("keeps the latched panel as the hand wanders off the title bar", () => {
     expect(grabTarget(panels, { x: 900, y: 800 }, "terminal")).toBe("terminal");
   });
 
+  it("keeps a decided no-grab, so a pan cannot yank a panel it sweeps over", () => {
+    // null is a decision, not "undecided" — this is the whole reason the
+    // parameter distinguishes null from undefined
+    expect(grabTarget(panels, { x: 120, y: 105 }, null)).toBeNull();
+  });
+
   it("returns null before any cursor has arrived", () => {
-    expect(grabTarget(panels, null, null)).toBeNull();
+    expect(grabTarget(panels, null, undefined)).toBeNull();
   });
 });
 

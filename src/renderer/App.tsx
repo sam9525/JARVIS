@@ -310,12 +310,16 @@ export default function App() {
   const graph3dHandle = useRef<Graph3DHandle | null>(null);
   const graphHandle = useRef<GraphHandle | null>(null);
 
-  // screen-pixel cursor, mirrored: the webcam image is not flipped, so a hand
-  // moving right in the frame must move the dot right on screen
+  // Screen-pixel cursor. Do NOT mirror x here: hand-tracker.ts already does
+  // it at the camera boundary ("mirror x so moving the hand right reads as
+  // pointer-right — the same sign a mouse drag produces"), so `nx` arrives
+  // already in pointer space. Mirroring again sends the dot the wrong way.
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
-  // which panel a pinch grabbed, decided once at drag start
-  const grabbedRef = useRef<PanelId | null>(null);
+  // Which panel a pinch grabbed. `undefined` means "not decided yet this
+  // gesture"; `null` means "decided: nothing" — the distinction is what stops
+  // a graph pan that sweeps across a title bar from yanking that panel.
+  const grabbedRef = useRef<PanelId | null | undefined>(undefined);
 
   const hands = useHandControl({
     cameraOn,
@@ -349,7 +353,7 @@ export default function App() {
 
   const onCursor = useCallback((nx: number, ny: number) => {
     const p = {
-      x: (1 - nx) * window.innerWidth,
+      x: nx * window.innerWidth,
       y: ny * window.innerHeight,
     };
     cursorRef.current = p;
@@ -361,7 +365,9 @@ export default function App() {
       const id = grabTarget(panels, cursorRef.current, grabbedRef.current);
       grabbedRef.current = id;
       if (!id) return fallback(dx, dy);
-      const px = -dx * window.innerWidth;
+      // no negation: `dx` is documented "sign matches pointer", and both
+      // use-panel-drag's movePanel call and Graph's pan() consume it unmodified
+      const px = dx * window.innerWidth;
       const py = dy * window.innerHeight;
       setPanel(
         id,
@@ -387,7 +393,7 @@ export default function App() {
           // eslint-disable-next-line @typescript-eslint/no-empty-function
           drag: (dx, dy) => onHandDrag(dx, dy, () => {}),
           snap: () => {
-            grabbedRef.current = null;
+            grabbedRef.current = undefined; // next pinch decides afresh
           },
         }
       : {
@@ -395,7 +401,7 @@ export default function App() {
           drag: (dx, dy) =>
             onHandDrag(dx, dy, (a, b) => graphHandle.current?.pan(a, b)),
           snap: () => {
-            grabbedRef.current = null;
+            grabbedRef.current = undefined; // next pinch decides afresh
           },
           zoom: (f) => graphHandle.current?.zoom(f),
         },
@@ -725,10 +731,14 @@ export default function App() {
           />
         </Panel>
       )}
+      {/* `!showHome`: only the workspace graph registers `cursor`, so on Home
+          the state would freeze at its last workspace value and leave a
+          stationary ghost dot on a view where hands drive nothing (design §3,
+          the same reason Cards suppresses the ✋ pulse). */}
       <HandCursor
         x={cursor?.x ?? 0}
         y={cursor?.y ?? 0}
-        visible={cameraOn && hands.armed && cursor !== null}
+        visible={cameraOn && hands.armed && !showHome && cursor !== null}
       />
     </div>
   );
