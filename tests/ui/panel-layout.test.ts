@@ -5,6 +5,7 @@ import {
   MIN_W,
   SNAP_PX,
   TITLE_BAR_H,
+  TOP_INSET,
   Z_BASE,
   clampAll,
   clampToViewport,
@@ -13,6 +14,7 @@ import {
   movePanel,
   panelAt,
   raise,
+  rescaleAll,
   resizePanel,
   snapToEdges,
   titleBarAt,
@@ -63,7 +65,7 @@ describe("clampToViewport", () => {
   });
 
   it("pulls a panel saved above the top edge back on screen", () => {
-    expect(clampToViewport(at(100, -500), VP).y).toBe(BEZEL_INSET);
+    expect(clampToViewport(at(100, -500), VP).y).toBe(TOP_INSET);
   });
 
   it("shrinks a panel wider than the viewport", () => {
@@ -308,5 +310,65 @@ describe("z-index band (I2)", () => {
   it("is a no-op for a one-entry map already normalised at Z_BASE", () => {
     const panels: PanelMap = { terminal: at(0, 0, 300, 400, Z_BASE) };
     expect(raise(panels, "terminal")).toBe(panels);
+  });
+});
+
+describe("rescaleAll", () => {
+  const from = { width: 1000, height: 700 };
+  const to = { width: 2000, height: 1400 };
+
+  it("keeps a right/bottom-docked panel docked when the window grows", () => {
+    const docked = at(
+      from.width - BEZEL_INSET - 400,
+      from.height - BEZEL_INSET - 300,
+      400,
+      300,
+    );
+    const p = rescaleAll({ terminal: docked }, from, to).terminal!;
+    expect(p.x + p.w).toBe(to.width - BEZEL_INSET);
+    expect(p.y + p.h).toBe(to.height - BEZEL_INSET);
+    expect([p.w, p.h]).toEqual([400, 300]);
+  });
+
+  it("moves a panel without resizing it", () => {
+    const p = rescaleAll(
+      { preview: at(510, 360, 400, 300) },
+      from,
+      to,
+    ).preview!;
+    expect([p.w, p.h]).toEqual([400, 300]);
+    expect(p.x).toBeGreaterThan(510);
+    expect(p.y).toBeGreaterThan(360);
+  });
+
+  it("keeps an inset-flush panel flush", () => {
+    const p = rescaleAll(
+      { preview: at(BEZEL_INSET, TOP_INSET) },
+      from,
+      to,
+    ).preview!;
+    expect(p.x).toBe(BEZEL_INSET);
+    expect(p.y).toBe(TOP_INSET);
+  });
+
+  it("only clamps when the viewport is unchanged", () => {
+    const panels: PanelMap = { preview: at(100, 100) };
+    expect(rescaleAll(panels, from, from).preview).toBe(panels.preview);
+  });
+});
+
+describe("the reserved top line", () => {
+  it("never lets a drag put a panel over the header row", () => {
+    expect(movePanel(at(100, TOP_INSET), 0, -999, VP).y).toBe(TOP_INSET);
+  });
+
+  it("never lets a north resize grow a panel over it", () => {
+    expect(resizePanel(at(100, TOP_INSET + 50), 0, -999, VP, "n").y).toBe(
+      TOP_INSET,
+    );
+  });
+
+  it("snaps the top edge to it, not to the bezel inset", () => {
+    expect(snapToEdges(at(100, TOP_INSET + SNAP_PX - 1), VP).y).toBe(TOP_INSET);
   });
 });

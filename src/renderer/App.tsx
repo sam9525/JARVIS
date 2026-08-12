@@ -22,11 +22,11 @@ import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
 import Panel from "./ui/Panel";
 import {
-  clampAll,
   defaultPanel,
   grabTarget,
   movePanel,
   raise,
+  rescaleAll,
   snapToEdges,
 } from "./ui/panel-layout";
 import { BTN_IDLE, TOP_ROW } from "./ui/hud";
@@ -153,14 +153,20 @@ export default function App() {
     [layoutId],
   );
 
-  // a panel saved on a bigger monitor must not stay off-screen here
+  // Panels ride the window: maximizing or restoring rescales them, and a
+  // layout saved on a bigger monitor is pulled back on screen by the clamp
+  // inside. Ratio-1 on the first pass and on StrictMode's second run, so this
+  // is a plain clamp unless the viewport actually changed.
+  const lastViewport = useRef(viewport);
   useEffect(() => {
     if (!settingsReady) return;
+    const from = lastViewport.current;
+    lastViewport.current = viewport;
     setSettings((s) => ({
       ...s,
       panels: {
-        home: clampAll(s.panels.home, viewport),
-        workspace: clampAll(s.panels.workspace, viewport),
+        home: rescaleAll(s.panels.home, from, viewport),
+        workspace: rescaleAll(s.panels.workspace, from, viewport),
       },
     }));
   }, [settingsReady, viewport]);

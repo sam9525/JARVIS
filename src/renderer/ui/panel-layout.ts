@@ -10,6 +10,14 @@ export const MIN_H = 120;
 export const SNAP_PX = 16;
 /** the bezel's own inset — panels stop at the frame, not the window edge */
 export const BEZEL_INSET = 10;
+/**
+ * The top line is reserved: the bezel title, its tick rail and the shared
+ * control row (HomeHeader's summary and the ✋ ↻ ⚙ cluster) all live there and
+ * are pointer-transparent, so a panel parked over them would hide controls
+ * that cannot be clicked back out. Clears the tallest of the three — the 27px
+ * buttons hung at top-2 — with a margin.
+ */
+export const TOP_INSET = 44;
 /** spec §3: panels occupy z 20-40, above the bezel (10) and overlay (15) */
 export const Z_BASE = 20;
 
@@ -58,11 +66,11 @@ export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
  */
 export function clampToViewport(p: PanelState, vp: Viewport): PanelState {
   const w = Math.max(MIN_W, Math.min(p.w, vp.width - BEZEL_INSET * 2));
-  const h = Math.max(MIN_H, Math.min(p.h, vp.height - BEZEL_INSET * 2));
+  const h = Math.max(MIN_H, Math.min(p.h, vp.height - TOP_INSET - BEZEL_INSET));
   // hi can fall below lo on a viewport smaller than the minimums; clamp()
   // resolves that to lo, which parks the panel at the top-left inset
   const x = clamp(p.x, BEZEL_INSET, vp.width - BEZEL_INSET - w);
-  const y = clamp(p.y, BEZEL_INSET, vp.height - BEZEL_INSET - h);
+  const y = clamp(p.y, TOP_INSET, vp.height - BEZEL_INSET - h);
   return p.x === x && p.y === y && p.w === w && p.h === h
     ? p
     : { ...p, x, y, w, h };
@@ -74,7 +82,7 @@ export function snapToEdges(p: PanelState, vp: Viewport): PanelState {
   if (Math.abs(x - BEZEL_INSET) <= SNAP_PX) x = BEZEL_INSET;
   const right = vp.width - BEZEL_INSET - p.w;
   if (Math.abs(x - right) <= SNAP_PX) x = right;
-  if (Math.abs(y - BEZEL_INSET) <= SNAP_PX) y = BEZEL_INSET;
+  if (Math.abs(y - TOP_INSET) <= SNAP_PX) y = TOP_INSET;
   const bottom = vp.height - BEZEL_INSET - p.h;
   if (Math.abs(y - bottom) <= SNAP_PX) y = bottom;
   return x === p.x && y === p.y ? p : { ...p, x, y };
@@ -114,7 +122,7 @@ export function resizePanel(
     next.w = p.w - d;
   }
   if (edge.includes("n")) {
-    const d = clamp(dy, BEZEL_INSET - p.y, p.h - MIN_H);
+    const d = clamp(dy, TOP_INSET - p.y, p.h - MIN_H);
     next.y = p.y + d;
     next.h = p.h - d;
   }
@@ -176,6 +184,50 @@ export function clampAll(panels: PanelMap, vp: Viewport): PanelMap {
   const next: PanelMap = {};
   for (const [id, p] of Object.entries(panels) as Array<[PanelId, PanelState]>)
     next[id] = clampToViewport(p, vp);
+  return next;
+}
+
+/**
+ * Panels hold their place in the window, not on the screen. Maximizing moves
+ * every panel by the viewport ratio, so a right-docked terminal stays docked
+ * right instead of stranded mid-screen — clamping alone only pulls panels in,
+ * and a window that grew needs nothing pulled in.
+ *
+ * Only the position moves: a panel keeps the size you gave it. So the fraction
+ * preserved is of the *travel* — the room a panel of that size has between the
+ * insets — not of the window. That keeps a panel flush against either edge
+ * flush after the resize, which scaling the raw coordinate cannot do once the
+ * size is held fixed.
+ */
+export function rescaleAll(
+  panels: PanelMap,
+  from: Viewport,
+  to: Viewport,
+): PanelMap {
+  if (from.width === to.width && from.height === to.height)
+    return clampAll(panels, to);
+  const slide = (
+    pos: number,
+    size: number,
+    a: number,
+    b: number,
+    lead: number,
+  ) => {
+    const travel = (v: number) => v - lead - BEZEL_INSET - size;
+    return travel(a) > 0
+      ? Math.round(lead + (pos - lead) * (travel(b) / travel(a)))
+      : pos;
+  };
+  const next: PanelMap = {};
+  for (const [id, p] of Object.entries(panels) as Array<[PanelId, PanelState]>)
+    next[id] = clampToViewport(
+      {
+        ...p,
+        x: slide(p.x, p.w, from.width, to.width, BEZEL_INSET),
+        y: slide(p.y, p.h, from.height, to.height, TOP_INSET),
+      },
+      to,
+    );
   return next;
 }
 
