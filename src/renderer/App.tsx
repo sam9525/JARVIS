@@ -752,10 +752,16 @@ export default function App() {
           ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
           : active;
         if (!ws) return null;
+        // home's terminal collapses to an inbox strip rather than to its title
+        // bar — the fleet's state is what you want while the session is parked
+        const inboxOnly = showHome && panelState("terminal").collapsed;
         return (
           <Panel
             id="terminal"
             title={`${showHome ? "ORCHESTRATOR" : "SESSION"} // ${ws.name.toUpperCase()}`}
+            compactWidth={
+              showHome ? Math.round(viewport.width * 0.22) : undefined
+            }
             state={panelState("terminal")}
             focused={focusedPanel === "terminal"}
             hidden={deckCleared}
@@ -765,6 +771,7 @@ export default function App() {
             <TerminalPanel
               workspace={ws}
               inbox={showHome ? { workspaces, statuses } : undefined}
+              inboxOnly={inboxOnly}
             />
           </Panel>
         );

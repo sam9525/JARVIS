@@ -89,6 +89,26 @@ describe("Panel", () => {
     expect(el.props.style.height).toBe(TITLE_BAR_H);
   });
 
+  it("collapses to compactWidth with its body intact when one is given", () => {
+    const state = { ...STATE, collapsed: true };
+    const el = Panel({
+      ...base,
+      state,
+      compactWidth: 200,
+    }) as React.ReactElement;
+    expect(el.props.style.width).toBe(200);
+    // narrows from the left: the right edge stays where it was
+    expect(el.props.style.left).toBe(STATE.x + STATE.w - 200);
+    expect(el.props.style.left + 200).toBe(STATE.x + STATE.w);
+    expect(el.props.style.height).toBeUndefined(); // shrink-wraps the body
+    const html = renderToStaticMarkup(
+      <Panel {...base} state={state} compactWidth={200} />,
+    );
+    expect(html).toContain("body");
+    // fixed size while compact, so the resize handles stay away
+    expect(html).not.toContain("panel-grip-terminal");
+  });
+
   it("renders nothing when the deck is cleared", () => {
     expect(Panel({ ...base, hidden: true })).toBeNull();
   });

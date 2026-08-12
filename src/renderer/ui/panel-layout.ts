@@ -24,8 +24,15 @@ export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
   if (id === "preview")
     return withDefaults({ x: 92, y: 98, w: Math.round(vp.width * 0.26), h });
   if (id === "terminal") {
-    const w = Math.round(vp.width * 0.31);
-    return withDefaults({ x: vp.width - w - 38, y: 98, w, h });
+    // The terminal is the panel you actually work in, so it opens wide enough
+    // for Claude Code's TUI and runs the full height under the bezel line.
+    const w = Math.round(vp.width * 0.42);
+    return withDefaults({
+      x: vp.width - w - 38,
+      y: 98,
+      w,
+      h: vp.height - 98 - BEZEL_INSET,
+    });
   }
   return withDefaults({
     x: Math.round(vp.width / 2 - 160),
@@ -82,14 +89,36 @@ export function movePanel(
   return clampToViewport({ ...p, x: p.x + dx, y: p.y + dy }, vp);
 }
 
-/** bottom-right grip: the origin stays put, the far corner follows the hand */
+/** which sides a resize drag moves — the eight compass handles on the border */
+export type ResizeEdge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
+/**
+ * Drag one edge or corner. The opposite side stays put, which for the north and
+ * west handles means moving the origin as the size shrinks — so the delta is
+ * clamped here rather than left to clampToViewport, which would pin x or y and
+ * let the far edge crawl.
+ */
 export function resizePanel(
   p: PanelState,
   dx: number,
   dy: number,
   vp: Viewport,
+  edge: ResizeEdge = "se",
 ): PanelState {
-  return clampToViewport({ ...p, w: p.w + dx, h: p.h + dy }, vp);
+  const next = { ...p };
+  if (edge.includes("e")) next.w = p.w + dx;
+  if (edge.includes("s")) next.h = p.h + dy;
+  if (edge.includes("w")) {
+    const d = clamp(dx, BEZEL_INSET - p.x, p.w - MIN_W);
+    next.x = p.x + d;
+    next.w = p.w - d;
+  }
+  if (edge.includes("n")) {
+    const d = clamp(dy, BEZEL_INSET - p.y, p.h - MIN_H);
+    next.y = p.y + d;
+    next.h = p.h - d;
+  }
+  return clampToViewport(next, vp);
 }
 
 export function raise(panels: PanelMap, id: PanelId): PanelMap {

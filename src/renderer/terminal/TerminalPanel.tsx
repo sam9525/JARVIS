@@ -79,11 +79,14 @@ function entryFor(id: string): Entry {
 export default function TerminalPanel({
   workspace,
   inbox,
+  inboxOnly,
 }: {
   workspace: Workspace;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
   inbox?: { workspaces: Workspace[]; statuses: WorkspaceStatus[] };
+  // the collapsed home panel: the fleet's state stays, the session goes away
+  inboxOnly?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -190,10 +193,14 @@ export default function TerminalPanel({
   };
 
   return (
-    <div className="relative flex h-full flex-col">
+    // inbox-only sizes to its rows, so it must not claim the panel's height
+    <div className={"relative flex flex-col " + (inboxOnly ? "" : "h-full")}>
       {inbox && (
         <div
-          className="max-h-[45%] min-h-0 flex-none border-b border-edge"
+          className={
+            "min-h-0 " +
+            (inboxOnly ? "" : "max-h-[45%] flex-none border-b border-edge")
+          }
           data-testid="terminal-inbox"
         >
           <Inbox
@@ -250,7 +257,11 @@ export default function TerminalPanel({
           </div>
         </div>
       )}
-      <div className="relative min-h-0 flex-1" data-testid="terminal-body">
+      <div
+        className="relative min-h-0 flex-1"
+        data-testid="terminal-body"
+        hidden={inboxOnly}
+      >
         {reindexCommand && status.kind === "running" && (
           <button
             className={LBL_AM + " absolute top-1 right-2 z-10 cursor-pointer"}

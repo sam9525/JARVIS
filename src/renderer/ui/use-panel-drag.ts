@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
 import type { PanelState } from "../../shared/types";
 import { movePanel, resizePanel, snapToEdges } from "./panel-layout";
+import type { ResizeEdge } from "./panel-layout";
 
 const viewport = () => ({
   width: window.innerWidth,
@@ -18,7 +19,7 @@ export function usePanelDrag(opts: {
   onChange(next: PanelState): void;
 }): {
   onTitlePointerDown(e: React.PointerEvent): void;
-  onGripPointerDown(e: React.PointerEvent): void;
+  onGripPointerDown(e: React.PointerEvent, edge?: ResizeEdge): void;
 } {
   const latest = useRef(opts);
   latest.current = opts;
@@ -30,7 +31,7 @@ export function usePanelDrag(opts: {
   useEffect(() => () => stopRef.current?.(), []);
 
   const begin = useCallback(
-    (e: React.PointerEvent, mode: "move" | "resize") => {
+    (e: React.PointerEvent, mode: "move" | ResizeEdge) => {
       e.preventDefault();
       e.stopPropagation();
       stopRef.current?.(); // a second pointerdown must not stack listeners
@@ -42,7 +43,7 @@ export function usePanelDrag(opts: {
         const dy = ev.clientY - sy;
         return mode === "move"
           ? movePanel(start, dx, dy, viewport())
-          : resizePanel(start, dx, dy, viewport());
+          : resizePanel(start, dx, dy, viewport(), mode);
       };
       const move = (ev: PointerEvent) => latest.current.onChange(at(ev));
       const finish = (ev: PointerEvent) => {
@@ -72,6 +73,9 @@ export function usePanelDrag(opts: {
 
   return {
     onTitlePointerDown: useCallback((e) => begin(e, "move"), [begin]),
-    onGripPointerDown: useCallback((e) => begin(e, "resize"), [begin]),
+    onGripPointerDown: useCallback(
+      (e, edge: ResizeEdge = "se") => begin(e, edge),
+      [begin],
+    ),
   };
 }

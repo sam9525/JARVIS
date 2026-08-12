@@ -35,8 +35,9 @@ describe("defaultPanel", () => {
     const terminal = defaultPanel("terminal", VP);
     expect(preview.w).toBeCloseTo(VP.width * 0.26, 0);
     expect(preview.h).toBeCloseTo(VP.height * 0.8, 0);
-    expect(terminal.w).toBeCloseTo(VP.width * 0.31, 0);
-    expect(terminal.h).toBeCloseTo(VP.height * 0.8, 0);
+    expect(terminal.w).toBeCloseTo(VP.width * 0.42, 0);
+    // the terminal runs from its top edge down to the bezel inset
+    expect(terminal.y + terminal.h).toBe(VP.height - BEZEL_INSET);
   });
 
   it("puts preview left and terminal right, leaving a centre channel", () => {
@@ -128,6 +129,23 @@ describe("resizePanel", () => {
     const p = resizePanel(at(100, 100, 300, 400), -9999, -9999, VP);
     expect(p.w).toBe(MIN_W);
     expect(p.h).toBe(MIN_H);
+  });
+
+  it("moves the origin on the west/north handles, holding the far edge", () => {
+    const p = resizePanel(at(100, 100, 300, 400), -40, -25, VP, "nw");
+    expect(p).toMatchObject({ x: 60, y: 75, w: 340, h: 425 });
+  });
+
+  it("keeps the far edge still when a west drag hits the minimum", () => {
+    const p = resizePanel(at(100, 100, 300, 400), 9999, 0, VP, "w");
+    expect(p.w).toBe(MIN_W);
+    expect(p.x + p.w).toBe(400); // where the right edge started
+  });
+
+  it("clamps a west drag at the bezel instead of widening past it", () => {
+    const p = resizePanel(at(100, 100, 300, 400), -9999, 0, VP, "w");
+    expect(p.x).toBe(BEZEL_INSET);
+    expect(p.x + p.w).toBe(400);
   });
 });
 
