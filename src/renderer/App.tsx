@@ -487,7 +487,10 @@ export default function App() {
       ),
     [graph],
   );
-  // code workspaces have no sections; force "both" so nothing vanishes
+  // code workspaces have no sections; force "both" so nothing vanishes.
+  // Deps are the four filter fields, NOT `settings` — panel drags and window
+  // resizes rewrite `settings.panels`, and a whole-object dep would hand
+  // ForceGraph a new graphData identity and restart the simulation (I9).
   const visible = useMemo(
     () =>
       filterGraph(graph, {
@@ -497,7 +500,14 @@ export default function App() {
         showTags: settings.showTags,
         showOrphans: settings.showOrphans,
       }),
-    [graph, settings, search, active],
+    [
+      graph,
+      settings.sectionFilter,
+      settings.showTags,
+      settings.showOrphans,
+      search,
+      active?.kind,
+    ],
   );
 
   const view = settings.views[settings.dimensions];

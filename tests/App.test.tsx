@@ -14,7 +14,10 @@ vi.mock("react", async () => {
     ...actual,
     useState: (init: any) => [typeof init === "function" ? init() : init, noop],
     useRef: (initial: any) => ({ current: initial }),
-    useMemo: (fn: any) => fn(),
+    useMemo: (fn: any, deps: any) => {
+      memoDeps.push(deps);
+      return fn();
+    },
     useCallback: (fn: any) => fn,
     useEffect: () => {
       return;
@@ -25,6 +28,9 @@ vi.mock("react", async () => {
 const noop = () => {
   return;
 };
+
+// every dependency array App hands to useMemo, in render order
+const memoDeps: any[][] = [];
 
 // depth-first, source order — this file invokes App() directly, so the tree
 // is element objects rather than HTML
@@ -88,6 +94,19 @@ describe("App shell", () => {
     expect(railWrapper.props.className).toContain(
       "[&_button]:pointer-events-auto",
     );
+  });
+
+  it("memoizes on settings fields, never the whole settings object", async () => {
+    // `settings.panels` is rewritten on every panel drag and window resize. A
+    // memo that depends on the whole object hands ForceGraph a new graphData
+    // identity each time, restarting the simulation.
+    const { default: App } = await import("../src/renderer/App");
+    memoDeps.length = 0;
+    (App as any)({});
+    const settingsShaped = memoDeps
+      .flat()
+      .some((d: any) => d && typeof d === "object" && "panels" in d);
+    expect(settingsShaped).toBe(false);
   });
 
   it("offers a clear-the-deck control", async () => {
