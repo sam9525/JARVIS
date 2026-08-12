@@ -36,6 +36,8 @@ type PanelProps = {
    * right-docked panel stays docked and covers only what it still shows.
    */
   compactWidth?: number;
+  /** off for a panel that closes instead of folding — see App's workspace terminal */
+  collapsible?: boolean;
   onChange(next: PanelState): void;
   onFocus(): void;
   onClose?(): void;
@@ -52,6 +54,7 @@ export default function Panel({
   focused,
   hidden,
   compactWidth,
+  collapsible = true,
   onChange,
   onFocus,
   onClose,
@@ -95,22 +98,24 @@ export default function Panel({
         <span className={focused ? LBL_CY : LBL_DIM}>⣿&nbsp;&nbsp;{title}</span>
         <span className="flex items-center gap-2">
           {badge}
-          <button
-            data-testid={`panel-collapse-${id}`}
-            title={state.collapsed ? "Expand" : "Collapse"}
-            className="cursor-pointer text-[10px] text-ink-dim hover:text-accent"
-            onPointerDown={(e) => e.stopPropagation()}
-            // expanding re-clamps: the small box may have been dragged
-            // somewhere the full one does not fit
-            onClick={() => {
-              const next = { ...state, collapsed: !state.collapsed };
-              onChange(
-                state.collapsed ? clampToViewport(next, viewport()) : next,
-              );
-            }}
-          >
-            {state.collapsed ? "▸" : "▾"}
-          </button>
+          {collapsible && (
+            <button
+              data-testid={`panel-collapse-${id}`}
+              title={state.collapsed ? "Expand" : "Collapse"}
+              className="cursor-pointer text-[10px] text-ink-dim hover:text-accent"
+              onPointerDown={(e) => e.stopPropagation()}
+              // expanding re-clamps: the small box may have been dragged
+              // somewhere the full one does not fit
+              onClick={() => {
+                const next = { ...state, collapsed: !state.collapsed };
+                onChange(
+                  state.collapsed ? clampToViewport(next, viewport()) : next,
+                );
+              }}
+            >
+              {state.collapsed ? "▸" : "▾"}
+            </button>
+          )}
           {onClose && (
             <button
               data-testid={`panel-close-${id}`}

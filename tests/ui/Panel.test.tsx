@@ -171,6 +171,14 @@ describe("Panel", () => {
     expect(onChange).toHaveBeenCalledWith({ ...STATE, collapsed: false });
   });
 
+  it("drops the collapse caret when the panel closes instead", () => {
+    const html = renderToStaticMarkup(
+      <Panel {...base} collapsible={false} onClose={vi.fn()} />,
+    );
+    expect(html).not.toContain("panel-collapse-terminal");
+    expect(html).toContain("panel-close-terminal");
+  });
+
   it("does not start a title-bar drag from the caret", () => {
     const stopPropagation = vi.fn();
     const caret = walk(Panel(base)).find(
