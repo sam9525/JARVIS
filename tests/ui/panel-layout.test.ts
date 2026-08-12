@@ -32,14 +32,27 @@ const at = (x: number, y: number, w = 300, h = 400, z = 1): PanelState => ({
 });
 
 describe("defaultPanel", () => {
-  it("sizes preview and terminal to the spec's percentages", () => {
-    const preview = defaultPanel("preview", VP);
-    const terminal = defaultPanel("terminal", VP);
-    expect(preview.w).toBeCloseTo(VP.width * 0.26, 0);
-    expect(preview.h).toBeCloseTo(VP.height * 0.8, 0);
-    expect(terminal.w).toBeCloseTo(VP.width * 0.42, 0);
-    // the terminal runs from its top edge down to the bezel inset
-    expect(terminal.y + terminal.h).toBe(VP.height - BEZEL_INSET);
+  it("sizes every panel as a fraction of the window, full height", () => {
+    for (const id of ["terminal", "preview", "settings"] as const) {
+      const p = defaultPanel(id, VP);
+      // no fixed pixel sizes: doubling the window doubles the panel
+      const big = defaultPanel(id, { width: VP.width * 2, height: VP.height });
+      expect(big.w).toBeCloseTo(p.w * 2, 0);
+      // every panel runs from the top line down to the bezel inset
+      expect(p.y + p.h).toBe(VP.height - BEZEL_INSET);
+    }
+  });
+
+  it("docks terminal and settings flush against the right frame", () => {
+    for (const id of ["terminal", "settings"] as const)
+      expect(defaultPanel(id, VP).x + defaultPanel(id, VP).w).toBe(
+        VP.width - BEZEL_INSET,
+      );
+  });
+
+  it("opens home's terminal folded and the workspace's expanded", () => {
+    expect(defaultPanel("terminal", VP, "home").collapsed).toBe(true);
+    expect(defaultPanel("terminal", VP, "workspace").collapsed).toBe(false);
   });
 
   it("puts preview left and terminal right, leaving a centre channel", () => {
@@ -327,18 +340,35 @@ describe("rescaleAll", () => {
     const p = rescaleAll({ terminal: docked }, from, to).terminal!;
     expect(p.x + p.w).toBe(to.width - BEZEL_INSET);
     expect(p.y + p.h).toBe(to.height - BEZEL_INSET);
-    expect([p.w, p.h]).toEqual([400, 300]);
   });
 
-  it("moves a panel without resizing it", () => {
+  it("scales a panel's size with the window, not just its position", () => {
     const p = rescaleAll(
       { preview: at(510, 360, 400, 300) },
       from,
       to,
     ).preview!;
-    expect([p.w, p.h]).toEqual([400, 300]);
+    const span = (v: number, lead: number) => v - lead - BEZEL_INSET;
+    expect(p.w / 400).toBeCloseTo(
+      span(to.width, BEZEL_INSET) / span(from.width, BEZEL_INSET),
+      2,
+    );
+    expect(p.h / 300).toBeCloseTo(
+      span(to.height, TOP_INSET) / span(from.height, TOP_INSET),
+      2,
+    );
     expect(p.x).toBeGreaterThan(510);
     expect(p.y).toBeGreaterThan(360);
+  });
+
+  it("shrinks a panel back down when the window shrinks", () => {
+    const p = rescaleAll(
+      { preview: at(510, 360, 400, 300) },
+      to,
+      from,
+    ).preview!;
+    expect(p.w).toBeLessThan(400);
+    expect(p.h).toBeLessThan(300);
   });
 
   it("keeps an inset-flush panel flush", () => {

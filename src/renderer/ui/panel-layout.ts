@@ -2,7 +2,12 @@
 // straight onto inline styles. Same split as ring-layout.ts: the maths is
 // testable without a browser, and the component stays a shell.
 
-import type { PanelId, PanelMap, PanelState } from "../../shared/types";
+import type {
+  LayoutId,
+  PanelId,
+  PanelMap,
+  PanelState,
+} from "../../shared/types";
 
 export const TITLE_BAR_H = 26;
 export const MIN_W = 240;
@@ -26,37 +31,45 @@ export type Viewport = { width: number; height: number };
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(v, hi));
 
-/** the spec's §4 defaults, resolved against the current viewport */
-export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
-  const h = Math.round(vp.height * 0.8);
-  if (id === "preview")
-    return withDefaults({ x: 92, y: 98, w: Math.round(vp.width * 0.26), h });
-  if (id === "terminal") {
-    // The terminal is the panel you actually work in, so it opens wide enough
-    // for Claude Code's TUI and runs the full height under the bezel line.
-    const w = Math.round(vp.width * 0.42);
-    return withDefaults({
-      x: vp.width - w - 38,
-      y: 98,
-      w,
-      h: vp.height - 98 - BEZEL_INSET,
-    });
-  }
-  return withDefaults({
-    x: Math.round(vp.width / 2 - 160),
-    y: 120,
-    w: 320,
-    h: Math.round(vp.height * 0.7),
-  });
+/** the workspace rail is a fixed 56px column; a panel must not cover its pips */
+const RAIL_CLEAR = 66;
+/** default width, as a fraction of the window */
+const WIDTH: Record<PanelId, number> = {
+  // wide enough for Claude Code's TUI — the panel you actually work in
+  terminal: 0.36,
+  preview: 0.36,
+  settings: 0.15,
+};
 
-  function withDefaults(r: {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  }): PanelState {
-    return clampToViewport({ ...r, collapsed: false, z: Z_BASE }, vp);
-  }
+/**
+ * Defaults, entirely proportional to the current window: every panel runs the
+ * full height between the top line and the bezel, preview opens left of the
+ * rail and the other two dock flush right. So the arrangement reads the same on
+ * a laptop as on a 4K monitor instead of drifting toward one corner.
+ */
+export function defaultPanel(
+  id: PanelId,
+  vp: Viewport,
+  layout: LayoutId = "workspace",
+): PanelState {
+  const w = Math.round(vp.width * WIDTH[id]);
+  return clampToViewport(
+    {
+      x:
+        id === "preview"
+          ? // ratio on a wide window, rail clearance on a narrow one
+            Math.max(RAIL_CLEAR, Math.round(vp.width * 0.053))
+          : vp.width - BEZEL_INSET - w,
+      y: TOP_INSET,
+      w,
+      h: vp.height - TOP_INSET - BEZEL_INSET,
+      // home's terminal opens folded: the command center's own cards are what
+      // you came for, and the fold leaves the inbox strip
+      collapsed: id === "terminal" && layout === "home",
+      z: Z_BASE,
+    },
+    vp,
+  );
 }
 
 /**
@@ -188,16 +201,15 @@ export function clampAll(panels: PanelMap, vp: Viewport): PanelMap {
 }
 
 /**
- * Panels hold their place in the window, not on the screen. Maximizing moves
- * every panel by the viewport ratio, so a right-docked terminal stays docked
- * right instead of stranded mid-screen — clamping alone only pulls panels in,
- * and a window that grew needs nothing pulled in.
+ * Panels hold their place *and their proportions* in the window, not on the
+ * screen. Maximizing scales every panel by the viewport ratio, so a
+ * right-docked terminal stays docked right at the same fraction of the window
+ * instead of keeping a laptop's size on a 4K monitor — clamping alone only
+ * pulls panels in, and a window that grew needs nothing pulled in.
  *
- * Only the position moves: a panel keeps the size you gave it. So the fraction
- * preserved is of the *travel* — the room a panel of that size has between the
- * insets — not of the window. That keeps a panel flush against either edge
- * flush after the resize, which scaling the raw coordinate cannot do once the
- * size is held fixed.
+ * The ratio is taken over the *content box* — the span between the insets, not
+ * the raw window — so a panel flush against an edge is still flush afterwards.
+ * Scaling the raw coordinate would drift every dock by the inset's own growth.
  */
 export function rescaleAll(
   panels: PanelMap,
@@ -206,25 +218,19 @@ export function rescaleAll(
 ): PanelMap {
   if (from.width === to.width && from.height === to.height)
     return clampAll(panels, to);
-  const slide = (
-    pos: number,
-    size: number,
-    a: number,
-    b: number,
-    lead: number,
-  ) => {
-    const travel = (v: number) => v - lead - BEZEL_INSET - size;
-    return travel(a) > 0
-      ? Math.round(lead + (pos - lead) * (travel(b) / travel(a)))
-      : pos;
-  };
+  // the content box: what is left of an axis once both insets are taken out
+  const span = (v: number, lead: number) => Math.max(1, v - lead - BEZEL_INSET);
+  const fx = span(to.width, BEZEL_INSET) / span(from.width, BEZEL_INSET);
+  const fy = span(to.height, TOP_INSET) / span(from.height, TOP_INSET);
   const next: PanelMap = {};
   for (const [id, p] of Object.entries(panels) as Array<[PanelId, PanelState]>)
     next[id] = clampToViewport(
       {
         ...p,
-        x: slide(p.x, p.w, from.width, to.width, BEZEL_INSET),
-        y: slide(p.y, p.h, from.height, to.height, TOP_INSET),
+        x: Math.round(BEZEL_INSET + (p.x - BEZEL_INSET) * fx),
+        y: Math.round(TOP_INSET + (p.y - TOP_INSET) * fy),
+        w: Math.round(p.w * fx),
+        h: Math.round(p.h * fy),
       },
       to,
     );

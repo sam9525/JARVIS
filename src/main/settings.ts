@@ -44,6 +44,11 @@ export async function loadSettings(file: string): Promise<Settings> {
     for (const layout of ["home", "workspace"] as const) {
       s.panels[layout] = readPanelMap(panels[layout]);
     }
+    // the window those panels were measured in; absent → the renderer takes
+    // the current one and rescales nothing
+    const vp = asRecord(p.panelViewport);
+    if (isSize(vp.width) && isSize(vp.height))
+      s.panelViewport = { width: vp.width, height: vp.height };
     // per-view display/forces (new format). A legacy flat display/forces from
     // an older settings file seeds BOTH modes first, then any per-view values
     // present in the file win.
@@ -59,6 +64,10 @@ export async function loadSettings(file: string): Promise<Settings> {
     // missing or unreadable file → defaults; rewritten on next save
   }
   return s;
+}
+
+function isSize(u: unknown): u is number {
+  return typeof u === "number" && Number.isFinite(u) && u > 0;
 }
 
 function asRecord(u: unknown): Record<string, unknown> {

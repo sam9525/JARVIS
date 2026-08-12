@@ -314,6 +314,26 @@ describe("settings", () => {
     expect(s.panels.home).toEqual({});
   });
 
+  it("round-trips the window the panels were measured in", async () => {
+    const f = await writeSettings({
+      panelViewport: { width: 1536, height: 864 },
+    });
+    expect((await loadSettings(f)).panelViewport).toEqual({
+      width: 1536,
+      height: 864,
+    });
+  });
+
+  it("leaves panelViewport absent when the file has none or a bad one", async () => {
+    expect(
+      (await loadSettings(await writeSettings({}))).panelViewport,
+    ).toBeUndefined();
+    const bad = await writeSettings({
+      panelViewport: { width: 0, height: 864 },
+    });
+    expect((await loadSettings(bad)).panelViewport).toBeUndefined();
+  });
+
   it("drops a panel with a non-finite coordinate", async () => {
     const f = await writeSettings({
       panels: {

@@ -125,7 +125,7 @@ export default function App() {
   const panels: PanelMap = settings.panels[layoutId];
 
   const panelState = (id: PanelId): PanelState =>
-    panels[id] ?? defaultPanel(id, viewport);
+    panels[id] ?? defaultPanel(id, viewport, layoutId);
 
   // Debounced: a drag would otherwise rewrite jarvis-settings.json once per
   // frame. Renderer state updates immediately; only the disk write waits.
@@ -153,22 +153,27 @@ export default function App() {
     [layoutId],
   );
 
-  // Panels ride the window: maximizing or restoring rescales them, and a
-  // layout saved on a bigger monitor is pulled back on screen by the clamp
-  // inside. Ratio-1 on the first pass and on StrictMode's second run, so this
-  // is a plain clamp unless the viewport actually changed.
-  const lastViewport = useRef(viewport);
+  // Panels ride the window: maximizing, restoring or reopening at a different
+  // size rescales them, and a layout saved on a bigger monitor is pulled back
+  // on screen by the clamp inside.
+  //
+  // The reference is `panelViewport` — the window the geometry was written in —
+  // not the previous render's size. That makes the rescale idempotent (a
+  // second run finds from === to), so StrictMode's double-invoke and a reopen
+  // at the same size both leave every width exactly as it was saved.
   useEffect(() => {
     if (!settingsReady) return;
-    const from = lastViewport.current;
-    lastViewport.current = viewport;
-    setSettings((s) => ({
-      ...s,
-      panels: {
-        home: rescaleAll(s.panels.home, from, viewport),
-        workspace: rescaleAll(s.panels.workspace, from, viewport),
-      },
-    }));
+    setSettings((s) => {
+      const from = s.panelViewport ?? viewport;
+      return {
+        ...s,
+        panelViewport: viewport,
+        panels: {
+          home: rescaleAll(s.panels.home, from, viewport),
+          workspace: rescaleAll(s.panels.workspace, from, viewport),
+        },
+      };
+    });
   }, [settingsReady, viewport]);
 
   const focusPanel = useCallback(
