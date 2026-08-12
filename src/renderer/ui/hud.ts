@@ -10,7 +10,9 @@ export const FRAME_DIM = FRAME + " hud-frame-dim";
 
 /** panel body fills */
 export const GLASS = "bg-panel/80 border border-accent/20";
-export const GLASS_UN = "bg-panel/55 border border-accent/10";
+// same border as GLASS: only the fill says which panel has focus, so an
+// unfocused panel keeps its edge instead of reading as switched off
+export const GLASS_UN = "bg-panel/55 border border-accent/20";
 
 /**
  * Micro-label: the HUD's only body type. LBL carries no colour on purpose. A

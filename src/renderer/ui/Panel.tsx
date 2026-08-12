@@ -1,6 +1,6 @@
 import React from "react";
 import type { PanelId, PanelState } from "../../shared/types";
-import { CAPBAR, FRAME, FRAME_DIM, LBL_CY, LBL_DIM, panelClass } from "./hud";
+import { CAPBAR, FRAME, LBL_CY, panelClass } from "./hud";
 import {
   clampToViewport,
   MIN_H,
@@ -95,7 +95,10 @@ export default function Panel({
       onPointerDown={onFocus}
     >
       <div className={CAPBAR} onPointerDown={drag.onTitlePointerDown}>
-        <span className={focused ? LBL_CY : LBL_DIM}>⣿&nbsp;&nbsp;{title}</span>
+        {/* title and frame stay lit whatever has focus — a dimmed preview or
+            settings panel read as disabled next to the terminal you were just
+            typing in. Focus is still legible in the body fill (panelClass). */}
+        <span className={LBL_CY}>⣿&nbsp;&nbsp;{title}</span>
         <span className="flex items-center gap-2">
           {badge}
           {collapsible && (
@@ -161,7 +164,7 @@ export default function Panel({
           />
         </>
       )}
-      <div className={(focused ? FRAME : FRAME_DIM) + " -inset-1.5"}>
+      <div className={FRAME + " -inset-1.5"}>
         <span className="hud-c3" />
         <span className="hud-c4" />
       </div>

@@ -16,6 +16,7 @@ vi.mock("react", async () => {
 });
 
 import Panel from "../../src/renderer/ui/Panel";
+import { LBL_CY } from "../../src/renderer/ui/hud";
 import { TITLE_BAR_H } from "../../src/renderer/ui/panel-layout";
 import type { PanelState } from "../../src/shared/types";
 
@@ -73,6 +74,13 @@ describe("Panel", () => {
     const off = renderToStaticMarkup(<Panel {...base} focused={false} />);
     expect(on).toContain("bg-panel/80");
     expect(off).toContain("bg-panel/55");
+  });
+
+  it("keeps title, frame and border lit when not focused", () => {
+    const off = renderToStaticMarkup(<Panel {...base} focused={false} />);
+    expect(off).toContain(LBL_CY);
+    expect(off).not.toContain("hud-frame-dim");
+    expect(off).toContain("border-accent/20");
   });
 
   it("collapses to the title bar, hiding the body and the resize grip", () => {
