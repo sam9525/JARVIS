@@ -4,7 +4,7 @@ import type { PanelState } from "../../shared/types";
 import { movePanel, resizePanel, snapToEdges } from "./panel-layout";
 import type { ResizeEdge } from "./panel-layout";
 
-const viewport = () => ({
+export const viewport = () => ({
   width: window.innerWidth,
   height: window.innerHeight,
 });

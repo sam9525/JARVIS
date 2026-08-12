@@ -1,8 +1,13 @@
 import React from "react";
 import type { PanelId, PanelState } from "../../shared/types";
 import { CAPBAR, FRAME, FRAME_DIM, LBL_CY, LBL_DIM, panelClass } from "./hud";
-import { TITLE_BAR_H, type ResizeEdge } from "./panel-layout";
-import { usePanelDrag } from "./use-panel-drag";
+import {
+  clampToViewport,
+  MIN_H,
+  TITLE_BAR_H,
+  type ResizeEdge,
+} from "./panel-layout";
+import { usePanelDrag, viewport } from "./use-panel-drag";
 
 // Every border is a resize handle. The strips are invisible and sit outside the
 // body's rounded corners, so the only visible affordance stays the SE grip.
@@ -52,18 +57,32 @@ export default function Panel({
   onClose,
   children,
 }: PanelProps) {
-  const drag = usePanelDrag({ state, onChange });
+  const compact = state.collapsed && compactWidth !== undefined;
+  const width = compact ? compactWidth : state.w;
+  const dx = compact ? state.w - compactWidth : 0;
+  // A compact panel's stored geometry still describes the box it expands back
+  // to, so dragging it against that box clamps it against a width and height
+  // it does not currently occupy — which pins a full-height right-docked
+  // terminal in place. Drag the box that is actually on screen instead, and
+  // translate the result back. MIN_H stands in for the shrink-wrapped height;
+  // measuring it would cost a ref and a re-render to save ~100px of travel.
+  const drag = usePanelDrag({
+    state: compact
+      ? { ...state, x: state.x + dx, w: compactWidth, h: MIN_H }
+      : state,
+    onChange: compact
+      ? (next) => onChange({ ...state, x: next.x - dx, y: next.y })
+      : onChange,
+  });
   // clear-the-deck: unmounting is deliberate — a hidden terminal keeps its
   // xterm instance in the module-level map either way, so nothing is lost
   if (hidden) return null;
-  const compact = state.collapsed && compactWidth !== undefined;
-  const width = compact ? compactWidth : state.w;
   return (
     <div
       data-testid={`panel-${id}`}
       className={"absolute " + panelClass(focused)}
       style={{
-        left: compact ? state.x + state.w - compactWidth : state.x,
+        left: state.x + dx,
         top: state.y,
         width,
         // compact shrink-wraps its body; the rest is exactly as tall as its state
@@ -81,7 +100,14 @@ export default function Panel({
             title={state.collapsed ? "Expand" : "Collapse"}
             className="cursor-pointer text-[10px] text-ink-dim hover:text-accent"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onChange({ ...state, collapsed: !state.collapsed })}
+            // expanding re-clamps: the small box may have been dragged
+            // somewhere the full one does not fit
+            onClick={() => {
+              const next = { ...state, collapsed: !state.collapsed };
+              onChange(
+                state.collapsed ? clampToViewport(next, viewport()) : next,
+              );
+            }}
           >
             {state.collapsed ? "▸" : "▾"}
           </button>

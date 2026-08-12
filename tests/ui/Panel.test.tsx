@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
 import React from "react";
@@ -107,6 +108,43 @@ describe("Panel", () => {
     expect(html).toContain("body");
     // fixed size while compact, so the resize handles stay away
     expect(html).not.toContain("panel-grip-terminal");
+  });
+
+  it("drags a compact panel by the box on screen, not the one it expands to", () => {
+    const onChange = vi.fn();
+    // full height and hard against the right edge: clamping this against the
+    // expanded geometry would pin it, which is the bug under test
+    const state: PanelState = {
+      ...STATE,
+      x: 1024 - 10 - 320,
+      y: 10,
+      h: 748,
+      collapsed: true,
+    };
+    const el = Panel({
+      ...base,
+      state,
+      compactWidth: 200,
+      onChange,
+    }) as React.ReactElement;
+    const bar = walk(el).find(
+      (n: any) =>
+        n.props?.onPointerDown && n.props.className?.includes?.("cursor-move"),
+    );
+    bar.props.onPointerDown({
+      clientX: 500,
+      clientY: 500,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    });
+    window.dispatchEvent(
+      Object.assign(new Event("pointerup"), { clientX: 460, clientY: 560 }),
+    );
+    const next = onChange.mock.calls.at(-1)![0];
+    expect(next.x).toBe(state.x - 40); // moved left
+    expect(next.y).toBe(state.y + 60); // and down, which the tall box forbade
+    expect(next.w).toBe(state.w); // the expanded geometry is preserved
+    expect(next.h).toBe(state.h);
   });
 
   it("renders nothing when the deck is cleared", () => {
