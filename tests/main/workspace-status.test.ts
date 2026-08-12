@@ -191,6 +191,20 @@ describe("status store", () => {
     expect(s.snapshot()[0].message).toBe("");
   });
 
+  // a second `claude` in the same folder resolves to the same workspace, and
+  // Claude's own idle Notification arrives ~60s after a turn ends — neither is
+  // work starting, so neither may blank what the last session said
+  it("keeps the message when an unfamiliar session only goes idle", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", message: "done!" }));
+    s.applyStatus(ev({ kind: "idle", sessionId: "other", ts: 61000 }));
+    expect(s.snapshot()[0].message).toBe("done!");
+
+    // ...and the next real prompt in that session still clears it
+    s.applyStatus(ev({ kind: "running", sessionId: "other", ts: 62000 }));
+    expect(s.snapshot()[0].message).toBe("");
+  });
+
   it("keeps the last message across a running event that carries none", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "idle", message: "answer me" }));
@@ -294,6 +308,35 @@ describe("status store expiry", () => {
     s.applyStatus(ev({ kind: "idle", ts: 1000 }));
     expect(s.sweep(1000 + EXPIRE_MS * 10)).toBe(false);
     expect(kindOf(s)).toBe("idle");
+  });
+
+  // the row survives the quiet; "Claude said" six hours ago does not
+  it("clears a live workspace's message once past EXPIRE_MS", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ kind: "idle", message: "done", ts: 1000 }));
+    s.markDelegated("w1", "orchestrator", 1000);
+    expect(s.sweep(1000 + EXPIRE_MS - 1)).toBe(false);
+    expect(s.snapshot()[0].message).toBe("done");
+
+    expect(s.sweep(1000 + EXPIRE_MS)).toBe(true);
+    expect(s.snapshot()[0]).toMatchObject({
+      workspaceId: "w1",
+      kind: "idle",
+      message: "",
+      delegatedBy: "",
+    });
+    expect(s.sweep(1000 + EXPIRE_MS * 2)).toBe(false); // already cleared
+  });
+
+  // the restored timestamp belongs to the message, not to the session about to
+  // start — launching a terminal must not hand the sweep an expired clock
+  it("launching a terminal restarts a restored row's expiry clock", () => {
+    const s = createStatusStore();
+    s.restore([{ workspaceId: "w1", message: "answer me", since: 0 }]);
+    s.ptyLaunched("w1", EXPIRE_MS);
+    expect(s.sweep(EXPIRE_MS + 1000)).toBe(false);
+    expect(s.snapshot()[0].message).toBe("answer me");
   });
 
   it("a restored row older than EXPIRE_MS is gone after one sweep", () => {
