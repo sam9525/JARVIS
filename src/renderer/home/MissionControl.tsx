@@ -70,8 +70,10 @@ export default function MissionControl({
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
 
   return (
-    // pt clears the App-level HomeHeader, which floats over all three home views
-    <div className="h-full overflow-y-auto px-5 pt-12 pb-5">
+    // pt clears the App-level HomeHeader and pl the WorkspaceRail — both float
+    // over all three home views, but only cards are a laid-out surface that
+    // would otherwise sit underneath them.
+    <div className="h-full overflow-y-auto pl-[72px] pr-5 pt-12 pb-5">
       <div className="flex flex-wrap gap-3.5">
         {workspaces.map((ws) => {
           const st = byId.get(ws.id);
