@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import Inbox from "./Inbox";
@@ -31,6 +31,31 @@ const PILL_LABEL: Record<StatusKind, string> = {
   idle: "idle",
   none: "idle",
 };
+/**
+ * Where the inbox detail sits, given the terminal panel's rect, the box's own
+ * width and the viewport height. Pure, so the clamps are testable without a
+ * DOM. The panel's height is deliberately not an input: collapsed, it
+ * shrink-wraps to the inbox strip, and the message still needs room to read.
+ */
+export function detailBox(
+  panel: { left: number; right: number; top: number },
+  width: number,
+  viewportH: number,
+) {
+  const gap = 20;
+  const min = 340; // shortest box worth opening
+  const top = Math.max(gap, Math.min(panel.top, viewportH - min));
+  return {
+    // flip to the panel's right when there is no room on its left
+    left:
+      panel.left > width + gap * 2
+        ? panel.left - width - gap
+        : panel.right + gap,
+    top,
+    maxHeight: viewportH - top - gap,
+  };
+}
+
 const BAR: Record<StatusKind, string> = {
   waiting: "from-warm",
   running: "from-accent",
@@ -89,6 +114,8 @@ export default function TerminalPanel({
   inboxOnly?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [localStatuses, setLocalStatuses] = useState<Record<string, Status>>(
     {},
@@ -135,6 +162,24 @@ export default function TerminalPanel({
       stale = true;
     };
   }, [message]);
+
+  // Park the detail alongside the panel. Written to the element rather than to
+  // state: this runs on every render (a panel drag re-renders App, hence us)
+  // and a setState here would loop.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const el = detailRef.current;
+    if (!root || !el) return;
+    // its own width is a class, not a constant here — read it back
+    const box = detailBox(
+      root.getBoundingClientRect(),
+      el.offsetWidth,
+      window.innerHeight,
+    );
+    el.style.left = `${box.left}px`;
+    el.style.top = `${box.top}px`;
+    el.style.maxHeight = `${box.maxHeight}px`;
+  });
 
   useEffect(() => {
     ensureSubscribed();
@@ -194,7 +239,10 @@ export default function TerminalPanel({
 
   return (
     // inbox-only sizes to its rows, so it must not claim the panel's height
-    <div className={"relative flex flex-col " + (inboxOnly ? "" : "h-full")}>
+    <div
+      ref={rootRef}
+      className={"relative flex flex-col " + (inboxOnly ? "" : "h-full")}
+    >
       {inbox && (
         <div
           className={
@@ -214,9 +262,13 @@ export default function TerminalPanel({
         </div>
       )}
       {detail && (
-        // inset from the terminal's left edge, floating over the graph
+        // Sits beside the panel, floating over the graph. Panel's body clips
+        // its children (overflow-hidden), so an absolute box placed outside the
+        // panel renders to nothing — fixed escapes the clip (no ancestor sets a
+        // transform) and the layout effect above puts it back alongside.
         <div
-          className="absolute top-11 right-[calc(100%+20px)] bottom-5 z-10 flex w-[340px] flex-col rounded-xl border border-edge bg-gradient-to-b from-panel/95 to-abyss/95 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8),0_0_0_1px_rgba(34,211,238,0.06)] backdrop-blur-[2px]"
+          ref={detailRef}
+          className="fixed z-30 flex w-[340px] flex-col overflow-hidden rounded-xl border border-edge bg-gradient-to-b from-panel/95 to-abyss/95 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8),0_0_0_1px_rgba(34,211,238,0.06)] backdrop-blur-[2px]"
           data-testid="inbox-detail"
         >
           {/* state bar: the panel says which state it is before you read it */}

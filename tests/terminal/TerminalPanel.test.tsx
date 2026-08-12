@@ -21,6 +21,7 @@ vi.mock("react", async () => {
       ];
     },
     useEffect: () => {},
+    useLayoutEffect: () => {},
     useRef: (init: any) => ({ current: init }),
   };
 });
@@ -43,7 +44,9 @@ vi.mock("@xterm/addon-fit", () => ({
   },
 }));
 
-import TerminalPanel from "../../src/renderer/terminal/TerminalPanel";
+import TerminalPanel, {
+  detailBox,
+} from "../../src/renderer/terminal/TerminalPanel";
 import type { Workspace } from "../../src/shared/types";
 
 const walk = (n: any): any[] =>
@@ -192,6 +195,9 @@ describe("TerminalPanel inbox", () => {
     const row = find(open(), (n) => typeof n.props?.onSelect === "function");
     row.props.onSelect(workspace);
     expect(text(detail(open()).props.children)).toContain("vault");
+    // Panel's body is overflow-hidden, so an absolute box placed beside the
+    // panel is clipped away and the view silently never appears
+    expect(detail(open()).props.className).toContain("fixed");
 
     row.props.onSelect(workspace);
     expect(detail(open())).toBeUndefined();
@@ -206,6 +212,35 @@ describe("TerminalPanel inbox", () => {
       String(n.props?.className ?? "").includes("preview-body"),
     );
     expect(body.props.dangerouslySetInnerHTML).toBeDefined();
+  });
+});
+
+describe("detailBox", () => {
+  const panel = (left: number, top: number, w = 400) => ({
+    left,
+    right: left + w,
+    top,
+  });
+
+  it("sits to the panel's left, level with its top edge", () => {
+    expect(detailBox(panel(900, 60), 340, 1000)).toEqual({
+      left: 540,
+      top: 60,
+      maxHeight: 920,
+    });
+  });
+
+  it("flips to the right when the left edge has no room", () => {
+    expect(detailBox(panel(120, 60), 340, 1000).left).toBe(540);
+  });
+
+  // a collapsed terminal is a short strip that can sit low on the screen; the
+  // message still needs a readable box, so the top lifts rather than squeezing
+  it("lifts the box up when the panel sits too low to fit one", () => {
+    expect(detailBox(panel(900, 900), 340, 1000)).toMatchObject({
+      top: 660,
+      maxHeight: 320,
+    });
   });
 });
 
