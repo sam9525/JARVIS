@@ -9,10 +9,10 @@ export const FRAME = "pointer-events-none absolute hud-frame";
 export const FRAME_DIM = FRAME + " hud-frame-dim";
 
 /** panel body fills */
-export const GLASS = "bg-panel/80 border border-accent/20";
+export const GLASS = "bg-panel/95 border border-accent/20";
 // same border as GLASS: only the fill says which panel has focus, so an
 // unfocused panel keeps its edge instead of reading as switched off
-export const GLASS_UN = "bg-panel/55 border border-accent/20";
+export const GLASS_UN = "bg-panel/80 border border-accent/20";
 
 /**
  * Micro-label: the HUD's only body type. LBL carries no colour on purpose. A
@@ -56,7 +56,7 @@ export const BTN =
 export const BTN_IDLE =
   BTN + " border-edge text-ink-dim hover:border-accent hover:text-accent";
 
-/** an unfocused panel drops to 55% so the graph reads through it */
+/** an unfocused panel drops to 80% so the graph reads faintly through it */
 export function panelClass(focused: boolean): string {
   return focused ? GLASS + " shadow-[0_0_44px_rgba(2,6,11,0.92)]" : GLASS_UN;
 }

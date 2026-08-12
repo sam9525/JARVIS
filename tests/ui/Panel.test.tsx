@@ -72,8 +72,8 @@ describe("Panel", () => {
   it("drops to the unfocused fill when not focused", () => {
     const on = renderToStaticMarkup(<Panel {...base} />);
     const off = renderToStaticMarkup(<Panel {...base} focused={false} />);
-    expect(on).toContain("bg-panel/80");
-    expect(off).toContain("bg-panel/55");
+    expect(on).toContain("bg-panel/95");
+    expect(off).toContain("bg-panel/80");
   });
 
   it("keeps title, frame and border lit when not focused", () => {
