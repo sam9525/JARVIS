@@ -1,6 +1,12 @@
 import { promises as fs } from "node:fs";
 import { defaultSettings } from "../shared/types";
-import type { GraphGroup, Settings } from "../shared/types";
+import type {
+  GraphGroup,
+  PanelId,
+  PanelMap,
+  PanelState,
+  Settings,
+} from "../shared/types";
 
 export async function loadSettings(file: string): Promise<Settings> {
   const s = defaultSettings();
@@ -31,6 +37,18 @@ export async function loadSettings(file: string): Promise<Settings> {
         if (Array.isArray(list)) s.groups[id] = list.filter(isGroup);
       }
     }
+    // panel geometry, per layout. A malformed entry is dropped rather than
+    // repaired: the renderer falls back to defaultPanel() for any absent key,
+    // which is always a sane position (design §6).
+    const panels = asRecord(p.panels);
+    for (const layout of ["home", "workspace"] as const) {
+      s.panels[layout] = readPanelMap(panels[layout]);
+    }
+    // the window those panels were measured in; absent → the renderer takes
+    // the current one and rescales nothing
+    const vp = asRecord(p.panelViewport);
+    if (isSize(vp.width) && isSize(vp.height))
+      s.panelViewport = { width: vp.width, height: vp.height };
     // per-view display/forces (new format). A legacy flat display/forces from
     // an older settings file seeds BOTH modes first, then any per-view values
     // present in the file win.
@@ -46,6 +64,10 @@ export async function loadSettings(file: string): Promise<Settings> {
     // missing or unreadable file → defaults; rewritten on next save
   }
   return s;
+}
+
+function isSize(u: unknown): u is number {
+  return typeof u === "number" && Number.isFinite(u) && u > 0;
 }
 
 function asRecord(u: unknown): Record<string, unknown> {
@@ -78,4 +100,31 @@ function isGroup(g: unknown): g is GraphGroup {
 
 export async function saveSettings(file: string, s: Settings): Promise<void> {
   await fs.writeFile(file, JSON.stringify(s, null, 2) + "\n", "utf8");
+}
+
+const PANEL_IDS: readonly PanelId[] = ["terminal", "preview", "settings"];
+
+function readPanelMap(u: unknown): PanelMap {
+  const src = asRecord(u);
+  const out: PanelMap = {};
+  for (const id of PANEL_IDS) {
+    const p = src[id];
+    if (isPanelState(p)) out[id] = p;
+  }
+  return out;
+}
+
+function isPanelState(u: unknown): u is PanelState {
+  if (typeof u !== "object" || u === null) return false;
+  const o = u as Record<string, unknown>;
+  const num = (k: string) =>
+    typeof o[k] === "number" && Number.isFinite(o[k] as number);
+  return (
+    num("x") &&
+    num("y") &&
+    num("w") &&
+    num("h") &&
+    num("z") &&
+    typeof o.collapsed === "boolean"
+  );
 }

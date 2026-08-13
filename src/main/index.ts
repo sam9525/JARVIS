@@ -1,4 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  screen,
+  shell,
+} from "electron";
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
@@ -184,9 +192,14 @@ app.whenReady().then(async () => {
   });
 
   Menu.setApplicationMenu(null); // kills File/Edit/View… and their accelerators
+  // Sized off the display, not a fixed 1400x900: the panel defaults are all
+  // percentages of the window, so the window itself has to scale with the
+  // screen or the whole HUD is laid out for a monitor the user may not have.
+  // workAreaSize excludes the taskbar, so nothing opens underneath it.
+  const { workAreaSize } = screen.getPrimaryDisplay();
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: Math.round(workAreaSize.width * 0.8),
+    height: Math.round(workAreaSize.height * 0.85),
     backgroundColor: "#02060b",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });

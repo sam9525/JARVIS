@@ -84,11 +84,20 @@ export function createStatusStore(): StatusStore {
 
     applyStatus(ev) {
       const e = entry(ev.workspaceId, ev.ts);
-      const sessionChanged = ev.sessionId !== e.sessionId;
+      // A new session's inbox starts empty — but only work takes a workspace
+      // over. Claude's ~60s idle Notification, and every event from a second
+      // `claude` in the same folder (a CLI window resolves to the same
+      // workspace as the app's own terminal), arrive under an unfamiliar id
+      // and must not blank the last message. Work announces itself first:
+      // UserPromptSubmit, then tools.
+      const sessionChanged =
+        ev.sessionId !== e.sessionId && ev.kind === "running";
+      // an entry that has never seen a session adopts whichever id speaks
+      // first, so that session's own later events don't read as a takeover
+      if (sessionChanged || !e.sessionId) e.sessionId = ev.sessionId;
       if (sessionChanged) {
-        e.sessionId = ev.sessionId;
         resetCounts(e);
-        e.message = ""; // a new session's inbox starts empty
+        e.message = "";
         e.delegatedBy = ""; // provenance shares the message's lifecycle
       }
       // a permission prompt carries no call of its own; the pending PreToolUse
@@ -148,6 +157,10 @@ export function createStatusStore(): StatusStore {
     ptyLaunched(id, now) {
       const e = entry(id, now);
       e.ptyAlive = true;
+      // a restored row carries the timestamp of the message it was saved with,
+      // which can already be older than EXPIRE_MS — opening a terminal must not
+      // hand the next sweep a six-hour-stale clock for a session starting now
+      e.lastEventAt = now;
       if (e.kind === "none") {
         e.kind = "idle";
         e.since = now;
@@ -183,8 +196,17 @@ export function createStatusStore(): StatusStore {
         }
         // forgetting, not tombstoning: the next hook event recreates the
         // entry. A live terminal keeps its row no matter how quiet — a card
-        // reading "no session" beside an open terminal would be a lie.
-        if (!e.ptyAlive && now - e.lastEventAt >= EXPIRE_MS) expired.push(id);
+        // reading "no session" beside an open terminal would be a lie — but
+        // it does not keep the message: six hours on, "Claude said" is stale
+        // whether or not the terminal it was said in is still open.
+        if (now - e.lastEventAt >= EXPIRE_MS) {
+          if (!e.ptyAlive) expired.push(id);
+          else if (e.message) {
+            e.message = "";
+            e.delegatedBy = ""; // provenance shares the message's lifecycle
+            changed = true;
+          }
+        }
       }
       for (const id of expired) entries.delete(id);
       return changed || expired.length > 0;

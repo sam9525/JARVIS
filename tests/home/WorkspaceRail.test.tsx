@@ -1,8 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { describe, it, expect } from "vitest";
+import React from "react";
+import { describe, it, expect, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import WorkspaceRail from "../../src/renderer/home/WorkspaceRail";
 import type { Workspace, WorkspaceStatus } from "../../src/shared/types";
+
+const WS = {
+  id: "d:/x",
+  name: "Xray",
+  rootPath: "D:/x",
+  kind: "code" as const,
+  sourceId: "gitnexus",
+};
 
 const workspaces: Workspace[] = [
   {
@@ -305,5 +315,81 @@ describe("WorkspaceRail source groups", () => {
     renderRail();
     expect(screen.getByTitle(/gitnexus \(code · GitNexus\)/)).toBeTruthy();
     expect(screen.getByTitle(/fresh \(code · Unknown\)/)).toBeTruthy();
+  });
+
+  it("renders workspace pips as circles, not rounded squares", () => {
+    const el = WorkspaceRail({
+      workspaces: [WS],
+      activeId: WS.id,
+      statuses: [],
+      homeActive: false,
+      onHome: vi.fn(),
+      onSelect: vi.fn(),
+      onAddProject: vi.fn(),
+    }) as React.ReactElement;
+    const html = renderToStaticMarkup(el);
+    expect(html).toContain("rounded-full");
+    expect(html).not.toContain("rounded-lg");
+  });
+
+  it("gives the active workspace the accent pip even when idle", () => {
+    const html = renderToStaticMarkup(
+      WorkspaceRail({
+        workspaces: [WS],
+        activeId: WS.id,
+        statuses: [
+          {
+            workspaceId: WS.id,
+            kind: "idle",
+            call: "",
+            since: 0,
+            reads: 0,
+            edits: 0,
+          },
+        ],
+        homeActive: false,
+        onHome: vi.fn(),
+        onSelect: vi.fn(),
+        onAddProject: vi.fn(),
+      }) as React.ReactElement,
+    );
+    expect(html).toContain("border-accent");
+  });
+
+  it("breathes only the pips with a live session", () => {
+    const statuses = [
+      {
+        workspaceId: WS.id,
+        kind: "running" as const,
+        call: "",
+        since: 0,
+        reads: 0,
+        edits: 0,
+      },
+    ];
+    const live = renderToStaticMarkup(
+      WorkspaceRail({
+        workspaces: [WS],
+        activeId: null,
+        statuses,
+        homeActive: true,
+        onHome: vi.fn(),
+        onSelect: vi.fn(),
+        onAddProject: vi.fn(),
+      }) as React.ReactElement,
+    );
+    const idle = renderToStaticMarkup(
+      WorkspaceRail({
+        workspaces: [WS],
+        activeId: null,
+        statuses: [],
+        homeActive: true,
+        onHome: vi.fn(),
+        onSelect: vi.fn(),
+        onAddProject: vi.fn(),
+      }) as React.ReactElement,
+    );
+    expect(live).toContain("hud-breathe");
+    expect(idle).not.toContain("hud-breathe");
   });
 });

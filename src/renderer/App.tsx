@@ -12,12 +12,24 @@ import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
 import WorkspaceRail from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
+import HomeHeader from "./home/HomeHeader";
 import TerminalPanel from "./terminal/TerminalPanel";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
 import EmptyGraph from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
+import Bezel from "./ui/Bezel";
+import Panel from "./ui/Panel";
+import {
+  defaultPanel,
+  grabTarget,
+  movePanel,
+  raise,
+  rescaleAll,
+  snapToEdges,
+} from "./ui/panel-layout";
+import { BTN_IDLE, TOP_ROW } from "./ui/hud";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
 import {
   applyEvent,
@@ -34,6 +46,9 @@ import { createPreviewOpener } from "./preview/preview-opener";
 import type {
   CodeGraphLevel,
   HomeView,
+  PanelId,
+  PanelMap,
+  PanelState,
   Settings,
   ToolEvent,
   Workspace,
@@ -41,6 +56,7 @@ import type {
 } from "../shared/types";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
+import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import type { Graph3DHandle } from "./graph/Graph3D";
@@ -64,6 +80,11 @@ export default function App() {
   const [statuses, setStatuses] = useState<WorkspaceStatus[]>([]);
   const [previewNode, setPreviewNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
+  // Mirrors `settings` synchronously (updated every render, below) so the
+  // debounced disk-write timer in `setPanel` always captures the latest
+  // value instead of whatever was current when the timer was armed (I4).
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   // Graphs mount only after settings load: swapping the forces/display prop
   // identities while react-force-graph-3d's first async graphData flush is
   // still pending reheats an engine whose layout doesn't exist yet — the
@@ -76,6 +97,97 @@ export default function App() {
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
+
+  const [focusedPanel, setFocusedPanel] = useState<PanelId>("terminal");
+  const [deckCleared, setDeckCleared] = useState(false);
+  // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
+  // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
+  // than a visible failure
+  const [viewport, setViewport] = useState(() => ({
+    width: window.innerWidth || 1280,
+    height: window.innerHeight || 800,
+  }));
+
+  useEffect(() => {
+    const onResize = () =>
+      setViewport({
+        width: window.innerWidth || 1280,
+        height: window.innerHeight || 800,
+      });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const layoutId = showHome ? "home" : "workspace";
+  const panels: PanelMap = settings.panels[layoutId];
+
+  const panelState = (id: PanelId): PanelState =>
+    panels[id] ?? defaultPanel(id, viewport, layoutId);
+
+  // Debounced: a drag would otherwise rewrite jarvis-settings.json once per
+  // frame. Renderer state updates immediately; only the disk write waits.
+  // Scheduling lives here, not inside the `setSettings` updater — updaters
+  // must be pure, and React 18 StrictMode runs them twice.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Takes a patch of the layout's map, not one panel: `raise` renormalises
+  // every z at once, and persisting only the focused one leaves the rest on
+  // their old values until two tie — after which `raise` short-circuits on
+  // `target.z === top` and focus stops reordering anything, permanently.
+  const setPanels = useCallback(
+    (patch: PanelMap) => {
+      setSettings((s) => ({
+        ...s,
+        panels: {
+          ...s.panels,
+          [layoutId]: { ...s.panels[layoutId], ...patch },
+        },
+      }));
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      // reads settingsRef at fire time, not whatever was current when the
+      // timer was armed — an `updateSettings` write in between must not be
+      // clobbered by a stale snapshot (I4)
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        window.jarvis.setSettings(settingsRef.current).catch(console.error);
+      }, 400);
+    },
+    [layoutId],
+  );
+  const setPanel = useCallback(
+    (id: PanelId, next: PanelState) => setPanels({ [id]: next }),
+    [setPanels],
+  );
+
+  // Panels ride the window: maximizing, restoring or reopening at a different
+  // size rescales them, and a layout saved on a bigger monitor is pulled back
+  // on screen by the clamp inside.
+  //
+  // The reference is `panelViewport` — the window the geometry was written in —
+  // not the previous render's size. That makes the rescale idempotent (a
+  // second run finds from === to), so StrictMode's double-invoke and a reopen
+  // at the same size both leave every width exactly as it was saved.
+  useEffect(() => {
+    if (!settingsReady) return;
+    setSettings((s) => {
+      const from = s.panelViewport ?? viewport;
+      return {
+        ...s,
+        panelViewport: viewport,
+        panels: {
+          home: rescaleAll(s.panels.home, from, viewport),
+          workspace: rescaleAll(s.panels.workspace, from, viewport),
+        },
+      };
+    });
+  }, [settingsReady, viewport]);
+
+  const focusPanel = useCallback(
+    (id: PanelId) => {
+      setFocusedPanel(id);
+      setPanels(raise({ ...panels, [id]: panelState(id) }, id));
+    },
+    [panels, setPanels],
+  );
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
   // so retargeting .current on switch is all a switch needs
@@ -139,6 +251,8 @@ export default function App() {
       activeIdRef.current = ws.id;
       stateRef.current = storeFor(ws.id);
       setReplayIndex(null); // the ref above already points at the live store
+      // a mid-drag switch must not latch across workspaces (ledger #11)
+      grabbedRef.current = undefined;
     },
     [onPreviewEvent],
   );
@@ -224,6 +338,25 @@ export default function App() {
   const graph3dHandle = useRef<Graph3DHandle | null>(null);
   const graphHandle = useRef<GraphHandle | null>(null);
 
+  // Screen-pixel cursor. Do NOT mirror x here: hand-tracker.ts already does
+  // it at the camera boundary ("mirror x so moving the hand right reads as
+  // pointer-right — the same sign a mouse drag produces"), so `nx` arrives
+  // already in pointer space. Mirroring again sends the dot the wrong way.
+  //
+  // Position is not React state: it arrives at tracker frame rate (~30Hz)
+  // and is written straight to HandCursor's DOM node through the imperative
+  // handle, so a moving hand does not reconcile the whole App tree on every
+  // frame (I8). `hasCursor` is the one part that does need a render — the
+  // one-time flip from "no frame yet" to "showing the dot".
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const handCursorRef = useRef<HandCursorHandle>(null);
+  const hasCursorRef = useRef(false);
+  const [hasCursor, setHasCursor] = useState(false);
+  // Which panel a pinch grabbed. `undefined` means "not decided yet this
+  // gesture"; `null` means "decided: nothing" — the distinction is what stops
+  // a graph pan that sweeps across a title bar from yanking that panel.
+  const grabbedRef = useRef<PanelId | null | undefined>(undefined);
+
   const hands = useHandControl({
     cameraOn,
     actionsRef: handActionsRef,
@@ -233,6 +366,11 @@ export default function App() {
     // no trace of why (design §3).
     onCameraFailed: () => setCameraOn(false),
   });
+
+  // a disarm mid-drag must not latch across the re-arm either (ledger #11)
+  useEffect(() => {
+    if (!hands.armed) grabbedRef.current = undefined;
+  }, [hands.armed]);
 
   // two affordances onto one value: the ✋ button and the panel checkbox both
   // land here, so either turns the camera off — and a click after a tracker
@@ -254,6 +392,71 @@ export default function App() {
   // something on the one view where they don't (design §3)
   const hasActions = !(showHome && homeView === "cards");
 
+  const onCursor = useCallback((nx: number, ny: number) => {
+    const x = nx * window.innerWidth;
+    const y = ny * window.innerHeight;
+    cursorRef.current = { x, y };
+    handCursorRef.current?.setPosition(x, y);
+    if (!hasCursorRef.current) {
+      hasCursorRef.current = true;
+      setHasCursor(true);
+    }
+  }, []);
+
+  // Only panels the workspace view is actually rendering may be grabbed. The
+  // persisted geometry map (`panels`) also carries panels that are closed or
+  // deck-cleared; hit-testing against it latches a dead title bar, silently
+  // drags an invisible panel, and refuses to pan the graph for the rest of
+  // the gesture (I1).
+  const liveWorkspacePanels = useCallback((): PanelMap => {
+    if (deckCleared) return {};
+    const live: PanelMap = {};
+    if (active) live.terminal = panelState("terminal");
+    if (previewNode !== null && active) live.preview = panelState("preview");
+    if (showSettings) live.settings = panelState("settings");
+    return live;
+  }, [deckCleared, active, previewNode, showSettings, panels]);
+
+  const onHandDrag = useCallback(
+    (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
+      const live = liveWorkspacePanels();
+      const target = grabTarget(live, cursorRef.current, grabbedRef.current);
+      // the latch survives a frame where the cursor leaves the title bar — but
+      // not one where the panel itself went away (clear-the-deck, a close),
+      // which would otherwise keep writing geometry for something invisible
+      const id = target && target in live ? target : null;
+      grabbedRef.current = id;
+      if (!id) return fallback(dx, dy);
+      // no negation: `dx` is documented "sign matches pointer", and both
+      // use-panel-drag's movePanel call and Graph's pan() consume it unmodified
+      const px = dx * window.innerWidth;
+      const py = dy * window.innerHeight;
+      setPanel(
+        id,
+        movePanel(panelState(id), px, py, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+      );
+    },
+    [liveWorkspacePanels, setPanel],
+  );
+
+  // Edge-snap whatever the pinch was holding when it released (spec §7),
+  // then clear the latch so the next pinch decides afresh.
+  const snapGrabbed = useCallback(() => {
+    const id = grabbedRef.current;
+    if (id)
+      setPanel(
+        id,
+        snapToEdges(panelState(id), {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+      );
+    grabbedRef.current = undefined;
+  }, [setPanel, panels]);
+
   // the workspace graph's own map, registered only while a workspace is on
   // screen; on home the mounted view owns the map outright. Deliberate cut:
   // no drag on 3D — orbit is 3D's navigation (design §6).
@@ -261,11 +464,18 @@ export default function App() {
     handActionsRef,
     settings.dimensions === "3d"
       ? {
+          cursor: onCursor,
           orbit: (v) => graph3dHandle.current?.spin(v),
           zoom: (f) => graph3dHandle.current?.zoom(f),
+          // eslint-disable-next-line @typescript-eslint/no-empty-function
+          drag: (dx, dy) => onHandDrag(dx, dy, () => {}),
+          snap: snapGrabbed,
         }
       : {
-          drag: (dx, dy) => graphHandle.current?.pan(dx, dy),
+          cursor: onCursor,
+          drag: (dx, dy) =>
+            onHandDrag(dx, dy, (a, b) => graphHandle.current?.pan(a, b)),
+          snap: snapGrabbed,
           zoom: (f) => graphHandle.current?.zoom(f),
         },
     !showHome,
@@ -292,7 +502,10 @@ export default function App() {
       ),
     [graph],
   );
-  // code workspaces have no sections; force "both" so nothing vanishes
+  // code workspaces have no sections; force "both" so nothing vanishes.
+  // Deps are the four filter fields, NOT `settings` — panel drags and window
+  // resizes rewrite `settings.panels`, and a whole-object dep would hand
+  // ForceGraph a new graphData identity and restart the simulation (I9).
   const visible = useMemo(
     () =>
       filterGraph(graph, {
@@ -302,10 +515,39 @@ export default function App() {
         showTags: settings.showTags,
         showOrphans: settings.showOrphans,
       }),
-    [graph, settings, search, active],
+    [
+      graph,
+      settings.sectionFilter,
+      settings.showTags,
+      settings.showOrphans,
+      search,
+      active?.kind,
+    ],
   );
 
   const view = settings.views[settings.dimensions];
+
+  const telemetry = showHome
+    ? `COMMAND CENTER · ${workspaces.length} WORKSPACES · ` +
+      `${statuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
+      `${statuses.filter((s) => s.kind === "running").length} RUNNING`
+    : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
+      `EDGES ${graph.edges.length} · ` +
+      `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;
+
+  const activeStatus = statuses.find((s) => s.workspaceId === active?.id);
+  const footRight = showHome
+    ? `FLEET READS ${statuses.reduce((n, s) => n + s.reads, 0)} · ` +
+      `EDITS ${statuses.reduce((n, s) => n + s.edits, 0)}`
+    : `READS ${activeStatus?.reads ?? 0} · EDITS ${activeStatus?.edits ?? 0}`;
+
+  const homeViewToggle = (
+    <Segmented
+      options={HOME_VIEW_OPTIONS}
+      value={homeView}
+      onChange={setHomeView}
+    />
+  );
 
   // hands + refresh + settings — shown on the workspace graph and the command
   // center
@@ -320,57 +562,37 @@ export default function App() {
         onRearm={hands.rearm}
       />
       <button
-        className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        className={BTN_IDLE + " text-[13px]"}
         title="Refresh graph (F5)"
         onClick={refreshGraph}
       >
         ↻
       </button>
       <button
-        className="h-[30px] w-[30px] cursor-pointer rounded-full border border-edge bg-panel text-[13px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        className={BTN_IDLE + " text-[13px]"}
         title="Graph settings"
         onClick={() => setShowSettings((v) => !v)}
       >
         ⚙
       </button>
+      {/* the one way back for anything hidden */}
+      <button
+        data-testid="clear-deck"
+        className={BTN_IDLE + " border-dashed text-[13px]"}
+        title={deckCleared ? "Show panels" : "Clear the deck"}
+        onClick={() => setDeckCleared((v) => !v)}
+      >
+        ▤
+      </button>
     </>
   );
 
   return (
-    <div className="flex h-full w-full">
-      <WorkspaceRail
-        workspaces={workspaces}
-        activeId={active?.id ?? null}
-        statuses={statuses}
-        homeActive={showHome}
-        onAddProject={addProject}
-        onHome={() => setShowHome(true)}
-        onSelect={(ws) => {
-          setShowHome(false);
-          openWorkspace(ws);
-        }}
-      />
-      {!showHome && previewNode && active && (
-        <Preview
-          nodeId={previewNode}
-          workspace={active}
-          resolveLink={resolveLink}
-          onNavigate={setPreviewNode}
-          onClose={() => setPreviewNode(null)}
-        />
-      )}
+    <div className="relative h-full w-full overflow-hidden bg-abyss">
       <GraphSlot>
         {({ width, height }) =>
           showHome ? (
             <>
-              <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-                <Segmented
-                  options={HOME_VIEW_OPTIONS}
-                  value={homeView}
-                  onChange={setHomeView}
-                />
-                {graphButtons}
-              </div>
               {homeView === "fleet" ? (
                 <FleetGraph
                   workspaces={workspaces}
@@ -478,62 +700,146 @@ export default function App() {
                     />
                   </div>
                 )}
-
-              <Timeline
-                log={(active && logsRef.current.get(active.id)) || []}
-                index={replayIndex}
-                onScrub={onScrub}
-              />
-              {/* absolute within the graph slot, not fixed to the viewport —
-                so this sits at the slot's own right edge (left of the
-                terminal panel, whatever its current width) instead of
-                overlapping the terminal when it's open */}
-              <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-                {active?.kind === "code" && (
-                  <Segmented
-                    options={GRAPH_LEVEL_OPTIONS}
-                    value={settings.codeGraphLevel}
-                    onChange={(codeGraphLevel: CodeGraphLevel) =>
-                      updateSettings({ ...settings, codeGraphLevel })
-                    }
-                  />
-                )}
-                {graphButtons}
-              </div>
             </>
           )
         }
       </GraphSlot>
-      {/* terminals live in a module-level map, so swapping which one is on
-          screen costs no session and no scrollback. On a workspace it's that
-          workspace's own terminal; home always shows the cockpit's own repo
-          (falling back to the vault) plus the fleet inbox. */}
+      {/* The wrapper spans the full window height but the rail's own column
+          is mostly empty below the pips — without this the left 56px of a
+          full-bleed graph would be a dead strip. The buttons re-enable
+          themselves; see the note below. */}
+      <div className="pointer-events-none absolute top-0 left-0 z-20 h-full [&_button]:pointer-events-auto">
+        <WorkspaceRail
+          workspaces={workspaces}
+          activeId={active?.id ?? null}
+          statuses={statuses}
+          homeActive={showHome}
+          onAddProject={addProject}
+          onHome={() => setShowHome(true)}
+          onSelect={(ws) => {
+            setShowHome(false);
+            openWorkspace(ws);
+          }}
+        />
+      </div>
+      {showHome ? (
+        <HomeHeader statuses={statuses}>
+          {homeViewToggle}
+          {graphButtons}
+        </HomeHeader>
+      ) : (
+        <div className={TOP_ROW}>
+          {active?.kind === "code" && (
+            <Segmented
+              options={GRAPH_LEVEL_OPTIONS}
+              value={settings.codeGraphLevel}
+              onChange={(codeGraphLevel: CodeGraphLevel) =>
+                updateSettings({ ...settings, codeGraphLevel })
+              }
+            />
+          )}
+          {graphButtons}
+        </div>
+      )}
+      <Bezel
+        title="JARVIS · V0.3.6"
+        telemetry={telemetry}
+        footRight={footRight}
+        footLeft={
+          showHome ? null : (
+            <Timeline
+              log={(active && logsRef.current.get(active.id)) || []}
+              index={replayIndex}
+              onScrub={onScrub}
+            />
+          )
+        }
+      />
+      {!showHome && previewNode && active && (
+        <Panel
+          id="preview"
+          title={`PREVIEW · ${previewNode.toUpperCase()}`}
+          state={panelState("preview")}
+          focused={focusedPanel === "preview"}
+          hidden={deckCleared}
+          foldTo="left"
+          onChange={(next) => setPanel("preview", next)}
+          onFocus={() => focusPanel("preview")}
+          onClose={() => setPreviewNode(null)}
+        >
+          <Preview
+            nodeId={previewNode}
+            workspace={active}
+            resolveLink={resolveLink}
+            onNavigate={setPreviewNode}
+            onClose={() => setPreviewNode(null)}
+          />
+        </Panel>
+      )}
+
       {(() => {
         const ws = showHome
           ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
           : active;
+        if (!ws) return null;
+        // home's terminal collapses to an inbox strip rather than to its title
+        // bar — the fleet's state is what you want while the session is parked
+        const inboxOnly = showHome && panelState("terminal").collapsed;
         return (
-          ws && (
+          <Panel
+            id="terminal"
+            title={`${showHome ? "ORCHESTRATOR" : "SESSION"} // ${ws.name.toUpperCase()}`}
+            compactWidth={
+              showHome ? Math.round(viewport.width * 0.22) : undefined
+            }
+            state={panelState("terminal")}
+            focused={focusedPanel === "terminal"}
+            hidden={deckCleared}
+            onChange={(next) => setPanel("terminal", next)}
+            onFocus={() => focusPanel("terminal")}
+          >
             <TerminalPanel
               workspace={ws}
               inbox={showHome ? { workspaces, statuses } : undefined}
+              inboxOnly={inboxOnly}
             />
-          )
+          </Panel>
         );
       })()}
+
       {showSettings && (
-        <GraphSettingsPanel
-          settings={settings}
-          activeId={active?.id ?? null}
-          search={search}
-          onSearchChange={setSearch}
-          onSettingsChange={updateSettings}
-          onHandControl={setHandControl}
-          onResetHighlights={() => resetHighlights(stateRef.current)}
+        <Panel
+          id="settings"
+          title="GRAPH SETTINGS"
+          state={panelState("settings")}
+          focused={focusedPanel === "settings"}
+          hidden={deckCleared}
+          onChange={(next) => setPanel("settings", next)}
+          onFocus={() => focusPanel("settings")}
           onClose={() => setShowSettings(false)}
-          showSections={active?.kind !== "code"}
-        />
+        >
+          <GraphSettingsPanel
+            settings={settings}
+            activeId={active?.id ?? null}
+            search={search}
+            onSearchChange={setSearch}
+            onSettingsChange={updateSettings}
+            onHandControl={setHandControl}
+            onResetHighlights={() => resetHighlights(stateRef.current)}
+            showSections={active?.kind !== "code"}
+          />
+        </Panel>
       )}
+      {/* `!showHome`: only the workspace graph registers `cursor`, so on Home
+          the dot would otherwise freeze at its last workspace position and
+          sit there stationary on a view where hands drive nothing (design §3,
+          the same reason Cards suppresses the ✋ pulse). */}
+      <HandCursor
+        ref={handCursorRef}
+        initialX={cursorRef.current?.x ?? 0}
+        initialY={cursorRef.current?.y ?? 0}
+        visible={cameraOn && hands.armed && !showHome && hasCursor}
+      />
     </div>
   );
 }

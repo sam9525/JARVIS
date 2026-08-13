@@ -1,5 +1,6 @@
 import React from "react";
 import type { ToolEvent } from "../../shared/types";
+import { FRAME_DIM, GLASS } from "../ui/hud";
 import { chaptersOf, labelOf } from "./replay";
 
 type TimelineProps = {
@@ -20,7 +21,7 @@ export default function Timeline({ log, index, onScrub }: TimelineProps) {
   const pct = (i: number) => `${last === 0 ? 0 : (i / last) * 100}%`;
 
   return (
-    <div className="absolute right-3 bottom-3 left-3 z-10 flex items-center gap-3 rounded-lg border border-edge bg-panel/90 px-3 py-2 backdrop-blur">
+    <div className={GLASS + " relative flex items-center gap-3 px-3 py-2"}>
       <button
         data-testid="replay-live"
         className="cursor-pointer rounded border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-40 disabled:hover:border-edge disabled:hover:text-ink-dim"
@@ -69,6 +70,10 @@ export default function Timeline({ log, index, onScrub }: TimelineProps) {
       >
         {at + 1} / {log.length}
       </span>
+      <div className={FRAME_DIM + " -inset-1"}>
+        <span className="hud-c3" />
+        <span className="hud-c4" />
+      </div>
     </div>
   );
 }

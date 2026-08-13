@@ -98,6 +98,25 @@ export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
 
+export type PanelId = "terminal" | "preview" | "settings";
+export type LayoutId = "home" | "workspace";
+
+/**
+ * Geometry only — never openness. Which panels are open lives in App state
+ * (`previewNode !== null`, `showSettings`, terminal always present), so an
+ * absent key here means "never moved", not "closed".
+ */
+export interface PanelState {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  collapsed: boolean;
+  z: number;
+}
+
+export type PanelMap = Partial<Record<PanelId, PanelState>>;
+
 export interface DisplaySettings {
   textFadeThreshold: number; // hide labels drawn smaller than this (screen px)
   nodeSize: number; // multiplier on degree-based radius
@@ -135,6 +154,15 @@ export interface Settings {
   groups: Record<string, GraphGroup[]>; // per workspace id; first match wins
   views: Record<Dimensions, ViewSettings>;
   handControl: boolean; // hands drive navigation; the webcam auto-starts when on
+  panels: Record<LayoutId, PanelMap>; // home and workspace arrange separately
+  /**
+   * The window `panels` was measured in. Panel geometry is pixels, so without
+   * the size it was written at, a layout reopened in a different window can
+   * only be clamped — which silently changes every width. Stored as a pair with
+   * `panels`, so a reopen rescales once from here and a reopen at the same size
+   * is exactly a no-op. Absent on a settings file written before this existed.
+   */
+  panelViewport?: { width: number; height: number };
 }
 
 // a workspace's groups, or NO_GROUPS if it has never been seeded — a fresh []
@@ -201,5 +229,6 @@ export function defaultSettings(): Settings {
     groups: {},
     views: { "2d": defaultView("2d"), "3d": defaultView("3d") },
     handControl: false,
+    panels: { home: {}, workspace: {} },
   };
 }

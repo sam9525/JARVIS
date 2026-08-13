@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
+import { LBL_AM } from "../ui/hud";
 import type {
   StatusKind,
   Workspace,
@@ -30,6 +31,31 @@ const PILL_LABEL: Record<StatusKind, string> = {
   idle: "idle",
   none: "idle",
 };
+/**
+ * Where the inbox detail sits, given the terminal panel's rect, the box's own
+ * width and the viewport height. Pure, so the clamps are testable without a
+ * DOM. The panel's height is deliberately not an input: collapsed, it
+ * shrink-wraps to the inbox strip, and the message still needs room to read.
+ */
+export function detailBox(
+  panel: { left: number; right: number; top: number },
+  width: number,
+  viewportH: number,
+) {
+  const gap = 20;
+  const min = 340; // shortest box worth opening
+  const top = Math.max(gap, Math.min(panel.top, viewportH - min));
+  return {
+    // flip to the panel's right when there is no room on its left
+    left:
+      panel.left > width + gap * 2
+        ? panel.left - width - gap
+        : panel.right + gap,
+    top,
+    maxHeight: viewportH - top - gap,
+  };
+}
+
 const BAR: Record<StatusKind, string> = {
   waiting: "from-warm",
   running: "from-accent",
@@ -78,19 +104,22 @@ function entryFor(id: string): Entry {
 export default function TerminalPanel({
   workspace,
   inbox,
+  inboxOnly,
 }: {
   workspace: Workspace;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
   inbox?: { workspaces: Workspace[]; statuses: WorkspaceStatus[] };
+  // the collapsed home panel: the fleet's state stays, the session goes away
+  inboxOnly?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [localStatuses, setLocalStatuses] = useState<Record<string, Status>>(
     {},
   );
-  const [width, setWidth] = useState(480);
-  const [collapsed, setCollapsed] = useState(true);
   // a permission-free session is the one action here with no undo, so it costs
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
@@ -134,6 +163,24 @@ export default function TerminalPanel({
     };
   }, [message]);
 
+  // Park the detail alongside the panel. Written to the element rather than to
+  // state: this runs on every render (a panel drag re-renders App, hence us)
+  // and a setState here would loop.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const el = detailRef.current;
+    if (!root || !el) return;
+    // its own width is a class, not a constant here — read it back
+    const box = detailBox(
+      root.getBoundingClientRect(),
+      el.offsetWidth,
+      window.innerHeight,
+    );
+    el.style.left = `${box.left}px`;
+    el.style.top = `${box.top}px`;
+    el.style.maxHeight = `${box.maxHeight}px`;
+  });
+
   useEffect(() => {
     ensureSubscribed();
     const onExit = (id: string, code: number) =>
@@ -145,11 +192,9 @@ export default function TerminalPanel({
   }, []);
 
   // Attach the active workspace's terminal element to the panel and keep the
-  // pty's cols/rows in step with it. One ResizeObserver covers all three ways
-  // the element can change size — window resize, splitter drag, collapse —
-  // which is why `width` is deliberately not a dependency here.
+  // pty's cols/rows in step with it. One ResizeObserver covers all the ways
+  // the element can change size — window resize, panel drag/resize.
   useEffect(() => {
-    if (collapsed) return;
     const host = hostRef.current;
     if (!host) return;
     const e = entryFor(workspace.id);
@@ -163,7 +208,7 @@ export default function TerminalPanel({
     const observer = new ResizeObserver(refit);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [workspace.id, collapsed]);
+  }, [workspace.id]);
 
   const launch = (dangerous = false) => {
     const e = entryFor(workspace.id);
@@ -192,72 +237,18 @@ export default function TerminalPanel({
       });
   };
 
-  const startDrag = (ev: React.MouseEvent) => {
-    ev.preventDefault();
-    const startX = ev.clientX;
-    const startW = width;
-    const move = (m: MouseEvent) =>
-      setWidth(
-        Math.min(
-          Math.max(startW + (startX - m.clientX), 300),
-          window.innerWidth - 240,
-        ),
-      );
-    const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  };
-
-  if (collapsed) {
-    return (
-      <button
-        className="fixed top-1/2 right-0 z-10 cursor-pointer rounded-l-md border border-edge bg-panel px-1 py-3 text-[11px] text-ink-dim hover:text-accent"
-        title="Open terminal"
-        onClick={() => setCollapsed(false)}
-      >
-        {">_"}
-      </button>
-    );
-  }
-
   return (
+    // inbox-only sizes to its rows, so it must not claim the panel's height
     <div
-      className="relative flex flex-none flex-col border-l border-edge bg-panel"
-      style={{ width }}
+      ref={rootRef}
+      className={"relative flex flex-col " + (inboxOnly ? "" : "h-full")}
     >
-      <div
-        className="absolute top-0 bottom-0 left-0 w-1 cursor-col-resize"
-        onMouseDown={startDrag}
-      />
-      <div className="flex items-center gap-2 border-b border-edge px-3 py-1.5 text-[12px] text-ink-dim">
-        <span className="flex-1 truncate">
-          {workspace.name}
-          {status.kind === "exited" ? ` — exited (${status.code})` : ""}
-        </span>
-        {reindexCommand && status.kind === "running" && (
-          <button
-            className="cursor-pointer text-amber-400 hover:text-amber-300"
-            title={`Graph is behind HEAD — type \`${reindexCommand}\``}
-            onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
-          >
-            index stale
-          </button>
-        )}
-        <button
-          className="cursor-pointer hover:text-accent"
-          title="Collapse"
-          onClick={() => setCollapsed(true)}
-        >
-          »
-        </button>
-      </div>
-
       {inbox && (
         <div
-          className="max-h-[45%] min-h-0 flex-none border-b border-edge"
+          className={
+            "min-h-0 " +
+            (inboxOnly ? "" : "max-h-[45%] flex-none border-b border-edge")
+          }
           data-testid="terminal-inbox"
         >
           <Inbox
@@ -271,9 +262,13 @@ export default function TerminalPanel({
         </div>
       )}
       {detail && (
-        // inset from the terminal's left edge, floating over the graph
+        // Sits beside the panel, floating over the graph. Panel's body clips
+        // its children (overflow-hidden), so an absolute box placed outside the
+        // panel renders to nothing — fixed escapes the clip (no ancestor sets a
+        // transform) and the layout effect above puts it back alongside.
         <div
-          className="absolute top-11 right-[calc(100%+20px)] bottom-5 z-10 flex w-[340px] flex-col rounded-xl border border-edge bg-gradient-to-b from-panel/95 to-abyss/95 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8),0_0_0_1px_rgba(34,211,238,0.06)] backdrop-blur-[2px]"
+          ref={detailRef}
+          className="fixed z-30 flex w-[340px] flex-col overflow-hidden rounded-xl border border-edge bg-gradient-to-b from-panel/95 to-abyss/95 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8),0_0_0_1px_rgba(34,211,238,0.06)] backdrop-blur-[2px]"
           data-testid="inbox-detail"
         >
           {/* state bar: the panel says which state it is before you read it */}
@@ -314,7 +309,20 @@ export default function TerminalPanel({
           </div>
         </div>
       )}
-      <div className="relative min-h-0 flex-1">
+      <div
+        className="relative min-h-0 flex-1"
+        data-testid="terminal-body"
+        hidden={inboxOnly}
+      >
+        {reindexCommand && status.kind === "running" && (
+          <button
+            className={LBL_AM + " absolute top-1 right-2 z-10 cursor-pointer"}
+            title={`Graph is behind HEAD — type \`${reindexCommand}\``}
+            onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
+          >
+            index stale
+          </button>
+        )}
         <div ref={hostRef} className="h-full w-full" />
         {status.kind !== "running" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
@@ -322,7 +330,9 @@ export default function TerminalPanel({
               className="cursor-pointer rounded-md border border-edge px-4 py-2 text-[13px] text-ink-dim hover:border-accent hover:text-accent"
               onClick={() => launch()}
             >
-              {status.kind === "exited" ? "Relaunch Claude" : "Launch Claude"}
+              {status.kind === "exited"
+                ? `Relaunch Claude — exited (${status.code})`
+                : "Launch Claude"}
             </button>
             <button
               className="cursor-pointer rounded-md border border-amber-500/40 px-4 py-2 text-[13px] text-amber-400 hover:border-amber-400 hover:text-amber-300"

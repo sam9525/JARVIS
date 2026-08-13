@@ -66,7 +66,6 @@ type Props = {
   // session's camera, so it goes through App rather than onSettingsChange
   onHandControl: (on: boolean) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
-  onClose: () => void;
   showSections: boolean; // code workspaces have no raw/wiki sections
 };
 
@@ -78,7 +77,6 @@ export default function GraphSettingsPanel({
   onSettingsChange,
   onHandControl,
   onResetHighlights,
-  onClose,
   showSections,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
@@ -108,7 +106,7 @@ export default function GraphSettingsPanel({
     setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
 
   return (
-    <div className="fixed top-[50px] right-3 z-50 max-h-[calc(100vh-62px)] w-[260px] overflow-y-auto rounded-lg border border-edge bg-panel px-3 py-2.5 font-sans text-[13px] text-ink">
+    <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="flex justify-end gap-1.5">
         <button
           className="cursor-pointer text-sm text-ink-dim hover:text-accent"
@@ -123,19 +121,16 @@ export default function GraphSettingsPanel({
               dimensions: settings.dimensions,
               groups: settings.groups,
               handControl: settings.handControl,
+              // both halves of the panel geometry, or the next resize rescales
+              // from the default window instead of the one they were saved in
+              panels: settings.panels,
+              panelViewport: settings.panelViewport,
             });
             onSearchChange("");
             onResetHighlights();
           }}
         >
           ↺
-        </button>
-        <button
-          className="cursor-pointer text-sm text-ink-dim hover:text-accent"
-          title="Close"
-          onClick={onClose}
-        >
-          ✕
         </button>
       </div>
 

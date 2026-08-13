@@ -1,4 +1,5 @@
 import React from "react";
+import { LBL_CY, LBL_DIM } from "./hud";
 
 type Props<T extends string> = {
   options: { value: T; label: string }[];
@@ -14,15 +15,15 @@ export default function Segmented<T extends string>({
   onChange,
 }: Props<T>) {
   return (
-    <div className="flex overflow-hidden rounded-full border border-edge bg-panel">
+    <div className="flex border border-accent/35">
       {options.map((o) => (
         <button
           key={o.value}
           className={
-            "cursor-pointer px-2.5 py-1 text-[13px] transition-colors " +
+            "cursor-pointer px-2.5 py-1 transition-colors " +
             (o.value === value
-              ? "bg-edge text-ink"
-              : "text-ink-dim hover:text-ink-muted")
+              ? LBL_CY + " bg-accent/15"
+              : LBL_DIM + " hover:text-ink-muted")
           }
           onClick={() => onChange(o.value)}
         >

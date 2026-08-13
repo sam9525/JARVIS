@@ -5,6 +5,7 @@ import type {
   WorkspaceStatus,
   StatusKind,
 } from "../../shared/types";
+import { BTN, BTN_IDLE, LBL_DIM, pipClass } from "../ui/hud";
 
 type WorkspaceRailProps = {
   workspaces: Workspace[];
@@ -55,16 +56,16 @@ export default function WorkspaceRail({
 }: WorkspaceRailProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
   return (
-    <div className="flex w-12 flex-none flex-col items-center gap-2 border-r border-edge bg-panel pt-3">
+    <div className="flex w-14 flex-none flex-col items-center gap-3 pt-[88px]">
       <button
         data-testid="rail-home"
         title="Mission control — all workspaces"
         onClick={onHome}
         className={
-          "mb-1 h-9 w-9 cursor-pointer rounded-lg border text-[13px] transition-colors " +
-          (homeActive
-            ? "border-accent text-accent"
-            : "border-edge text-ink-dim hover:border-accent hover:text-accent")
+          homeActive
+            ? BTN +
+              " mb-1 rounded-full text-[13px] border-accent text-accent hud-glow-accent"
+            : BTN_IDLE + " mb-1 rounded-full text-[13px]"
         }
       >
         ⌂
@@ -73,7 +74,7 @@ export default function WorkspaceRail({
         <React.Fragment key={sourceId}>
           <div
             data-testid={`rail-group-${sourceId}`}
-            className="w-10 border-t border-edge pt-1 text-center text-[8px] uppercase tracking-widest text-ink-dim"
+            className={LBL_DIM + " w-12 pt-1 text-center"}
           >
             {SOURCE_LABELS[sourceId] ?? sourceId}
           </div>
@@ -91,10 +92,11 @@ export default function WorkspaceRail({
                 title={title}
                 onClick={() => onSelect(ws)}
                 className={
-                  "relative h-9 w-9 cursor-pointer rounded-lg border text-[11px] uppercase transition-colors " +
-                  (!homeActive && ws.id === activeId
-                    ? "border-accent text-accent"
-                    : "border-edge text-ink-dim hover:border-accent hover:text-accent")
+                  "relative cursor-pointer uppercase " +
+                  pipClass(
+                    st?.kind ?? "none",
+                    !homeActive && ws.id === activeId,
+                  )
                 }
               >
                 {ws.name.slice(0, 2)}
@@ -113,7 +115,7 @@ export default function WorkspaceRail({
         data-testid="rail-add"
         title="Add a project folder"
         onClick={onAddProject}
-        className="h-9 w-9 cursor-pointer rounded-lg border border-dashed border-edge text-[15px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+        className={BTN_IDLE + " rounded-full border-dashed text-[13px]"}
       >
         +
       </button>

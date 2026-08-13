@@ -31,7 +31,7 @@ export default function GraphSlot({ children }: GraphSlotProps) {
   }, []);
 
   return (
-    <div ref={ref} className="relative min-w-0 flex-1">
+    <div ref={ref} className="absolute inset-0">
       {children(size)}
     </div>
   );

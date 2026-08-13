@@ -14,7 +14,10 @@ vi.mock("react", async () => {
     ...actual,
     useState: (init: any) => [typeof init === "function" ? init() : init, noop],
     useRef: (initial: any) => ({ current: initial }),
-    useMemo: (fn: any) => fn(),
+    useMemo: (fn: any, deps: any) => {
+      memoDeps.push(deps);
+      return fn();
+    },
     useCallback: (fn: any) => fn,
     useEffect: () => {
       return;
@@ -25,6 +28,18 @@ vi.mock("react", async () => {
 const noop = () => {
   return;
 };
+
+// every dependency array App hands to useMemo, in render order
+const memoDeps: any[][] = [];
+
+// depth-first, source order — this file invokes App() directly, so the tree
+// is element objects rather than HTML
+const walk = (n: any): any[] =>
+  !n || typeof n !== "object"
+    ? []
+    : Array.isArray(n)
+      ? n.flatMap(walk)
+      : [n, ...walk(n.props?.children)];
 
 // App's body reads no window/document at render time (all IPC lives in the
 // mocked-out effects and callbacks), but provide a stub so nothing incidental
@@ -37,5 +52,68 @@ describe("App shell", () => {
     const el = (App as any)({});
     expect(el).toBeTruthy();
     expect(el.type).toBe("div");
+  });
+
+  it("declares the ✋ ↻ ⚙ cluster once, not once per showHome branch", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const nodes = walk((App as any)({}));
+    const refresh = nodes.filter(
+      (n: any) => n.props?.title === "Refresh graph (F5)",
+    );
+    expect(refresh).toHaveLength(1);
+  });
+
+  it("gives the graph the full window, not a flex remainder", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const el = (App as any)({});
+    expect(el.props.className).toContain("h-full w-full");
+    expect(el.props.className).not.toContain("flex-1");
+  });
+
+  it("mounts the bezel outside the showHome branch", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const { default: Bezel } = await import("../src/renderer/ui/Bezel");
+    const nodes = walk((App as any)({}));
+    expect(nodes.filter((n: any) => n.type === Bezel)).toHaveLength(1);
+  });
+
+  it("leaves the graph reachable under the rail and control wrappers", async () => {
+    // both span dead space over a now-full-bleed graph; only their buttons
+    // may swallow pointer events
+    // NB: this file mocks React's hooks and never imports React itself, so
+    // find the wrapper by its own class rather than by inspecting children
+    const { default: App } = await import("../src/renderer/App");
+    const nodes = walk((App as any)({}));
+    const railWrapper = nodes.find(
+      (n: any) =>
+        typeof n.props?.className === "string" &&
+        n.props.className.includes("[&_button]:pointer-events-auto"),
+    );
+    expect(railWrapper).toBeDefined();
+    expect(railWrapper.props.className).toContain("pointer-events-none");
+    expect(railWrapper.props.className).toContain(
+      "[&_button]:pointer-events-auto",
+    );
+  });
+
+  it("memoizes on settings fields, never the whole settings object", async () => {
+    // `settings.panels` is rewritten on every panel drag and window resize. A
+    // memo that depends on the whole object hands ForceGraph a new graphData
+    // identity each time, restarting the simulation.
+    const { default: App } = await import("../src/renderer/App");
+    memoDeps.length = 0;
+    (App as any)({});
+    const settingsShaped = memoDeps
+      .flat()
+      .some((d: any) => d && typeof d === "object" && "panels" in d);
+    expect(settingsShaped).toBe(false);
+  });
+
+  it("offers a clear-the-deck control", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const nodes = walk((App as any)({}));
+    expect(
+      nodes.some((n: any) => n.props?.["data-testid"] === "clear-deck"),
+    ).toBe(true);
   });
 });

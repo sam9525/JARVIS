@@ -13,6 +13,7 @@ export type HandActions = {
   open?(): void;
   orbit?(v: number): void; // signed rad/s, dead-zoned + clamped
   zoom?(factor: number): void; // per-frame multiplicative ratio
+  cursor?(x: number, y: number): void; // normalized 0..1 frame coords
 };
 
 /**

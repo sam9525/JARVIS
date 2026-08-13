@@ -8,12 +8,10 @@ function render(overrides: Partial<Settings> = {}) {
   const calls: {
     settings: Settings[];
     search: string[];
-    closed: boolean;
     resets: number;
   } = {
     settings: [],
     search: [],
-    closed: false,
     resets: 0,
   };
   const el = GraphSettingsPanel({
@@ -25,9 +23,6 @@ function render(overrides: Partial<Settings> = {}) {
     onHandControl: () => undefined,
     onResetHighlights: () => {
       calls.resets++;
-    },
-    onClose: () => {
-      calls.closed = true;
     },
     showSections: true,
   }) as any;
@@ -65,7 +60,7 @@ describe("GraphSettingsPanel", () => {
       handControl: true,
     });
     const header = el.props.children[0];
-    const resetBtn = header.props.children[0];
+    const resetBtn = header.props.children;
     resetBtn.props.onClick();
     // handControl survives: this path can't stop the camera, so resetting it
     // would leave the webcam live behind an unticked box
@@ -77,13 +72,6 @@ describe("GraphSettingsPanel", () => {
     });
     expect(calls.search[0]).toBe("");
     expect(calls.resets).toBe(1);
-  });
-
-  it("close button calls onClose", () => {
-    const { el, calls } = render();
-    const closeBtn = el.props.children[0].props.children[1];
-    closeBtn.props.onClick();
-    expect(calls.closed).toBe(true);
   });
 
   it("new group gets a random hex color and empty query", () => {

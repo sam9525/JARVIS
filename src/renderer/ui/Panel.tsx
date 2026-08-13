@@ -1,0 +1,197 @@
+import React, { useLayoutEffect, useRef, useState } from "react";
+import type { PanelId, PanelState } from "../../shared/types";
+import { CAPBAR, FRAME, LBL_CY, panelClass } from "./hud";
+import {
+  type Box,
+  clampToViewport,
+  MIN_H,
+  TITLE_BAR_H,
+  type ResizeEdge,
+} from "./panel-layout";
+import { usePanelDrag, viewport } from "./use-panel-drag";
+
+// Every border is a resize handle. The strips are invisible and sit outside the
+// body's rounded corners, so the only visible affordance stays the SE grip.
+const HANDLES: Array<[ResizeEdge, string]> = [
+  ["n", "inset-x-2 top-0 h-1.5 cursor-ns-resize"],
+  ["s", "inset-x-2 bottom-0 h-1.5 cursor-ns-resize"],
+  ["w", "inset-y-2 left-0 w-1.5 cursor-ew-resize"],
+  ["e", "inset-y-2 right-0 w-1.5 cursor-ew-resize"],
+  ["nw", "top-0 left-0 h-2.5 w-2.5 cursor-nwse-resize"],
+  ["ne", "top-0 right-0 h-2.5 w-2.5 cursor-nesw-resize"],
+  ["sw", "bottom-0 left-0 h-2.5 w-2.5 cursor-nesw-resize"],
+];
+
+type PanelProps = {
+  id: PanelId;
+  title: string;
+  badge?: React.ReactNode;
+  state: PanelState;
+  focused: boolean;
+  hidden?: boolean;
+  /**
+   * Collapse to this width, keeping the body, instead of to the title bar.
+   * Home's terminal uses it to shrink to an inbox strip — the fleet's state is
+   * the one thing worth keeping on screen while the session itself is out of
+   * the way. It narrows from the left and shrink-wraps its content, so a
+   * right-docked panel stays docked and covers only what it still shows.
+   */
+  compactWidth?: number;
+  /**
+   * Which edge a fold holds still, so a docked panel stays docked. Right by
+   * default — the terminal and settings dock right and shrink leftward. Preview
+   * opens from the left, so it folds back the other way.
+   */
+  foldTo?: "left" | "right";
+  onChange(next: PanelState): void;
+  onFocus(): void;
+  onClose?(): void;
+  children: React.ReactNode;
+};
+
+// The floating-panel shell. Knows nothing about terminals, previews or
+// settings — geometry comes from panel-layout, contents come from children.
+export default function Panel({
+  id,
+  title,
+  badge,
+  state,
+  focused,
+  hidden,
+  compactWidth,
+  foldTo = "right",
+  onChange,
+  onFocus,
+  onClose,
+  children,
+}: PanelProps) {
+  const compact = state.collapsed && compactWidth !== undefined;
+  const width = compact ? compactWidth : state.collapsed ? undefined : state.w;
+  // A minimized panel shrink-wraps to its title bar, so it is the only thing
+  // that knows its own width. Everything else in the folded box is analytic:
+  // compact is `compactWidth` wide, and a minimized panel is exactly one title
+  // bar tall. MIN_H stands in for compact's shrink-wrapped height, which would
+  // cost a second measurement to save ~100px of travel.
+  const ref = useRef<HTMLDivElement>(null);
+  const [barW, setBarW] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !state.collapsed || compactWidth !== undefined) return;
+    // runs on every render, so the equality bail-out is what stops the loop
+    setBarW((w) => (w === el.offsetWidth ? w : el.offsetWidth));
+  });
+  // A collapsed panel's stored geometry still describes the box it expands back
+  // to, so dragging it against that box clamps it against a width and height it
+  // does not currently occupy — which pins a folded right-docked terminal in
+  // place and stops it short of the bottom edge. Drag the folded box instead
+  // and translate the result back, which is also what holds the fold against
+  // the `foldTo` edge of the expanded box: a docked panel stays docked.
+  const box: Box | undefined = !state.collapsed
+    ? undefined
+    : compact
+      ? { w: compactWidth, h: MIN_H }
+      : { w: barW || state.w, h: TITLE_BAR_H };
+  const dx = box && foldTo === "right" ? state.w - box.w : 0;
+  const drag = usePanelDrag({
+    state: state.collapsed ? { ...state, x: state.x + dx } : state,
+    box,
+    onChange: state.collapsed
+      ? (next) => onChange({ ...state, x: next.x - dx, y: next.y })
+      : onChange,
+  });
+  // clear-the-deck: unmounting is deliberate — a hidden terminal keeps its
+  // xterm instance in the module-level map either way, so nothing is lost
+  if (hidden) return null;
+  return (
+    <div
+      ref={ref}
+      data-testid={`panel-${id}`}
+      className={"absolute " + panelClass(focused)}
+      style={{
+        left: state.x + dx,
+        top: state.y,
+        width,
+        // compact shrink-wraps its body; the rest is exactly as tall as its state
+        height: compact ? undefined : state.collapsed ? TITLE_BAR_H : state.h,
+        zIndex: state.z,
+      }}
+      // capture, not bubble: the title bar and every resize handle stop
+      // propagation to claim the drag, so a bubbling handler here would raise
+      // the panel on a body press but not on the grip you actually reach for
+      onPointerDownCapture={onFocus}
+    >
+      <div className={CAPBAR} onPointerDown={drag.onTitlePointerDown}>
+        {/* title and frame stay lit whatever has focus — a dimmed preview or
+            settings panel read as disabled next to the terminal you were just
+            typing in. Focus is still legible in the body fill (panelClass). */}
+        <span className={LBL_CY}>⣿&nbsp;&nbsp;{title}</span>
+        <span className="ml-3 flex items-center gap-2">
+          {badge}
+          <button
+            data-testid={`panel-collapse-${id}`}
+            title={state.collapsed ? "Expand" : "Minimize"}
+            className="cursor-pointer text-[10px] text-ink-dim hover:text-accent"
+            onPointerDown={(e) => e.stopPropagation()}
+            // expanding re-clamps: the small box may have been dragged
+            // somewhere the full one does not fit
+            onClick={() => {
+              const next = { ...state, collapsed: !state.collapsed };
+              onChange(
+                state.collapsed ? clampToViewport(next, viewport()) : next,
+              );
+            }}
+          >
+            {state.collapsed ? "▸" : "▾"}
+          </button>
+          {onClose && (
+            <button
+              data-testid={`panel-close-${id}`}
+              title="Close"
+              className="cursor-pointer text-[10px] text-ink-dim hover:text-accent"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onClose}
+            >
+              ✕
+            </button>
+          )}
+        </span>
+      </div>
+      {(compact || !state.collapsed) && (
+        <div
+          className="min-h-0 overflow-hidden"
+          // a compact body sizes to its content, but never past the height the
+          // expanded panel had — anything longer scrolls inside itself
+          style={
+            compact
+              ? { maxHeight: state.h - TITLE_BAR_H }
+              : { height: state.h - TITLE_BAR_H }
+          }
+        >
+          {children}
+        </div>
+      )}
+      {/* a compact panel is a fixed size by definition — no grips */}
+      {!state.collapsed && (
+        <>
+          {HANDLES.map(([edge, cls]) => (
+            <div
+              key={edge}
+              data-testid={`panel-resize-${edge}-${id}`}
+              className={"absolute " + cls}
+              onPointerDown={(e) => drag.onGripPointerDown(e, edge)}
+            />
+          ))}
+          <div
+            data-testid={`panel-grip-${id}`}
+            className="absolute right-0.5 bottom-0.5 h-2.5 w-2.5 cursor-nwse-resize border-r border-b border-accent"
+            onPointerDown={(e) => drag.onGripPointerDown(e, "se")}
+          />
+        </>
+      )}
+      <div className={FRAME + " -inset-1.5"}>
+        <span className="hud-c3" />
+        <span className="hud-c4" />
+      </div>
+    </div>
+  );
+}
