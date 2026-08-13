@@ -32,7 +32,7 @@ describe("Bezel", () => {
     const el = Bezel(PROPS) as React.ReactElement;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
-    const foot = layers.find((n) => cls(n).includes("inset-x-8 bottom-3"));
+    const foot = layers.find((n) => cls(n).includes("z-[16]"));
     expect(foot).toBeDefined();
     expect(cls(foot)).not.toContain("pointer-events-none");
     const others = layers.filter((n) => n !== foot);
@@ -62,12 +62,26 @@ describe("Bezel", () => {
     const el = Bezel(PROPS) as React.ReactElement;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
-    const foot = layers.find((n) => cls(n).includes("inset-x-8 bottom-3"));
+    const foot = layers.find((n) => cls(n).includes("z-[16]"));
     expect(foot).toBeDefined();
-    // inset-x-8 sets both left and right, so the wrapper has a real width
-    // instead of shrink-wrapping to 0 around its absolutely-positioned child
-    expect(cls(foot)).toContain("inset-x-8");
-    expect(cls(foot)).not.toContain("left-8 z");
+    // both left and right are set, so the wrapper has a real width instead of
+    // shrink-wrapping to 0 around its absolutely-positioned child
+    expect(cls(foot)).toContain("left-8");
+    expect(cls(foot)).toMatch(/right-\[\d+px\]/);
+  });
+
+  it("keeps the scrubber clear of the read/edit telemetry", () => {
+    // the scrubber's fill is near-opaque and sits at z16 against footRight's
+    // z10 — spanning the full width would hide the counts outright
+    const el = Bezel(PROPS) as React.ReactElement;
+    const layers = React.Children.toArray(el.props.children) as any[];
+    const cls = (n: any) => String(n?.props?.className ?? "");
+    const foot = layers.find((n) => cls(n).includes("z-[16]"));
+    expect(cls(foot)).not.toContain("inset-x-8");
+    const right = layers.find((n) => cls(n).includes("right-9 bottom-3"));
+    const reserved = Number(/right-\[(\d+)px\]/.exec(cls(foot))![1]);
+    expect(right).toBeDefined();
+    expect(reserved).toBeGreaterThan(36); // clears footRight's own right-9
   });
 
   it("puts the scanline below the panel band, not above it (I6)", () => {

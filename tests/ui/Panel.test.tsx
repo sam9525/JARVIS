@@ -208,7 +208,15 @@ describe("Panel", () => {
   it("raises itself on a pointer down anywhere in the panel", () => {
     const onFocus = vi.fn();
     const el = Panel({ ...base, onFocus }) as React.ReactElement;
-    el.props.onPointerDown({ stopPropagation: vi.fn() });
+    el.props.onPointerDownCapture({ stopPropagation: vi.fn() });
     expect(onFocus).toHaveBeenCalled();
+  });
+
+  // the title bar and the resize handles stopPropagation to claim the drag, so
+  // a bubbling focus handler would raise on a body press but not on the grip
+  it("raises on the capture phase, so a title-bar drag raises too", () => {
+    const el = Panel({ ...base, onFocus: vi.fn() }) as React.ReactElement;
+    expect(el.props.onPointerDownCapture).toBeDefined();
+    expect(el.props.onPointerDown).toBeUndefined();
   });
 });

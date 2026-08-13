@@ -121,7 +121,10 @@ export default function GraphSettingsPanel({
               dimensions: settings.dimensions,
               groups: settings.groups,
               handControl: settings.handControl,
+              // both halves of the panel geometry, or the next resize rescales
+              // from the default window instead of the one they were saved in
               panels: settings.panels,
+              panelViewport: settings.panelViewport,
             });
             onSearchChange("");
             onResetHighlights();

@@ -1,8 +1,17 @@
-import React, { forwardRef, useImperativeHandle, useRef } from "react";
+import React, {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from "react";
 
 export type HandCursorHandle = {
   setPosition(x: number, y: number): void;
 };
+
+// long enough to ride out a dropped frame or two, short enough that a hand
+// dropped out of view doesn't leave a dot hanging on screen
+const IDLE_MS = 400;
 
 type Props = {
   visible: boolean;
@@ -22,16 +31,34 @@ const HandCursor = forwardRef<HandCursorHandle, Props>(function HandCursor(
   ref,
 ) {
   const elRef = useRef<HTMLDivElement | null>(null);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The engine publishes a cursor only on a *tracked* frame, so a hand leaving
+  // the camera simply stops the updates and the dot would sit frozen at its
+  // last position for as long as hands stay armed. Fade it out here rather than
+  // in the parent: a "hand lost" React state would cost a render per frame to
+  // keep resetting, which is the whole thing this handle exists to avoid.
+  useEffect(
+    () => () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    },
+    [],
+  );
 
   useImperativeHandle(
     ref,
     () => ({
       setPosition(x: number, y: number) {
         const el = elRef.current;
-        if (el) {
-          el.style.left = `${x}px`;
-          el.style.top = `${y}px`;
-        }
+        if (!el) return;
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        el.style.opacity = "1";
+        if (idleTimer.current) clearTimeout(idleTimer.current);
+        idleTimer.current = setTimeout(() => {
+          idleTimer.current = null;
+          if (elRef.current) elRef.current.style.opacity = "0";
+        }, IDLE_MS);
       },
     }),
     [],
@@ -47,6 +74,7 @@ const HandCursor = forwardRef<HandCursorHandle, Props>(function HandCursor(
         left: initialX,
         top: initialY,
         boxShadow: "0 0 12px rgba(103,232,249,0.8)",
+        transition: "opacity 150ms linear",
       }}
     />
   );

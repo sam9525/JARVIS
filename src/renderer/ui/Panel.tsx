@@ -92,7 +92,10 @@ export default function Panel({
         height: compact ? undefined : state.collapsed ? TITLE_BAR_H : state.h,
         zIndex: state.z,
       }}
-      onPointerDown={onFocus}
+      // capture, not bubble: the title bar and every resize handle stop
+      // propagation to claim the drag, so a bubbling handler here would raise
+      // the panel on a body press but not on the grip you actually reach for
+      onPointerDownCapture={onFocus}
     >
       <div className={CAPBAR} onPointerDown={drag.onTitlePointerDown}>
         {/* title and frame stay lit whatever has focus — a dimmed preview or

@@ -324,6 +324,29 @@ describe("z-index band (I2)", () => {
     const panels: PanelMap = { terminal: at(0, 0, 300, 400, Z_BASE) };
     expect(raise(panels, "terminal")).toBe(panels);
   });
+
+  // App must persist raise's whole output, not just the focused entry. Keeping
+  // only next[id] leaves the others on their old z until two tie — and a tie
+  // satisfies `target.z === top && normalised`, so raise short-circuits from
+  // then on and focus never reorders anything again.
+  it("keeps z strictly ordered when the caller writes the whole map back", () => {
+    let panels: PanelMap = {
+      terminal: at(0, 0, 300, 400, Z_BASE),
+      settings: at(0, 0, 300, 400, Z_BASE + 1),
+    };
+    for (const id of [
+      "terminal",
+      "settings",
+      "terminal",
+      "settings",
+    ] as const) {
+      panels = { ...panels, ...raise(panels, id) };
+      const others = (Object.keys(panels) as Array<keyof typeof panels>)
+        .filter((k) => k !== id)
+        .map((k) => panels[k]!.z);
+      expect(Math.min(...others)).toBeLessThan(panels[id]!.z);
+    }
+  });
 });
 
 describe("rescaleAll", () => {

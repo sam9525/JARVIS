@@ -45,7 +45,12 @@ export default function Bezel({
       {/* the one interactive layer: the replay scrubber lives here. z16: above
           the overlay (15), below the panel floor (Z_BASE=20) — a panel
           dragged over the scrubber should cover it, not tie with it */}
-      <div className="absolute inset-x-8 bottom-3 z-16">{footLeft}</div>
+      {/* stops short of footRight rather than spanning: the scrubber's fill is
+          near-opaque and sits higher, so a full-width bar hides the read/edit
+          telemetry on every workspace with a non-empty event log */}
+      <div className="absolute right-[220px] bottom-3 left-8 z-[16]">
+        {footLeft}
+      </div>
       <div
         className={
           LBL_DIM + " pointer-events-none absolute right-9 bottom-3 z-10"

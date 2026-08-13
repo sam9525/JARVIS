@@ -132,13 +132,17 @@ export default function App() {
   // Scheduling lives here, not inside the `setSettings` updater — updaters
   // must be pure, and React 18 StrictMode runs them twice.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setPanel = useCallback(
-    (id: PanelId, next: PanelState) => {
+  // Takes a patch of the layout's map, not one panel: `raise` renormalises
+  // every z at once, and persisting only the focused one leaves the rest on
+  // their old values until two tie — after which `raise` short-circuits on
+  // `target.z === top` and focus stops reordering anything, permanently.
+  const setPanels = useCallback(
+    (patch: PanelMap) => {
       setSettings((s) => ({
         ...s,
         panels: {
           ...s.panels,
-          [layoutId]: { ...s.panels[layoutId], [id]: next },
+          [layoutId]: { ...s.panels[layoutId], ...patch },
         },
       }));
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -151,6 +155,10 @@ export default function App() {
       }, 400);
     },
     [layoutId],
+  );
+  const setPanel = useCallback(
+    (id: PanelId, next: PanelState) => setPanels({ [id]: next }),
+    [setPanels],
   );
 
   // Panels ride the window: maximizing, restoring or reopening at a different
@@ -179,11 +187,9 @@ export default function App() {
   const focusPanel = useCallback(
     (id: PanelId) => {
       setFocusedPanel(id);
-      const next = raise({ ...panels, [id]: panelState(id) }, id);
-      const p = next[id];
-      if (p) setPanel(id, p);
+      setPanels(raise({ ...panels, [id]: panelState(id) }, id));
     },
-    [panels, setPanel],
+    [panels, setPanels],
   );
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
@@ -250,6 +256,10 @@ export default function App() {
       setReplayIndex(null); // the ref above already points at the live store
       // a mid-drag switch must not latch across workspaces (ledger #11)
       grabbedRef.current = undefined;
+      // `terminalClosed` is one flag, not one per workspace: closing the
+      // terminal says "I want the graph *here*", so the next workspace opens
+      // with its session again rather than inheriting a close it never saw
+      setTerminalClosed(false);
     },
     [onPreviewEvent],
   );
@@ -416,11 +426,12 @@ export default function App() {
 
   const onHandDrag = useCallback(
     (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
-      const id = grabTarget(
-        liveWorkspacePanels(),
-        cursorRef.current,
-        grabbedRef.current,
-      );
+      const live = liveWorkspacePanels();
+      const target = grabTarget(live, cursorRef.current, grabbedRef.current);
+      // the latch survives a frame where the cursor leaves the title bar — but
+      // not one where the panel itself went away (clear-the-deck, a close),
+      // which would otherwise keep writing geometry for something invisible
+      const id = target && target in live ? target : null;
       grabbedRef.current = id;
       if (!id) return fallback(dx, dy);
       // no negation: `dx` is documented "sign matches pointer", and both
