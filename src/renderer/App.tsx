@@ -100,9 +100,6 @@ export default function App() {
 
   const [focusedPanel, setFocusedPanel] = useState<PanelId>("terminal");
   const [deckCleared, setDeckCleared] = useState(false);
-  // A workspace terminal closes rather than collapses — you either want the
-  // session or you want the graph. Home's keeps its compact inbox instead.
-  const [terminalClosed, setTerminalClosed] = useState(false);
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
   // than a visible failure
@@ -256,10 +253,6 @@ export default function App() {
       setReplayIndex(null); // the ref above already points at the live store
       // a mid-drag switch must not latch across workspaces (ledger #11)
       grabbedRef.current = undefined;
-      // `terminalClosed` is one flag, not one per workspace: closing the
-      // terminal says "I want the graph *here*", so the next workspace opens
-      // with its session again rather than inheriting a close it never saw
-      setTerminalClosed(false);
     },
     [onPreviewEvent],
   );
@@ -418,11 +411,11 @@ export default function App() {
   const liveWorkspacePanels = useCallback((): PanelMap => {
     if (deckCleared) return {};
     const live: PanelMap = {};
-    if (active && !terminalClosed) live.terminal = panelState("terminal");
+    if (active) live.terminal = panelState("terminal");
     if (previewNode !== null && active) live.preview = panelState("preview");
     if (showSettings) live.settings = panelState("settings");
     return live;
-  }, [deckCleared, terminalClosed, active, previewNode, showSettings, panels]);
+  }, [deckCleared, active, previewNode, showSettings, panels]);
 
   const onHandDrag = useCallback(
     (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
@@ -582,17 +575,12 @@ export default function App() {
       >
         ⚙
       </button>
-      {/* the one way back for anything hidden, closed terminal included */}
+      {/* the one way back for anything hidden */}
       <button
         data-testid="clear-deck"
         className={BTN_IDLE + " border-dashed text-[13px]"}
-        title={deckCleared || terminalClosed ? "Show panels" : "Clear the deck"}
-        onClick={() => {
-          if (deckCleared || terminalClosed) {
-            setDeckCleared(false);
-            setTerminalClosed(false);
-          } else setDeckCleared(true);
-        }}
+        title={deckCleared ? "Show panels" : "Clear the deck"}
+        onClick={() => setDeckCleared((v) => !v)}
       >
         ▤
       </button>
@@ -774,6 +762,7 @@ export default function App() {
           state={panelState("preview")}
           focused={focusedPanel === "preview"}
           hidden={deckCleared}
+          foldTo="left"
           onChange={(next) => setPanel("preview", next)}
           onFocus={() => focusPanel("preview")}
           onClose={() => setPreviewNode(null)}
@@ -803,13 +792,11 @@ export default function App() {
             compactWidth={
               showHome ? Math.round(viewport.width * 0.22) : undefined
             }
-            collapsible={showHome}
             state={panelState("terminal")}
             focused={focusedPanel === "terminal"}
-            hidden={deckCleared || (!showHome && terminalClosed)}
+            hidden={deckCleared}
             onChange={(next) => setPanel("terminal", next)}
             onFocus={() => focusPanel("terminal")}
-            onClose={showHome ? undefined : () => setTerminalClosed(true)}
           >
             <TerminalPanel
               workspace={ws}

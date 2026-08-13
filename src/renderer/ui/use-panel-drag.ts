@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
 import type { PanelState } from "../../shared/types";
 import { movePanel, resizePanel, snapToEdges } from "./panel-layout";
-import type { ResizeEdge } from "./panel-layout";
+import type { Box, ResizeEdge } from "./panel-layout";
 
 export const viewport = () => ({
   width: window.innerWidth,
@@ -16,6 +16,8 @@ export const viewport = () => ({
  */
 export function usePanelDrag(opts: {
   state: PanelState;
+  /** the on-screen box, when a fold makes it smaller than the stored w/h */
+  box?: Box;
   onChange(next: PanelState): void;
 }): {
   onTitlePointerDown(e: React.PointerEvent): void;
@@ -42,7 +44,7 @@ export function usePanelDrag(opts: {
         const dx = ev.clientX - sx;
         const dy = ev.clientY - sy;
         return mode === "move"
-          ? movePanel(start, dx, dy, viewport())
+          ? movePanel(start, dx, dy, viewport(), latest.current.box)
           : resizePanel(start, dx, dy, viewport(), mode);
       };
       const move = (ev: PointerEvent) => latest.current.onChange(at(ev));
@@ -53,7 +55,9 @@ export function usePanelDrag(opts: {
         // movement before release would be silently discarded.
         const final = at(ev);
         latest.current.onChange(
-          mode === "move" ? snapToEdges(final, viewport()) : final,
+          mode === "move"
+            ? snapToEdges(final, viewport(), latest.current.box)
+            : final,
         );
         stop();
       };

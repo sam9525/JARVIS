@@ -119,6 +119,12 @@ describe("snapToEdges", () => {
     const p = at(600, 400);
     expect(snapToEdges(p, VP)).toEqual(p);
   });
+
+  it("snaps a folded panel by its title bar width", () => {
+    const box = { w: 180, h: TITLE_BAR_H };
+    const p = at(VP.width - BEZEL_INSET - box.w - (SNAP_PX - 1), 300);
+    expect(snapToEdges(p, VP, box).x + box.w).toBe(VP.width - BEZEL_INSET);
+  });
 });
 
 describe("movePanel", () => {
@@ -131,6 +137,17 @@ describe("movePanel", () => {
 
   it("cannot be dragged off the left edge", () => {
     expect(movePanel(at(100, 100), -9999, 0, VP).x).toBe(BEZEL_INSET);
+  });
+
+  it("clamps a folded panel by its title bar, not its expanded box", () => {
+    // full height and full width: without the box it cannot move at all
+    const p = at(BEZEL_INSET, TOP_INSET, 300, 846);
+    const box = { w: 180, h: TITLE_BAR_H };
+    const next = movePanel(p, 9999, 9999, VP, box);
+    expect(next.y).toBe(VP.height - BEZEL_INSET - TITLE_BAR_H);
+    expect(next.x).toBe(VP.width - BEZEL_INSET - box.w);
+    expect(next.w).toBe(p.w); // the expanded geometry survives the move
+    expect(next.h).toBe(p.h);
   });
 });
 

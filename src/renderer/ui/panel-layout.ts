@@ -89,14 +89,28 @@ export function clampToViewport(p: PanelState, vp: Viewport): PanelState {
     : { ...p, x, y, w, h };
 }
 
+/**
+ * The box a panel actually occupies on screen. Only a collapsed panel differs
+ * from its stored `w`/`h` — it is folded to its title bar, or shrink-wrapped
+ * to a compact width — and both the drag clamp and the edge snap must use the
+ * visible box, or a folded panel stops short of the bottom and right edges as
+ * if the whole expanded panel were still there.
+ */
+export type Box = { w: number; h: number };
+
 /** magnet to the bezel edges — a tidy layout stays available by choice */
-export function snapToEdges(p: PanelState, vp: Viewport): PanelState {
+export function snapToEdges(
+  p: PanelState,
+  vp: Viewport,
+  box?: Box,
+): PanelState {
+  const { w, h } = box ?? p;
   let { x, y } = p;
   if (Math.abs(x - BEZEL_INSET) <= SNAP_PX) x = BEZEL_INSET;
-  const right = vp.width - BEZEL_INSET - p.w;
+  const right = vp.width - BEZEL_INSET - w;
   if (Math.abs(x - right) <= SNAP_PX) x = right;
   if (Math.abs(y - TOP_INSET) <= SNAP_PX) y = TOP_INSET;
-  const bottom = vp.height - BEZEL_INSET - p.h;
+  const bottom = vp.height - BEZEL_INSET - h;
   if (Math.abs(y - bottom) <= SNAP_PX) y = bottom;
   return x === p.x && y === p.y ? p : { ...p, x, y };
 }
@@ -106,8 +120,14 @@ export function movePanel(
   dx: number,
   dy: number,
   vp: Viewport,
+  box?: Box,
 ): PanelState {
-  return clampToViewport({ ...p, x: p.x + dx, y: p.y + dy }, vp);
+  if (!box) return clampToViewport({ ...p, x: p.x + dx, y: p.y + dy }, vp);
+  // a move never resizes, so the stored w/h pass through untouched — running
+  // them through clampToViewport would bump the folded box up to the minimums
+  const x = clamp(p.x + dx, BEZEL_INSET, vp.width - BEZEL_INSET - box.w);
+  const y = clamp(p.y + dy, TOP_INSET, vp.height - BEZEL_INSET - box.h);
+  return { ...p, x, y };
 }
 
 /** which sides a resize drag moves — the eight compass handles on the border */

@@ -12,6 +12,11 @@ vi.mock("react", async () => {
     useRef: (init: any) => ({ current: init }),
     useCallback: (fn: any) => fn,
     useEffect: () => {},
+    useLayoutEffect: () => {},
+    useState: (init: any) => [
+      typeof init === "function" ? init() : init,
+      () => {},
+    ],
   };
 });
 
@@ -155,6 +160,24 @@ describe("Panel", () => {
     expect(next.h).toBe(state.h);
   });
 
+  it("folds a left-docked panel toward its left edge", () => {
+    const state = { ...STATE, collapsed: true };
+    const left = Panel({
+      ...base,
+      state,
+      foldTo: "left",
+    }) as React.ReactElement;
+    // no translation: the fold keeps the origin and shrinks to the right
+    expect(left.props.style.left).toBe(state.x);
+    // the default folds the other way, holding the expanded box's right edge
+    const right = Panel({
+      ...base,
+      state,
+      compactWidth: 200,
+    }) as React.ReactElement;
+    expect(right.props.style.left).toBe(state.x + state.w - 200);
+  });
+
   it("renders nothing when the deck is cleared", () => {
     expect(Panel({ ...base, hidden: true })).toBeNull();
   });
@@ -177,14 +200,6 @@ describe("Panel", () => {
     );
     caret.props.onClick();
     expect(onChange).toHaveBeenCalledWith({ ...STATE, collapsed: false });
-  });
-
-  it("drops the collapse caret when the panel closes instead", () => {
-    const html = renderToStaticMarkup(
-      <Panel {...base} collapsible={false} onClose={vi.fn()} />,
-    );
-    expect(html).not.toContain("panel-collapse-terminal");
-    expect(html).toContain("panel-close-terminal");
   });
 
   it("does not start a title-bar drag from the caret", () => {
