@@ -34,6 +34,12 @@ describe("nextUtterance", () => {
   it("trims, so a trailing newline does not defeat the repeat check", () => {
     expect(nextUtterance(status("done\n"), "done", false)).toBe(null);
   });
+
+  it("never speaks a message containing the wake word, so the mouth cannot feed the ears", () => {
+    expect(nextUtterance(status("Jarvis, build is green"), "", false)).toBe(
+      null,
+    );
+  });
 });
 
 describe("speak", () => {

@@ -60,7 +60,7 @@ import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import { useVoiceControl } from "./voice/use-voice-control";
-import { nextUtterance, speak } from "./voice/speak";
+import { nextUtterance, speak, stopSpeaking } from "./voice/speak";
 import VoiceToggle from "./voice/VoiceToggle";
 import type { Graph3DHandle } from "./graph/Graph3D";
 import type { GraphHandle } from "./graph/Graph";
@@ -418,6 +418,20 @@ export default function App() {
   // The mouth. Only the orchestrator's row is read, and only once per message
   // — spokenRef is a ref because speaking must not itself cause a render.
   const spokenRef = useRef("");
+  // A restored session (jarvis-inbox.json carries a last message) or a
+  // manual mic-on mid-session both find a message already sitting in
+  // `statuses` — without this, the false→true edge reads it aloud as if it
+  // just happened. Declared before the speaking effect below so it runs
+  // first within the same commit and the seeded ref is what that effect sees.
+  const prevMicOnRef = useRef(false);
+  useEffect(() => {
+    if (micOn && !prevMicOnRef.current && orchestrator) {
+      spokenRef.current =
+        statuses.find((s) => s.workspaceId === orchestrator.id)?.message?.trim() ??
+        "";
+    }
+    prevMicOnRef.current = micOn;
+  }, [micOn]);
   useEffect(() => {
     if (!micOn || !orchestrator) return;
     const say = nextUtterance(
@@ -429,6 +443,11 @@ export default function App() {
     spokenRef.current = say;
     speak(say);
   }, [statuses, micOn, orchestrator, voice.capturing]);
+  // A long message keeps reading after voice is switched off without this —
+  // the mouth must go quiet on the same transition that closes the ear.
+  useEffect(() => {
+    if (!micOn) stopSpeaking();
+  }, [micOn]);
 
   // Cards registers nothing, so a pulse there would claim hands drive
   // something on the one view where they don't (design §3)
