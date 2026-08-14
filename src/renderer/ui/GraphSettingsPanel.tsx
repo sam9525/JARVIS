@@ -65,6 +65,9 @@ type Props = {
   // hand control is not a plain setting write: it also starts/stops this
   // session's camera, so it goes through App rather than onSettingsChange
   onHandControl: (on: boolean) => void;
+  // same reasoning as onHandControl: voice control also starts/stops this
+  // session's microphone, so it goes through App rather than onSettingsChange
+  onVoiceControl: (on: boolean) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
 };
@@ -76,6 +79,7 @@ export default function GraphSettingsPanel({
   onSearchChange,
   onSettingsChange,
   onHandControl,
+  onVoiceControl,
   onResetHighlights,
   showSections,
 }: Props) {
@@ -121,6 +125,7 @@ export default function GraphSettingsPanel({
               dimensions: settings.dimensions,
               groups: settings.groups,
               handControl: settings.handControl,
+              voiceControl: settings.voiceControl,
               // both halves of the panel geometry, or the next resize rescales
               // from the default window instead of the one they were saved in
               panels: settings.panels,
@@ -261,6 +266,17 @@ export default function GraphSettingsPanel({
           className="gs-switch"
           checked={settings.handControl}
           onChange={(e) => onHandControl(e.target.checked)}
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
+        Voice control
+        <input
+          type="checkbox"
+          data-testid="voice-control-setting"
+          className="gs-switch"
+          checked={settings.voiceControl}
+          onChange={(e) => onVoiceControl(e.target.checked)}
         />
       </label>
     </div>

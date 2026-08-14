@@ -21,6 +21,7 @@ function render(overrides: Partial<Settings> = {}) {
     onSearchChange: (s) => calls.search.push(s),
     onSettingsChange: (s) => calls.settings.push(s),
     onHandControl: () => undefined,
+    onVoiceControl: () => undefined,
     onResetHighlights: () => {
       calls.resets++;
     },
@@ -43,8 +44,8 @@ function sliderByLabel(section: any, label: string): any {
 describe("GraphSettingsPanel", () => {
   it("renders header + four sections, Forces collapsed by default", () => {
     const { el } = render();
-    // [header, Filters, Groups, Display, Forces, hand control]
-    expect(el.props.children).toHaveLength(6);
+    // [header, Filters, Groups, Display, Forces, hand control, voice control]
+    expect(el.props.children).toHaveLength(7);
     const forces = el.props.children[4];
     expect(forces.type).toBe("details");
     expect(forces.props.open).toBeUndefined();
@@ -131,5 +132,32 @@ describe("GraphSettingsPanel", () => {
     );
     expect(threeD.calls.settings[0].views["3d"].display.focusZoom).toBe(200);
     expect(threeD.calls.settings[0].views["2d"].display.focusZoom).toBe(6.8);
+  });
+
+  it("reports a voice control change", () => {
+    let got: boolean | null = null;
+    const el = GraphSettingsPanel({
+      settings: defaultSettings(),
+      activeId: "ws1",
+      search: "",
+      onSearchChange: () => undefined,
+      onSettingsChange: () => undefined,
+      onHandControl: () => undefined,
+      onVoiceControl: (on: boolean) => {
+        got = on;
+      },
+      onResetHighlights: () => undefined,
+      showSections: true,
+    }) as any;
+    const input = el.props.children[6].props.children[1];
+    input.props.onChange({ target: { checked: true } });
+    expect(got).toBe(true);
+  });
+
+  it("reset keeps voice control, since that path cannot stop the mic", () => {
+    const { el, calls } = render({ voiceControl: true });
+    // click the reset button the same way the hand-control reset test does
+    el.props.children[0].props.children.props.onClick();
+    expect(calls.settings[0].voiceControl).toBe(true);
   });
 });
