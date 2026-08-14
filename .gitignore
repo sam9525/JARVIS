@@ -20,3 +20,6 @@ CONTEXT.md
 
 # Superpowers
 .superpowers/
+
+# Voice assets (build-time fetch, see npm run voice:assets)
+public/voice/
