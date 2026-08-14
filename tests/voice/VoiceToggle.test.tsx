@@ -65,6 +65,13 @@ describe("VoiceToggle", () => {
     );
   });
 
+  it("shows a failure as warm even while the microphone reports on, so error outranks micOn", () => {
+    render(
+      <VoiceToggle {...base} micOn={true} error="Voice model failed to load" />,
+    );
+    expect(classTokens(button())).toContain("border-warm");
+  });
+
   it("names the wake word in the title while on", () => {
     render(<VoiceToggle {...base} micOn={true} />);
     expect(button().getAttribute("title")).toContain("jarvis");
