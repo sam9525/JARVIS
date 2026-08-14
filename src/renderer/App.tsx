@@ -421,25 +421,31 @@ export default function App() {
   // A restored session (jarvis-inbox.json carries a last message) or a
   // manual mic-on mid-session both find a message already sitting in
   // `statuses` — without this, the false→true edge reads it aloud as if it
-  // just happened. Declared before the speaking effect below so it runs
-  // first within the same commit and the seeded ref is what that effect sees.
+  // just happened. `orchestrator` and `micOn` arrive from two independent
+  // async IPC calls with no ordering between them, so arming here cannot
+  // depend on `orchestrator` being known yet — it only records that this
+  // mic-on session owes a swallow. The speaking effect below consumes the
+  // flag once both an orchestrator and a message are actually available,
+  // however late that turns out to be. Declared before the speaking effect
+  // so it runs first within the same commit and the armed flag is what that
+  // effect sees.
+  const swallowNextRef = useRef(false);
   const prevMicOnRef = useRef(false);
   useEffect(() => {
-    if (micOn && !prevMicOnRef.current && orchestrator) {
-      spokenRef.current =
-        statuses
-          .find((s) => s.workspaceId === orchestrator.id)
-          ?.message?.trim() ?? "";
-    }
+    if (micOn && !prevMicOnRef.current) swallowNextRef.current = true;
     prevMicOnRef.current = micOn;
   }, [micOn]);
   useEffect(() => {
     if (!micOn || !orchestrator) return;
-    const say = nextUtterance(
-      statuses.find((s) => s.workspaceId === orchestrator.id),
-      spokenRef.current,
-      voice.capturing,
-    );
+    const status = statuses.find((s) => s.workspaceId === orchestrator.id);
+    if (swallowNextRef.current) {
+      const message = status?.message?.trim() ?? "";
+      if (!message) return; // nothing to swallow yet; stay armed
+      spokenRef.current = message;
+      swallowNextRef.current = false;
+      return;
+    }
+    const say = nextUtterance(status, spokenRef.current, voice.capturing);
     if (!say) return;
     spokenRef.current = say;
     speak(say);
