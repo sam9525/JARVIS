@@ -59,6 +59,9 @@ import HandToggle from "./hands/HandToggle";
 import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
+import { useVoiceControl } from "./voice/use-voice-control";
+import { nextUtterance, speak } from "./voice/speak";
+import VoiceToggle from "./voice/VoiceToggle";
 import type { Graph3DHandle } from "./graph/Graph3D";
 import type { GraphHandle } from "./graph/Graph";
 
@@ -357,6 +360,10 @@ export default function App() {
   // a graph pan that sweeps across a title bar from yanking that panel.
   const grabbedRef = useRef<PanelId | null | undefined>(undefined);
 
+  // the session the home screen pins, and the only one voice talks to
+  const orchestrator =
+    workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null;
+
   const hands = useHandControl({
     cameraOn,
     actionsRef: handActionsRef,
@@ -387,6 +394,41 @@ export default function App() {
   useEffect(() => {
     if (settingsReady && settings.handControl) setCameraOn(true);
   }, [settingsReady]);
+
+  // this session's microphone. Persisted as Settings.voiceControl, but kept
+  // separately so a tracker failure can stop the mic without touching the
+  // preference — the same split as cameraOn/handControl above.
+  const [micOn, setMicOn] = useState(false);
+  const voice = useVoiceControl({
+    micOn,
+    targetId: orchestrator?.id ?? null,
+    onMicFailed: () => setMicOn(false),
+  });
+
+  const setVoiceControl = (on: boolean) => {
+    setMicOn(on);
+    if (settings.voiceControl !== on)
+      updateSettings({ ...settings, voiceControl: on });
+  };
+
+  useEffect(() => {
+    if (settingsReady && settings.voiceControl) setMicOn(true);
+  }, [settingsReady]);
+
+  // The mouth. Only the orchestrator's row is read, and only once per message
+  // — spokenRef is a ref because speaking must not itself cause a render.
+  const spokenRef = useRef("");
+  useEffect(() => {
+    if (!micOn || !orchestrator) return;
+    const say = nextUtterance(
+      statuses.find((s) => s.workspaceId === orchestrator.id),
+      spokenRef.current,
+      voice.capturing,
+    );
+    if (!say) return;
+    spokenRef.current = say;
+    speak(say);
+  }, [statuses, micOn, orchestrator, voice.capturing]);
 
   // Cards registers nothing, so a pulse there would claim hands drive
   // something on the one view where they don't (design §3)
@@ -560,6 +602,12 @@ export default function App() {
         error={hands.error}
         onToggle={() => setHandControl(!cameraOn)}
         onRearm={hands.rearm}
+      />
+      <VoiceToggle
+        micOn={micOn}
+        capturing={voice.capturing}
+        error={voice.error}
+        onToggle={() => setVoiceControl(!micOn)}
       />
       <button
         className={BTN_IDLE + " text-[13px]"}
@@ -778,9 +826,7 @@ export default function App() {
       )}
 
       {(() => {
-        const ws = showHome
-          ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
-          : active;
+        const ws = showHome ? orchestrator : active;
         if (!ws) return null;
         // home's terminal collapses to an inbox strip rather than to its title
         // bar — the fleet's state is what you want while the session is parked
@@ -825,6 +871,7 @@ export default function App() {
             onSearchChange={setSearch}
             onSettingsChange={updateSettings}
             onHandControl={setHandControl}
+            onVoiceControl={setVoiceControl}
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
           />
