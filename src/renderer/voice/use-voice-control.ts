@@ -48,18 +48,15 @@ export function useVoiceControl(opts: {
       window.jarvis.ptyInput(id, command);
     };
 
-    startVoiceTracker(
-      ({ text }) => {
-        dictation = feed(dictation, text);
-        if (!dictation.active) return; // no wake word yet — nothing to hold
-        setDictating(true);
-        // every new breath pushes the deadline out, so a pause to think is
-        // not the end of the sentence
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(send, END_MS);
-      },
-      setSpeaking,
-    )
+    startVoiceTracker(({ text }) => {
+      dictation = feed(dictation, text);
+      if (!dictation.active) return; // no wake word yet — nothing to hold
+      setDictating(true);
+      // every new breath pushes the deadline out, so a pause to think is
+      // not the end of the sentence
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(send, END_MS);
+    }, setSpeaking)
       .then((s) => {
         if (cancelled) s();
         else stop = s;

@@ -15,7 +15,11 @@ export default function VoiceToggle({
   error: string | null;
   onToggle(): void;
 }) {
-  const border = error ? "border-warm" : micOn ? "border-accent" : "border-edge";
+  const border = error
+    ? "border-warm"
+    : micOn
+      ? "border-accent"
+      : "border-edge";
   const title = error
     ? `Voice: ${error}`
     : micOn

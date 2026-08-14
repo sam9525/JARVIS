@@ -64,12 +64,10 @@ describe("Segmenter", () => {
   it("a short pause mid-sentence does not end it", () => {
     const s = new Segmenter();
     for (let i = 0; i < 5; i++) s.push(LOUD);
-    for (let i = 0; i < HANG_BLOCKS - 1; i++)
-      expect(s.push(QUIET)).toBe(null);
+    for (let i = 0; i < HANG_BLOCKS - 1; i++) expect(s.push(QUIET)).toBe(null);
     expect(s.speaking).toBe(true);
     expect(s.push(LOUD)).toBe(null); // speech resumes, the clock resets
-    for (let i = 0; i < HANG_BLOCKS - 1; i++)
-      expect(s.push(QUIET)).toBe(null);
+    for (let i = 0; i < HANG_BLOCKS - 1; i++) expect(s.push(QUIET)).toBe(null);
     expect(s.speaking).toBe(true);
   });
 

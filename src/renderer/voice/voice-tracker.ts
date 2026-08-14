@@ -95,7 +95,9 @@ export async function startVoiceTracker(
     processor.onaudioprocess = (e) => {
       const was = segmenter.speaking;
       // copy: Web Audio reuses the event's buffer between callbacks
-      const audio = segmenter.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const audio = segmenter.push(
+        new Float32Array(e.inputBuffer.getChannelData(0)),
+      );
       if (segmenter.speaking !== was) onSpeaking(segmenter.speaking);
       if (audio) void run(audio);
     };
@@ -119,8 +121,6 @@ export async function startVoiceTracker(
     if (ctx) void ctx.close();
     void asr.dispose();
     stream.getTracks().forEach((t) => t.stop());
-    throw e instanceof RangeError
-      ? e
-      : new Error("Microphone failed to start");
+    throw e instanceof RangeError ? e : new Error("Microphone failed to start");
   }
 }

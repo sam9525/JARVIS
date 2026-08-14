@@ -427,8 +427,9 @@ export default function App() {
   useEffect(() => {
     if (micOn && !prevMicOnRef.current && orchestrator) {
       spokenRef.current =
-        statuses.find((s) => s.workspaceId === orchestrator.id)?.message?.trim() ??
-        "";
+        statuses
+          .find((s) => s.workspaceId === orchestrator.id)
+          ?.message?.trim() ?? "";
     }
     prevMicOnRef.current = micOn;
   }, [micOn]);

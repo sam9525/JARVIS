@@ -31,9 +31,7 @@ export function wakeIndex(text: string): number | null {
 export function commandAfterWake(text: string): string | null {
   const i = wakeIndex(text);
   if (i === null) return null;
-  const rest = collapseWhitespace(
-    text.slice(i).replace(/^[\s,.!?:;-]+/, ""),
-  );
+  const rest = collapseWhitespace(text.slice(i).replace(/^[\s,.!?:;-]+/, ""));
   return rest || null;
 }
 
