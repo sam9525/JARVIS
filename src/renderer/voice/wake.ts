@@ -7,6 +7,16 @@ export const WAKE_WORD = "jarvis";
 // hoisting a shared stateful regex.
 const wakeRe = () => new RegExp(`\\b${WAKE_WORD}\\b`, "gi");
 
+/** Collapse every run of whitespace (spaces, tabs, `\r`, `\n`, ...) into a
+ * single space and trim the ends. Whisper can join multi-segment output with
+ * a mid-utterance `\r`/`\n`, and that string is written into a terminal
+ * without a trailing carriage return (see use-voice-control.ts) — an
+ * embedded newline would submit the prompt early, so every command this
+ * module hands out must be a single line. */
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /** Index just past the LAST wake word, or null. Last, not first: saying it
  * twice means you restarted the sentence, and the newer one is the one you
  * meant. */
@@ -21,10 +31,9 @@ export function wakeIndex(text: string): number | null {
 export function commandAfterWake(text: string): string | null {
   const i = wakeIndex(text);
   if (i === null) return null;
-  const rest = text
-    .slice(i)
-    .replace(/^[\s,.!?:;-]+/, "")
-    .trim();
+  const rest = collapseWhitespace(
+    text.slice(i).replace(/^[\s,.!?:;-]+/, ""),
+  );
   return rest || null;
 }
 
@@ -42,8 +51,10 @@ export function feed(d: Dictation, utterance: string): Dictation {
   if (wakeIndex(utterance) !== null)
     return { active: true, text: commandAfterWake(utterance) ?? "" };
   if (!d.active) return d;
-  const rest = utterance.trim();
-  return rest ? { active: true, text: `${d.text} ${rest}`.trim() } : d;
+  const rest = collapseWhitespace(utterance);
+  return rest
+    ? { active: true, text: collapseWhitespace(`${d.text} ${rest}`) }
+    : d;
 }
 
 /** The dictated command, or null when nothing but the wake word was said. */

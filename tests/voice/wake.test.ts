@@ -53,6 +53,20 @@ describe("commandAfterWake", () => {
     );
   });
 
+  it("collapses an embedded newline between the wake word and the rest", () => {
+    expect(commandAfterWake("jarvis\nlist the fleet")).toBe("list the fleet");
+  });
+
+  it("collapses an embedded carriage return + newline", () => {
+    expect(commandAfterWake("jarvis run\r\nthe tests")).toBe("run the tests");
+  });
+
+  it("collapses runs of ordinary spaces", () => {
+    expect(commandAfterWake("jarvis    run   the   tests")).toBe(
+      "run the tests",
+    );
+  });
+
   it("exports the word it looks for", () => {
     expect(WAKE_WORD).toBe("jarvis");
   });
@@ -99,6 +113,12 @@ describe("feed", () => {
     d = feed(d, "   ");
     expect(finish(d)).toBe("list the fleet");
     expect(d.active).toBe(true);
+  });
+
+  it("collapses a multi-line command accumulated across breaths into one line", () => {
+    let d = feed(NO_DICTATION, "jarvis");
+    d = feed(d, "list the fleet\nand say which are waiting");
+    expect(finish(d)).toBe("list the fleet and say which are waiting");
   });
 });
 
