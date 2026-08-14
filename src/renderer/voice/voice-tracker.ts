@@ -2,14 +2,8 @@
 // utterances. Deliberately not unit tested, matching hand-tracker.ts and the
 // PTY/CLI boundaries — every rule with a threshold in it lives in segment.ts,
 // which is.
-import { env, pipeline } from "@huggingface/transformers";
+import type { pipeline as PipelineFn } from "@huggingface/transformers";
 import { Segmenter, SAMPLE_RATE } from "./segment";
-
-// Local assets (Task 4): the CSP's default-src 'self' forbids the CDN fetch
-// transformers.js defaults to. Same shape as hand-tracker's WASM_DIR.
-env.allowRemoteModels = false;
-env.localModelPath = "/voice/models";
-env.backends.onnx.wasm.wasmPaths = "/voice/wasm/";
 
 const BLOCK = 4096;
 
@@ -37,13 +31,24 @@ export async function startVoiceTracker(
     throw new Error("Microphone permission denied");
   }
 
+  // hoisted so the teardown paths below (both this function's failure catch
+  // and the AudioContext block's) can dispose it — a pipeline that is only
+  // ever constructed and never disposed leaks its ONNX session per mic toggle
+  let asr!: Awaited<ReturnType<typeof PipelineFn>>;
   let transcribe: (a: Float32Array) => Promise<{ text?: string }>;
   try {
-    const asr = await pipeline(
-      "automatic-speech-recognition",
-      "whisper-tiny.en",
-      { dtype: "q8" },
-    );
+    // Loaded here, not at module scope: importing this module must not pull
+    // in @huggingface/transformers (and onnxruntime-web) on every renderer
+    // startup when voice is switched off.
+    const { env, pipeline } = await import("@huggingface/transformers");
+    // Local assets (Task 4): the CSP's default-src 'self' forbids the CDN fetch
+    // transformers.js defaults to. Same shape as hand-tracker's WASM_DIR.
+    env.allowRemoteModels = false;
+    env.localModelPath = "/voice/models";
+    env.backends.onnx.wasm.wasmPaths = "/voice/wasm/";
+    asr = await pipeline("automatic-speech-recognition", "whisper-tiny.en", {
+      dtype: "q8",
+    });
     transcribe = (a) => asr(a) as Promise<{ text?: string }>;
   } catch {
     stream.getTracks().forEach((t) => t.stop());
@@ -54,6 +59,14 @@ export async function startVoiceTracker(
   try {
     ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
     const audioCtx = ctx; // narrowed const: the closure below outlives this try block
+    // The sampleRate option above is a request, not a guarantee. Whisper's
+    // rate is not negotiable — running at the wrong one would silently feed
+    // it sped-up or slowed-down audio with no error anywhere, presenting as
+    // "it hears nothing I say".
+    if (audioCtx.sampleRate !== SAMPLE_RATE)
+      throw new RangeError(
+        `Microphone runs at ${audioCtx.sampleRate} Hz, not ${SAMPLE_RATE}`,
+      );
     const source = audioCtx.createMediaStreamSource(stream);
     const processor = audioCtx.createScriptProcessor(BLOCK, 1, 1);
     // ScriptProcessor only fires while connected into the graph, and the graph
@@ -62,7 +75,7 @@ export async function startVoiceTracker(
     const mute = audioCtx.createGain();
     mute.gain.value = 0;
 
-    const segmenter = new Segmenter();
+    const segmenter = new Segmenter(audioCtx.sampleRate);
     let busy = false;
 
     const run = async (audio: Float32Array) => {
@@ -97,13 +110,17 @@ export async function startVoiceTracker(
       mute.disconnect();
       source.disconnect();
       void audioCtx.close();
+      void asr.dispose();
       stream.getTracks().forEach((t) => t.stop());
     };
-  } catch {
+  } catch (e) {
     // nothing has been returned yet, so a throw here would strand a live
     // microphone with no stop handle — tear down before rethrowing
     if (ctx) void ctx.close();
+    void asr.dispose();
     stream.getTracks().forEach((t) => t.stop());
-    throw new Error("Microphone failed to start");
+    throw e instanceof RangeError
+      ? e
+      : new Error("Microphone failed to start");
   }
 }
