@@ -13,9 +13,10 @@ export const END_MS = 2500;
 export function useVoiceControl(opts: {
   micOn: boolean;
   targetId: string | null;
+  micDeviceId?: string;
   onMicFailed: () => void;
 }): { capturing: boolean; error: string | null } {
-  const { micOn, targetId, onMicFailed } = opts;
+  const { micOn, targetId, micDeviceId, onMicFailed } = opts;
   const [speaking, setSpeaking] = useState(false);
   const [dictating, setDictating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,15 +61,19 @@ export function useVoiceControl(opts: {
       });
     };
 
-    startVoiceTracker(({ text }) => {
-      dictation = feed(dictation, text);
-      if (!dictation.active) return; // no wake word yet — nothing to hold
-      setDictating(true);
-      // every new breath pushes the deadline out, so a pause to think is
-      // not the end of the sentence
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(send, END_MS);
-    }, setSpeaking)
+    startVoiceTracker(
+      ({ text }) => {
+        dictation = feed(dictation, text);
+        if (!dictation.active) return; // no wake word yet — nothing to hold
+        setDictating(true);
+        // every new breath pushes the deadline out, so a pause to think is
+        // not the end of the sentence
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(send, END_MS);
+      },
+      setSpeaking,
+      micDeviceId,
+    )
       .then((s) => {
         if (cancelled) s();
         else stop = s;
@@ -84,7 +89,10 @@ export function useVoiceControl(opts: {
       if (timer) clearTimeout(timer);
       stop?.();
     };
-  }, [micOn]);
+    // micDeviceId is a dep, not a ref, unlike targetId above: a device change
+    // must reopen the stream. The whisper reload it costs is seconds, because
+    // useBrowserCache is off — acceptable for an action taken by hand.
+  }, [micOn, micDeviceId]);
 
   // an open dictation counts as capturing even between breaths — it is what
   // keeps the mouth quiet while you are still composing

@@ -379,4 +379,19 @@ describe("settings", () => {
     const f = await writeSettings({ panels: "nope" });
     expect((await loadSettings(f)).panels).toEqual({ home: {}, workspace: {} });
   });
+
+  it("round-trips micDeviceId", async () => {
+    const file = await writeSettings({ micDeviceId: "abc123" });
+    expect((await loadSettings(file)).micDeviceId).toBe("abc123");
+  });
+
+  it("drops a non-string or empty micDeviceId", async () => {
+    expect(
+      (await loadSettings(await writeSettings({ micDeviceId: 7 }))).micDeviceId,
+    ).toBeUndefined();
+    expect(
+      (await loadSettings(await writeSettings({ micDeviceId: "" })))
+        .micDeviceId,
+    ).toBeUndefined();
+  });
 });

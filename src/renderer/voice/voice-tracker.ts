@@ -52,6 +52,7 @@ export function configureModelEnv(env: ModelEnv): void {
 export async function startVoiceTracker(
   onUtterance: (c: VoiceChunk) => void,
   onSpeaking: (active: boolean) => void,
+  deviceId?: string,
 ): Promise<() => void> {
   if (!navigator.mediaDevices?.getUserMedia)
     throw new Error("No microphone available");
@@ -74,6 +75,7 @@ export async function startVoiceTracker(
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
       },
     });
   } catch {

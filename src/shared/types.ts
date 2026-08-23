@@ -155,6 +155,10 @@ export interface Settings {
   views: Record<Dimensions, ViewSettings>;
   handControl: boolean; // hands drive navigation; the webcam auto-starts when on
   voiceControl: boolean; // the mic listens for "jarvis"; auto-starts when on
+  /** Which audio input the tracker opens. Absent = whatever the OS calls
+   * default. A saved id that is not plugged in right now is not passed to
+   * getUserMedia — an unplugged device reads as Default, never as an error. */
+  micDeviceId?: string;
   panels: Record<LayoutId, PanelMap>; // home and workspace arrange separately
   /**
    * The window `panels` was measured in. Panel geometry is pixels, so without

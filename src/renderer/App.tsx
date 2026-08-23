@@ -401,6 +401,7 @@ export default function App() {
   const [micOn, setMicOn] = useState(false);
   const voice = useVoiceControl({
     micOn,
+    micDeviceId: settings.micDeviceId,
     targetId: orchestrator?.id ?? null,
     onMicFailed: () => setMicOn(false),
   });

@@ -1,8 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import GraphSettingsPanel from "../../src/renderer/ui/GraphSettingsPanel";
 import { defaultSettings } from "../../src/shared/types";
 import type { Settings } from "../../src/shared/types";
+
+// this suite calls GraphSettingsPanel as a plain function, outside React's
+// render loop — no dispatcher is available, so any hook the component calls
+// must be mocked rather than actually run
+vi.mock("../../src/renderer/voice/use-mic-devices", () => ({
+  useMicDevices: () => [],
+}));
 
 function render(overrides: Partial<Settings> = {}) {
   const calls: {
@@ -44,8 +51,9 @@ function sliderByLabel(section: any, label: string): any {
 describe("GraphSettingsPanel", () => {
   it("renders header + four sections, Forces collapsed by default", () => {
     const { el } = render();
-    // [header, Filters, Groups, Display, Forces, hand control, voice control]
-    expect(el.props.children).toHaveLength(7);
+    // [header, Filters, Groups, Display, Forces, hand control, voice control,
+    //  microphone, no-devices hint]
+    expect(el.props.children).toHaveLength(9);
     const forces = el.props.children[4];
     expect(forces.type).toBe("details");
     expect(forces.props.open).toBeUndefined();

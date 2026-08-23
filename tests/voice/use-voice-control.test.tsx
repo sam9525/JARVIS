@@ -8,6 +8,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 const tracker = vi.hoisted(() => ({
   onUtterance: null as null | ((c: { text: string }) => void),
   onSpeaking: null as null | ((on: boolean) => void),
+  device: undefined as string | undefined,
   stop: vi.fn(),
   starts: 0,
   impl: null as null | (() => Promise<() => void>),
@@ -16,9 +17,11 @@ vi.mock("../../src/renderer/voice/voice-tracker", () => ({
   startVoiceTracker: (
     onUtterance: (c: { text: string }) => void,
     onSpeaking: (on: boolean) => void,
+    deviceId?: string,
   ) => {
     tracker.onUtterance = onUtterance;
     tracker.onSpeaking = onSpeaking;
+    tracker.device = deviceId;
     tracker.starts++;
     return tracker.impl
       ? tracker.impl()
@@ -38,13 +41,20 @@ const ptyInput = vi.fn(() => Promise.resolve(true));
 function Host({
   micOn,
   targetId,
+  micDeviceId,
   onFail,
 }: {
   micOn: boolean;
   targetId: string | null;
+  micDeviceId?: string;
   onFail: () => void;
 }) {
-  const v = useVoiceControl({ micOn, targetId, onMicFailed: onFail });
+  const v = useVoiceControl({
+    micOn,
+    targetId,
+    micDeviceId,
+    onMicFailed: onFail,
+  });
   return (
     <div
       data-testid="probe"
@@ -82,10 +92,19 @@ const probe = () =>
 const ok = () => {
   tracker.impl = () => Promise.resolve(tracker.stop);
 };
-const mount = (micOn: boolean, targetId: string | null = "ws-self") =>
+const mount = (
+  micOn: boolean,
+  targetId: string | null = "ws-self",
+  micDeviceId?: string,
+) =>
   act(() => {
     root.render(
-      <Host micOn={micOn} targetId={targetId} onFail={() => undefined} />,
+      <Host
+        micOn={micOn}
+        targetId={targetId}
+        micDeviceId={micDeviceId}
+        onFail={() => undefined}
+      />,
     );
   });
 const say = (text: string) => act(() => tracker.onUtterance!({ text }));
@@ -233,5 +252,16 @@ describe("useVoiceControl", () => {
     say("jarvis go");
     pause(END_MS);
     expect(ptyInput).toHaveBeenCalledWith("ws-b", "go");
+  });
+
+  it("reopens the stream when the chosen microphone changes", async () => {
+    ok();
+    await act(async () => mount(true, "w1", "mic-a"));
+    expect(tracker.starts).toBe(1);
+    expect(tracker.device).toBe("mic-a");
+    await act(async () => mount(true, "w1", "mic-b"));
+    expect(tracker.stop).toHaveBeenCalled();
+    expect(tracker.starts).toBe(2);
+    expect(tracker.device).toBe("mic-b");
   });
 });

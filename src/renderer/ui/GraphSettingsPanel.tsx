@@ -9,6 +9,7 @@ import type {
   ViewSettings,
 } from "../../shared/types";
 import { randomColor } from "../../shared/random-color";
+import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
 
 const SECTION_OPTIONS: { value: SectionFilter; label: string }[] = [
@@ -108,6 +109,12 @@ export default function GraphSettingsPanel({
     activeId && set({ groups: { ...settings.groups, [activeId]: next } });
   const setGroup = (i: number, patch: Partial<GraphGroup>) =>
     setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
+
+  const mics = useMicDevices();
+  // deviceId is "" and label is blank until permission has been granted once
+  const named = mics.filter((d) => d.deviceId && d.label);
+  const savedMic = settings.micDeviceId ?? "";
+  const micValue = named.some((d) => d.deviceId === savedMic) ? savedMic : "";
 
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
@@ -279,6 +286,28 @@ export default function GraphSettingsPanel({
           onChange={(e) => onVoiceControl(e.target.checked)}
         />
       </label>
+
+      <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+        Microphone
+        <select
+          data-testid="mic-device-setting"
+          className="max-w-[60%] cursor-pointer rounded-md border border-edge bg-abyss px-2 py-1 text-ink focus:border-accent focus:outline-none"
+          value={micValue}
+          onChange={(e) => set({ micDeviceId: e.target.value || undefined })}
+        >
+          <option value="">Default microphone</option>
+          {named.map((d) => (
+            <option key={d.deviceId} value={d.deviceId}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {named.length === 0 && (
+        <div className="pb-2 text-[11.5px] text-ink-dim">
+          Device names appear after you allow the microphone once.
+        </div>
+      )}
     </div>
   );
 }
