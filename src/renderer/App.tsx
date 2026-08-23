@@ -819,7 +819,7 @@ export default function App() {
         </div>
       )}
       <Bezel
-        title="JARVIS · V0.3.6"
+        title="JARVIS · V0.4.0"
         telemetry={telemetry}
         footRight={footRight}
         footLeft={
