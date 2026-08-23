@@ -36,6 +36,8 @@ export function configureModelEnv(env: ModelEnv): void {
   env.allowLocalModels = true;
   // Cache Storage is read before the network (hub.js:442), so a stale entry
   // replays with no request at all. These files come off local disk already.
+  // the cost is that a mic off→on cycle re-reads and re-initialises the whole
+  // model from disk — seconds, not milliseconds
   env.useBrowserCache = false;
   env.localModelPath = "/voice/models";
   env.backends.onnx.wasm.wasmPaths = { wasm: ORT_WASM_URL };
@@ -208,11 +210,16 @@ export async function startVoiceTracker(
         a.href = url;
         a.download = "utterance.wav";
         a.click();
-        URL.revokeObjectURL(url);
+        // Chromium can abort a download whose URL is revoked in the same tick
+        setTimeout(() => URL.revokeObjectURL(url), 0);
         return "saved utterance.wav";
       },
     };
-    (window as unknown as { __voice: typeof debug }).__voice = debug;
+    // dev only, like dev-probes: debug.last pins the last utterance's audio
+    // (~1 MB) and debug.mic names the device, neither of which a shipped build
+    // should hold onto after the microphone is gone
+    const probe = window as unknown as { __voice?: typeof debug };
+    if (import.meta.env.DEV) probe.__voice = debug;
 
     const run = async (audio: Float32Array) => {
       // whisper is slower than speech, so a breath spoken while the previous
@@ -267,6 +274,7 @@ export async function startVoiceTracker(
     mute.connect(audioCtx.destination);
 
     return () => {
+      delete probe.__voice;
       capture.port.onmessage = null;
       capture.disconnect();
       mute.disconnect();

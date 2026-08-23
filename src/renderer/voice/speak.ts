@@ -1,7 +1,8 @@
 import type { WorkspaceStatus } from "../../shared/types";
 import { WAKE_WORD } from "./wake";
 
-// `g` needs a fresh lastIndex per call — same reasoning as wake.ts's wakeRe.
+// built per call rather than hoisted: WAKE_WORD is interpolated, and a shared
+// instance is one flag change away from carrying lastIndex between calls.
 const wakeRe = () => new RegExp(`\\b${WAKE_WORD}\\b`, "i");
 
 // The app never parses terminal output, so `message` — the hook-derived text
@@ -31,10 +32,10 @@ export function speak(text: string): void {
   const Utterance = (
     globalThis as { SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance }
   ).SpeechSynthesisUtterance;
-  if (!synth) return;
+  if (!synth || !Utterance) return; // half a mouth is not a mouth
   // a backlog of stale statuses read in order is worse than the newest one
   synth.cancel();
-  synth.speak(Utterance ? new Utterance(text) : ({ text } as never));
+  synth.speak(new Utterance(text));
 }
 
 // Same feature-detect as speak(): the mic-off transition must not assume a

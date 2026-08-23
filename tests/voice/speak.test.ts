@@ -58,6 +58,9 @@ describe("speak", () => {
       cancel,
       speak: spoken,
     };
+    (globalThis as Record<string, unknown>).SpeechSynthesisUtterance = class {
+      constructor(public text: string) {}
+    };
     speak("hello");
     expect(cancel).toHaveBeenCalledOnce();
     expect(spoken).toHaveBeenCalledOnce();
