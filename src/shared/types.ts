@@ -159,6 +159,15 @@ export interface Settings {
    * default. A saved id that is not plugged in right now is not passed to
    * getUserMedia — an unplugged device reads as Default, never as an error. */
   micDeviceId?: string;
+  /**
+   * The ElevenLabs key, `enc:<base64>` when safeStorage can encrypt and
+   * `raw:<key>` when it cannot (no keyring). **Main only** — get-settings
+   * strips it and set-settings restores it from main's own copy, so a note
+   * preview that escapes the CSP still cannot read it.
+   */
+  ttsKey?: string;
+  ttsVoiceId?: string;
+  ttsModelId?: string;
   panels: Record<LayoutId, PanelMap>; // home and workspace arrange separately
   /**
    * The window `panels` was measured in. Panel geometry is pixels, so without

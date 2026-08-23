@@ -6,6 +6,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
+import type { TtsOption } from "./tts";
 
 // Every subscription hands back its own disposer. Without one, a second mount
 // (StrictMode, or any remount) silently doubles the listener.
@@ -59,6 +60,18 @@ const api = {
   ptyResize: (workspaceId: string, cols: number, rows: number): void => {
     ipcRenderer.send("pty-resize", workspaceId, cols, rows);
   },
+  // the key never crosses this bridge — main holds it, the renderer only ever
+  // learns whether one exists and whether it could be encrypted
+  ttsKeyState: (): Promise<{ hasKey: boolean; encrypted: boolean }> =>
+    ipcRenderer.invoke("tts-key-state"),
+  ttsSetKey: (
+    plain: string,
+  ): Promise<{ hasKey: boolean; encrypted: boolean }> =>
+    ipcRenderer.invoke("tts-set-key", plain),
+  ttsSpeak: (text: string): Promise<Uint8Array | null> =>
+    ipcRenderer.invoke("tts-speak", text),
+  ttsVoices: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-voices"),
+  ttsModels: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-models"),
   onPtyData: (cb: (workspaceId: string, data: string) => void) =>
     subscribe<[string, string]>("pty-data", cb),
   onPtyExit: (cb: (workspaceId: string, exitCode: number) => void) =>

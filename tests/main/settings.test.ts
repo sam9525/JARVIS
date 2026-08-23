@@ -394,4 +394,25 @@ describe("settings", () => {
         .micDeviceId,
     ).toBeUndefined();
   });
+
+  it("round-trips the tts fields", async () => {
+    const file = await writeSettings({
+      ttsKey: "enc:AAAA",
+      ttsVoiceId: "v1",
+      ttsModelId: "m1",
+    });
+    const s = await loadSettings(file);
+    expect(s.ttsKey).toBe("enc:AAAA");
+    expect(s.ttsVoiceId).toBe("v1");
+    expect(s.ttsModelId).toBe("m1");
+  });
+
+  it("drops non-string tts fields", async () => {
+    const s = await loadSettings(
+      await writeSettings({ ttsKey: 1, ttsVoiceId: {}, ttsModelId: [] }),
+    );
+    expect(s.ttsKey).toBeUndefined();
+    expect(s.ttsVoiceId).toBeUndefined();
+    expect(s.ttsModelId).toBeUndefined();
+  });
 });
