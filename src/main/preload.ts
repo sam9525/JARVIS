@@ -52,9 +52,10 @@ const api = {
     dangerous = false,
   ): Promise<{ ok: boolean; hooksOk: boolean }> =>
     ipcRenderer.invoke("pty-launch", workspaceId, cols, rows, dangerous),
-  ptyInput: (workspaceId: string, data: string): void => {
-    ipcRenderer.send("pty-input", workspaceId, data);
-  },
+  // returns whether a live PTY took the write, so a caller that is not a
+  // keyboard (voice) can report a send into a dead session
+  ptyInput: (workspaceId: string, data: string): Promise<boolean> =>
+    ipcRenderer.invoke("pty-input", workspaceId, data),
   ptyResize: (workspaceId: string, cols: number, rows: number): void => {
     ipcRenderer.send("pty-resize", workspaceId, cols, rows);
   },

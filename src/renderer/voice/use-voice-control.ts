@@ -27,7 +27,14 @@ export function useVoiceControl(opts: {
   failedRef.current = onMicFailed;
 
   useEffect(() => {
-    if (!micOn) return;
+    if (!micOn) {
+      // the ear closes mid-dictation too — without these the glyph keeps
+      // pulsing "listening" over an off button, and the capture gate that
+      // keeps the mouth quiet stays open for the life of the mount
+      setSpeaking(false);
+      setDictating(false);
+      return;
+    }
     setError(null);
     setSpeaking(false);
     setDictating(false);
@@ -45,7 +52,12 @@ export function useVoiceControl(opts: {
       if (!command || !id) return;
       // no carriage return: dictation fills the composer and the human presses
       // Enter. A false wake costs a backspace, never a run.
-      window.jarvis.ptyInput(id, command);
+      void window.jarvis.ptyInput(id, command).then((ok) => {
+        // the orchestrator PTY exists only once its terminal panel has
+        // launched one; a write into nothing must say so, not look sent
+        if (!cancelled)
+          setError(ok ? null : "no terminal open in that session");
+      });
     };
 
     startVoiceTracker(({ text }) => {

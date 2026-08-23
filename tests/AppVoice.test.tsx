@@ -92,7 +92,7 @@ beforeEach(() => {
     addProject: () => Promise.resolve([]),
     getGraph: () => Promise.resolve({ nodes: [], edges: [] }),
     getSymbolGraph: () => Promise.resolve({ nodes: [], edges: [] }),
-    ptyInput: () => undefined,
+    ptyInput: () => Promise.resolve(true),
     onGraph: () => () => undefined,
     onToolEvent: () => () => undefined,
     onStatus: (cb: (s: WorkspaceStatus[]) => void) => {
@@ -203,5 +203,37 @@ describe("App: voice restored-message race", () => {
     await flush(); // settings resolve here, flipping micOn true
 
     expect(speakSpy).not.toHaveBeenCalled();
+  });
+  const push = (message: string) =>
+    act(async () => {
+      statusListener!([
+        {
+          workspaceId: ORCHESTRATOR.id,
+          kind: "idle",
+          call: "",
+          message,
+          since: Date.now(),
+          reads: 0,
+          edits: 0,
+        },
+      ]);
+    });
+
+  // a fresh install has no jarvis-inbox.json, so the restored push carries no
+  // message at all — the swallow must be spent on it, not held for the first
+  // real reply of the session
+  it("speaks the first live message when there was nothing to restore", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+    await push("");
+    await flush();
+    await push("first real reply");
+    await flush();
+
+    expect(speakSpy).toHaveBeenCalledWith("first real reply");
   });
 });

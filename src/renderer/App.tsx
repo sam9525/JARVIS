@@ -439,9 +439,12 @@ export default function App() {
     if (!micOn || !orchestrator) return;
     const status = statuses.find((s) => s.workspaceId === orchestrator.id);
     if (swallowNextRef.current) {
-      const message = status?.message?.trim() ?? "";
-      if (!message) return; // nothing to swallow yet; stay armed
-      spokenRef.current = message;
+      // spent on the orchestrator first ROW, message or not. Waiting for a
+      // non-empty message instead keeps the flag armed through a fresh
+      // install (no jarvis-inbox.json to restore) and eats the first real
+      // reply of the session — the one you most need to hear.
+      if (!status) return; // no row yet; nothing has been restored or missed
+      spokenRef.current = status.message?.trim() ?? "";
       swallowNextRef.current = false;
       return;
     }

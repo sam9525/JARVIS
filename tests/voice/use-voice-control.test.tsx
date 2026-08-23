@@ -33,7 +33,7 @@ import {
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const ptyInput = vi.fn();
+const ptyInput = vi.fn(() => Promise.resolve(true));
 
 function Host({
   micOn,
@@ -201,6 +201,28 @@ describe("useVoiceControl", () => {
     await act(async () => mount(true));
     await act(async () => mount(false));
     expect(tracker.stop).toHaveBeenCalledOnce();
+  });
+
+  it("stops claiming to listen when the mic goes off mid-dictation", async () => {
+    ok();
+    await act(async () => mount(true));
+    say("jarvis");
+    expect(probe().dataset.capturing).toBe("true");
+    await act(async () => mount(false));
+    // an off button that still pulses is the misreport the ✋ is forbidden
+    expect(probe().dataset.capturing).toBe("false");
+  });
+
+  it("reports a command written into a session with no terminal", async () => {
+    ok();
+    ptyInput.mockResolvedValueOnce(false);
+    await act(async () => mount(true));
+    say("jarvis run the tests");
+    await act(async () => {
+      vi.advanceTimersByTime(END_MS);
+      await Promise.resolve();
+    });
+    expect(probe().dataset.error).toContain("no terminal");
   });
 
   it("does not restart when only the target changes", async () => {

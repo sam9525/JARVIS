@@ -350,7 +350,7 @@ app.whenReady().then(async () => {
       return { ok: true, hooksOk: hooksOk && mcpOk };
     },
   );
-  ipcMain.on("pty-input", (_e, id: string, data: string) =>
+  ipcMain.handle("pty-input", (_e, id: string, data: string) =>
     ptyManager.write(id, data),
   );
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
