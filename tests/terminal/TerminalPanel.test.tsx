@@ -84,7 +84,7 @@ beforeEach(() => {
   (global as any).window = {
     jarvis: {
       ptyLaunch,
-      ptyInput: () => {},
+      ptyInput: () => Promise.resolve(true),
       ptyResize: () => {},
       onPtyData: () => {},
       onPtyExit: () => {},

@@ -154,6 +154,7 @@ export interface Settings {
   groups: Record<string, GraphGroup[]>; // per workspace id; first match wins
   views: Record<Dimensions, ViewSettings>;
   handControl: boolean; // hands drive navigation; the webcam auto-starts when on
+  voiceControl: boolean; // the mic listens for "jarvis"; auto-starts when on
   panels: Record<LayoutId, PanelMap>; // home and workspace arrange separately
   /**
    * The window `panels` was measured in. Panel geometry is pixels, so without
@@ -229,6 +230,7 @@ export function defaultSettings(): Settings {
     groups: {},
     views: { "2d": defaultView("2d"), "3d": defaultView("3d") },
     handControl: false,
+    voiceControl: false,
     panels: { home: {}, workspace: {} },
   };
 }

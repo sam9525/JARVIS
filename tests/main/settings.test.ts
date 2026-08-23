@@ -288,6 +288,25 @@ describe("settings", () => {
     expect((await loadSettings(file)).handControl).toBe(true);
   });
 
+  it("defaults voiceControl off", () => {
+    expect(defaultSettings().voiceControl).toBe(false);
+  });
+
+  it("a pre-v0.4.0 settings file loads without the key and stays off", async () => {
+    const file = await writeSettings({ sectionFilter: "raw" }); // no voiceControl
+    expect((await loadSettings(file)).voiceControl).toBe(false);
+  });
+
+  it("round-trips a persisted voiceControl: true", async () => {
+    const file = await writeSettings({ voiceControl: true });
+    expect((await loadSettings(file)).voiceControl).toBe(true);
+  });
+
+  it("ignores a non-boolean voiceControl", async () => {
+    const file = await writeSettings({ voiceControl: "yes" });
+    expect((await loadSettings(file)).voiceControl).toBe(false);
+  });
+
   it("defaults panels to two empty layouts", async () => {
     const f = await writeSettings({});
     const s = await loadSettings(f);

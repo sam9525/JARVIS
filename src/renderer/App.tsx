@@ -59,6 +59,9 @@ import HandToggle from "./hands/HandToggle";
 import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
+import { useVoiceControl } from "./voice/use-voice-control";
+import { nextUtterance, speak, stopSpeaking } from "./voice/speak";
+import VoiceToggle from "./voice/VoiceToggle";
 import type { Graph3DHandle } from "./graph/Graph3D";
 import type { GraphHandle } from "./graph/Graph";
 
@@ -357,6 +360,10 @@ export default function App() {
   // a graph pan that sweeps across a title bar from yanking that panel.
   const grabbedRef = useRef<PanelId | null | undefined>(undefined);
 
+  // the session the home screen pins, and the only one voice talks to
+  const orchestrator =
+    workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null;
+
   const hands = useHandControl({
     cameraOn,
     actionsRef: handActionsRef,
@@ -387,6 +394,70 @@ export default function App() {
   useEffect(() => {
     if (settingsReady && settings.handControl) setCameraOn(true);
   }, [settingsReady]);
+
+  // this session's microphone. Persisted as Settings.voiceControl, but kept
+  // separately so a tracker failure can stop the mic without touching the
+  // preference — the same split as cameraOn/handControl above.
+  const [micOn, setMicOn] = useState(false);
+  const voice = useVoiceControl({
+    micOn,
+    targetId: orchestrator?.id ?? null,
+    onMicFailed: () => setMicOn(false),
+  });
+
+  const setVoiceControl = (on: boolean) => {
+    setMicOn(on);
+    if (settings.voiceControl !== on)
+      updateSettings({ ...settings, voiceControl: on });
+  };
+
+  useEffect(() => {
+    if (settingsReady && settings.voiceControl) setMicOn(true);
+  }, [settingsReady]);
+
+  // The mouth. Only the orchestrator's row is read, and only once per message
+  // — spokenRef is a ref because speaking must not itself cause a render.
+  const spokenRef = useRef("");
+  // A restored session (jarvis-inbox.json carries a last message) or a
+  // manual mic-on mid-session both find a message already sitting in
+  // `statuses` — without this, the false→true edge reads it aloud as if it
+  // just happened. `orchestrator` and `micOn` arrive from two independent
+  // async IPC calls with no ordering between them, so arming here cannot
+  // depend on `orchestrator` being known yet — it only records that this
+  // mic-on session owes a swallow. The speaking effect below consumes the
+  // flag once both an orchestrator and a message are actually available,
+  // however late that turns out to be. Declared before the speaking effect
+  // so it runs first within the same commit and the armed flag is what that
+  // effect sees.
+  const swallowNextRef = useRef(false);
+  const prevMicOnRef = useRef(false);
+  useEffect(() => {
+    if (micOn && !prevMicOnRef.current) swallowNextRef.current = true;
+    prevMicOnRef.current = micOn;
+  }, [micOn]);
+  useEffect(() => {
+    if (!micOn || !orchestrator) return;
+    const status = statuses.find((s) => s.workspaceId === orchestrator.id);
+    if (swallowNextRef.current) {
+      // spent on the orchestrator first ROW, message or not. Waiting for a
+      // non-empty message instead keeps the flag armed through a fresh
+      // install (no jarvis-inbox.json to restore) and eats the first real
+      // reply of the session — the one you most need to hear.
+      if (!status) return; // no row yet; nothing has been restored or missed
+      spokenRef.current = status.message?.trim() ?? "";
+      swallowNextRef.current = false;
+      return;
+    }
+    const say = nextUtterance(status, spokenRef.current, voice.capturing);
+    if (!say) return;
+    spokenRef.current = say;
+    speak(say);
+  }, [statuses, micOn, orchestrator, voice.capturing]);
+  // A long message keeps reading after voice is switched off without this —
+  // the mouth must go quiet on the same transition that closes the ear.
+  useEffect(() => {
+    if (!micOn) stopSpeaking();
+  }, [micOn]);
 
   // Cards registers nothing, so a pulse there would claim hands drive
   // something on the one view where they don't (design §3)
@@ -560,6 +631,12 @@ export default function App() {
         error={hands.error}
         onToggle={() => setHandControl(!cameraOn)}
         onRearm={hands.rearm}
+      />
+      <VoiceToggle
+        micOn={micOn}
+        capturing={voice.capturing}
+        error={voice.error}
+        onToggle={() => setVoiceControl(!micOn)}
       />
       <button
         className={BTN_IDLE + " text-[13px]"}
@@ -742,7 +819,7 @@ export default function App() {
         </div>
       )}
       <Bezel
-        title="JARVIS · V0.3.6"
+        title="JARVIS · V0.4.0"
         telemetry={telemetry}
         footRight={footRight}
         footLeft={
@@ -778,9 +855,7 @@ export default function App() {
       )}
 
       {(() => {
-        const ws = showHome
-          ? (workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null)
-          : active;
+        const ws = showHome ? orchestrator : active;
         if (!ws) return null;
         // home's terminal collapses to an inbox strip rather than to its title
         // bar — the fleet's state is what you want while the session is parked
@@ -825,6 +900,7 @@ export default function App() {
             onSearchChange={setSearch}
             onSettingsChange={updateSettings}
             onHandControl={setHandControl}
+            onVoiceControl={setVoiceControl}
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
           />

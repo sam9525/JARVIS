@@ -30,6 +30,7 @@ export async function loadSettings(file: string): Promise<Settings> {
     if (typeof p.showTags === "boolean") s.showTags = p.showTags;
     if (typeof p.showOrphans === "boolean") s.showOrphans = p.showOrphans;
     if (typeof p.handControl === "boolean") s.handControl = p.handControl;
+    if (typeof p.voiceControl === "boolean") s.voiceControl = p.voiceControl;
     // groups are keyed by workspace id; a legacy flat array is dropped (the
     // renderer re-seeds each workspace from its own graph on first open)
     if (typeof p.groups === "object" && p.groups !== null) {
