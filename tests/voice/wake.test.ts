@@ -30,6 +30,35 @@ describe("wakeIndex", () => {
   });
 });
 
+// The wake word matches at an edit distance of up to 2, because whisper
+// mis-hears "jarvis" routinely. These pin both halves of that: which misses
+// still wake, and which similar words do not.
+describe("wakeIndex tolerates a mis-transcribed name", () => {
+  it("wakes on a one-letter miss", () => {
+    expect(commandAfterWake("Jervis, list the fleet")).toBe("list the fleet");
+  });
+
+  it("wakes on a two-letter miss", () => {
+    expect(commandAfterWake("Charvis run the tests")).toBe("run the tests");
+  });
+
+  it("wakes when it hears an apostrophe word", () => {
+    expect(commandAfterWake("java's list the fleet")).toBe("list the fleet");
+  });
+
+  it("does not wake on a word that merely rhymes", () => {
+    expect(wakeIndex("harvest the crops")).toBe(null);
+  });
+
+  it("does not wake on an unrelated word of similar length", () => {
+    expect(wakeIndex("service is down")).toBe(null);
+  });
+
+  it("still takes the last candidate when several appear", () => {
+    expect(commandAfterWake("jervis no jarvis do it")).toBe("do it");
+  });
+});
+
 describe("commandAfterWake", () => {
   it("is null with no wake word", () => {
     expect(commandAfterWake("list the fleet")).toBe(null);

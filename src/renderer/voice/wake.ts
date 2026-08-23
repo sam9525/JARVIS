@@ -3,9 +3,33 @@
 // end-of-dictation clock belongs to use-voice-control.ts.
 export const WAKE_WORD = "jarvis";
 
+// How many wrong letters a word may carry and still wake. Whisper mis-hears
+// "jarvis" routinely: an uncommon proper noun, spoken alone, with no
+// surrounding words to disambiguate it. 2 admits "jervis" and "java's" and
+// rejects "harvest" and "service". A false wake costs a deleted line, since
+// nothing in this feature writes a carriage return.
+const WAKE_DISTANCE = 2;
+
+// Levenshtein over two short words, one row of the DP table. The result is
+// never below the difference in the two lengths, so a length guard would
+// reject nothing this does not: "jarvistown" is 4 away.
+function distance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = row;
+  }
+  return prev[b.length];
+}
+
 // `g` needs a fresh lastIndex per call, so build it per call rather than
-// hoisting a shared stateful regex.
-const wakeRe = () => new RegExp(`\\b${WAKE_WORD}\\b`, "gi");
+// hoisting a shared stateful regex. Apostrophes are part of the token, so
+// "java's" matches as one word; wakeIndex strips them before comparing.
+const wordRe = () => /[A-Za-z']+/g;
 
 /** Collapse every run of whitespace (spaces, tabs, `\r`, `\n`, ...) into a
  * single space and trim the ends. Whisper can join multi-segment output with
@@ -17,12 +41,15 @@ function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** Index just past the LAST wake word, or null. Last, not first: saying it
- * twice means you restarted the sentence, and the newer one is the one you
- * meant. */
+/** Index just past the LAST word close enough to be the wake word, or null.
+ * Last, not first: saying it twice means you restarted the sentence, and the
+ * newer one is the one you meant. */
 export function wakeIndex(text: string): number | null {
   let end: number | null = null;
-  for (const m of text.matchAll(wakeRe())) end = m.index + m[0].length;
+  for (const m of text.matchAll(wordRe())) {
+    const word = m[0].toLowerCase().replace(/'/g, "");
+    if (distance(word, WAKE_WORD) <= WAKE_DISTANCE) end = m.index + m[0].length;
+  }
   return end;
 }
 
