@@ -60,6 +60,7 @@ import App from "../src/renderer/App";
 let settingsOnDisk: Settings;
 const setSettings = vi.fn(() => Promise.resolve());
 let statusListener: ((s: WorkspaceStatus[]) => void) | null = null;
+let sayListener: ((text: string) => void) | null = null;
 let resolveWorkspaces: ((list: Workspace[]) => void) | null = null;
 
 const ORCHESTRATOR: Workspace = {
@@ -78,6 +79,7 @@ beforeEach(() => {
   stopSpeakingSpy.mockClear();
   setSettings.mockClear();
   statusListener = null;
+  sayListener = null;
   resolveWorkspaces = null;
   settingsOnDisk = defaultSettings();
   (window as any).jarvis = {
@@ -98,6 +100,12 @@ beforeEach(() => {
     onStatus: (cb: (s: WorkspaceStatus[]) => void) => {
       statusListener = cb;
       return () => undefined;
+    },
+    onSay: (cb: (text: string) => void) => {
+      sayListener = cb;
+      return () => {
+        sayListener = null;
+      };
     },
     ttsKeyState: () => Promise.resolve({ hasKey: false, encrypted: false }),
     ttsSetKey: () => Promise.resolve({ hasKey: false, encrypted: false }),
@@ -239,5 +247,28 @@ describe("App: voice restored-message race", () => {
     await flush();
 
     expect(speakSpy).toHaveBeenCalledWith("first real reply");
+  });
+
+  // jarvis_say speaks a delegate-finish summary directly; the orchestrator's
+  // own Stop message then carries the identical text, and must not repeat it
+  it("speaks a jarvis_say line and then skips the identical turn-end message", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+    await push(""); // spend the restore swallow so it can't mask the check below
+    await flush();
+
+    await act(async () => sayListener?.("build is green"));
+    expect(speakSpy).toHaveBeenCalledWith("build is green");
+    speakSpy.mockClear();
+
+    // the same thought arriving as the orchestrator's own Stop message
+    await push("build is green");
+    await flush();
+
+    expect(speakSpy).not.toHaveBeenCalled();
   });
 });

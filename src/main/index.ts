@@ -306,11 +306,39 @@ app.whenReady().then(async () => {
     send("status", status.snapshot()),
   );
 
+  const orchestrator = createOrchestrator({
+    getWorkspaces: () => workspaces,
+    snapshot: () => status.snapshot(),
+    hasPty: (id) => ptyManager.has(id),
+    write: (id, data) => ptyManager.write(id, data),
+    // markDelegated is a status change like any other — push it to the rail
+    markDelegated: (id, by) =>
+      pushStatus(status.markDelegated(id, by, Date.now())),
+    // false when the window is gone; say() reports that rather than going
+    // silent, so the agent learns its summary was not heard
+    say: (text) => {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) return false;
+      win.webContents.send("tts-say", text);
+      return true;
+    },
+  });
+
   let savedInbox = "";
+  // What "a delegate finished" means here: an idle row whose message is new.
+  // Diffing the snapshot is the honest read — the sweep also demotes to idle,
+  // but it carries the same message, so it never fires this.
+  const announced = new Map<string, string>();
   const pushStatus = (changed: boolean) => {
     if (!changed) return;
     const snap = status.snapshot();
     send("status", snap);
+    for (const row of snap) {
+      const message = row.message?.trim() ?? "";
+      if (row.kind !== "idle" || !message) continue;
+      if (announced.get(row.workspaceId) === message) continue;
+      announced.set(row.workspaceId, message);
+      orchestrator.publishFinish(row.workspaceId, message);
+    }
     // only Stop carries a message, so this writes rarely despite the call site
     const json = JSON.stringify(snap.filter((s) => s.message));
     if (json === savedInbox) return;
@@ -355,23 +383,6 @@ app.whenReady().then(async () => {
       },
     },
   );
-
-  const orchestrator = createOrchestrator({
-    getWorkspaces: () => workspaces,
-    snapshot: () => status.snapshot(),
-    hasPty: (id) => ptyManager.has(id),
-    write: (id, data) => ptyManager.write(id, data),
-    // markDelegated is a status change like any other — push it to the rail
-    markDelegated: (id, by) =>
-      pushStatus(status.markDelegated(id, by, Date.now())),
-    // false when the window is gone; say() reports that rather than going
-    // silent, so the agent learns its summary was not heard
-    say: (text) => {
-      if (win.isDestroyed() || win.webContents.isDestroyed()) return false;
-      win.webContents.send("tts-say", text);
-      return true;
-    },
-  });
 
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),

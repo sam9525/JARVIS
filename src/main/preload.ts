@@ -32,6 +32,9 @@ const api = {
     subscribe<[ToolEvent]>("tool-event", cb),
   onStatus: (cb: (s: WorkspaceStatus[]) => void) =>
     subscribe<[WorkspaceStatus[]]>("status", cb),
+  // jarvis_say → main → here. The renderer owns playback, so both mouths and
+  // the dedupe against the turn-end message live in one place.
+  onSay: (cb: (text: string) => void) => subscribe<[string]>("tts-say", cb),
   readNote: (workspaceId: string, nodeId: string): Promise<string | null> =>
     ipcRenderer.invoke("read-note", workspaceId, nodeId),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),

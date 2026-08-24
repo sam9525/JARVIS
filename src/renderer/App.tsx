@@ -459,6 +459,17 @@ export default function App() {
   useEffect(() => {
     if (!micOn) stopSpeaking();
   }, [micOn]);
+  // jarvis_say speaks now, and writes the same text into spokenRef so the
+  // agent's identical turn-end message is skipped by nextUtterance's existing
+  // equality check — one thought is never said twice.
+  useEffect(
+    () =>
+      window.jarvis.onSay((text) => {
+        spokenRef.current = text.trim();
+        void speak(text);
+      }),
+    [],
+  );
 
   // Cards registers nothing, so a pulse there would claim hands drive
   // something on the one view where they don't (design §3)

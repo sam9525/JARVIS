@@ -71,6 +71,7 @@ beforeEach(() => {
     onGraph: () => () => undefined,
     onToolEvent: () => () => undefined,
     onStatus: () => () => undefined,
+    onSay: () => () => undefined,
     ttsKeyState: () => Promise.resolve({ hasKey: false, encrypted: false }),
     ttsSetKey: () => Promise.resolve({ hasKey: false, encrypted: false }),
     ttsVoices: () => Promise.resolve([]),
