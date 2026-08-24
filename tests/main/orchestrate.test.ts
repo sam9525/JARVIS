@@ -233,6 +233,31 @@ describe("orchestrate.watch", () => {
     });
   });
 
+  it("an aborted watch forgets the waiter, so a later finish still queues", async () => {
+    const { orch } = setup();
+    const ctl = new AbortController();
+    const pending = orch.watch(5, ctl.signal);
+    ctl.abort();
+    await expect(pending).resolves.toEqual({ timeout: true });
+    orch.publishFinish("d:/aero", "late");
+    await expect(orch.watch(5)).resolves.toEqual({
+      workspace: "AeroGraph",
+      message: "late",
+    });
+  });
+
+  it("parks for nothing when the signal is already aborted", async () => {
+    const { orch } = setup();
+    const ctl = new AbortController();
+    ctl.abort();
+    await expect(orch.watch(5, ctl.signal)).resolves.toEqual({ timeout: true });
+    orch.publishFinish("d:/aero", "late");
+    await expect(orch.watch(5)).resolves.toEqual({
+      workspace: "AeroGraph",
+      message: "late",
+    });
+  });
+
   it("never queues the orchestrator's own finishes", async () => {
     vi.useFakeTimers();
     const { orch } = setup();

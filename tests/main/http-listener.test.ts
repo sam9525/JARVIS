@@ -331,6 +331,34 @@ describe("orchestrate routes added in v0.4.1", () => {
     s.close();
   });
 
+  // a parked watch outlives its request if the MCP client dies mid-poll; the
+  // route hands the orchestrator a signal so the waiter is released instead of
+  // resolving into a dead socket and swallowing the finish
+  it("aborts the parked watch when the client hangs up", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    let signal: AbortSignal | undefined;
+    s.orch.watch = (_secs?: number, sig?: AbortSignal) => {
+      signal = sig;
+      return new Promise<never>(() => {
+        /* parks: the finish never arrives */
+      });
+    };
+    const ctl = new AbortController();
+    const hangup = fetch(`http://127.0.0.1:${s.port}/orchestrate/watch`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-jarvis": "1" },
+      body: "{}",
+      signal: ctl.signal,
+    }).catch(() => undefined);
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    ctl.abort();
+    await hangup;
+    await vi.waitFor(() => expect(signal?.aborted).toBe(true));
+    s.close();
+  });
+
   it("say forwards the text", async () => {
     const s = await start(() => {
       /* no-op */

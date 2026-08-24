@@ -139,7 +139,10 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       if (queue.length > QUEUE_MAX) queue.shift();
     },
 
-    watch(timeoutSeconds = WATCH_DEFAULT_S): Promise<WatchResult> {
+    watch(
+      timeoutSeconds = WATCH_DEFAULT_S,
+      signal?: AbortSignal,
+    ): Promise<WatchResult> {
       const queued = queue.shift();
       if (queued) return Promise.resolve(queued);
       const secs = Math.min(
@@ -147,16 +150,21 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         WATCH_MAX_S,
       );
       return new Promise<WatchResult>((resolve) => {
+        if (signal?.aborted) return resolve({ timeout: true });
         const fire = (f: Finish) => {
           clearTimeout(timer);
           resolve(f);
         };
-        const timer = setTimeout(() => {
-          // drop the parked resolver, or the next finish resolves a promise
-          // nobody is holding and the entry is lost
+        // a timeout and a caller that walks away both drop the parked
+        // resolver, or the next finish resolves a promise nobody is holding
+        // and the entry is lost
+        const release = () => {
+          clearTimeout(timer);
           if (waiter === fire) waiter = null;
           resolve({ timeout: true });
-        }, secs * 1000);
+        };
+        const timer = setTimeout(release, secs * 1000);
+        signal?.addEventListener("abort", release, { once: true });
         waiter = fire;
       });
     },

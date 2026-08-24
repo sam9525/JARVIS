@@ -37,7 +37,7 @@ function readBody(
 export interface OrchestratorLike {
   list(): unknown;
   send(target: string, prompt: string): SendResult;
-  watch(timeoutSeconds?: number): Promise<unknown>;
+  watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
 }
 
@@ -106,8 +106,10 @@ export function startListener(
         res.setHeader("content-type", "application/json");
         // a throw inside an http handler is uncaught, and in Electron main
         // that kills the process — every branch below gets a try
-        const fail = (err: unknown) =>
+        const fail = (err: unknown) => {
+          if (res.writableEnded || res.destroyed) return;
           res.writeHead(500).end(JSON.stringify({ error: String(err) }));
+        };
         const parse = (): Record<string, unknown> => {
           const p: unknown = JSON.parse(body || "{}");
           return typeof p === "object" && p !== null
@@ -135,9 +137,14 @@ export function startListener(
             secs = undefined; // malformed body → the default timeout
           }
           try {
+            // a client that hangs up while parked releases the waiter, or the
+            // next finish resolves into a dead socket and nobody ever reads it
+            const ctl = new AbortController();
+            req.on("close", () => ctl.abort());
             orchestrator
-              .watch(secs)
+              .watch(secs, ctl.signal)
               .then((out) => {
+                if (res.writableEnded || res.destroyed) return;
                 const json = JSON.stringify(out); // before writeHead
                 res.writeHead(200).end(json);
               })
