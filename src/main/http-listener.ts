@@ -134,10 +134,17 @@ export function startListener(
           } catch {
             secs = undefined; // malformed body → the default timeout
           }
-          orchestrator
-            .watch(secs)
-            .then((out) => res.writeHead(200).end(JSON.stringify(out)))
-            .catch(fail);
+          try {
+            orchestrator
+              .watch(secs)
+              .then((out) => {
+                const json = JSON.stringify(out); // before writeHead
+                res.writeHead(200).end(json);
+              })
+              .catch(fail);
+          } catch (err) {
+            fail(err);
+          }
           return;
         }
         let out: SendResult;

@@ -459,14 +459,21 @@ export default function App() {
   useEffect(() => {
     if (!micOn) stopSpeaking();
   }, [micOn]);
+  // micOnRef, not a dep: onSay's listener is registered once ([] below) and
+  // must still read the current mic state on every call, not the state at
+  // subscription time.
+  const micOnRef = useRef(micOn);
+  micOnRef.current = micOn;
   // jarvis_say speaks now, and writes the same text into spokenRef so the
   // agent's identical turn-end message is skipped by nextUtterance's existing
-  // equality check — one thought is never said twice.
+  // equality check — one thought is never said twice. spokenRef is written
+  // even while muted: the dedupe must still catch the turn-end echo once
+  // voice comes back on.
   useEffect(
     () =>
       window.jarvis.onSay((text) => {
         spokenRef.current = text.trim();
-        void speak(text);
+        if (micOnRef.current) void speak(text);
       }),
     [],
   );

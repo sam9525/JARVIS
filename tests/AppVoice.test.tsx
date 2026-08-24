@@ -271,4 +271,34 @@ describe("App: voice restored-message race", () => {
 
     expect(speakSpy).not.toHaveBeenCalled();
   });
+
+  // an off switch that does not stay off is untrustworthy: jarvis_say must
+  // not speak while voice control is switched off, even though the mouth and
+  // ear are otherwise independent
+  it("does not speak a jarvis_say line while voice control is off", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: false };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+
+    await act(async () => sayListener?.("build is green"));
+
+    expect(speakSpy).not.toHaveBeenCalled();
+  });
+
+  // the mirror case: switched on, the same line is spoken
+  it("speaks a jarvis_say line while voice control is on", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+
+    await act(async () => sayListener?.("build is green"));
+
+    expect(speakSpy).toHaveBeenCalledWith("build is green");
+  });
 });
