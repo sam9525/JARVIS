@@ -397,22 +397,21 @@ describe("settings", () => {
 
   it("round-trips the tts fields", async () => {
     const file = await writeSettings({
-      ttsKey: "enc:AAAA",
       ttsVoiceId: "v1",
       ttsModelId: "m1",
     });
     const s = await loadSettings(file);
-    expect(s.ttsKey).toBe("enc:AAAA");
     expect(s.ttsVoiceId).toBe("v1");
     expect(s.ttsModelId).toBe("m1");
   });
 
   it("drops non-string tts fields", async () => {
     const s = await loadSettings(
-      await writeSettings({ ttsKey: 1, ttsVoiceId: {}, ttsModelId: [] }),
+      await writeSettings({ ttsVoiceId: {}, ttsModelId: [] }),
     );
-    expect(s.ttsKey).toBeUndefined();
     expect(s.ttsVoiceId).toBeUndefined();
-    expect(s.ttsModelId).toBeUndefined();
+    // no voice default exists, but the model has one — a malformed value
+    // falls back to it rather than leaving the app with no model
+    expect(s.ttsModelId).toBe("eleven_multilingual_v2");
   });
 });

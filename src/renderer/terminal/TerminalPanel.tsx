@@ -338,7 +338,7 @@ export default function TerminalPanel({
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
             <select
               data-testid="launch-model"
-              className="cursor-pointer rounded-md border border-edge bg-abyss px-2 py-1 text-[13px] text-ink-dim focus:border-accent focus:outline-none"
+              className="cursor-pointer rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-[13px] text-ink-dim focus:border-accent focus:outline-none"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             >

@@ -107,8 +107,6 @@ beforeEach(() => {
         sayListener = null;
       };
     },
-    ttsKeyState: () => Promise.resolve({ hasKey: false, encrypted: false }),
-    ttsSetKey: () => Promise.resolve({ hasKey: false, encrypted: false }),
     ttsVoices: () => Promise.resolve([]),
     ttsModels: () => Promise.resolve([]),
   };

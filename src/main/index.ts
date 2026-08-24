@@ -4,7 +4,6 @@ import {
   dialog,
   ipcMain,
   Menu,
-  safeStorage,
   screen,
   shell,
 } from "electron";
@@ -34,6 +33,16 @@ import { createTts } from "./tts";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
+
+// The ElevenLabs key lives in .env at the project root, main-side only, so it
+// never crosses the preload bridge. loadEnvFile throws when the file is absent;
+// a missing key just means the local voice.
+try {
+  process.loadEnvFile(path.join(app.getAppPath(), ".env"));
+} catch {
+  /* no .env */
+}
+const ttsKey = () => process.env.ELEVENLABS_API_KEY ?? "";
 
 async function resolveRootPath(): Promise<string> {
   if (process.env.VAULT_PATH) return process.env.VAULT_PATH;
@@ -187,62 +196,25 @@ app.whenReady().then(async () => {
     "jarvis-settings.json",
   );
   let settings = await loadSettings(settingsPath);
-  // the key is main's alone: strip it on the way out, restore it on the way in
-  ipcMain.handle("get-settings", () => ({ ...settings, ttsKey: undefined }));
+  ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
-    settings = { ...s, ttsKey: settings.ttsKey };
+    settings = s;
     await saveSettings(settingsPath, settings);
-  });
-
-  // safeStorage is unavailable before app.ready and on a Linux box with no
-  // keyring. There the key is stored in plaintext and the panel says so, rather
-  // than the app degrading silently.
-  const canEncrypt = () => {
-    try {
-      return safeStorage.isEncryptionAvailable();
-    } catch {
-      return false;
-    }
-  };
-  const readKey = (): string => {
-    const stored = settings.ttsKey ?? "";
-    if (stored.startsWith("raw:")) return stored.slice(4);
-    if (!stored.startsWith("enc:")) return "";
-    try {
-      return safeStorage.decryptString(Buffer.from(stored.slice(4), "base64"));
-    } catch {
-      return "";
-    }
-  };
-  const keyState = () => ({
-    hasKey: Boolean(settings.ttsKey),
-    encrypted: (settings.ttsKey ?? "").startsWith("enc:"),
-  });
-  ipcMain.handle("tts-key-state", () => keyState());
-  ipcMain.handle("tts-set-key", async (_e, plain: string) => {
-    const key = String(plain ?? "").trim();
-    settings.ttsKey = !key
-      ? undefined
-      : canEncrypt()
-        ? "enc:" + safeStorage.encryptString(key).toString("base64")
-        : "raw:" + key;
-    await saveSettings(settingsPath, settings);
-    return keyState();
   });
 
   const tts = createTts({ fetch: globalThis.fetch });
   ipcMain.handle("tts-speak", (_e, text: string) =>
     tts.speak(
       {
-        apiKey: readKey(),
+        apiKey: ttsKey(),
         voiceId: settings.ttsVoiceId ?? "",
-        modelId: settings.ttsModelId ?? "eleven_turbo_v2_5",
+        modelId: settings.ttsModelId ?? "eleven_multilingual_v2",
       },
       String(text ?? ""),
     ),
   );
-  ipcMain.handle("tts-voices", () => tts.voices(readKey()));
-  ipcMain.handle("tts-models", () => tts.models(readKey()));
+  ipcMain.handle("tts-voices", () => tts.voices(ttsKey()));
+  ipcMain.handle("tts-models", () => tts.models(ttsKey()));
 
   Menu.setApplicationMenu(null); // kills File/Edit/View… and their accelerators
   // Sized off the display, not a fixed 1400x900: the panel defaults are all

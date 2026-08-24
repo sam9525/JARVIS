@@ -33,7 +33,7 @@ export async function loadSettings(file: string): Promise<Settings> {
     if (typeof p.voiceControl === "boolean") s.voiceControl = p.voiceControl;
     if (typeof p.micDeviceId === "string" && p.micDeviceId)
       s.micDeviceId = p.micDeviceId;
-    for (const k of ["ttsKey", "ttsVoiceId", "ttsModelId"] as const) {
+    for (const k of ["ttsVoiceId", "ttsModelId"] as const) {
       if (typeof p[k] === "string" && p[k]) s[k] = p[k] as string;
     }
     // groups are keyed by workspace id; a legacy flat array is dropped (the

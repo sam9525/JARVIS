@@ -46,8 +46,6 @@ const walk = (n: any): any[] =>
 // throws.
 (global as any).window = {
   jarvis: {
-    ttsKeyState: () => Promise.resolve({ hasKey: false, encrypted: false }),
-    ttsSetKey: () => Promise.resolve({ hasKey: false, encrypted: false }),
     ttsVoices: () => Promise.resolve([]),
     ttsModels: () => Promise.resolve([]),
   },

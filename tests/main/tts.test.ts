@@ -58,20 +58,50 @@ describe("tts.speak", () => {
 });
 
 describe("tts.voices / tts.models", () => {
-  it("parses the voice list", async () => {
+  it("parses the voice list, tags the account's own and sorts them first", async () => {
     const fetch = vi.fn(() =>
       Promise.resolve(
         ok({
           voices: [
-            { voice_id: "v1", name: "Rachel" },
-            { voice_id: "v2", name: "Adam" },
+            { voice_id: "v1", name: "Rachel", category: "premade" },
+            {
+              voice_id: "v2",
+              name: "My Clone",
+              category: "cloned",
+              is_owner: true,
+            },
+            { voice_id: "v3", name: "Adam", category: "premade" },
           ],
         }),
       ),
     );
     expect(await createTts({ fetch: fetch as never }).voices("k")).toEqual([
-      { id: "v1", name: "Rachel" },
-      { id: "v2", name: "Adam" },
+      { id: "v2", name: "My Clone", mine: true },
+      { id: "v1", name: "Rachel", mine: false },
+      { id: "v3", name: "Adam", mine: false },
+    ]);
+  });
+
+  // a Voice Library copy is category "professional" and sits in the account's
+  // own list, but the account did not make it — is_owner is the only signal
+  it("does not claim a voice copied from the library", async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(
+        ok({
+          voices: [
+            {
+              voice_id: "v1",
+              name: "Savvy",
+              category: "professional",
+              is_owner: false,
+              sharing: { status: "copied" },
+            },
+          ],
+        }),
+      ),
+    );
+    expect(await createTts({ fetch: fetch as never }).voices("k")).toEqual([
+      { id: "v1", name: "Savvy", mine: false },
     ]);
   });
 
@@ -93,5 +123,13 @@ describe("tts.voices / tts.models", () => {
       fetch: (() => Promise.resolve(ok({ nope: 1 }))) as never,
     });
     expect(await junk.models("k")).toEqual([]);
+  });
+
+  it("stays empty with no key, and never calls out", async () => {
+    const fetch = vi.fn();
+    const tts = createTts({ fetch: fetch as never });
+    expect(await tts.voices("")).toEqual([]);
+    expect(await tts.models("")).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

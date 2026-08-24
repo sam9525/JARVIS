@@ -64,14 +64,7 @@ const api = {
   ptyResize: (workspaceId: string, cols: number, rows: number): void => {
     ipcRenderer.send("pty-resize", workspaceId, cols, rows);
   },
-  // the key never crosses this bridge — main holds it, the renderer only ever
-  // learns whether one exists and whether it could be encrypted
-  ttsKeyState: (): Promise<{ hasKey: boolean; encrypted: boolean }> =>
-    ipcRenderer.invoke("tts-key-state"),
-  ttsSetKey: (
-    plain: string,
-  ): Promise<{ hasKey: boolean; encrypted: boolean }> =>
-    ipcRenderer.invoke("tts-set-key", plain),
+  // the key never crosses this bridge — main reads it from .env
   ttsSpeak: (text: string): Promise<Uint8Array | null> =>
     ipcRenderer.invoke("tts-speak", text),
   ttsVoices: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-voices"),

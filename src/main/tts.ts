@@ -14,6 +14,9 @@ export interface TtsConfig {
 export interface TtsOption {
   id: string;
   name: string;
+  /** A voice this account owns (cloned, generated, professional) rather than
+   * one of ElevenLabs' premade ones. Absent on models. */
+  mine?: boolean;
 }
 
 // No key, a revoked key (401) and a spent quota (429) are one outcome to the
@@ -31,6 +34,7 @@ export function createTts(deps: TtsDeps) {
     apiKey: string,
     pick: (body: unknown) => unknown,
     idKey: string,
+    extra?: (row: Record<string, unknown>) => Partial<TtsOption>,
   ): Promise<TtsOption[]> => {
     if (!apiKey) return [];
     try {
@@ -43,7 +47,11 @@ export function createTts(deps: TtsDeps) {
         .filter(
           (r) => typeof r?.[idKey] === "string" && typeof r?.name === "string",
         )
-        .map((r) => ({ id: String(r[idKey]), name: String(r.name) }));
+        .map((r) => ({
+          id: String(r[idKey]),
+          name: String(r.name),
+          ...extra?.(r),
+        }));
     } catch {
       return [];
     }
@@ -69,13 +77,19 @@ export function createTts(deps: TtsDeps) {
       }
     },
 
-    voices(apiKey: string): Promise<TtsOption[]> {
-      return list(
+    // is_owner, not category: a voice copied from the Voice Library is
+    // "professional" and sits in the account's list, but it is not the
+    // account's — only a voice it created reads as its own. Those sort first,
+    // being the reason someone opens this list.
+    async voices(apiKey: string): Promise<TtsOption[]> {
+      const rows = await list(
         "/voices",
         apiKey,
         (b) => (b as { voices?: unknown })?.voices ?? [],
         "voice_id",
+        (r) => ({ mine: r.is_owner === true }),
       );
+      return [...rows.filter((v) => v.mine), ...rows.filter((v) => !v.mine)];
     },
 
     models(apiKey: string): Promise<TtsOption[]> {
