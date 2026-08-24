@@ -148,4 +148,36 @@ describe("speak — cloud first, local fallback", () => {
     expect(pause).toHaveBeenCalled();
     expect((globalThis as any).speechSynthesis.cancel).toHaveBeenCalled();
   });
+
+  it("revokes the blob URL of an interrupted cloud utterance", async () => {
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
+    };
+    await speak("one");
+    stopSpeaking();
+    expect((globalThis as any).URL.revokeObjectURL).toHaveBeenCalledWith(
+      "blob:x",
+    );
+  });
+
+  it("does not let an overlapping speak() call end up playing", async () => {
+    let resolveFirst!: (bytes: Uint8Array) => void;
+    const first = new Promise<Uint8Array>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const ttsSpeak = vi
+      .fn()
+      .mockImplementationOnce(() => first)
+      .mockImplementationOnce(() => Promise.resolve(new Uint8Array([2])));
+    (globalThis as any).window.jarvis = { ttsSpeak };
+
+    const p1 = speak("one"); // starts, then stalls awaiting its IPC round-trip
+    const p2 = speak("two"); // starts and resolves while "one" is still stalled
+    await p2;
+    resolveFirst(new Uint8Array([1])); // "one" resolves last, after being superseded
+    await p1;
+
+    expect(played).toEqual(["blob:x"]); // only "two" ever played
+    expect((globalThis as any).URL.createObjectURL).toHaveBeenCalledOnce(); // "one" never created a URL to revoke
+  });
 });

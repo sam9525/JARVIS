@@ -28,6 +28,11 @@ export function nextUtterance(
 // worse than the newest line.
 let current: HTMLAudioElement | null = null;
 
+// Bumped by stopSpeaking() and compared after every await in speak(), so a
+// call whose IPC round-trip outlives a stop or a newer speak() call notices
+// and backs off instead of playing over — or after — whatever superseded it.
+let generation = 0;
+
 // speechSynthesis is missing in jsdom and can be missing in a stripped
 // Electron build. A missing mouth must not break dictation, so this is a
 // feature detect rather than a throw. Both callers reach this only after
@@ -46,12 +51,14 @@ function localSpeak(text: string): void {
  * key, a revoked key, a spent quota and a timeout are one case here. */
 export async function speak(text: string): Promise<void> {
   stopSpeaking();
+  const myGeneration = generation; // captured after the bump above, so this call isn't its own stale call
   let bytes: Uint8Array | null = null;
   try {
     bytes = (await window.jarvis?.ttsSpeak?.(text)) ?? null;
   } catch {
     bytes = null; // main unreachable — the local mouth still works
   }
+  if (myGeneration !== generation) return; // stopped or superseded while awaiting — the bytes arrived too late to matter
   if (!bytes) {
     localSpeak(text);
     return;
@@ -64,8 +71,9 @@ export async function speak(text: string): Promise<void> {
     if (current === audio) current = null;
   };
   await audio.play().catch(() => {
+    if (current !== audio) return; // already stopped or superseded — stale text must not speak
     URL.revokeObjectURL(url);
-    if (current === audio) current = null;
+    current = null;
     localSpeak(text);
   });
 }
@@ -75,6 +83,7 @@ export async function speak(text: string): Promise<void> {
 // its blob URL is revoked here instead — otherwise every interruption leaks
 // one.
 export function stopSpeaking(): void {
+  generation++; // invalidates any speak() still awaiting its IPC round-trip
   if (current) {
     current.pause();
     URL.revokeObjectURL(current.src);
