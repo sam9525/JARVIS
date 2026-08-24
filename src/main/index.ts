@@ -306,6 +306,21 @@ app.whenReady().then(async () => {
     send("status", status.snapshot()),
   );
 
+  // What "a delegate finished" means here: an idle row whose message is new.
+  // Diffing the snapshot is the honest read — the sweep also demotes to idle,
+  // but it carries the same message, so it never fires this. Restoring the
+  // inbox is a display concern — a card reading "idle, last said X" after a
+  // restart — not a queuing one, so every row already on disk is seeded here
+  // as already-announced before any live pushStatus can run. Without this,
+  // the first pushStatus after boot — from any workspace, not necessarily
+  // the restored one — would scan the whole snapshot and hand a fresh
+  // orchestrator session a finish nobody asked it to watch for.
+  const announced = new Map<string, string>();
+  for (const row of status.snapshot()) {
+    const message = row.message?.trim() ?? "";
+    if (row.kind === "idle" && message) announced.set(row.workspaceId, message);
+  }
+
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
@@ -324,10 +339,6 @@ app.whenReady().then(async () => {
   });
 
   let savedInbox = "";
-  // What "a delegate finished" means here: an idle row whose message is new.
-  // Diffing the snapshot is the honest read — the sweep also demotes to idle,
-  // but it carries the same message, so it never fires this.
-  const announced = new Map<string, string>();
   const pushStatus = (changed: boolean) => {
     if (!changed) return;
     const snap = status.snapshot();
