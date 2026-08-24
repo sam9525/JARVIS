@@ -452,7 +452,7 @@ export default function App() {
     const say = nextUtterance(status, spokenRef.current, voice.capturing);
     if (!say) return;
     spokenRef.current = say;
-    speak(say);
+    void speak(say);
   }, [statuses, micOn, orchestrator, voice.capturing]);
   // A long message keeps reading after voice is switched off without this —
   // the mouth must go quiet on the same transition that closes the ear.

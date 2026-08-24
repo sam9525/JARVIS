@@ -23,25 +23,64 @@ export function nextUtterance(
   return message;
 }
 
+// Whichever mouth is talking, only one is. Module level because a new
+// utterance must be able to stop the previous one — a backlog read in order is
+// worse than the newest line.
+let current: HTMLAudioElement | null = null;
+
 // speechSynthesis is missing in jsdom and can be missing in a stripped
 // Electron build. A missing mouth must not break dictation, so this is a
-// feature detect rather than a throw.
-export function speak(text: string): void {
+// feature detect rather than a throw. Both callers reach this only after
+// speak() has already run stopSpeaking(), so no cancel is needed here.
+function localSpeak(text: string): void {
   const synth = (globalThis as { speechSynthesis?: SpeechSynthesis })
     .speechSynthesis;
   const Utterance = (
     globalThis as { SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance }
   ).SpeechSynthesisUtterance;
   if (!synth || !Utterance) return; // half a mouth is not a mouth
-  // a backlog of stale statuses read in order is worse than the newest one
-  synth.cancel();
   synth.speak(new Utterance(text));
 }
 
-// Same feature-detect as speak(): the mic-off transition must not assume a
-// mouth exists to silence.
+/** Cloud voice first; speechSynthesis whenever main hands back nothing — no
+ * key, a revoked key, a spent quota and a timeout are one case here. */
+export async function speak(text: string): Promise<void> {
+  stopSpeaking();
+  let bytes: Uint8Array | null = null;
+  try {
+    bytes = (await window.jarvis?.ttsSpeak?.(text)) ?? null;
+  } catch {
+    bytes = null; // main unreachable — the local mouth still works
+  }
+  if (!bytes) {
+    localSpeak(text);
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+  const audio = new Audio(url);
+  current = audio;
+  audio.onended = () => {
+    URL.revokeObjectURL(url);
+    if (current === audio) current = null;
+  };
+  await audio.play().catch(() => {
+    URL.revokeObjectURL(url);
+    if (current === audio) current = null;
+    localSpeak(text);
+  });
+}
+
+// Either mouth may be the one talking, so the mic-off transition silences
+// both. An interrupted cloud utterance never reaches its own `onended`, so
+// its blob URL is revoked here instead — otherwise every interruption leaks
+// one.
 export function stopSpeaking(): void {
-  const synth = (globalThis as { speechSynthesis?: SpeechSynthesis })
-    .speechSynthesis;
-  synth?.cancel();
+  if (current) {
+    current.pause();
+    URL.revokeObjectURL(current.src);
+    current = null;
+  }
+  (
+    globalThis as { speechSynthesis?: SpeechSynthesis }
+  ).speechSynthesis?.cancel();
 }
