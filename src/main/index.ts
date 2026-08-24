@@ -364,6 +364,13 @@ app.whenReady().then(async () => {
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (id, by) =>
       pushStatus(status.markDelegated(id, by, Date.now())),
+    // false when the window is gone; say() reports that rather than going
+    // silent, so the agent learns its summary was not heard
+    say: (text) => {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) return false;
+      win.webContents.send("tts-say", text);
+      return true;
+    },
   });
 
   startListener(
