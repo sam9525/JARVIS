@@ -18,6 +18,15 @@ vi.mock("../../src/renderer/voice/use-mic-devices", () => ({
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+// the cloud-voice section calls these on mount and on save/clear; stub them
+// so the panel's own useEffect has something to resolve
+(globalThis as any).window.jarvis = {
+  ttsKeyState: () => Promise.resolve({ hasKey: false, encrypted: false }),
+  ttsSetKey: () => Promise.resolve({ hasKey: false, encrypted: false }),
+  ttsVoices: () => Promise.resolve([]),
+  ttsModels: () => Promise.resolve([]),
+};
+
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
@@ -148,33 +157,40 @@ describe("GraphSettingsPanel", () => {
     render();
     const panel = container.firstElementChild!;
     // [header, Filters, Groups, Display, Forces, hand control, voice control,
-    //  microphone, no-devices hint]
-    expect(panel.children).toHaveLength(9);
+    //  microphone, no-devices hint, cloud voice]
+    expect(panel.children).toHaveLength(10);
     const forces = detailsSection(container, "Forces");
     expect(forces.tagName).toBe("DETAILS");
     expect(forces.open).toBe(false); // collapsed by default
     expect(detailsSection(container, "Filters").open).toBe(true);
   });
 
-  it("reset restores defaults but keeps dimensions, groups and hand control", () => {
+  it("reset restores defaults but keeps dimensions, groups, hand control, mic and cloud voice choices", () => {
     const groups = { ws1: [{ query: "tech/", color: "#aa00ff" }] };
     const { container, calls } = render({
       showTags: false,
       dimensions: "3d",
       groups,
       handControl: true,
+      micDeviceId: "mic-1",
+      ttsVoiceId: "voice-1",
+      ttsModelId: "model-1",
     });
     const resetBtn = container.querySelector(
       'button[title="Restore defaults"]',
     ) as HTMLButtonElement;
     // handControl survives: this path can't stop the camera, so resetting it
-    // would leave the webcam live behind an unticked box
+    // would leave the webcam live behind an unticked box. mic/voice/model are
+    // device and account choices, not graph tuning, so they survive too.
     act(() => resetBtn.click());
     expect(calls.settings[0]).toEqual({
       ...defaultSettings(),
       dimensions: "3d",
       groups,
       handControl: true,
+      micDeviceId: "mic-1",
+      ttsVoiceId: "voice-1",
+      ttsModelId: "model-1",
     });
     expect(calls.search[0]).toBe("");
     expect(calls.resets).toBe(1);

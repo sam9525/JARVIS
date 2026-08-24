@@ -116,6 +116,30 @@ export default function GraphSettingsPanel({
   const savedMic = settings.micDeviceId ?? "";
   const micValue = named.some((d) => d.deviceId === savedMic) ? savedMic : "";
 
+  const [keyState, setKeyState] = React.useState({
+    hasKey: false,
+    encrypted: false,
+  });
+  const [keyDraft, setKeyDraft] = React.useState("");
+  const [voices, setVoices] = React.useState<{ id: string; name: string }[]>(
+    [],
+  );
+  const [models, setModels] = React.useState<{ id: string; name: string }[]>(
+    [],
+  );
+  // the lists come from the account, not a hardcoded table, so the dropdowns
+  // only ever offer what this key can actually use
+  const loadTtsLists = React.useCallback(() => {
+    void window.jarvis.ttsVoices().then(setVoices);
+    void window.jarvis.ttsModels().then(setModels);
+  }, []);
+  React.useEffect(() => {
+    void window.jarvis.ttsKeyState().then((st) => {
+      setKeyState(st);
+      if (st.hasKey) loadTtsLists();
+    });
+  }, [loadTtsLists]);
+
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="flex justify-end gap-1.5">
@@ -137,6 +161,11 @@ export default function GraphSettingsPanel({
               // from the default window instead of the one they were saved in
               panels: settings.panels,
               panelViewport: settings.panelViewport,
+              // device and account choices, not graph tuning — a reset must
+              // not silently drop the mic, voice or model the user picked
+              micDeviceId: settings.micDeviceId,
+              ttsVoiceId: settings.ttsVoiceId,
+              ttsModelId: settings.ttsModelId,
             });
             onSearchChange("");
             onResetHighlights();
@@ -308,6 +337,75 @@ export default function GraphSettingsPanel({
           Device names appear after you allow the microphone once.
         </div>
       )}
+
+      <details className="border-t border-edge py-2">
+        <summary className="mb-1.5 cursor-pointer font-semibold">
+          Cloud voice
+        </summary>
+        <div className="flex gap-1.5">
+          <input
+            type="password"
+            data-testid="tts-key-input"
+            className="min-w-0 flex-1 rounded-md border border-edge bg-abyss px-2 py-1.5 text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
+            placeholder={keyState.hasKey ? "key saved" : "ElevenLabs API key"}
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+          />
+          <button
+            className="cursor-pointer rounded-md border border-edge px-2 text-ink-dim hover:border-accent hover:text-accent"
+            onClick={() =>
+              void window.jarvis.ttsSetKey(keyDraft).then((st) => {
+                setKeyState(st);
+                setKeyDraft("");
+                if (st.hasKey) loadTtsLists();
+                else {
+                  setVoices([]);
+                  setModels([]);
+                }
+              })
+            }
+          >
+            {keyDraft ? "Save" : "Clear"}
+          </button>
+        </div>
+        {keyState.hasKey && !keyState.encrypted && (
+          <div className="pt-1.5 text-[11.5px] text-amber-400">
+            No OS keyring here — the key is stored in plain text.
+          </div>
+        )}
+        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+          Voice
+          <select
+            data-testid="tts-voice-setting"
+            className="max-w-[60%] cursor-pointer rounded-md border border-edge bg-abyss px-2 py-1 text-ink focus:border-accent focus:outline-none"
+            value={settings.ttsVoiceId ?? ""}
+            onChange={(e) => set({ ttsVoiceId: e.target.value || undefined })}
+          >
+            <option value="">None — use the local voice</option>
+            {voices.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+          Model
+          <select
+            data-testid="tts-model-setting"
+            className="max-w-[60%] cursor-pointer rounded-md border border-edge bg-abyss px-2 py-1 text-ink focus:border-accent focus:outline-none"
+            value={settings.ttsModelId ?? ""}
+            onChange={(e) => set({ ttsModelId: e.target.value || undefined })}
+          >
+            <option value="">Default</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </details>
     </div>
   );
 }

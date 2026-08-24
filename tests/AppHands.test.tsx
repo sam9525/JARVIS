@@ -71,6 +71,10 @@ beforeEach(() => {
     onGraph: () => () => undefined,
     onToolEvent: () => () => undefined,
     onStatus: () => () => undefined,
+    ttsKeyState: () => Promise.resolve({ hasKey: false, encrypted: false }),
+    ttsSetKey: () => Promise.resolve({ hasKey: false, encrypted: false }),
+    ttsVoices: () => Promise.resolve([]),
+    ttsModels: () => Promise.resolve([]),
   };
   container = document.createElement("div");
   document.body.appendChild(container);
