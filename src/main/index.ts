@@ -203,16 +203,23 @@ app.whenReady().then(async () => {
   });
 
   const tts = createTts({ fetch: globalThis.fetch });
-  ipcMain.handle("tts-speak", (_e, text: string) =>
-    tts.speak(
-      {
-        apiKey: ttsKey(),
-        voiceId: settings.ttsVoiceId ?? "",
-        modelId: settings.ttsModelId ?? "eleven_multilingual_v2",
-      },
-      String(text ?? ""),
-    ),
-  );
+  ipcMain.handle("tts-speak", async (_e, text: string) => {
+    const cfg = {
+      apiKey: ttsKey(),
+      voiceId: settings.ttsVoiceId ?? "",
+      modelId: settings.ttsModelId ?? "eleven_multilingual_v2",
+    };
+    const bytes = await tts.speak(cfg, String(text ?? ""));
+    // the renderer answers null by speaking through speechSynthesis, which
+    // sounds nothing like the chosen voice. Say which half was missing, or
+    // the fallback looks like the setting being ignored.
+    if (!bytes) {
+      console.warn(
+        `[tts] no audio — key:${cfg.apiKey ? "set" : "MISSING"} voice:${cfg.voiceId || "MISSING"} model:${cfg.modelId}`,
+      );
+    }
+    return bytes;
+  });
   ipcMain.handle("tts-voices", () => tts.voices(ttsKey()));
   ipcMain.handle("tts-models", () => tts.models(ttsKey()));
 
