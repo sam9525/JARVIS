@@ -19,6 +19,16 @@ function stubOrchestrator() {
       sends.push([workspace, prompt]);
       return { ok: true as const };
     },
+    says: [] as string[],
+    watchCalls: [] as number[],
+    watch(timeoutSeconds?: number) {
+      this.watchCalls.push(Number(timeoutSeconds));
+      return Promise.resolve({ workspace: "AeroGraph", message: "done" });
+    },
+    say(text: string) {
+      this.says.push(text);
+      return { ok: true as const };
+    },
   };
 }
 
@@ -290,5 +300,136 @@ describe("orchestrate routes", () => {
     const res = await fetch(`http://127.0.0.1:${port}/orchestrate/list`);
     expect(res.status).toBe(404);
     close();
+  });
+});
+
+describe("orchestrate routes added in v0.4.1", () => {
+  const call = (
+    port: number,
+    path: string,
+    body: unknown,
+    headers: Record<string, string> = { "x-jarvis": "1" },
+  ) =>
+    fetch(`http://127.0.0.1:${port}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("watch returns the finish and forwards the timeout", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(s.port, "/orchestrate/watch", {
+      timeout_seconds: 30,
+    });
+    expect(await res.json()).toEqual({
+      workspace: "AeroGraph",
+      message: "done",
+    });
+    expect(s.orch.watchCalls).toEqual([30]);
+    s.close();
+  });
+
+  it("say forwards the text", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(s.port, "/orchestrate/say", { text: "all green" });
+    expect(await res.json()).toEqual({ ok: true });
+    expect(s.orch.says).toEqual(["all green"]);
+    s.close();
+  });
+
+  it("both refuse a request without the x-jarvis header", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    for (const path of ["/orchestrate/watch", "/orchestrate/say"]) {
+      const res = await call(s.port, path, {}, {});
+      expect(res.status).toBe(403);
+    }
+    expect(s.orch.says).toEqual([]);
+    expect(s.orch.watchCalls).toEqual([]);
+    s.close();
+  });
+
+  // watch's timeout_seconds arrives from the wire, unlike orchestrator.watch's
+  // own callers — this is where hostile/malformed input first gets parsed, so
+  // these assert what the route forwards, not the orchestrator's own clamping
+  // (already covered by orchestrate.test.ts). vi.spyOn reads the raw argument,
+  // bypassing stubOrchestrator's own Number(timeoutSeconds) normalization.
+  describe("timeout_seconds parsing", () => {
+    it("forwards a value far above the cap uncapped — clamping is the orchestrator's job", async () => {
+      const s = await start(() => {
+        /* no-op */
+      });
+      const spy = vi.spyOn(s.orch, "watch");
+      await call(s.port, "/orchestrate/watch", { timeout_seconds: 1000 });
+      expect(spy.mock.calls[0][0]).toBe(1000);
+      s.close();
+    });
+
+    it("forwards zero as-is", async () => {
+      const s = await start(() => {
+        /* no-op */
+      });
+      const spy = vi.spyOn(s.orch, "watch");
+      await call(s.port, "/orchestrate/watch", { timeout_seconds: 0 });
+      expect(spy.mock.calls[0][0]).toBe(0);
+      s.close();
+    });
+
+    it("forwards a negative value as-is", async () => {
+      const s = await start(() => {
+        /* no-op */
+      });
+      const spy = vi.spyOn(s.orch, "watch");
+      await call(s.port, "/orchestrate/watch", { timeout_seconds: -5 });
+      expect(spy.mock.calls[0][0]).toBe(-5);
+      s.close();
+    });
+
+    it("forwards undefined, never NaN, for a non-numeric string", async () => {
+      const s = await start(() => {
+        /* no-op */
+      });
+      const spy = vi.spyOn(s.orch, "watch");
+      await call(s.port, "/orchestrate/watch", { timeout_seconds: "soon" });
+      expect(spy.mock.calls[0][0]).toBeUndefined();
+      s.close();
+    });
+
+    it("forwards undefined, never NaN, for an object value", async () => {
+      const s = await start(() => {
+        /* no-op */
+      });
+      const spy = vi.spyOn(s.orch, "watch");
+      await call(s.port, "/orchestrate/watch", {
+        timeout_seconds: { not: "a number" },
+      });
+      expect(spy.mock.calls[0][0]).toBeUndefined();
+      s.close();
+    });
+
+    it("forwards undefined, never NaN, for an explicit null", async () => {
+      const s = await start(() => {
+        /* no-op */
+      });
+      const spy = vi.spyOn(s.orch, "watch");
+      await call(s.port, "/orchestrate/watch", { timeout_seconds: null });
+      expect(spy.mock.calls[0][0]).toBeUndefined();
+      s.close();
+    });
+
+    it("forwards undefined when the field is absent entirely", async () => {
+      const s = await start(() => {
+        /* no-op */
+      });
+      const spy = vi.spyOn(s.orch, "watch");
+      await call(s.port, "/orchestrate/watch", {});
+      expect(spy.mock.calls[0][0]).toBeUndefined();
+      s.close();
+    });
   });
 });

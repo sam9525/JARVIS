@@ -10,6 +10,13 @@ export const DEFAULT_PORT = 4599;
 // POST can't grow main's memory. Raise it if a real tool_response ever trips it.
 const MAX_BODY = 1 << 20; // 1 MiB
 
+const ORCHESTRATE = [
+  "/orchestrate/list",
+  "/orchestrate/send",
+  "/orchestrate/watch",
+  "/orchestrate/say",
+];
+
 // Over the cap we destroy the socket, so "end" never fires and done() never runs.
 function readBody(
   req: http.IncomingMessage,
@@ -30,6 +37,8 @@ function readBody(
 export interface OrchestratorLike {
   list(): unknown;
   send(target: string, prompt: string): SendResult;
+  watch(timeoutSeconds?: number): Promise<unknown>;
+  say(text: string): SendResult;
 }
 
 export function startListener(
@@ -84,7 +93,7 @@ export function startListener(
       });
       return;
     }
-    if (req.url === "/orchestrate/list" || req.url === "/orchestrate/send") {
+    if (ORCHESTRATE.includes(req.url ?? "")) {
       // ponytail: a browser can't set a custom header on a CORS simple request
       // without a preflight, and we never answer preflights — this alone keeps
       // web pages from writing into a live session (spec: trust boundary).
@@ -92,30 +101,55 @@ export function startListener(
         res.writeHead(403).end();
         return;
       }
-      const isSend = req.url === "/orchestrate/send";
+      const route = req.url ?? "";
       readBody(req, (body) => {
         res.setHeader("content-type", "application/json");
-        if (!isSend) {
-          // a throw here would be uncaught inside an http handler — in Electron
-          // main that kills the process, so list gets the same try send has
+        // a throw inside an http handler is uncaught, and in Electron main
+        // that kills the process — every branch below gets a try
+        const fail = (err: unknown) =>
+          res.writeHead(500).end(JSON.stringify({ error: String(err) }));
+        const parse = (): Record<string, unknown> => {
+          const p: unknown = JSON.parse(body || "{}");
+          return typeof p === "object" && p !== null
+            ? (p as Record<string, unknown>)
+            : {};
+        };
+        if (route === "/orchestrate/list") {
           try {
             const json = JSON.stringify(orchestrator.list()); // before writeHead
             res.writeHead(200).end(json);
           } catch (err) {
-            res.writeHead(500).end(JSON.stringify({ error: String(err) }));
+            fail(err);
           }
+          return;
+        }
+        if (route === "/orchestrate/watch") {
+          let secs: number | undefined;
+          try {
+            const raw = parse().timeout_seconds;
+            const n = Number(raw);
+            // Number(null) is 0, not NaN — an explicit null must read as
+            // "no timeout given" the same as an absent field, not as zero
+            secs = raw != null && Number.isFinite(n) ? n : undefined;
+          } catch {
+            secs = undefined; // malformed body → the default timeout
+          }
+          orchestrator
+            .watch(secs)
+            .then((out) => res.writeHead(200).end(JSON.stringify(out)))
+            .catch(fail);
           return;
         }
         let out: SendResult;
         try {
-          const parsed = JSON.parse(body) as {
-            workspace?: unknown;
-            prompt?: unknown;
-          };
-          out = orchestrator.send(
-            String(parsed.workspace ?? ""),
-            String(parsed.prompt ?? ""),
-          );
+          const parsed = parse();
+          out =
+            route === "/orchestrate/say"
+              ? orchestrator.say(String(parsed.text ?? ""))
+              : orchestrator.send(
+                  String(parsed.workspace ?? ""),
+                  String(parsed.prompt ?? ""),
+                );
         } catch (err) {
           out = { ok: false, error: `malformed request: ${String(err)}` };
         }
