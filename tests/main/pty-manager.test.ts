@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { describe, expect, it, vi } from "vitest";
 import {
+  CLAUDE_MODELS,
+  claudeCommand,
   createPtyManager,
   type PtyLike,
   type SpawnFn,
@@ -136,5 +138,29 @@ describe("pty-manager", () => {
     expect(mgr.has("a")).toBe(true);
     spawned[0].emitExit(0);
     expect(mgr.has("a")).toBe(false);
+  });
+});
+
+describe("claudeCommand model flag", () => {
+  it("passes no --model when none is chosen", () => {
+    expect(claudeCommand().args).not.toContain("--model");
+  });
+
+  it("appends --model for each valid alias", () => {
+    for (const m of CLAUDE_MODELS) {
+      const { args } = claudeCommand(false, m);
+      expect(args.slice(-2)).toEqual(["--model", m]);
+    }
+  });
+
+  it("drops an unrecognised model, so a renderer bug cannot reach the command line", () => {
+    expect(claudeCommand(false, "; rm -rf /").args).not.toContain("--model");
+    expect(claudeCommand(false, "").args).not.toContain("--model");
+  });
+
+  it("keeps the dangerous flag alongside the model", () => {
+    const { args } = claudeCommand(true, "opus");
+    expect(args).toContain("--dangerously-skip-permissions");
+    expect(args.slice(-2)).toEqual(["--model", "opus"]);
   });
 });

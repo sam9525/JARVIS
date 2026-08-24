@@ -123,6 +123,10 @@ export default function TerminalPanel({
   // a permission-free session is the one action here with no undo, so it costs
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
+  // Nothing is persisted: the picker returns to Default on every mount,
+  // including a relaunch after an exit, so the CLI's own configured model
+  // wins unless you say otherwise this time.
+  const [model, setModel] = useState("");
   const status: Status = localStatuses[workspace.id] ?? { kind: "idle" };
   // the reindex command comes from the workspace's own graph source — the
   // panel never names gitnexus, so a graphify workspace gets `/graphify .`
@@ -214,7 +218,13 @@ export default function TerminalPanel({
     const e = entryFor(workspace.id);
     e.fit.fit();
     window.jarvis
-      .ptyLaunch(workspace.id, e.term.cols, e.term.rows, dangerous)
+      .ptyLaunch(
+        workspace.id,
+        e.term.cols,
+        e.term.rows,
+        dangerous,
+        model || undefined,
+      )
       .then(({ ok, hooksOk }) => {
         if (!ok) {
           e.term.writeln(
@@ -326,6 +336,18 @@ export default function TerminalPanel({
         <div ref={hostRef} className="h-full w-full" />
         {status.kind !== "running" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
+            <select
+              data-testid="launch-model"
+              className="cursor-pointer rounded-md border border-edge bg-abyss px-2 py-1 text-[13px] text-ink-dim focus:border-accent focus:outline-none"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            >
+              <option value="">Default</option>
+              <option value="fable">Fable</option>
+              <option value="opus">Opus</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
+            </select>
             <button
               className="cursor-pointer rounded-md border border-edge px-4 py-2 text-[13px] text-ink-dim hover:border-accent hover:text-accent"
               onClick={() => launch()}

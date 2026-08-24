@@ -54,8 +54,9 @@ const api = {
     cols: number,
     rows: number,
     dangerous = false,
+    model?: string,
   ): Promise<{ ok: boolean; hooksOk: boolean }> =>
-    ipcRenderer.invoke("pty-launch", workspaceId, cols, rows, dangerous),
+    ipcRenderer.invoke("pty-launch", workspaceId, cols, rows, dangerous, model),
   // returns whether a live PTY took the write, so a caller that is not a
   // keyboard (voice) can report a send into a dead session
   ptyInput: (workspaceId: string, data: string): Promise<boolean> =>

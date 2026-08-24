@@ -416,13 +416,14 @@ app.whenReady().then(async () => {
       cols: number,
       rows: number,
       dangerous: boolean,
+      model: string | undefined,
     ) => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
       const mcpOk = await ensureMcp(ws, mcpPath);
       try {
-        ptyManager.launch(ws, cols, rows, dangerous);
+        ptyManager.launch(ws, cols, rows, dangerous, model);
         pushStatus(status.ptyLaunched(ws.id, Date.now()));
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
