@@ -128,16 +128,26 @@ export default function GraphSettingsPanel({
     [],
   );
   // the lists come from the account, not a hardcoded table, so the dropdowns
-  // only ever offer what this key can actually use
+  // only ever offer what this key can actually use. A rejected fetch leaves
+  // the lists empty rather than crashing — there is no error surface here.
   const loadTtsLists = React.useCallback(() => {
-    void window.jarvis.ttsVoices().then(setVoices);
-    void window.jarvis.ttsModels().then(setModels);
+    void window.jarvis
+      .ttsVoices()
+      .then(setVoices)
+      .catch(() => setVoices([]));
+    void window.jarvis
+      .ttsModels()
+      .then(setModels)
+      .catch(() => setModels([]));
   }, []);
   React.useEffect(() => {
-    void window.jarvis.ttsKeyState().then((st) => {
-      setKeyState(st);
-      if (st.hasKey) loadTtsLists();
-    });
+    void window.jarvis
+      .ttsKeyState()
+      .then((st) => {
+        setKeyState(st);
+        if (st.hasKey) loadTtsLists();
+      })
+      .catch(() => setKeyState({ hasKey: false, encrypted: false }));
   }, [loadTtsLists]);
 
   return (
@@ -354,15 +364,20 @@ export default function GraphSettingsPanel({
           <button
             className="cursor-pointer rounded-md border border-edge px-2 text-ink-dim hover:border-accent hover:text-accent"
             onClick={() =>
-              void window.jarvis.ttsSetKey(keyDraft).then((st) => {
-                setKeyState(st);
-                setKeyDraft("");
-                if (st.hasKey) loadTtsLists();
-                else {
-                  setVoices([]);
-                  setModels([]);
-                }
-              })
+              void window.jarvis
+                .ttsSetKey(keyDraft)
+                .then((st) => {
+                  setKeyState(st);
+                  setKeyDraft("");
+                  if (st.hasKey) loadTtsLists();
+                  else {
+                    setVoices([]);
+                    setModels([]);
+                  }
+                })
+                // a failed save leaves the typed key in the box to retry,
+                // rather than silently discarding what the user typed
+                .catch(() => undefined)
             }
           >
             {keyDraft ? "Save" : "Clear"}

@@ -19,17 +19,27 @@ vi.mock("../../src/renderer/voice/use-mic-devices", () => ({
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 // the cloud-voice section calls these on mount and on save/clear; stub them
-// so the panel's own useEffect has something to resolve
+// as vi.fn()s so individual tests can control what the "account" returns
+const ttsKeyState = vi.fn();
+const ttsSetKey = vi.fn();
+const ttsVoices = vi.fn();
+const ttsModels = vi.fn();
 (globalThis as any).window.jarvis = {
-  ttsKeyState: () => Promise.resolve({ hasKey: false, encrypted: false }),
-  ttsSetKey: () => Promise.resolve({ hasKey: false, encrypted: false }),
-  ttsVoices: () => Promise.resolve([]),
-  ttsModels: () => Promise.resolve([]),
+  ttsKeyState,
+  ttsSetKey,
+  ttsVoices,
+  ttsModels,
 };
 
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
+  ttsKeyState
+    .mockReset()
+    .mockResolvedValue({ hasKey: false, encrypted: false });
+  ttsSetKey.mockReset().mockResolvedValue({ hasKey: false, encrypted: false });
+  ttsVoices.mockReset().mockResolvedValue([]);
+  ttsModels.mockReset().mockResolvedValue([]);
   container = document.createElement("div");
   document.body.appendChild(container);
   act(() => {
@@ -40,6 +50,16 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
+
+// lets pending .then()/.catch() microtasks from the panel's effects settle
+// and their state updates commit before the test inspects the DOM
+async function flush() {
+  // a real macrotask tick, not just microtasks — ttsKeyState's resolution
+  // chains into loadTtsLists, which awaits two more promises of its own
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
 
 type MountProps = Partial<{
   settings: Settings;
@@ -277,5 +297,104 @@ describe("GraphSettingsPanel", () => {
     ) as HTMLButtonElement;
     act(() => resetBtn.click());
     expect(calls.settings[0].voiceControl).toBe(true);
+  });
+
+  describe("cloud voice", () => {
+    function keyInput(scope: Element) {
+      return scope.querySelector(
+        '[data-testid="tts-key-input"]',
+      ) as HTMLInputElement;
+    }
+    function saveClearBtn(scope: Element) {
+      const section = detailsSection(scope, "Cloud voice");
+      return Array.from(section.querySelectorAll("button"))[0];
+    }
+    function typeKey(input: HTMLInputElement, value: string) {
+      act(() => {
+        nativeValueSetter.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+
+    it("save types a key, calls ttsSetKey with it, clears the draft and refetches the lists", async () => {
+      ttsSetKey.mockResolvedValue({ hasKey: true, encrypted: true });
+      const c = mount();
+      await flush();
+      typeKey(keyInput(c), "sk-test-123");
+      act(() => saveClearBtn(c).click());
+      await flush();
+
+      expect(ttsSetKey).toHaveBeenCalledWith("sk-test-123");
+      expect(keyInput(c).value).toBe("");
+      expect(ttsVoices).toHaveBeenCalledTimes(1);
+      expect(ttsModels).toHaveBeenCalledTimes(1);
+    });
+
+    it("clear sends an empty key and empties both dropdowns", async () => {
+      ttsKeyState.mockResolvedValue({ hasKey: true, encrypted: true });
+      ttsVoices.mockResolvedValue([{ id: "v1", name: "Voice One" }]);
+      ttsModels.mockResolvedValue([{ id: "m1", name: "Model One" }]);
+      const c = mount();
+      await flush();
+      const section = detailsSection(c, "Cloud voice");
+      expect(section.querySelector('option[value="v1"]')).not.toBeNull();
+      expect(section.querySelector('option[value="m1"]')).not.toBeNull();
+
+      ttsSetKey.mockResolvedValue({ hasKey: false, encrypted: false });
+      expect(keyInput(c).value).toBe(""); // draft starts empty ∴ button reads "Clear"
+      expect(saveClearBtn(c).textContent).toBe("Clear");
+      act(() => saveClearBtn(c).click());
+      await flush();
+
+      expect(ttsSetKey).toHaveBeenCalledWith("");
+      expect(section.querySelector('option[value="v1"]')).toBeNull();
+      expect(section.querySelector('option[value="m1"]')).toBeNull();
+    });
+
+    it("shows the plaintext warning only when a key is saved unencrypted", async () => {
+      // the effect only fires on mount, so each case needs its own fresh
+      // instance rather than a second render of the same one
+      ttsKeyState.mockResolvedValue({ hasKey: true, encrypted: false });
+      const plain = mount();
+      await flush();
+      expect(detailsSection(plain, "Cloud voice").textContent).toContain(
+        "stored in plain text",
+      );
+      act(() => root.unmount());
+
+      act(() => {
+        root = createRoot(container);
+      });
+      ttsKeyState.mockResolvedValue({ hasKey: true, encrypted: true });
+      const encrypted = mount();
+      await flush();
+      expect(
+        detailsSection(encrypted, "Cloud voice").textContent,
+      ).not.toContain("stored in plain text");
+    });
+
+    it("populates the voice and model dropdowns from the account, not a hardcoded list", async () => {
+      ttsKeyState.mockResolvedValue({ hasKey: true, encrypted: true });
+      ttsVoices.mockResolvedValue([
+        { id: "v1", name: "Rachel" },
+        { id: "v2", name: "Adam" },
+      ]);
+      ttsModels.mockResolvedValue([{ id: "m1", name: "Eleven Turbo v2.5" }]);
+      const c = mount();
+      await flush();
+      const section = detailsSection(c, "Cloud voice");
+      const voiceSelect = section.querySelector(
+        '[data-testid="tts-voice-setting"]',
+      ) as HTMLSelectElement;
+      const modelSelect = section.querySelector(
+        '[data-testid="tts-model-setting"]',
+      ) as HTMLSelectElement;
+      expect(Array.from(voiceSelect.options).map((o) => o.textContent)).toEqual(
+        ["None — use the local voice", "Rachel", "Adam"],
+      );
+      expect(Array.from(modelSelect.options).map((o) => o.textContent)).toEqual(
+        ["Default", "Eleven Turbo v2.5"],
+      );
+    });
   });
 });
