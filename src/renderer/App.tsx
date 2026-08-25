@@ -371,6 +371,13 @@ export default function App() {
     [workspaces],
   );
 
+  // the header sits over Cards, Ring and Fleet, so it counts what they render:
+  // the main agent's row has no card, no tile and no pip to point at
+  const fleetStatuses = useMemo(
+    () => statuses.filter((s) => fleet.some((w) => w.id === s.workspaceId)),
+    [statuses, fleet],
+  );
+
   const hands = useHandControl({
     cameraOn,
     actionsRef: handActionsRef,
@@ -826,7 +833,7 @@ export default function App() {
         />
       </div>
       {showHome ? (
-        <HomeHeader statuses={statuses}>
+        <HomeHeader statuses={fleetStatuses}>
           {homeViewToggle}
           {graphButtons}
         </HomeHeader>
