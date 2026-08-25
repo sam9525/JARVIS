@@ -364,6 +364,13 @@ export default function App() {
   const orchestrator =
     workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null;
 
+  // The rail, the cards and the ring are graph views, and the main agent has
+  // no graph. You reach its session from home, which already pins it.
+  const fleet = useMemo(
+    () => workspaces.filter((w) => !w.isSelf),
+    [workspaces],
+  );
+
   const hands = useHandControl({
     cameraOn,
     actionsRef: handActionsRef,
@@ -706,7 +713,7 @@ export default function App() {
                 />
               ) : homeView === "ring" ? (
                 <Ring
-                  workspaces={workspaces}
+                  workspaces={fleet}
                   statuses={statuses}
                   graphs={cardGraphs}
                   getStore={storeFor}
@@ -730,7 +737,7 @@ export default function App() {
                 />
               ) : (
                 <MissionControl
-                  workspaces={workspaces}
+                  workspaces={fleet}
                   statuses={statuses}
                   graphs={cardGraphs}
                   getStore={storeFor}
@@ -806,7 +813,7 @@ export default function App() {
           themselves; see the note below. */}
       <div className="pointer-events-none absolute top-0 left-0 z-20 h-full [&_button]:pointer-events-auto">
         <WorkspaceRail
-          workspaces={workspaces}
+          workspaces={fleet}
           activeId={active?.id ?? null}
           statuses={statuses}
           homeActive={showHome}
