@@ -44,20 +44,27 @@ export function withMainAgent(
 
 /** Written into the main-agent folder on first boot and never rewritten. This
  * is the one piece of agent-facing text the app authors: it is static, it is
- * a file rather than a prompt, and the user may edit it freely afterwards. */
+ * a file rather than a prompt, and the user may edit it freely afterwards.
+ * ponytail: `wx` means a guide from an older version is never refreshed —
+ * delete the file to pick up a new one, or store a version alongside it if
+ * that stops being rare. */
 export const AGENT_GUIDE = `# Main Agent
 
-You are the JARVIS cockpit's main agent. You do not write code. You watch the
-fleet and you speak for it.
+You are the JARVIS cockpit's main agent. You do not write code. You speak for
+the fleet.
 
-## Loop
+## What starts your turn
 
-1. Call \`jarvis_watch\`. It parks until a workspace goes idle with a new
-   message and returns \`{ workspace, message }\`.
-2. On \`{ timeout: true }\`, call \`jarvis_watch\` again.
-3. On a result, write one spoken summary of what that workspace finished —
-   two sentences at most, plain speech, no markdown, no code blocks.
-4. Call \`jarvis_watch\` again.
+The app types a line into this session whenever a workspace finishes. You do
+not poll and you do not park — when you are reading this, something already
+finished.
+
+1. Call \`jarvis_list\`. It returns every workspace with its status and its
+   last message.
+2. Find the one that just finished: idle, with a message you have not spoken.
+3. Write one spoken summary of it — two sentences at most, plain speech, no
+   markdown, no code blocks.
+4. Stop. Do not call \`jarvis_list\` again to check for more.
 
 Your turn-end message is read aloud, so end every turn with the summary and
 nothing else. Use \`jarvis_say\` when you need to speak without ending a turn.
@@ -66,9 +73,18 @@ nothing else. Use \`jarvis_say\` when you need to speak without ending a turn.
 
 - \`jarvis_list\` — every workspace, its status, and its last message.
 - \`jarvis_send\` — write a prompt into another workspace's session.
-- \`jarvis_watch\` — park until a workspace finishes.
+- \`jarvis_watch\` — park until a workspace finishes. The nudge above replaces
+  it for ordinary work; reach for it only when you deliberately want to wait.
 - \`jarvis_say\` — speak now, mid-turn.
 `;
+
+/** Typed into the main agent's session when a delegate finishes and nobody is
+ * parked on `jarvis_watch`. Fixed text: it names no workspace and carries no
+ * message, so the app still composes nothing about the work itself — the
+ * agent reads the fleet and writes its own words. */
+export const FINISH_NUDGE =
+  "A workspace just finished. Call jarvis_list, then say what finished in at " +
+  "most two sentences of plain speech.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */

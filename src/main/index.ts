@@ -29,6 +29,7 @@ import { ensureMcp } from "./mcp-install";
 import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import {
+  FINISH_NUDGE,
   MAIN_AGENT_MODEL,
   ensureMainAgent,
   mainAgentWorkspace,
@@ -334,6 +335,15 @@ app.whenReady().then(async () => {
       if (win.isDestroyed() || win.webContents.isDestroyed()) return false;
       win.webContents.send("tts-say", text);
       return true;
+    },
+    // Same two-write shape as jarvis_send: Claude Code's TUI reads one
+    // arriving chunk as a paste, so a trailing CR would land as a newline in
+    // the composer instead of submitting. No main agent (packaged) or no
+    // session yet means write returns false and the finish just waits in the
+    // queue for whenever one starts.
+    nudgeMain: () => {
+      if (!mainAgent || !ptyManager.write(mainAgent.id, FINISH_NUDGE)) return;
+      setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
     },
   });
 

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   AGENT_GUIDE,
+  FINISH_NUDGE,
   ensureMainAgent,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
@@ -128,5 +129,23 @@ describe("ensureMainAgent", () => {
 
     warnSpy.mockRestore();
     writeFileSpy.mockRestore();
+  });
+});
+
+describe("FINISH_NUDGE", () => {
+  it("names no workspace and carries no message — the agent reads the fleet itself", () => {
+    expect(FINISH_NUDGE).toContain("jarvis_list");
+    expect(FINISH_NUDGE).not.toContain("{");
+  });
+
+  it("fits on one line, since it is typed into a TUI composer", () => {
+    expect(FINISH_NUDGE).not.toContain("\n");
+  });
+});
+
+describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
+  it("tells the agent it is started by the app rather than by polling", () => {
+    expect(AGENT_GUIDE).toContain("jarvis_list");
+    expect(AGENT_GUIDE).toContain("do not park");
   });
 });

@@ -45,6 +45,7 @@ function setup(
   const writes: Array<[string, string]> = [];
   const delegated: Array<[string, string]> = [];
   const said: string[] = [];
+  const nudges: number[] = [];
   const live = new Set(over.live ?? ["d:/aero"]);
   const orch = createOrchestrator({
     getWorkspaces: () => workspaces,
@@ -63,8 +64,11 @@ function setup(
       said.push(text);
       return true;
     },
+    nudgeMain: () => {
+      nudges.push(Date.now());
+    },
   });
-  return { orch, writes, delegated, said };
+  return { orch, writes, delegated, said, nudges };
 }
 
 describe("orchestrate.list", () => {
@@ -182,6 +186,45 @@ describe("orchestrate.send", () => {
     expect(out.ok).toBe(false);
     expect(writes).toEqual([]);
     expect(delegated).toEqual([]);
+  });
+});
+
+describe("orchestrate.publishFinish nudges the main agent", () => {
+  it("nudges when nobody is parked, since a queue nobody reads wakes no one", () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/aero", "tests are green");
+    expect(nudges).toHaveLength(1);
+  });
+
+  it("does not nudge a parked watcher — one finish wakes the agent one way", async () => {
+    const { orch, nudges } = setup();
+    const pending = orch.watch(1);
+    orch.publishFinish("d:/aero", "tests are green");
+    await expect(pending).resolves.toEqual({
+      workspace: "AeroGraph",
+      message: "tests are green",
+    });
+    expect(nudges).toEqual([]);
+  });
+
+  it("never nudges on the orchestrator's own finish", () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/jarvis", "my own turn ended");
+    expect(nudges).toEqual([]);
+  });
+
+  it("does not nudge on an empty message or an unknown workspace", () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/aero", "   ");
+    orch.publishFinish("d:/nope", "hi");
+    expect(nudges).toEqual([]);
+  });
+
+  it("nudges once per finish, so two delegates produce two turns", () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/aero", "first");
+    orch.publishFinish("d:/fin", "second");
+    expect(nudges).toHaveLength(2);
   });
 });
 
