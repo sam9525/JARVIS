@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
+  AGENT_GUIDE,
+  ensureMainAgent,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
   mainAgentWorkspace,
@@ -68,5 +73,40 @@ describe("withMainAgent", () => {
     withMainAgent(input, mainAgentWorkspace("D:\\userData\\main-agent"));
     expect(repo.isSelf).toBe(true);
     expect(input).toHaveLength(2);
+  });
+});
+
+const tmpRoot = async () =>
+  path.join(
+    await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-agent-")),
+    "main-agent",
+  );
+
+describe("ensureMainAgent", () => {
+  it("creates the folder and writes the standing instruction", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    const guide = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
+    expect(guide).toBe(AGENT_GUIDE);
+  });
+
+  it("tells the agent to re-arm the watch and to keep the summary spoken", () => {
+    expect(AGENT_GUIDE).toContain("jarvis_watch");
+    expect(AGENT_GUIDE).toContain("jarvis_say");
+  });
+
+  it("leaves an edited guide alone — the user owns the file after first boot", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    const file = path.join(root, "CLAUDE.md");
+    await fs.writeFile(file, "# mine\n", "utf8");
+    await ensureMainAgent(root);
+    expect(await fs.readFile(file, "utf8")).toBe("# mine\n");
+  });
+
+  it("is safe to call on a folder that already exists", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await expect(ensureMainAgent(root)).resolves.toBeUndefined();
   });
 });
