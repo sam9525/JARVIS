@@ -103,10 +103,15 @@ function entryFor(id: string): Entry {
 
 export default function TerminalPanel({
   workspace,
+  live,
   inbox,
   inboxOnly,
 }: {
   workspace: Workspace;
+  // main spawns the main agent's pty at boot, so this panel never saw that
+  // launch. WorkspaceStatus.live is the renderer's only record of it — without
+  // it the launch overlay covers a session that is already running.
+  live?: boolean;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
   inbox?: { workspaces: Workspace[]; statuses: WorkspaceStatus[] };
@@ -127,7 +132,11 @@ export default function TerminalPanel({
   // including a relaunch after an exit, so the CLI's own configured model
   // wins unless you say otherwise this time.
   const [model, setModel] = useState("");
-  const status: Status = localStatuses[workspace.id] ?? { kind: "idle" };
+  // an exit reaches localStatuses through the pty-exit listener, so a launch
+  // this panel did not make still ends here rather than staying "running"
+  const status: Status =
+    localStatuses[workspace.id] ??
+    (live ? { kind: "running", hooksOk: true } : { kind: "idle" });
   // the reindex command comes from the workspace's own graph source — the
   // panel never names gitnexus, so a graphify workspace gets `/graphify .`
   const [reindexCommand, setReindexCommand] = useState<string | null>(null);

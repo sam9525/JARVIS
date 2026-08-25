@@ -110,7 +110,8 @@ export function createStatusStore(): StatusStore {
         sessionChanged ||
         e.kind !== ev.kind ||
         e.call !== call ||
-        e.message !== message;
+        e.message !== message ||
+        !e.ptyAlive; // liveness is in the snapshot, so its first flip is a change
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
       e.call = call;
@@ -156,6 +157,7 @@ export function createStatusStore(): StatusStore {
 
     ptyLaunched(id, now) {
       const e = entry(id, now);
+      const wasAlive = e.ptyAlive;
       e.ptyAlive = true;
       // a restored row carries the timestamp of the message it was saved with,
       // which can already be older than EXPIRE_MS — opening a terminal must not
@@ -166,7 +168,9 @@ export function createStatusStore(): StatusStore {
         e.since = now;
         return true;
       }
-      return false;
+      // a restored row is already idle, so the kind says nothing — but the
+      // renderer reads `live` to know a session it never launched is running
+      return !wasAlive;
     },
 
     ptyExited(id, now) {
@@ -219,6 +223,7 @@ export function createStatusStore(): StatusStore {
         call: e.call,
         message: e.message,
         delegatedBy: e.delegatedBy,
+        live: e.ptyAlive,
         since: e.since,
         reads: e.reads.size,
         edits: e.edits.size,

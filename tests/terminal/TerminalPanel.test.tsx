@@ -164,6 +164,20 @@ describe("TerminalPanel dangerous launch", () => {
   });
 });
 
+// main spawns the main agent's pty at boot, so the panel never saw that launch
+describe("TerminalPanel attaching to a session it did not launch", () => {
+  const overlay = (tree: any) =>
+    find(tree, (n) => String(n.props?.className ?? "").includes("bg-panel/80"));
+
+  it("shows the launch overlay when no pty is attached", () => {
+    expect(overlay(render())).toBeDefined();
+  });
+
+  it("hides it while the workspace reports a live pty", () => {
+    expect(overlay(render({ live: true }))).toBeUndefined();
+  });
+});
+
 describe("TerminalPanel inbox", () => {
   const inbox = {
     workspaces: [workspace],
