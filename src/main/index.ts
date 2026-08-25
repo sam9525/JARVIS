@@ -40,6 +40,11 @@ import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
 
+// Chromium blocks a page-initiated play() without user activation, and a
+// spoken status arrives from a hook event — no gesture anywhere. Without this
+// the cloud voice decodes fine and then silently loses to speechSynthesis.
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+
 // The ElevenLabs key lives in .env at the project root, main-side only, so it
 // never crosses the preload bridge. loadEnvFile throws when the file is absent;
 // a missing key just means the local voice.
