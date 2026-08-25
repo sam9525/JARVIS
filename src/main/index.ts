@@ -28,6 +28,12 @@ import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
+import {
+  MAIN_AGENT_MODEL,
+  ensureMainAgent,
+  mainAgentWorkspace,
+  withMainAgent,
+} from "./main-agent";
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
@@ -71,14 +77,17 @@ app.whenReady().then(async () => {
     "jarvis-projects.json",
   );
   const extraPaths = await readProjects(projectsPath);
-  const workspaces = await loadWorkspaces(rootPath, extraPaths);
-  const vault = workspaces[0];
+  const loaded = await loadWorkspaces(rootPath, extraPaths);
+  const vault = loaded[0];
 
-  // ponytail: dev-only match — packaged getAppPath() is an asar path that no
-  // workspace can equal, so home falls back to the vault. Terminals are
-  // dev-only anyway.
-  const self = workspaces.find((w) => w.id === normalizeId(app.getAppPath()));
-  if (self) self.isSelf = true;
+  // The orchestrator is its own workspace in userData, not the JARVIS repo.
+  // isSelf living here is what moves .mcp.json, the home terminal pin and the
+  // spoken voice off the repo — and what makes the repo an ordinary delegate
+  // jarvis_send can target.
+  const mainAgent = mainAgentWorkspace(
+    path.join(app.getPath("userData"), "main-agent"),
+  );
+  const workspaces = withMainAgent(loaded, mainAgent);
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
@@ -418,6 +427,25 @@ app.whenReady().then(async () => {
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
     ptyManager.resize(id, cols, rows),
   );
+
+  // The main agent owns the fleet watch and the voice, so it has to be running
+  // before any delegate can finish. It is the only session boot starts; project
+  // terminals still launch by hand.
+  try {
+    await ensureMainAgent(mainAgent.rootPath);
+    await ensureHooks(mainAgent.rootPath, forwardPath);
+    await ensureMcp(mainAgent, mcpPath);
+    // placeholder geometry — the terminal panel resizes the pty the moment it
+    // attaches, so this size never reaches the screen
+    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
+    pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
+  } catch (err) {
+    // no claude on PATH, node-pty failed to load, or the folder could not be
+    // created. There is no terminal open yet to print into, so the console is
+    // the only place to say it.
+    console.error("[jarvis] main agent failed to launch:", err);
+  }
+
   app.on("before-quit", () => ptyManager.killAll());
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
