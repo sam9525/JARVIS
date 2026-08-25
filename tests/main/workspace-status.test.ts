@@ -154,6 +154,19 @@ describe("status store", () => {
     expect(kindOf(s)).toBe("none");
   });
 
+  // a `claude` run by hand in the same folder posts hooks under this
+  // workspace's id; the panel would hide its launch overlay over a pty that
+  // does not exist and leave the user a terminal nothing can type into
+  it("keeps live to our own pty — a hook event alone never sets it", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "running", ts: 100 }));
+    expect(s.snapshot()[0].live).toBe(false);
+    s.countTool(tool({ nodeIds: ["a"] }));
+    expect(s.snapshot()[0].live).toBe(false);
+    s.ptyLaunched("w1", 200);
+    expect(s.snapshot()[0].live).toBe(true);
+  });
+
   // the terminal panel reads `live` to know about a session main launched
   it("reports liveness, and pushes the flip even when the kind cannot say it", () => {
     const s = createStatusStore();
