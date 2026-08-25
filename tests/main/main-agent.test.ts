@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -108,5 +108,25 @@ describe("ensureMainAgent", () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
     await expect(ensureMainAgent(root)).resolves.toBeUndefined();
+  });
+
+  it("logs non-EEXIST errors but does not reject", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const writeFileSpy = vi
+      .spyOn(fs, "writeFile")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Permission denied"), { code: "EACCES" }),
+      );
+
+    const root = await tmpRoot();
+    await expect(ensureMainAgent(root)).resolves.toBeUndefined();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[jarvis] failed to write main-agent guide:",
+      expect.any(Error),
+    );
+
+    warnSpy.mockRestore();
+    writeFileSpy.mockRestore();
   });
 });

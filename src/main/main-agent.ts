@@ -77,7 +77,12 @@ export async function ensureMainAgent(rootPath: string): Promise<void> {
   const guide = path.join(rootPath, "CLAUDE.md");
   // "wx" fails when the file is already there, which is the whole check — the
   // user owns the guide once it exists
-  await fs
-    .writeFile(guide, AGENT_GUIDE, { encoding: "utf8", flag: "wx" })
-    .catch(() => undefined);
+  try {
+    await fs.writeFile(guide, AGENT_GUIDE, { encoding: "utf8", flag: "wx" });
+  } catch (err) {
+    const error = err as NodeJS.ErrnoException;
+    if (error.code !== "EEXIST") {
+      console.warn("[jarvis] failed to write main-agent guide:", err);
+    }
+  }
 }
