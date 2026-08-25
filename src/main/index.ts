@@ -89,10 +89,16 @@ app.whenReady().then(async () => {
   // isSelf living here is what moves .mcp.json, the home terminal pin and the
   // spoken voice off the repo — and what makes the repo an ordinary delegate
   // jarvis_send can target.
-  const mainAgent = mainAgentWorkspace(
-    path.join(app.getPath("userData"), "main-agent"),
-  );
-  const workspaces = withMainAgent(loaded, mainAgent);
+  //
+  // It is dev-only, like the terminals and hooks it is built from: forward.mjs
+  // and mcp.mjs are resolved out of app.getAppPath(), which is an asar archive
+  // in a packaged build and holds neither file. Without the workspace there is
+  // no isSelf at all, so a packaged build pins home's terminal to the vault and
+  // speaks for nobody — the same inert shape it had before v0.4.2.
+  const mainAgent = app.isPackaged
+    ? null
+    : mainAgentWorkspace(path.join(app.getPath("userData"), "main-agent"));
+  const workspaces = mainAgent ? withMainAgent(loaded, mainAgent) : loaded;
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
@@ -436,19 +442,21 @@ app.whenReady().then(async () => {
   // The main agent owns the fleet watch and the voice, so it has to be running
   // before any delegate can finish. It is the only session boot starts; project
   // terminals still launch by hand.
-  try {
-    await ensureMainAgent(mainAgent.rootPath);
-    await ensureHooks(mainAgent.rootPath, forwardPath);
-    await ensureMcp(mainAgent, mcpPath);
-    // placeholder geometry — the terminal panel resizes the pty the moment it
-    // attaches, so this size never reaches the screen
-    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
-    pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
-  } catch (err) {
-    // no claude on PATH, node-pty failed to load, or the folder could not be
-    // created. There is no terminal open yet to print into, so the console is
-    // the only place to say it.
-    console.error("[jarvis] main agent failed to launch:", err);
+  if (mainAgent) {
+    try {
+      await ensureMainAgent(mainAgent.rootPath);
+      await ensureHooks(mainAgent.rootPath, forwardPath);
+      await ensureMcp(mainAgent, mcpPath);
+      // placeholder geometry — the terminal panel resizes the pty the moment
+      // it attaches, so this size never reaches the screen
+      ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
+      pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
+    } catch (err) {
+      // no claude on PATH, node-pty failed to load, or the folder could not be
+      // created. There is no terminal open yet to print into, so the console is
+      // the only place to say it.
+      console.error("[jarvis] main agent failed to launch:", err);
+    }
   }
 
   app.on("before-quit", () => ptyManager.killAll());
