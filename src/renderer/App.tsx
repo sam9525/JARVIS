@@ -632,17 +632,17 @@ export default function App() {
   const view = settings.views[settings.dimensions];
 
   const telemetry = showHome
-    ? `COMMAND CENTER · ${workspaces.length} WORKSPACES · ` +
-      `${statuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
-      `${statuses.filter((s) => s.kind === "running").length} RUNNING`
+    ? `COMMAND CENTER · ${fleet.length} WORKSPACES · ` +
+      `${fleetStatuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
+      `${fleetStatuses.filter((s) => s.kind === "running").length} RUNNING`
     : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
       `EDGES ${graph.edges.length} · ` +
       `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;
 
   const activeStatus = statuses.find((s) => s.workspaceId === active?.id);
   const footRight = showHome
-    ? `FLEET READS ${statuses.reduce((n, s) => n + s.reads, 0)} · ` +
-      `EDITS ${statuses.reduce((n, s) => n + s.edits, 0)}`
+    ? `FLEET READS ${fleetStatuses.reduce((n, s) => n + s.reads, 0)} · ` +
+      `EDITS ${fleetStatuses.reduce((n, s) => n + s.edits, 0)}`
     : `READS ${activeStatus?.reads ?? 0} · EDITS ${activeStatus?.edits ?? 0}`;
 
   const homeViewToggle = (
