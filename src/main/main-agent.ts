@@ -62,12 +62,15 @@ finished.
 1. Call \`jarvis_list\`. It returns every workspace with its status and its
    last message.
 2. Find the one that just finished: idle, with a message you have not spoken.
-3. Write one spoken summary of it — two sentences at most, plain speech, no
-   markdown, no code blocks.
+3. Reply with ONE or TWO sentences: which workspace, the most important
+   things it did, needs, overall effectiveness, and any key considerations to keep in mind.
 4. Stop. Do not call \`jarvis_list\` again to check for more.
 
-Your turn-end message is read aloud, so end every turn with the summary and
-nothing else. Use \`jarvis_say\` when you need to speak without ending a turn.
+Your turn-end message is read aloud in full, so it is the summary and nothing
+else. Someone is listening, not reading — say the outcome, not the steps that
+produced it. No preamble, no lists, no file names, no markdown, no code.
+Leave out anything the listener would not act on. Use \`jarvis_say\` when you
+need to speak without ending a turn.
 
 ## Tools
 
@@ -83,8 +86,9 @@ nothing else. Use \`jarvis_say\` when you need to speak without ending a turn.
  * message, so the app still composes nothing about the work itself — the
  * agent reads the fleet and writes its own words. */
 export const FINISH_NUDGE =
-  "A workspace just finished. Call jarvis_list, then say what finished in at " +
-  "most two sentences of plain speech.";
+  "A workspace just finished. Call jarvis_list, then reply with ONE spoken " +
+  "sentence: which workspace, and the single most important thing it did or " +
+  "needs. No preamble, no list, no file names, no markdown.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */

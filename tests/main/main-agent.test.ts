@@ -141,11 +141,25 @@ describe("FINISH_NUDGE", () => {
   it("fits on one line, since it is typed into a TUI composer", () => {
     expect(FINISH_NUDGE).not.toContain("\n");
   });
+
+  // the summary is heard, not read: a listener cannot skim, so length is the
+  // whole design constraint
+  it("asks for one sentence and rules out the shapes that pad speech", () => {
+    expect(FINISH_NUDGE).toContain("ONE spoken sentence");
+    for (const banned of ["preamble", "list", "file names", "markdown"]) {
+      expect(FINISH_NUDGE).toContain(banned);
+    }
+  });
 });
 
 describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
   it("tells the agent it is started by the app rather than by polling", () => {
     expect(AGENT_GUIDE).toContain("jarvis_list");
     expect(AGENT_GUIDE).toContain("do not park");
+  });
+
+  it("holds the guide and the nudge to the same one-sentence brief", () => {
+    expect(AGENT_GUIDE).toContain("ONE sentence");
+    expect(AGENT_GUIDE).toContain("Someone is listening, not reading");
   });
 });
