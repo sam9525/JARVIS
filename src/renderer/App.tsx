@@ -901,6 +901,7 @@ export default function App() {
           >
             <TerminalPanel
               workspace={ws}
+              live={statuses.some((s) => s.workspaceId === ws.id && s.live)}
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
             />
