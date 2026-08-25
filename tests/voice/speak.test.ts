@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
+  isSpeaking,
   nextUtterance,
   speak,
   stopSpeaking,
@@ -40,9 +41,12 @@ describe("nextUtterance", () => {
     expect(nextUtterance(status("done\n"), "done", false)).toBe(null);
   });
 
-  it("never speaks a message containing the wake word, so the mouth cannot feed the ears", () => {
+  // The mouth used to refuse any message containing the wake word. With a
+  // workspace named JARVIS every summary names it, so that guard silenced the
+  // commonest line there is. The ear goes deaf while the mouth talks instead.
+  it("speaks a message containing the wake word", () => {
     expect(nextUtterance(status("Jarvis, build is green"), "", false)).toBe(
-      null,
+      "Jarvis, build is green",
     );
   });
 });
@@ -179,5 +183,27 @@ describe("speak — cloud first, local fallback", () => {
 
     expect(played).toEqual(["blob:x"]); // only "two" ever played
     expect((globalThis as any).URL.createObjectURL).toHaveBeenCalledOnce(); // "one" never created a URL to revoke
+  });
+});
+
+describe("isSpeaking", () => {
+  // the playing audio is module state, so an earlier block's utterance is
+  // still "current" here — clear it before, not only after
+  beforeEach(() => stopSpeaking());
+  afterEach(() => {
+    stopSpeaking();
+    delete (globalThis as { speechSynthesis?: unknown }).speechSynthesis;
+  });
+
+  it("is false when neither mouth is producing sound", () => {
+    expect(isSpeaking()).toBe(false);
+  });
+
+  it("is true while speechSynthesis is talking", () => {
+    (globalThis as { speechSynthesis?: unknown }).speechSynthesis = {
+      speaking: true,
+      cancel: () => undefined,
+    };
+    expect(isSpeaking()).toBe(true);
   });
 });

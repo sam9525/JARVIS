@@ -1,9 +1,4 @@
 import type { WorkspaceStatus } from "../../shared/types";
-import { WAKE_WORD } from "./wake";
-
-// built per call rather than hoisted: WAKE_WORD is interpolated, and a shared
-// instance is one flag change away from carrying lastIndex between calls.
-const wakeRe = () => new RegExp(`\\b${WAKE_WORD}\\b`, "i");
 
 // The app never parses terminal output, so `message` — the hook-derived text
 // workspace-status already pushes — is the only thing there is to read aloud.
@@ -16,10 +11,6 @@ export function nextUtterance(
   if (capturing) return null; // never talk over an open dictation
   const message = status?.message?.trim() ?? "";
   if (!message || message === spoken.trim()) return null;
-  // Claude's own text can plausibly contain "jarvis" — echoCancellation
-  // reduces but does not eliminate speaker bleed, and speaking it aloud risks
-  // the mic hearing its own wake word and opening a dictation on nothing.
-  if (wakeRe().test(message)) return null;
   return message;
 }
 
@@ -79,6 +70,21 @@ export async function speak(text: string): Promise<void> {
     current = null;
     localSpeak(text);
   });
+}
+
+/** True while either mouth is producing sound. The ear reads this and drops
+ * what it hears: the app must not transcribe its own voice, and a summary
+ * naming a workspace called JARVIS would otherwise speak the wake word. */
+export function isSpeaking(): boolean {
+  // `ended`/`paused` rather than `current !== null` alone: an utterance whose
+  // `onended` never fires would otherwise leave the ear deaf for the rest of
+  // the session, and a microphone that stops working is worse than an echo.
+  const cloud = current !== null && !current.ended && !current.paused;
+  return (
+    cloud ||
+    (globalThis as { speechSynthesis?: SpeechSynthesis }).speechSynthesis
+      ?.speaking === true
+  );
 }
 
 // Either mouth may be the one talking, so the mic-off transition silences

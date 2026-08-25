@@ -265,3 +265,27 @@ describe("useVoiceControl", () => {
     expect(tracker.device).toBe("mic-b");
   });
 });
+
+// The mouth says the workspace's name, and one workspace is called JARVIS.
+// Deafness while talking is what stops the app taking its own summary as a
+// command — the alternative, refusing to speak those messages at all, silenced
+// the commonest summary there is.
+describe("the ear is deaf while the mouth talks", () => {
+  it("ignores an utterance transcribed while speaking", async () => {
+    ok();
+    await act(async () => mount(true));
+    (globalThis as any).speechSynthesis = { speaking: true, cancel: vi.fn() };
+    say("Jarvis, list the fleet");
+    pause(END_MS);
+    expect(ptyInput).not.toHaveBeenCalled();
+    delete (globalThis as any).speechSynthesis;
+  });
+
+  it("hears the same utterance once the mouth is quiet", async () => {
+    ok();
+    await act(async () => mount(true));
+    say("Jarvis, list the fleet");
+    pause(END_MS);
+    expect(ptyInput).toHaveBeenCalledWith("ws-self", "list the fleet");
+  });
+});

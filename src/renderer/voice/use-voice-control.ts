@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { feed, finish, NO_DICTATION, type Dictation } from "./wake";
 import { startVoiceTracker } from "./voice-tracker";
+import { isSpeaking } from "./speak";
 
 /** A dictation closes this long after the last utterance. Long enough to
  * think mid-sentence; short enough that you are not left wondering. */
@@ -63,6 +64,10 @@ export function useVoiceControl(opts: {
 
     startVoiceTracker(
       ({ text }) => {
+        // echoCancellation reduces speaker bleed but does not remove it, and a
+        // summary that names a workspace called JARVIS says the wake word out
+        // loud. Deafness while talking is what stops the app answering itself.
+        if (isSpeaking()) return;
         dictation = feed(dictation, text);
         if (!dictation.active) return; // no wake word yet — nothing to hold
         setDictating(true);
