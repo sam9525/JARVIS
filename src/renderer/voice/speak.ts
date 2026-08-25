@@ -70,8 +70,11 @@ export async function speak(text: string): Promise<void> {
     URL.revokeObjectURL(url);
     if (current === audio) current = null;
   };
-  await audio.play().catch(() => {
+  await audio.play().catch((err) => {
     if (current !== audio) return; // already stopped or superseded — stale text must not speak
+    // the OS voice that follows sounds the same whether main handed back no
+    // bytes or the bytes would not play, and only main logs the first case
+    console.warn("[tts] play rejected:", err);
     URL.revokeObjectURL(url);
     current = null;
     localSpeak(text);
