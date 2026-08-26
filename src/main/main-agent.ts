@@ -86,9 +86,9 @@ need to speak without ending a turn.
  * message, so the app still composes nothing about the work itself — the
  * agent reads the fleet and writes its own words. */
 export const FINISH_NUDGE =
-  "A workspace just finished. Call jarvis_list, then reply with ONE spoken " +
-  "sentence: which workspace, and the single most important thing it did or " +
-  "needs. No preamble, no list, no file names, no markdown.";
+  "A workspace just finished. Call jarvis_list, then reply with ONE or TWO " +
+  "spoken sentences: which workspace, and the single most important thing it " +
+  "did or needs. No preamble, no list, no file names, no markdown.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */

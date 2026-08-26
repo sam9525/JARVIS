@@ -145,7 +145,7 @@ describe("FINISH_NUDGE", () => {
   // the summary is heard, not read: a listener cannot skim, so length is the
   // whole design constraint
   it("asks for one sentence and rules out the shapes that pad speech", () => {
-    expect(FINISH_NUDGE).toContain("ONE spoken sentence");
+    expect(FINISH_NUDGE).toContain("ONE or TWO spoken sentences");
     for (const banned of ["preamble", "list", "file names", "markdown"]) {
       expect(FINISH_NUDGE).toContain(banned);
     }
@@ -158,8 +158,8 @@ describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
     expect(AGENT_GUIDE).toContain("do not park");
   });
 
-  it("holds the guide and the nudge to the same one-sentence brief", () => {
-    expect(AGENT_GUIDE).toContain("ONE sentence");
+  it("holds the guide and the nudge to the same one-or-two-sentence brief", () => {
+    expect(AGENT_GUIDE).toContain("ONE or TWO sentences");
     expect(AGENT_GUIDE).toContain("Someone is listening, not reading");
   });
 });
