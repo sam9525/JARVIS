@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
+  DEAF_TAIL_MS,
   isSpeaking,
   nextUtterance,
   speak,
@@ -188,10 +189,16 @@ describe("speak — cloud first, local fallback", () => {
 
 describe("isSpeaking", () => {
   // the playing audio is module state, so an earlier block's utterance is
-  // still "current" here — clear it before, not only after
-  beforeEach(() => stopSpeaking());
+  // still "current" here — clear it before, not only after, then run out the
+  // deaf tail that stopping it just started
+  beforeEach(() => {
+    vi.useFakeTimers();
+    stopSpeaking();
+    vi.advanceTimersByTime(DEAF_TAIL_MS + 1);
+  });
   afterEach(() => {
     stopSpeaking();
+    vi.useRealTimers();
     delete (globalThis as { speechSynthesis?: unknown }).speechSynthesis;
   });
 
@@ -205,5 +212,46 @@ describe("isSpeaking", () => {
       cancel: () => undefined,
     };
     expect(isSpeaking()).toBe(true);
+  });
+
+  // Speaks through the local mouth (no window.jarvis here, so speak() gets no
+  // cloud bytes) and hands back the end signal the browser would fire.
+  const speakLocally = async (): Promise<() => void> => {
+    let utterance: { onend?: () => void } | null = null;
+    const synth = {
+      speaking: false,
+      cancel: () => undefined,
+      speak: (u: { onend?: () => void }) => {
+        utterance = u;
+        synth.speaking = true;
+      },
+    };
+    (globalThis as Record<string, unknown>).speechSynthesis = synth;
+    (globalThis as Record<string, unknown>).SpeechSynthesisUtterance = class {
+      onend?: () => void;
+      constructor(public text: string) {}
+    };
+    await speak("jarvis finished the build");
+    return () => {
+      synth.speaking = false;
+      utterance?.onend?.();
+    };
+  };
+
+  it("stays deaf after the mouth closes, so the echo arrives too late", async () => {
+    const finish = await speakLocally();
+    expect(isSpeaking()).toBe(true);
+    // whisper only hands over the app's own words once the room is quiet
+    // again — which is after the mouth already stopped
+    finish();
+    vi.advanceTimersByTime(DEAF_TAIL_MS - 1);
+    expect(isSpeaking()).toBe(true);
+  });
+
+  it("hears again once the tail runs out", async () => {
+    const finish = await speakLocally();
+    finish();
+    vi.advanceTimersByTime(DEAF_TAIL_MS + 1);
+    expect(isSpeaking()).toBe(false);
   });
 });

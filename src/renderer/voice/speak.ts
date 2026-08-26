@@ -24,6 +24,20 @@ let current: HTMLAudioElement | null = null;
 // and backs off instead of playing over — or after — whatever superseded it.
 let generation = 0;
 
+/** How long the ear stays deaf after the last sound. The segmenter only ends
+ * an utterance HANG_MS after the room goes quiet and whisper runs after that,
+ * so a segment recorded while the app was talking arrives with the mouth
+ * already silent — `sounding()` alone reads false exactly when it matters.
+ * ponytail: fixed tail, sized for HANG_MS plus one transcription; measure the
+ * transcribe time and derive it if whisper ever gets slow enough to outrun it. */
+export const DEAF_TAIL_MS = 2000;
+
+let deafUntil = 0;
+
+const stoppedSounding = () => {
+  deafUntil = Date.now() + DEAF_TAIL_MS;
+};
+
 // speechSynthesis is missing in jsdom and can be missing in a stripped
 // Electron build. A missing mouth must not break dictation, so this is a
 // feature detect rather than a throw. Both callers reach this only after
@@ -35,7 +49,9 @@ function localSpeak(text: string): void {
     globalThis as { SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance }
   ).SpeechSynthesisUtterance;
   if (!synth || !Utterance) return; // half a mouth is not a mouth
-  synth.speak(new Utterance(text));
+  const utterance = new Utterance(text);
+  utterance.onend = stoppedSounding;
+  synth.speak(utterance);
 }
 
 /** Cloud voice first; speechSynthesis whenever main hands back nothing — no
@@ -60,6 +76,7 @@ export async function speak(text: string): Promise<void> {
   audio.onended = () => {
     URL.revokeObjectURL(url);
     if (current === audio) current = null;
+    stoppedSounding();
   };
   await audio.play().catch((err) => {
     if (current !== audio) return; // already stopped or superseded — stale text must not speak
@@ -72,10 +89,8 @@ export async function speak(text: string): Promise<void> {
   });
 }
 
-/** True while either mouth is producing sound. The ear reads this and drops
- * what it hears: the app must not transcribe its own voice, and a summary
- * naming a workspace called JARVIS would otherwise speak the wake word. */
-export function isSpeaking(): boolean {
+/** True while either mouth is producing sound right now. */
+function sounding(): boolean {
   // `ended`/`paused` rather than `current !== null` alone: an utterance whose
   // `onended` never fires would otherwise leave the ear deaf for the rest of
   // the session, and a microphone that stops working is worse than an echo.
@@ -87,12 +102,24 @@ export function isSpeaking(): boolean {
   );
 }
 
+/** True while either mouth is talking and for DEAF_TAIL_MS after it stops.
+ * The ear reads this and drops what it hears: the app must not transcribe its
+ * own voice, and a summary naming a workspace called JARVIS says the wake word
+ * out loud. The tail is the half that catches the echo — by the time the app's
+ * own words come back as text, the mouth has already closed. */
+export function isSpeaking(): boolean {
+  return sounding() || Date.now() < deafUntil;
+}
+
 // Either mouth may be the one talking, so the mic-off transition silences
 // both. An interrupted cloud utterance never reaches its own `onended`, so
 // its blob URL is revoked here instead — otherwise every interruption leaks
 // one.
 export function stopSpeaking(): void {
   generation++; // invalidates any speak() still awaiting its IPC round-trip
+  // an interruption is still a mouth that was open a moment ago, so the echo
+  // of what it already said is still on its way through the segmenter
+  if (sounding()) stoppedSounding();
   if (current) {
     current.pause();
     URL.revokeObjectURL(current.src);
