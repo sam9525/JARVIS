@@ -22,6 +22,7 @@ import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
 import Panel from "./ui/Panel";
 import {
+  SETTINGS_Z,
   defaultPanel,
   grabTarget,
   movePanel,
@@ -77,6 +78,15 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
   { value: "symbol", label: "Symbols" },
 ];
 
+const fold = (m: PanelMap): PanelMap =>
+  m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
+
+/** absent entries fall back to defaultPanel, which already folds the terminal */
+const withFoldedTerminal = (s: Settings): Settings => ({
+  ...s,
+  panels: { home: fold(s.panels.home), workspace: fold(s.panels.workspace) },
+});
+
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [active, setActive] = useState<Workspace | null>(null);
@@ -125,7 +135,7 @@ export default function App() {
   const panels: PanelMap = settings.panels[layoutId];
 
   const panelState = (id: PanelId): PanelState =>
-    panels[id] ?? defaultPanel(id, viewport, layoutId);
+    panels[id] ?? defaultPanel(id, viewport);
 
   // Debounced: a drag would otherwise rewrite jarvis-settings.json once per
   // frame. Renderer state updates immediately; only the disk write waits.
@@ -276,7 +286,9 @@ export default function App() {
     });
     window.jarvis
       .getSettings()
-      .then(setSettings)
+      // the terminal always opens folded, whatever it was left at — you land
+      // on the graph, and unfolding it is one click
+      .then((s) => setSettings(withFoldedTerminal(s)))
       .catch(console.error)
       .finally(() => setSettingsReady(true)); // defaults still render on failure
     offs.push(
@@ -517,7 +529,10 @@ export default function App() {
     const live: PanelMap = {};
     if (active) live.terminal = panelState("terminal");
     if (previewNode !== null && active) live.preview = panelState("preview");
-    if (showSettings) live.settings = panelState("settings");
+    // SETTINGS_Z here as well as at render, so a pinch hit-tests the stack the
+    // way it looks rather than the way it is stored
+    if (showSettings)
+      live.settings = { ...panelState("settings"), z: SETTINGS_Z };
     return live;
   }, [deckCleared, active, previewNode, showSettings, panels]);
 
@@ -920,7 +935,7 @@ export default function App() {
         <Panel
           id="settings"
           title="GRAPH SETTINGS"
-          state={panelState("settings")}
+          state={{ ...panelState("settings"), z: SETTINGS_Z }}
           focused={focusedPanel === "settings"}
           hidden={deckCleared}
           onChange={(next) => setPanel("settings", next)}

@@ -56,6 +56,13 @@ export function detailBox(
   };
 }
 
+const MODELS = [
+  { value: "fable", label: "Fable" },
+  { value: "opus", label: "Opus" },
+  { value: "sonnet", label: "Sonnet" },
+  { value: "haiku", label: "Haiku" },
+];
+
 const BAR: Record<StatusKind, string> = {
   waiting: "from-warm",
   running: "from-accent",
@@ -128,10 +135,10 @@ export default function TerminalPanel({
   // a permission-free session is the one action here with no undo, so it costs
   // two clicks and the second one says what it does
   const [armed, setArmed] = useState(false);
-  // Nothing is persisted: the picker returns to Default on every mount,
-  // including a relaunch after an exit, so the CLI's own configured model
-  // wins unless you say otherwise this time.
-  const [model, setModel] = useState("");
+  // Nothing is persisted: the picker returns to Opus on every mount,
+  // including a relaunch after an exit, so a one-off Haiku session doesn't
+  // silently become the next one too.
+  const [model, setModel] = useState("opus");
   // an exit reaches localStatuses through the pty-exit listener, so a launch
   // this panel did not make still ends here rather than staying "running"
   const status: Status =
@@ -227,13 +234,7 @@ export default function TerminalPanel({
     const e = entryFor(workspace.id);
     e.fit.fit();
     window.jarvis
-      .ptyLaunch(
-        workspace.id,
-        e.term.cols,
-        e.term.rows,
-        dangerous,
-        model || undefined,
-      )
+      .ptyLaunch(workspace.id, e.term.cols, e.term.rows, dangerous, model)
       .then(({ ok, hooksOk }) => {
         if (!ok) {
           e.term.writeln(
@@ -345,18 +346,22 @@ export default function TerminalPanel({
         <div ref={hostRef} className="h-full w-full" />
         {status.kind !== "running" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
-            <select
-              data-testid="launch-model"
-              className="cursor-pointer rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-[13px] text-ink-dim focus:border-accent focus:outline-none"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-            >
-              <option value="">Default</option>
-              <option value="fable">Fable</option>
-              <option value="opus">Opus</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="haiku">Haiku</option>
-            </select>
+            <div className="flex gap-1.5" data-testid="launch-model">
+              {MODELS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  className={
+                    "cursor-pointer rounded-md border px-2.5 py-1 text-[13px] " +
+                    (model === value
+                      ? "border-accent text-accent"
+                      : "border-edge text-ink-dim hover:border-accent hover:text-accent")
+                  }
+                  onClick={() => setModel(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               className="cursor-pointer rounded-md border border-edge px-4 py-2 text-[13px] text-ink-dim hover:border-accent hover:text-accent"
               onClick={() => launch()}
