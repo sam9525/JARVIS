@@ -1,8 +1,83 @@
+// @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect } from "vitest";
+import React from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import GraphSettingsPanel from "../../src/renderer/ui/GraphSettingsPanel";
 import { defaultSettings } from "../../src/shared/types";
 import type { Settings } from "../../src/shared/types";
+
+// this suite mounts GraphSettingsPanel for real: Task 5 gives it useState
+// calls that only run inside React's render loop, so a bare function call
+// (no fiber, no dispatcher) throws. useMicDevices still needs a mock — jsdom
+// has no navigator.mediaDevices for it to call.
+vi.mock("../../src/renderer/voice/use-mic-devices", () => ({
+  useMicDevices: () => [],
+}));
+
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+// the cloud-voice section calls these on mount; stub them as vi.fn()s so
+// individual tests can control what the "account" returns
+const ttsVoices = vi.fn();
+const ttsModels = vi.fn();
+(globalThis as any).window.jarvis = { ttsVoices, ttsModels };
+
+let root: Root;
+let container: HTMLDivElement;
+beforeEach(() => {
+  ttsVoices.mockReset().mockResolvedValue([]);
+  ttsModels.mockReset().mockResolvedValue([]);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  act(() => {
+    root = createRoot(container);
+  });
+});
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+// lets pending .then()/.catch() microtasks from the panel's effects settle
+// and their state updates commit before the test inspects the DOM
+async function flush() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+type MountProps = Partial<{
+  settings: Settings;
+  activeId: string | null;
+  search: string;
+  onSearchChange: (s: string) => void;
+  onSettingsChange: (s: Settings) => void;
+  onHandControl: (on: boolean) => void;
+  onVoiceControl: (on: boolean) => void;
+  onResetHighlights: () => void;
+  showSections: boolean;
+}>;
+
+function mount(props: MountProps = {}) {
+  act(() => {
+    root.render(
+      <GraphSettingsPanel
+        settings={props.settings ?? defaultSettings()}
+        activeId={props.activeId ?? "ws1"}
+        search={props.search ?? "abc"}
+        onSearchChange={props.onSearchChange ?? (() => undefined)}
+        onSettingsChange={props.onSettingsChange ?? (() => undefined)}
+        onHandControl={props.onHandControl ?? (() => undefined)}
+        onVoiceControl={props.onVoiceControl ?? (() => undefined)}
+        onResetHighlights={props.onResetHighlights ?? (() => undefined)}
+        showSections={props.showSections ?? true}
+      />,
+    );
+  });
+  return container;
+}
 
 function render(overrides: Partial<Settings> = {}) {
   const calls: {
@@ -14,94 +89,149 @@ function render(overrides: Partial<Settings> = {}) {
     search: [],
     resets: 0,
   };
-  const el = GraphSettingsPanel({
+  mount({
     settings: { ...defaultSettings(), ...overrides },
-    activeId: "ws1",
-    search: "abc",
     onSearchChange: (s) => calls.search.push(s),
     onSettingsChange: (s) => calls.settings.push(s),
-    onHandControl: () => undefined,
-    onVoiceControl: () => undefined,
     onResetHighlights: () => {
       calls.resets++;
     },
-    showSections: true,
-  }) as any;
-  return { el, calls };
+  });
+  return { container, calls };
 }
 
-// sliders render from a spec array, so find them by label rather than by
-// position in the section's children
-const sliders = (section: any): any[] =>
-  section.props.children.flat(2).filter((c: any) => c?.props?.label);
+// find a top-level <details> section by its summary text (a prefix match,
+// since Display/Forces summaries append "(2D)"/"(3D)")
+function detailsSection(scope: Element, label: string): HTMLDetailsElement {
+  const found = Array.from(scope.querySelectorAll("details")).find((d) =>
+    d.querySelector("summary")?.textContent?.trim().startsWith(label),
+  );
+  if (!found) throw new Error(`no <details> section labeled "${label}"`);
+  return found as HTMLDetailsElement;
+}
 
-function sliderByLabel(section: any, label: string): any {
-  const found = sliders(section).find((c) => c.props.label === label);
+// sliders render from a spec array, so find them by their visible label
+// text rather than by position within the section
+function sliderInputs(section: Element): HTMLInputElement[] {
+  return Array.from(
+    section.querySelectorAll('label > input[type="range"]'),
+  ) as HTMLInputElement[];
+}
+
+function sliderLabels(section: Element): string[] {
+  return sliderInputs(section).map((input) =>
+    input.parentElement!.textContent!.trim(),
+  );
+}
+
+function sliderByLabel(section: Element, label: string): HTMLInputElement {
+  const found = sliderInputs(section).find(
+    (input) => input.parentElement!.textContent!.trim() === label,
+  );
   if (!found) throw new Error(`no slider labeled "${label}"`);
   return found;
 }
 
+// React tracks the DOM value/checked property it last saw, so writing the
+// property directly (without going through the prototype's own setter) is
+// invisible to it and no event fires. Bypass that tracker the way every
+// DOM-testing helper does: call the native setter, then dispatch the event.
+const nativeValueSetter = Object.getOwnPropertyDescriptor(
+  HTMLInputElement.prototype,
+  "value",
+)!.set!;
+
+function changeRange(input: HTMLInputElement, value: number) {
+  act(() => {
+    nativeValueSetter.call(input, String(value));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// force the checkbox to the opposite of the target state, then click it —
+// a real click() toggles `.checked` and fires the native events React's
+// checkbox handling listens for, so the result lands on `checked` regardless
+// of which state the box started in
+function setChecked(checkbox: HTMLInputElement, checked: boolean) {
+  act(() => {
+    checkbox.checked = !checked;
+    checkbox.click();
+  });
+}
+
 describe("GraphSettingsPanel", () => {
   it("renders header + four sections, Forces collapsed by default", () => {
-    const { el } = render();
-    // [header, Filters, Groups, Display, Forces, hand control, voice control]
-    expect(el.props.children).toHaveLength(7);
-    const forces = el.props.children[4];
-    expect(forces.type).toBe("details");
-    expect(forces.props.open).toBeUndefined();
-    expect(el.props.children[1].props.open).toBe(true); // Filters open
+    render();
+    const panel = container.firstElementChild!;
+    // [header, Filters, Groups, Display, Forces, hand control, voice control,
+    //  microphone, no-devices hint, cloud voice]
+    expect(panel.children).toHaveLength(10);
+    const forces = detailsSection(container, "Forces");
+    expect(forces.tagName).toBe("DETAILS");
+    expect(forces.open).toBe(false); // collapsed by default
+    expect(detailsSection(container, "Filters").open).toBe(true);
   });
 
-  it("reset restores defaults but keeps dimensions, groups and hand control", () => {
+  it("reset restores defaults but keeps dimensions, groups, hand control, mic and cloud voice choices", () => {
     const groups = { ws1: [{ query: "tech/", color: "#aa00ff" }] };
-    const { el, calls } = render({
+    const { container, calls } = render({
       showTags: false,
       dimensions: "3d",
       groups,
       handControl: true,
+      micDeviceId: "mic-1",
+      ttsVoiceId: "voice-1",
+      ttsModelId: "model-1",
     });
-    const header = el.props.children[0];
-    const resetBtn = header.props.children;
-    resetBtn.props.onClick();
+    const resetBtn = container.querySelector(
+      'button[title="Restore defaults"]',
+    ) as HTMLButtonElement;
     // handControl survives: this path can't stop the camera, so resetting it
-    // would leave the webcam live behind an unticked box
+    // would leave the webcam live behind an unticked box. mic/voice/model are
+    // device and account choices, not graph tuning, so they survive too.
+    act(() => resetBtn.click());
     expect(calls.settings[0]).toEqual({
       ...defaultSettings(),
       dimensions: "3d",
       groups,
       handControl: true,
+      micDeviceId: "mic-1",
+      ttsVoiceId: "voice-1",
+      ttsModelId: "model-1",
     });
     expect(calls.search[0]).toBe("");
     expect(calls.resets).toBe(1);
   });
 
   it("new group gets a random hex color and empty query", () => {
-    const { el, calls } = render();
-    const groupsSection = el.props.children[2];
-    // children: [summary, ...groupRows, newGroupButton]
-    const kids = groupsSection.props.children;
-    const newGroupBtn = kids[kids.length - 1];
-    newGroupBtn.props.onClick();
+    const { container, calls } = render();
+    const groupsSection = detailsSection(container, "Groups");
+    const newGroupBtn = Array.from(
+      groupsSection.querySelectorAll("button"),
+    ).find((b) => b.textContent === "New group") as HTMLButtonElement;
+    act(() => newGroupBtn.click());
     expect(calls.settings[0].groups.ws1).toHaveLength(1);
     expect(calls.settings[0].groups.ws1[0].query).toBe("");
     expect(calls.settings[0].groups.ws1[0].color).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it("3D toggle switches dimensions", () => {
-    const { el, calls } = render();
-    // top-level children: [header, Filters, Groups, Display, Forces]
-    const display = el.props.children[3];
-    // Display children: [summary, 3D label, ...three Sliders]
-    const label = display.props.children[1];
-    const input = label.props.children[1]; // label children: ["3D", <input>]
-    input.props.onChange({ target: { checked: true } });
+    const { container, calls } = render();
+    const display = detailsSection(container, "Display");
+    const label = Array.from(display.querySelectorAll("label")).find(
+      (l) => l.textContent?.trim() === "3D",
+    ) as HTMLLabelElement;
+    const input = label.querySelector(
+      'input[type="checkbox"]',
+    ) as HTMLInputElement;
+    setChecked(input, true);
     expect(calls.settings[0].dimensions).toBe("3d");
   });
 
   it("display sliders edit the active view only", () => {
-    const { el, calls } = render({ dimensions: "3d" });
-    const display = el.props.children[3];
-    sliderByLabel(display, "Node size").props.onChange(2.5);
+    const { container, calls } = render({ dimensions: "3d" });
+    const display = detailsSection(container, "Display");
+    changeRange(sliderByLabel(display, "Node size"), 2.5);
     expect(calls.settings[0].views["3d"].display.nodeSize).toBe(2.5);
     expect(calls.settings[0].views["2d"].display.nodeSize).toBe(1); // untouched
   });
@@ -109,55 +239,87 @@ describe("GraphSettingsPanel", () => {
   it("focus slider follows the active dimension and edits only that view", () => {
     // 2D: labelled "Focus zoom", and the 3D-only knobs stay out
     const twoD = render({ dimensions: "2d" });
-    const twoDLabels = sliders(twoD.el.props.children[3]).map(
-      (s) => s.props.label,
-    );
+    const twoDDisplay = detailsSection(twoD.container, "Display");
+    const twoDLabels = sliderLabels(twoDDisplay);
     expect(twoDLabels).toContain("Focus zoom");
     expect(twoDLabels).not.toContain("Focus distance");
     expect(twoDLabels).not.toContain("Halo opacity");
-    sliderByLabel(twoD.el.props.children[3], "Focus zoom").props.onChange(4);
+    changeRange(sliderByLabel(twoDDisplay, "Focus zoom"), 4);
     expect(twoD.calls.settings[0].views["2d"].display.focusZoom).toBe(4);
     expect(twoD.calls.settings[0].views["3d"].display.focusZoom).toBe(180);
 
     // 3D: label "Focus distance", plus the halo/opacity knobs
     const threeD = render({ dimensions: "3d" });
-    const threeDLabels = sliders(threeD.el.props.children[3]).map(
-      (s) => s.props.label,
-    );
+    const threeDDisplay = detailsSection(threeD.container, "Display");
+    const threeDLabels = sliderLabels(threeDDisplay);
     expect(threeDLabels).toContain("Focus distance");
     expect(threeDLabels).not.toContain("Focus zoom");
     expect(threeDLabels).toContain("Halo opacity");
-    sliderByLabel(threeD.el.props.children[3], "Focus distance").props.onChange(
-      200,
-    );
+    changeRange(sliderByLabel(threeDDisplay, "Focus distance"), 200);
     expect(threeD.calls.settings[0].views["3d"].display.focusZoom).toBe(200);
     expect(threeD.calls.settings[0].views["2d"].display.focusZoom).toBe(6.8);
   });
 
   it("reports a voice control change", () => {
     let got: boolean | null = null;
-    const el = GraphSettingsPanel({
+    mount({
       settings: defaultSettings(),
-      activeId: "ws1",
       search: "",
-      onSearchChange: () => undefined,
-      onSettingsChange: () => undefined,
-      onHandControl: () => undefined,
-      onVoiceControl: (on: boolean) => {
+      onVoiceControl: (on) => {
         got = on;
       },
-      onResetHighlights: () => undefined,
-      showSections: true,
-    }) as any;
-    const input = el.props.children[6].props.children[1];
-    input.props.onChange({ target: { checked: true } });
+    });
+    const input = container.querySelector(
+      '[data-testid="voice-control-setting"]',
+    ) as HTMLInputElement;
+    setChecked(input, true);
     expect(got).toBe(true);
   });
 
   it("reset keeps voice control, since that path cannot stop the mic", () => {
-    const { el, calls } = render({ voiceControl: true });
+    const { container, calls } = render({ voiceControl: true });
     // click the reset button the same way the hand-control reset test does
-    el.props.children[0].props.children.props.onClick();
+    const resetBtn = container.querySelector(
+      'button[title="Restore defaults"]',
+    ) as HTMLButtonElement;
+    act(() => resetBtn.click());
     expect(calls.settings[0].voiceControl).toBe(true);
+  });
+
+  it("populates the voice and model dropdowns from the account, not a hardcoded list", async () => {
+    ttsVoices.mockResolvedValue([
+      { id: "v2", name: "My Clone", mine: true },
+      { id: "v1", name: "Rachel", mine: false },
+    ]);
+    ttsModels.mockResolvedValue([{ id: "m1", name: "Eleven Turbo v2.5" }]);
+    const c = mount();
+    await flush();
+    const section = detailsSection(c, "Cloud voice");
+    expect(section.querySelector('[data-testid="tts-key-input"]')).toBeNull();
+    const voiceSelect = section.querySelector(
+      '[data-testid="tts-voice-setting"]',
+    ) as HTMLSelectElement;
+    const modelSelect = section.querySelector(
+      '[data-testid="tts-model-setting"]',
+    ) as HTMLSelectElement;
+    expect(Array.from(voiceSelect.options).map((o) => o.textContent)).toEqual([
+      "None — use the local voice",
+      "My Clone",
+      "Rachel",
+    ]);
+    // the account's own voices sit in their own titled group, above the
+    // premade ones
+    expect(
+      Array.from(voiceSelect.querySelectorAll("optgroup")).map((g) => [
+        g.label,
+        Array.from(g.querySelectorAll("option")).map((o) => o.textContent),
+      ]),
+    ).toEqual([
+      ["My voices", ["My Clone"]],
+      ["ElevenLabs & library", ["Rachel"]],
+    ]);
+    expect(Array.from(modelSelect.options).map((o) => o.textContent)).toEqual([
+      "Eleven Turbo v2.5",
+    ]);
   });
 });

@@ -24,6 +24,10 @@ interface Entry {
   reads: Set<string>;
   edits: Set<string>;
   ptyAlive: boolean;
+  // a pty this app spawned. Narrower than ptyAlive, which any hook event
+  // sets — a `claude` run by hand in the same folder resolves to the same
+  // workspace, and the terminal panel must not read that as its own session.
+  ptyOwned: boolean;
 }
 
 export interface StatusStore {
@@ -54,6 +58,7 @@ export function createStatusStore(): StatusStore {
         reads: new Set(),
         edits: new Set(),
         ptyAlive: false,
+        ptyOwned: false,
       };
       entries.set(id, e);
     }
@@ -156,7 +161,9 @@ export function createStatusStore(): StatusStore {
 
     ptyLaunched(id, now) {
       const e = entry(id, now);
+      const wasOwned = e.ptyOwned;
       e.ptyAlive = true;
+      e.ptyOwned = true;
       // a restored row carries the timestamp of the message it was saved with,
       // which can already be older than EXPIRE_MS — opening a terminal must not
       // hand the next sweep a six-hour-stale clock for a session starting now
@@ -166,12 +173,17 @@ export function createStatusStore(): StatusStore {
         e.since = now;
         return true;
       }
-      return false;
+      // a restored row is already idle, so the kind says nothing — but the
+      // renderer reads `live` to know a session it never launched is running
+      return !wasOwned;
     },
 
     ptyExited(id, now) {
       const e = entries.get(id);
-      if (!e || e.kind === "none") return false;
+      if (!e) return false;
+      const wasOwned = e.ptyOwned;
+      e.ptyOwned = false;
+      if (e.kind === "none") return wasOwned;
       e.ptyAlive = false;
       e.kind = "none";
       e.call = "";
@@ -219,6 +231,7 @@ export function createStatusStore(): StatusStore {
         call: e.call,
         message: e.message,
         delegatedBy: e.delegatedBy,
+        live: e.ptyOwned,
         since: e.since,
         reads: e.reads.size,
         edits: e.edits.size,

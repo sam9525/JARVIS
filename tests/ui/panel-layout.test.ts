@@ -50,9 +50,10 @@ describe("defaultPanel", () => {
       );
   });
 
-  it("opens home's terminal folded and the workspace's expanded", () => {
-    expect(defaultPanel("terminal", VP, "home").collapsed).toBe(true);
-    expect(defaultPanel("terminal", VP, "workspace").collapsed).toBe(false);
+  it("opens the terminal folded, and nothing else", () => {
+    expect(defaultPanel("terminal", VP).collapsed).toBe(true);
+    expect(defaultPanel("preview", VP).collapsed).toBe(false);
+    expect(defaultPanel("settings", VP).collapsed).toBe(false);
   });
 
   it("puts preview left and terminal right, leaving a centre channel", () => {

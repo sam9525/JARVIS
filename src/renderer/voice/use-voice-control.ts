@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { feed, finish, NO_DICTATION, type Dictation } from "./wake";
 import { startVoiceTracker } from "./voice-tracker";
+import { isSpeaking } from "./speak";
 
 /** A dictation closes this long after the last utterance. Long enough to
  * think mid-sentence; short enough that you are not left wondering. */
@@ -13,9 +14,10 @@ export const END_MS = 2500;
 export function useVoiceControl(opts: {
   micOn: boolean;
   targetId: string | null;
+  micDeviceId?: string;
   onMicFailed: () => void;
 }): { capturing: boolean; error: string | null } {
-  const { micOn, targetId, onMicFailed } = opts;
+  const { micOn, targetId, micDeviceId, onMicFailed } = opts;
   const [speaking, setSpeaking] = useState(false);
   const [dictating, setDictating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,15 +62,23 @@ export function useVoiceControl(opts: {
       });
     };
 
-    startVoiceTracker(({ text }) => {
-      dictation = feed(dictation, text);
-      if (!dictation.active) return; // no wake word yet — nothing to hold
-      setDictating(true);
-      // every new breath pushes the deadline out, so a pause to think is
-      // not the end of the sentence
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(send, END_MS);
-    }, setSpeaking)
+    startVoiceTracker(
+      ({ text }) => {
+        // echoCancellation reduces speaker bleed but does not remove it, and a
+        // summary that names a workspace called JARVIS says the wake word out
+        // loud. Deafness while talking is what stops the app answering itself.
+        if (isSpeaking()) return;
+        dictation = feed(dictation, text);
+        if (!dictation.active) return; // no wake word yet — nothing to hold
+        setDictating(true);
+        // every new breath pushes the deadline out, so a pause to think is
+        // not the end of the sentence
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(send, END_MS);
+      },
+      setSpeaking,
+      micDeviceId,
+    )
       .then((s) => {
         if (cancelled) s();
         else stop = s;
@@ -84,7 +94,10 @@ export function useVoiceControl(opts: {
       if (timer) clearTimeout(timer);
       stop?.();
     };
-  }, [micOn]);
+    // micDeviceId is a dep, not a ref, unlike targetId above: a device change
+    // must reopen the stream. The whisper reload it costs is seconds, because
+    // useBrowserCache is off — acceptable for an action taken by hand.
+  }, [micOn, micDeviceId]);
 
   // an open dictation counts as capturing even between breaths — it is what
   // keeps the mouth quiet while you are still composing

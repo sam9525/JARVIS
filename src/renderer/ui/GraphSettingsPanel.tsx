@@ -8,7 +8,9 @@ import type {
   Settings,
   ViewSettings,
 } from "../../shared/types";
+import type { TtsOption } from "../../main/tts";
 import { randomColor } from "../../shared/random-color";
+import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
 
 const SECTION_OPTIONS: { value: SectionFilter; label: string }[] = [
@@ -109,6 +111,33 @@ export default function GraphSettingsPanel({
   const setGroup = (i: number, patch: Partial<GraphGroup>) =>
     setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
 
+  const mics = useMicDevices();
+  // deviceId is "" and label is blank until permission has been granted once
+  const named = mics.filter((d) => d.deviceId && d.label);
+  const savedMic = settings.micDeviceId ?? "";
+  const micValue = named.some((d) => d.deviceId === savedMic) ? savedMic : "";
+
+  const [voices, setVoices] = React.useState<TtsOption[]>([]);
+  const [models, setModels] = React.useState<TtsOption[]>([]);
+  // main sorts the account's own voices first, so one split point separates
+  // the two groups
+  const mine = voices.filter((v) => v.mine);
+  const premade = voices.filter((v) => !v.mine);
+  // the lists come from the account, not a hardcoded table, so the dropdowns
+  // only ever offer what the .env key can actually use. No key means main
+  // answers with empty lists — a rejected fetch does the same, there is no
+  // error surface here.
+  React.useEffect(() => {
+    void window.jarvis
+      .ttsVoices()
+      .then(setVoices)
+      .catch(() => setVoices([]));
+    void window.jarvis
+      .ttsModels()
+      .then(setModels)
+      .catch(() => setModels([]));
+  }, []);
+
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="flex justify-end gap-1.5">
@@ -130,6 +159,11 @@ export default function GraphSettingsPanel({
               // from the default window instead of the one they were saved in
               panels: settings.panels,
               panelViewport: settings.panelViewport,
+              // device and account choices, not graph tuning — a reset must
+              // not silently drop the mic, voice or model the user picked
+              micDeviceId: settings.micDeviceId,
+              ttsVoiceId: settings.ttsVoiceId,
+              ttsModelId: settings.ttsModelId,
             });
             onSearchChange("");
             onResetHighlights();
@@ -279,6 +313,84 @@ export default function GraphSettingsPanel({
           onChange={(e) => onVoiceControl(e.target.checked)}
         />
       </label>
+
+      <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+        Microphone
+        <select
+          data-testid="mic-device-setting"
+          className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
+          value={micValue}
+          onChange={(e) => set({ micDeviceId: e.target.value || undefined })}
+        >
+          <option value="">Default microphone</option>
+          {named.map((d) => (
+            <option key={d.deviceId} value={d.deviceId}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {named.length === 0 && (
+        <div className="pb-2 text-[11.5px] text-ink-dim">
+          Device names appear after you allow the microphone once.
+        </div>
+      )}
+
+      <details className="border-t border-edge py-2">
+        <summary className="mb-1.5 cursor-pointer font-semibold">
+          Cloud voice
+        </summary>
+        {voices.length === 0 && models.length === 0 && (
+          <div className="pb-1.5 text-[11.5px] text-ink-dim">
+            Empty — set ELEVENLABS_API_KEY in .env. The key also needs the
+            voices_read and models_read permissions.
+          </div>
+        )}
+        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+          Voice
+          <select
+            data-testid="tts-voice-setting"
+            className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
+            value={settings.ttsVoiceId ?? ""}
+            onChange={(e) => set({ ttsVoiceId: e.target.value || undefined })}
+          >
+            <option value="">None — use the local voice</option>
+            {mine.length > 0 && (
+              <optgroup label="My voices">
+                {mine.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {premade.length > 0 && (
+              <optgroup label="ElevenLabs & library">
+                {premade.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+          Model
+          <select
+            data-testid="tts-model-setting"
+            className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
+            value={settings.ttsModelId ?? ""}
+            onChange={(e) => set({ ttsModelId: e.target.value })}
+          >
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </details>
     </div>
   );
 }

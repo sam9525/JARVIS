@@ -60,6 +60,24 @@ function startMcp(port: number) {
   return { request, raw };
 }
 
+// a listener stand-in whose reply can depend on the request, for routes
+// where different tools/urls need different (or slow) responses
+async function startStubServer(
+  reply: (url: string, body: string) => unknown | Promise<unknown>,
+) {
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      const out = await reply(req.url ?? "", body);
+      res.setHeader("content-type", "application/json");
+      res.writeHead(200).end(JSON.stringify(out));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  return { server, port: (server.address() as AddressInfo).port };
+}
+
 // a listener stand-in that records what mcp.mjs sends it
 async function fakeListener(reply: unknown) {
   const hits: Array<{
@@ -96,11 +114,11 @@ describe("mcp.mjs", () => {
     expect(res.result.serverInfo.name).toBe("jarvis");
   });
 
-  it("lists exactly jarvis_list and jarvis_send", async () => {
+  it("lists jarvis_list and jarvis_send first, with jarvis_send's schema", async () => {
     const { request } = startMcp(1);
     const res = await request({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const names = res.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(["jarvis_list", "jarvis_send"]);
+    expect(names.slice(0, 2)).toEqual(["jarvis_list", "jarvis_send"]);
     const send = res.result.tools[1];
     expect(send.inputSchema.required).toEqual(["workspace", "prompt"]);
   });
@@ -167,6 +185,56 @@ describe("mcp.mjs", () => {
       id: 7,
       method: "tools/list",
     });
-    expect(alive.result.tools).toHaveLength(2);
+    expect(alive.result.tools).toHaveLength(4);
+  });
+
+  it("lists the two v0.4.1 tools", async () => {
+    const { server, port } = await startStubServer(() => ({}));
+    const { request } = startMcp(port);
+    await request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const res = await request({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const names = res.result.tools.map((t: any) => t.name);
+    expect(names).toContain("jarvis_watch");
+    expect(names).toContain("jarvis_say");
+    server.close();
+  });
+
+  it("waits out a slow watch instead of aborting at 1500ms", async () => {
+    const { server, port } = await startStubServer(async (url) => {
+      if (url === "/orchestrate/watch") {
+        await new Promise((r) => setTimeout(r, 2500)); // past the default bound
+        return { workspace: "AeroGraph", message: "done" };
+      }
+      return {};
+    });
+    const { request } = startMcp(port);
+    await request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "jarvis_watch", arguments: { timeout_seconds: 5 } },
+    });
+    expect(res.result.content[0].text).toContain("AeroGraph");
+    expect(res.result.isError).toBeFalsy();
+    server.close();
+  }, 15000);
+
+  it("reports a say failure as a tool error", async () => {
+    const { server, port } = await startStubServer(() => ({
+      ok: false,
+      error: "no JARVIS window is listening",
+    }));
+    const { request } = startMcp(port);
+    await request({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "jarvis_say", arguments: { text: "hi" } },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("listening");
+    server.close();
   });
 });

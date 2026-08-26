@@ -379,4 +379,39 @@ describe("settings", () => {
     const f = await writeSettings({ panels: "nope" });
     expect((await loadSettings(f)).panels).toEqual({ home: {}, workspace: {} });
   });
+
+  it("round-trips micDeviceId", async () => {
+    const file = await writeSettings({ micDeviceId: "abc123" });
+    expect((await loadSettings(file)).micDeviceId).toBe("abc123");
+  });
+
+  it("drops a non-string or empty micDeviceId", async () => {
+    expect(
+      (await loadSettings(await writeSettings({ micDeviceId: 7 }))).micDeviceId,
+    ).toBeUndefined();
+    expect(
+      (await loadSettings(await writeSettings({ micDeviceId: "" })))
+        .micDeviceId,
+    ).toBeUndefined();
+  });
+
+  it("round-trips the tts fields", async () => {
+    const file = await writeSettings({
+      ttsVoiceId: "v1",
+      ttsModelId: "m1",
+    });
+    const s = await loadSettings(file);
+    expect(s.ttsVoiceId).toBe("v1");
+    expect(s.ttsModelId).toBe("m1");
+  });
+
+  it("drops non-string tts fields", async () => {
+    const s = await loadSettings(
+      await writeSettings({ ttsVoiceId: {}, ttsModelId: [] }),
+    );
+    expect(s.ttsVoiceId).toBeUndefined();
+    // no voice default exists, but the model has one — a malformed value
+    // falls back to it rather than leaving the app with no model
+    expect(s.ttsModelId).toBe("eleven_multilingual_v2");
+  });
 });

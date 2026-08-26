@@ -21,6 +21,7 @@ export interface WorkspaceStatus {
   call: string; // compact "Tool(subject)"; "" when there is nothing to show
   message?: string; // idle: the last thing Claude said, for the inbox
   delegatedBy?: string; // orchestrator that submitted the current turn; "" when the user did
+  live?: boolean; // this app's own pty is attached right now — not a hand-run CLI
   since: number; // ms epoch of the last kind change — drives "40s ago"
   reads: number; // distinct files read this session
   edits: number; // distinct files edited this session
@@ -155,6 +156,12 @@ export interface Settings {
   views: Record<Dimensions, ViewSettings>;
   handControl: boolean; // hands drive navigation; the webcam auto-starts when on
   voiceControl: boolean; // the mic listens for "jarvis"; auto-starts when on
+  /** Which audio input the tracker opens. Absent = whatever the OS calls
+   * default. A saved id that is not plugged in right now is not passed to
+   * getUserMedia — an unplugged device reads as Default, never as an error. */
+  micDeviceId?: string;
+  ttsVoiceId?: string;
+  ttsModelId?: string;
   panels: Record<LayoutId, PanelMap>; // home and workspace arrange separately
   /**
    * The window `panels` was measured in. Panel geometry is pixels, so without
@@ -231,6 +238,7 @@ export function defaultSettings(): Settings {
     views: { "2d": defaultView("2d"), "3d": defaultView("3d") },
     handControl: false,
     voiceControl: false,
+    ttsModelId: "eleven_multilingual_v2",
     panels: { home: {}, workspace: {} },
   };
 }

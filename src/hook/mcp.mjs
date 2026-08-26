@@ -34,14 +34,48 @@ const TOOLS = [
       required: ["workspace", "prompt"],
     },
   },
+  {
+    name: "jarvis_watch",
+    description:
+      "Block until a workspace other than this one finishes a turn, then " +
+      "return { workspace, message } with that session's full last assistant " +
+      "message. Returns { timeout: true } if nothing finishes in time. Call " +
+      "it again after you handle an event to keep watching the fleet.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        timeout_seconds: {
+          type: "number",
+          description: "How long to wait. Default 60, maximum 300.",
+        },
+      },
+    },
+  },
+  {
+    name: "jarvis_say",
+    description:
+      "Speak text aloud through the JARVIS cockpit's voice. For summaries " +
+      "only — the text is capped at 500 characters, and a delegate's raw " +
+      "output must never be passed straight in.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "What to say, one or two sentences",
+        },
+      },
+      required: ["text"],
+    },
+  },
 ];
 
-async function post(path, body) {
+async function post(path, body, timeoutMs = 1500) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-jarvis": "1" },
     body: JSON.stringify(body ?? {}),
-    signal: AbortSignal.timeout(1500), // never hang the orchestrating session
+    signal: AbortSignal.timeout(timeoutMs), // never hang the orchestrating session
   });
   return res.json();
 }
@@ -65,6 +99,25 @@ async function callTool(name, args) {
       return out?.ok
         ? textResult(`sent to ${args?.workspace}`)
         : textResult(out?.error ?? "send failed", true);
+    }
+    if (name === "jarvis_watch") {
+      const secs = Math.min(
+        Math.max(Number(args?.timeout_seconds) || 60, 1),
+        300,
+      );
+      // the app parks for the whole window, so this bound has to outlast it
+      const out = await post(
+        "/orchestrate/watch",
+        { timeout_seconds: secs },
+        secs * 1000 + 5000,
+      );
+      return textResult(JSON.stringify(out, null, 2));
+    }
+    if (name === "jarvis_say") {
+      const out = await post("/orchestrate/say", { text: args?.text });
+      return out?.ok
+        ? textResult("spoken")
+        : textResult(out?.error ?? "say failed", true);
     }
     return textResult(`unknown tool: ${name}`, true);
   } catch {

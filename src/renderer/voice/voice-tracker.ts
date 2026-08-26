@@ -52,32 +52,50 @@ export function configureModelEnv(env: ModelEnv): void {
 export async function startVoiceTracker(
   onUtterance: (c: VoiceChunk) => void,
   onSpeaking: (active: boolean) => void,
+  deviceId?: string,
 ): Promise<() => void> {
   if (!navigator.mediaDevices?.getUserMedia)
     throw new Error("No microphone available");
 
+  // echoCancellation matters here specifically: the app speaks through the
+  // same machine's speakers, and without it the mouth feeds the ears.
+  //
+  // noiseSuppression stays on too: it is tuned for a telephone call and
+  // spends some consonant detail on a quiet line, which costs less than
+  // the confident sentences whisper builds out of room noise.
+  //
+  // autoGainControl stays on because the segmenter gates on the raw
+  // signal — an unamplified microphone sits under RMS_ON, so a whole
+  // session captures nothing.
+  const baseAudio = {
+    channelCount: 1,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  } as const;
+
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      // echoCancellation matters here specifically: the app speaks through the
-      // same machine's speakers, and without it the mouth feeds the ears.
-      //
-      // noiseSuppression stays on too: it is tuned for a telephone call and
-      // spends some consonant detail on a quiet line, which costs less than
-      // the confident sentences whisper builds out of room noise.
-      //
-      // autoGainControl stays on because the segmenter gates on the raw
-      // signal — an unamplified microphone sits under RMS_ON, so a whole
-      // session captures nothing.
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
+      audio: deviceId
+        ? { ...baseAudio, deviceId: { exact: deviceId } }
+        : baseAudio,
     });
   } catch {
-    throw new Error("Microphone permission denied");
+    // no saved device to fall back from — this is a plain permission/hardware
+    // failure on whatever the OS calls default
+    if (!deviceId) throw new Error("Microphone permission denied");
+    try {
+      // a saved id that is no longer plugged in throws OverconstrainedError
+      // here, not a permission error — retry once on the OS default, so an
+      // unplugged device is unselectable rather than an error the user has
+      // to clear
+      stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio });
+    } catch {
+      // the specific device AND the OS default both failed to open — a
+      // genuine permission/hardware problem, not the chosen device being gone
+      throw new Error("Microphone unavailable");
+    }
   }
 
   // hoisted so the teardown paths below (both this function's failure catch

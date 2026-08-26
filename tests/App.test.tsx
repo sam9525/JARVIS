@@ -44,7 +44,12 @@ const walk = (n: any): any[] =>
 // App's body reads no window/document at render time (all IPC lives in the
 // mocked-out effects and callbacks), but provide a stub so nothing incidental
 // throws.
-(global as any).window = { jarvis: {} };
+(global as any).window = {
+  jarvis: {
+    ttsVoices: () => Promise.resolve([]),
+    ttsModels: () => Promise.resolve([]),
+  },
+};
 
 describe("App shell", () => {
   it("renders without throwing (guards callback declaration order)", async () => {

@@ -2,12 +2,7 @@
 // straight onto inline styles. Same split as ring-layout.ts: the maths is
 // testable without a browser, and the component stays a shell.
 
-import type {
-  LayoutId,
-  PanelId,
-  PanelMap,
-  PanelState,
-} from "../../shared/types";
+import type { PanelId, PanelMap, PanelState } from "../../shared/types";
 
 export const TITLE_BAR_H = 26;
 export const MIN_W = 240;
@@ -25,6 +20,12 @@ export const BEZEL_INSET = 10;
 export const TOP_INSET = 44;
 /** spec §3: panels occupy z 20-40, above the bezel (10) and overlay (15) */
 export const Z_BASE = 20;
+/**
+ * Settings is a tool window over the panels it configures, so it sits above
+ * the whole `raise` band rather than taking part in it. Read at render and at
+ * hit-test time, which is why a stored z can never demote it.
+ */
+export const SETTINGS_Z = Z_BASE + 10;
 
 export type Viewport = { width: number; height: number };
 
@@ -47,11 +48,7 @@ const WIDTH: Record<PanelId, number> = {
  * rail and the other two dock flush right. So the arrangement reads the same on
  * a laptop as on a 4K monitor instead of drifting toward one corner.
  */
-export function defaultPanel(
-  id: PanelId,
-  vp: Viewport,
-  layout: LayoutId = "workspace",
-): PanelState {
+export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
   const w = Math.round(vp.width * WIDTH[id]);
   return clampToViewport(
     {
@@ -63,9 +60,9 @@ export function defaultPanel(
       y: TOP_INSET,
       w,
       h: vp.height - TOP_INSET - BEZEL_INSET,
-      // home's terminal opens folded: the command center's own cards are what
-      // you came for, and the fold leaves the inbox strip
-      collapsed: id === "terminal" && layout === "home",
+      // the terminal opens folded in both layouts: the graph (or the command
+      // center's cards) is what you came for, and the fold leaves the strip
+      collapsed: id === "terminal",
       z: Z_BASE,
     },
     vp,

@@ -28,12 +28,18 @@ export interface PtyManagerEvents {
   onExit(workspaceId: string, exitCode: number): void;
 }
 
+/** The aliases `--model` accepts. An unlisted string passes no flag at all,
+ * so a renderer bug cannot place arbitrary text on the command line. */
+export const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
+
 // Windows can't spawn `claude` (a .cmd shim) without a shell.
-export function claudeCommand(dangerous = false): {
-  file: string;
-  args: string[];
-} {
+export function claudeCommand(
+  dangerous = false,
+  model?: string,
+): { file: string; args: string[] } {
   const flags = dangerous ? ["--dangerously-skip-permissions"] : [];
+  if (model && (CLAUDE_MODELS as readonly string[]).includes(model))
+    flags.push("--model", model);
   return process.platform === "win32"
     ? { file: "cmd.exe", args: ["/c", "claude", ...flags] }
     : { file: "claude", args: flags };
@@ -42,9 +48,15 @@ export function claudeCommand(dangerous = false): {
 export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
   const ptys = new Map<string, PtyLike>();
   return {
-    launch(ws: Workspace, cols: number, rows: number, dangerous = false): void {
+    launch(
+      ws: Workspace,
+      cols: number,
+      rows: number,
+      dangerous = false,
+      model?: string,
+    ): void {
       if (ptys.has(ws.id)) return; // one live session per workspace
-      const { file, args } = claudeCommand(dangerous);
+      const { file, args } = claudeCommand(dangerous, model);
       const p = spawnFn(file, args, {
         cwd: ws.rootPath,
         cols,

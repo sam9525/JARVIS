@@ -22,6 +22,7 @@ import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
 import Panel from "./ui/Panel";
 import {
+  SETTINGS_Z,
   defaultPanel,
   grabTarget,
   movePanel,
@@ -77,6 +78,15 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
   { value: "symbol", label: "Symbols" },
 ];
 
+const fold = (m: PanelMap): PanelMap =>
+  m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
+
+/** absent entries fall back to defaultPanel, which already folds the terminal */
+const withFoldedTerminal = (s: Settings): Settings => ({
+  ...s,
+  panels: { home: fold(s.panels.home), workspace: fold(s.panels.workspace) },
+});
+
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [active, setActive] = useState<Workspace | null>(null);
@@ -125,7 +135,7 @@ export default function App() {
   const panels: PanelMap = settings.panels[layoutId];
 
   const panelState = (id: PanelId): PanelState =>
-    panels[id] ?? defaultPanel(id, viewport, layoutId);
+    panels[id] ?? defaultPanel(id, viewport);
 
   // Debounced: a drag would otherwise rewrite jarvis-settings.json once per
   // frame. Renderer state updates immediately; only the disk write waits.
@@ -276,7 +286,9 @@ export default function App() {
     });
     window.jarvis
       .getSettings()
-      .then(setSettings)
+      // the terminal always opens folded, whatever it was left at — you land
+      // on the graph, and unfolding it is one click
+      .then((s) => setSettings(withFoldedTerminal(s)))
       .catch(console.error)
       .finally(() => setSettingsReady(true)); // defaults still render on failure
     offs.push(
@@ -364,6 +376,20 @@ export default function App() {
   const orchestrator =
     workspaces.find((w) => w.isSelf) ?? workspaces[0] ?? null;
 
+  // The rail, the cards and the ring are graph views, and the main agent has
+  // no graph. You reach its session from home, which already pins it.
+  const fleet = useMemo(
+    () => workspaces.filter((w) => !w.isSelf),
+    [workspaces],
+  );
+
+  // the header sits over Cards, Ring and Fleet, so it counts what they render:
+  // the main agent's row has no card, no tile and no pip to point at
+  const fleetStatuses = useMemo(
+    () => statuses.filter((s) => fleet.some((w) => w.id === s.workspaceId)),
+    [statuses, fleet],
+  );
+
   const hands = useHandControl({
     cameraOn,
     actionsRef: handActionsRef,
@@ -401,6 +427,7 @@ export default function App() {
   const [micOn, setMicOn] = useState(false);
   const voice = useVoiceControl({
     micOn,
+    micDeviceId: settings.micDeviceId,
     targetId: orchestrator?.id ?? null,
     onMicFailed: () => setMicOn(false),
   });
@@ -451,13 +478,31 @@ export default function App() {
     const say = nextUtterance(status, spokenRef.current, voice.capturing);
     if (!say) return;
     spokenRef.current = say;
-    speak(say);
+    void speak(say);
   }, [statuses, micOn, orchestrator, voice.capturing]);
   // A long message keeps reading after voice is switched off without this —
   // the mouth must go quiet on the same transition that closes the ear.
   useEffect(() => {
     if (!micOn) stopSpeaking();
   }, [micOn]);
+  // micOnRef, not a dep: onSay's listener is registered once ([] below) and
+  // must still read the current mic state on every call, not the state at
+  // subscription time.
+  const micOnRef = useRef(micOn);
+  micOnRef.current = micOn;
+  // jarvis_say speaks now, and writes the same text into spokenRef so the
+  // agent's identical turn-end message is skipped by nextUtterance's existing
+  // equality check — one thought is never said twice. spokenRef is written
+  // even while muted: the dedupe must still catch the turn-end echo once
+  // voice comes back on.
+  useEffect(
+    () =>
+      window.jarvis.onSay((text) => {
+        spokenRef.current = text.trim();
+        if (micOnRef.current) void speak(text);
+      }),
+    [],
+  );
 
   // Cards registers nothing, so a pulse there would claim hands drive
   // something on the one view where they don't (design §3)
@@ -484,7 +529,10 @@ export default function App() {
     const live: PanelMap = {};
     if (active) live.terminal = panelState("terminal");
     if (previewNode !== null && active) live.preview = panelState("preview");
-    if (showSettings) live.settings = panelState("settings");
+    // SETTINGS_Z here as well as at render, so a pinch hit-tests the stack the
+    // way it looks rather than the way it is stored
+    if (showSettings)
+      live.settings = { ...panelState("settings"), z: SETTINGS_Z };
     return live;
   }, [deckCleared, active, previewNode, showSettings, panels]);
 
@@ -599,17 +647,17 @@ export default function App() {
   const view = settings.views[settings.dimensions];
 
   const telemetry = showHome
-    ? `COMMAND CENTER · ${workspaces.length} WORKSPACES · ` +
-      `${statuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
-      `${statuses.filter((s) => s.kind === "running").length} RUNNING`
+    ? `COMMAND CENTER · ${fleet.length} WORKSPACES · ` +
+      `${fleetStatuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
+      `${fleetStatuses.filter((s) => s.kind === "running").length} RUNNING`
     : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
       `EDGES ${graph.edges.length} · ` +
       `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;
 
   const activeStatus = statuses.find((s) => s.workspaceId === active?.id);
   const footRight = showHome
-    ? `FLEET READS ${statuses.reduce((n, s) => n + s.reads, 0)} · ` +
-      `EDITS ${statuses.reduce((n, s) => n + s.edits, 0)}`
+    ? `FLEET READS ${fleetStatuses.reduce((n, s) => n + s.reads, 0)} · ` +
+      `EDITS ${fleetStatuses.reduce((n, s) => n + s.edits, 0)}`
     : `READS ${activeStatus?.reads ?? 0} · EDITS ${activeStatus?.edits ?? 0}`;
 
   const homeViewToggle = (
@@ -687,7 +735,7 @@ export default function App() {
                 />
               ) : homeView === "ring" ? (
                 <Ring
-                  workspaces={workspaces}
+                  workspaces={fleet}
                   statuses={statuses}
                   graphs={cardGraphs}
                   getStore={storeFor}
@@ -711,7 +759,7 @@ export default function App() {
                 />
               ) : (
                 <MissionControl
-                  workspaces={workspaces}
+                  workspaces={fleet}
                   statuses={statuses}
                   graphs={cardGraphs}
                   getStore={storeFor}
@@ -787,7 +835,7 @@ export default function App() {
           themselves; see the note below. */}
       <div className="pointer-events-none absolute top-0 left-0 z-20 h-full [&_button]:pointer-events-auto">
         <WorkspaceRail
-          workspaces={workspaces}
+          workspaces={fleet}
           activeId={active?.id ?? null}
           statuses={statuses}
           homeActive={showHome}
@@ -800,7 +848,7 @@ export default function App() {
         />
       </div>
       {showHome ? (
-        <HomeHeader statuses={statuses}>
+        <HomeHeader statuses={fleetStatuses}>
           {homeViewToggle}
           {graphButtons}
         </HomeHeader>
@@ -875,6 +923,7 @@ export default function App() {
           >
             <TerminalPanel
               workspace={ws}
+              live={statuses.some((s) => s.workspaceId === ws.id && s.live)}
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
             />
@@ -886,7 +935,7 @@ export default function App() {
         <Panel
           id="settings"
           title="GRAPH SETTINGS"
-          state={panelState("settings")}
+          state={{ ...panelState("settings"), z: SETTINGS_Z }}
           focused={focusedPanel === "settings"}
           hidden={deckCleared}
           onChange={(next) => setPanel("settings", next)}

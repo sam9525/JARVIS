@@ -71,6 +71,9 @@ beforeEach(() => {
     onGraph: () => () => undefined,
     onToolEvent: () => () => undefined,
     onStatus: () => () => undefined,
+    onSay: () => () => undefined,
+    ttsVoices: () => Promise.resolve([]),
+    ttsModels: () => Promise.resolve([]),
   };
   container = document.createElement("div");
   document.body.appendChild(container);

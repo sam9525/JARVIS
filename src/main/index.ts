@@ -28,10 +28,33 @@ import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
+import {
+  FINISH_NUDGE,
+  MAIN_AGENT_MODEL,
+  ensureMainAgent,
+  mainAgentWorkspace,
+  withMainAgent,
+} from "./main-agent";
 import { createStatusStore, STALE_MS } from "./workspace-status";
+import { createTts } from "./tts";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
+
+// Chromium blocks a page-initiated play() without user activation, and a
+// spoken status arrives from a hook event — no gesture anywhere. Without this
+// the cloud voice decodes fine and then silently loses to speechSynthesis.
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+
+// The ElevenLabs key lives in .env at the project root, main-side only, so it
+// never crosses the preload bridge. loadEnvFile throws when the file is absent;
+// a missing key just means the local voice.
+try {
+  process.loadEnvFile(path.join(app.getAppPath(), ".env"));
+} catch {
+  /* no .env */
+}
+const ttsKey = () => process.env.ELEVENLABS_API_KEY ?? "";
 
 async function resolveRootPath(): Promise<string> {
   if (process.env.VAULT_PATH) return process.env.VAULT_PATH;
@@ -60,14 +83,23 @@ app.whenReady().then(async () => {
     "jarvis-projects.json",
   );
   const extraPaths = await readProjects(projectsPath);
-  const workspaces = await loadWorkspaces(rootPath, extraPaths);
-  const vault = workspaces[0];
+  const loaded = await loadWorkspaces(rootPath, extraPaths);
+  const vault = loaded[0];
 
-  // ponytail: dev-only match — packaged getAppPath() is an asar path that no
-  // workspace can equal, so home falls back to the vault. Terminals are
-  // dev-only anyway.
-  const self = workspaces.find((w) => w.id === normalizeId(app.getAppPath()));
-  if (self) self.isSelf = true;
+  // The orchestrator is its own workspace in userData, not the JARVIS repo.
+  // isSelf living here is what moves .mcp.json, the home terminal pin and the
+  // spoken voice off the repo — and what makes the repo an ordinary delegate
+  // jarvis_send can target.
+  //
+  // It is dev-only, like the terminals and hooks it is built from: forward.mjs
+  // and mcp.mjs are resolved out of app.getAppPath(), which is an asar archive
+  // in a packaged build and holds neither file. Without the workspace there is
+  // no isSelf at all, so a packaged build pins home's terminal to the vault and
+  // speaks for nobody — the same inert shape it had before v0.4.2.
+  const mainAgent = app.isPackaged
+    ? null
+    : mainAgentWorkspace(path.join(app.getPath("userData"), "main-agent"));
+  const workspaces = mainAgent ? withMainAgent(loaded, mainAgent) : loaded;
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
@@ -188,8 +220,29 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
     settings = s;
-    await saveSettings(settingsPath, s);
+    await saveSettings(settingsPath, settings);
   });
+
+  const tts = createTts({ fetch: globalThis.fetch });
+  ipcMain.handle("tts-speak", async (_e, text: string) => {
+    const cfg = {
+      apiKey: ttsKey(),
+      voiceId: settings.ttsVoiceId ?? "",
+      modelId: settings.ttsModelId ?? "eleven_multilingual_v2",
+    };
+    const bytes = await tts.speak(cfg, String(text ?? ""));
+    // the renderer answers null by speaking through speechSynthesis, which
+    // sounds nothing like the chosen voice. Say which half was missing, or
+    // the fallback looks like the setting being ignored.
+    if (!bytes) {
+      console.warn(
+        `[tts] no audio — key:${cfg.apiKey ? "set" : "MISSING"} voice:${cfg.voiceId || "MISSING"} model:${cfg.modelId}`,
+      );
+    }
+    return bytes;
+  });
+  ipcMain.handle("tts-voices", () => tts.voices(ttsKey()));
+  ipcMain.handle("tts-models", () => tts.models(ttsKey()));
 
   Menu.setApplicationMenu(null); // kills File/Edit/View… and their accelerators
   // Sized off the display, not a fixed 1400x900: the panel defaults are all
@@ -253,11 +306,59 @@ app.whenReady().then(async () => {
     send("status", status.snapshot()),
   );
 
+  // What "a delegate finished" means here: an idle row whose message is new.
+  // Diffing the snapshot is the honest read — the sweep also demotes to idle,
+  // but it carries the same message, so it never fires this. Restoring the
+  // inbox is a display concern — a card reading "idle, last said X" after a
+  // restart — not a queuing one, so every row already on disk is seeded here
+  // as already-announced before any live pushStatus can run. Without this,
+  // the first pushStatus after boot — from any workspace, not necessarily
+  // the restored one — would scan the whole snapshot and hand a fresh
+  // orchestrator session a finish nobody asked it to watch for.
+  const announced = new Map<string, string>();
+  for (const row of status.snapshot()) {
+    const message = row.message?.trim() ?? "";
+    if (row.kind === "idle" && message) announced.set(row.workspaceId, message);
+  }
+
+  const orchestrator = createOrchestrator({
+    getWorkspaces: () => workspaces,
+    snapshot: () => status.snapshot(),
+    hasPty: (id) => ptyManager.has(id),
+    write: (id, data) => ptyManager.write(id, data),
+    // markDelegated is a status change like any other — push it to the rail
+    markDelegated: (id, by) =>
+      pushStatus(status.markDelegated(id, by, Date.now())),
+    // false when the window is gone; say() reports that rather than going
+    // silent, so the agent learns its summary was not heard
+    say: (text) => {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) return false;
+      win.webContents.send("tts-say", text);
+      return true;
+    },
+    // Same two-write shape as jarvis_send: Claude Code's TUI reads one
+    // arriving chunk as a paste, so a trailing CR would land as a newline in
+    // the composer instead of submitting. No main agent (packaged) or no
+    // session yet means write returns false and the finish just waits in the
+    // queue for whenever one starts.
+    nudgeMain: () => {
+      if (!mainAgent || !ptyManager.write(mainAgent.id, FINISH_NUDGE)) return;
+      setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+    },
+  });
+
   let savedInbox = "";
   const pushStatus = (changed: boolean) => {
     if (!changed) return;
     const snap = status.snapshot();
     send("status", snap);
+    for (const row of snap) {
+      const message = row.message?.trim() ?? "";
+      if (row.kind !== "idle" || !message) continue;
+      if (announced.get(row.workspaceId) === message) continue;
+      announced.set(row.workspaceId, message);
+      orchestrator.publishFinish(row.workspaceId, message);
+    }
     // only Stop carries a message, so this writes rarely despite the call site
     const json = JSON.stringify(snap.filter((s) => s.message));
     if (json === savedInbox) return;
@@ -303,16 +404,6 @@ app.whenReady().then(async () => {
     },
   );
 
-  const orchestrator = createOrchestrator({
-    getWorkspaces: () => workspaces,
-    snapshot: () => status.snapshot(),
-    hasPty: (id) => ptyManager.has(id),
-    write: (id, data) => ptyManager.write(id, data),
-    // markDelegated is a status change like any other — push it to the rail
-    markDelegated: (id, by) =>
-      pushStatus(status.markDelegated(id, by, Date.now())),
-  });
-
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
     (e) => {
@@ -334,13 +425,14 @@ app.whenReady().then(async () => {
       cols: number,
       rows: number,
       dangerous: boolean,
+      model: string | undefined,
     ) => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
       const mcpOk = await ensureMcp(ws, mcpPath);
       try {
-        ptyManager.launch(ws, cols, rows, dangerous);
+        ptyManager.launch(ws, cols, rows, dangerous, model);
         pushStatus(status.ptyLaunched(ws.id, Date.now()));
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
@@ -356,6 +448,27 @@ app.whenReady().then(async () => {
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
     ptyManager.resize(id, cols, rows),
   );
+
+  // The main agent owns the fleet watch and the voice, so it has to be running
+  // before any delegate can finish. It is the only session boot starts; project
+  // terminals still launch by hand.
+  if (mainAgent) {
+    try {
+      await ensureMainAgent(mainAgent.rootPath);
+      await ensureHooks(mainAgent.rootPath, forwardPath);
+      await ensureMcp(mainAgent, mcpPath);
+      // placeholder geometry — the terminal panel resizes the pty the moment
+      // it attaches, so this size never reaches the screen
+      ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
+      pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
+    } catch (err) {
+      // no claude on PATH, node-pty failed to load, or the folder could not be
+      // created. There is no terminal open yet to print into, so the console is
+      // the only place to say it.
+      console.error("[jarvis] main agent failed to launch:", err);
+    }
+  }
+
   app.on("before-quit", () => ptyManager.killAll());
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {

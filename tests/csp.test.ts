@@ -33,4 +33,14 @@ describe("index.html Content-Security-Policy", () => {
     const csp = match ? match[1] : "";
     expect(csp).toMatch(/script-src 'self' 'wasm-unsafe-eval'(;|$)/);
   });
+
+  // v0.4.1: cloud TTS bytes are handed to the renderer over IPC and played from
+  // a blob: URL. media-src is the only opening — connect-src stays shut, because
+  // the ElevenLabs request runs in main.
+  it("allows blob: media and nothing else new", () => {
+    const csp = match ? match[1] : "";
+    expect(csp).toContain("media-src 'self' blob:");
+    expect(csp).not.toContain("elevenlabs");
+    expect(csp).toMatch(/connect-src 'self' ws:\/\/localhost:\*/);
+  });
 });
