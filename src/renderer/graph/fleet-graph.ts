@@ -10,6 +10,25 @@ import { graphMetrics } from "./graph-metrics";
 export const FLEET_ROOT = "root::jarvis";
 export const FLEET_ROOT_DOMAIN = "JARVIS";
 
+/** One group per workspace that has a stored main colour, so each cluster wears
+ * the first hue that project's own groups drew. Every fleet id holds its
+ * workspace id — `<wsId>::note` for a member, `hub::<wsId>` for the hub — so
+ * the bare id matches both. Longest query first: one workspace id can be a
+ * prefix of another, and `groupOf` takes the first match it finds.
+ *
+ * Colour goes through groups rather than the domain spread because these are
+ * arbitrary stored colours, not an nth-of-n position. Both views read `groups`
+ * for colour only and take halos from a separate prop, so this adds no halo. */
+export function clusterGroups(
+  workspaces: Workspace[],
+  mainColors: Record<string, string> = {},
+): { query: string; color: string }[] {
+  return workspaces
+    .filter((ws) => mainColors[ws.id])
+    .map((ws) => ({ query: ws.id, color: mainColors[ws.id] }))
+    .sort((a, b) => b.query.length - a.query.length);
+}
+
 /** The domain list every fleet colour is drawn from: one entry per workspace
  * name, plus the root. Derived from the workspace list rather than from the
  * built graph, because a workspace whose graph has not loaded yet contributes

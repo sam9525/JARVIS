@@ -5,10 +5,14 @@ import {
   hueToHex,
   MIN_APART,
   nextHue,
+  pickHue,
+  pickHues,
+  RECENT_PICKS,
+  hueOfWorkspace,
   RESERVED,
-  respaceGroups,
   workspaceHue,
 } from "../../src/renderer/graph/workspace-color";
+import { fleetDomains } from "../../src/renderer/graph/fleet-graph";
 
 // shortest way around the wheel: hues 350 and 10 are 20 apart, not 340
 const apart = (a: number, b: number) => {
@@ -136,52 +140,87 @@ describe("nextHue", () => {
   });
 });
 
-describe("respaceGroups", () => {
-  const grp = (query: string, color: string) => ({ query, color });
-
-  it("leaves groups alone when every colour is already far enough apart", () => {
-    const ok = [
-      grp("a/", hueToHex(0)),
-      grp("b/", hueToHex(120)),
-      grp("c/", hueToHex(240)),
-    ];
-    expect(respaceGroups(ok, 0)).toBeNull();
+describe("pickHue", () => {
+  it("varies — it is a draw, not a formula", () => {
+    const seen = new Set(Array.from({ length: 30 }, () => pickHue([])));
+    expect(seen.size).toBeGreaterThan(5);
   });
 
-  it("re-spaces the red / dark-pink / orange case", () => {
-    const clashing = [
-      grp("a/", "#e06c75"), // red
-      grp("b/", "#ff8fab"), // dark pink
-      grp("c/", "#d19a66"), // orange
-    ];
-    const fixed = respaceGroups(clashing, 0);
-    expect(fixed).not.toBeNull();
-    const hues = (fixed as typeof clashing).map(
-      (g) => hexToHue(g.color) as number,
+  it("clears every one of the last ten picks by MIN_APART", () => {
+    const recent = [0, 60, 120, 240, 300];
+    for (let i = 0; i < 50; i++) {
+      const h = pickHue(recent);
+      for (const r of recent)
+        expect(apart(h, r)).toBeGreaterThanOrEqual(MIN_APART);
+    }
+  });
+
+  it("forgets a pick once ten newer ones have gone by", () => {
+    // 90 is the oldest of eleven, so it drops out of the window and a draw
+    // may legally land on it again
+    const log = [90, ...Array.from({ length: 10 }, (_, i) => i * 30 + 5)];
+    const banned = log.slice(-RECENT_PICKS);
+    expect(banned).not.toContain(90);
+  });
+
+  it("still answers when the ban list covers the whole wheel", () => {
+    const wall = Array.from({ length: 12 }, (_, i) => i * 30);
+    const h = pickHue(wall);
+    expect(Number.isFinite(h)).toBe(true);
+    for (const [lo, hi] of RESERVED) expect(h >= lo && h <= hi).toBe(false);
+  });
+
+  it("never lands in a hue band the highlight layer owns", () => {
+    for (let i = 0; i < 100; i++) {
+      const h = pickHue([]);
+      for (const [lo, hi] of RESERVED) expect(h >= lo && h <= hi).toBe(false);
+    }
+  });
+});
+
+describe("pickHues", () => {
+  it("keeps its own draws apart, not just apart from the log", () => {
+    for (let run = 0; run < 20; run++) allApart(pickHues(6), MIN_APART - 1);
+  });
+
+  it("continues an existing log", () => {
+    const recent = [10, 70, 130];
+    const out = pickHues(3, recent);
+    for (const h of out)
+      for (const r of recent)
+        expect(apart(h, r)).toBeGreaterThanOrEqual(MIN_APART);
+  });
+
+  it("returns nothing for a count of zero", () => {
+    expect(pickHues(0)).toEqual([]);
+  });
+});
+
+describe("hueOfWorkspace", () => {
+  const ws = (id: string, name: string) => ({
+    id,
+    name,
+    rootPath: id,
+    kind: "vault" as const,
+    sourceId: "vault",
+  });
+  const fleet = [ws("d:/a", "alpha"), ws("d:/b", "beta")];
+
+  it("uses the stored main colour — the first hue that project drew", () => {
+    expect(hueOfWorkspace(fleet[0], fleet, { "d:/a": hueToHex(207) })).toBe(
+      207,
     );
-    for (let i = 0; i < hues.length; i++)
-      for (let j = i + 1; j < hues.length; j++) {
-        const d = Math.abs(hues[i] - hues[j]) % 360;
-        expect(d > 180 ? 360 - d : d).toBeGreaterThanOrEqual(MIN_APART);
-      }
   });
 
-  it("keeps every query, changing only colours", () => {
-    const clashing = [grp("notes/", "#e06c75"), grp("refs/", "#e0757c")];
-    const fixed = respaceGroups(clashing, 0) as typeof clashing;
-    expect(fixed.map((g) => g.query)).toEqual(["notes/", "refs/"]);
+  it("falls back to the spread for a workspace that has not seeded yet", () => {
+    expect(hueOfWorkspace(fleet[1], fleet, {})).toBe(
+      workspaceHue("beta", fleetDomains(fleet)),
+    );
   });
 
-  it("is idempotent — a second pass writes nothing", () => {
-    const once = respaceGroups(
-      [grp("a/", "#e06c75"), grp("b/", "#e0757c")],
-      0,
-    ) as { query: string; color: string }[];
-    expect(respaceGroups(once, 0)).toBeNull();
-  });
-
-  it("ignores a single group and a cleared list", () => {
-    expect(respaceGroups([grp("a/", "#e06c75")], 0)).toBeNull();
-    expect(respaceGroups([], 0)).toBeNull();
+  it("ignores a stored colour that has no hue, rather than drawing grey", () => {
+    expect(hueOfWorkspace(fleet[0], fleet, { "d:/a": "#808080" })).toBe(
+      workspaceHue("alpha", fleetDomains(fleet)),
+    );
   });
 });

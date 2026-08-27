@@ -71,6 +71,25 @@ describe("settings", () => {
     expect(await loadSettings(file)).toEqual(s);
   });
 
+  // both stay absent when the file has none: the renderer reads "no entry" as
+  // "never drawn" and draws one, where a {} or an [] would read as a real value
+  it("round-trips the drawn palette, dropping entries it cannot use", async () => {
+    const file = await writeSettings({
+      mainColors: { "d:/a": "#112233", "d:/b": "nonsense", "d:/c": 7 },
+      recentHues: [12, "purple", 200, null],
+    });
+    const loaded = await loadSettings(file);
+    expect(loaded.mainColors).toEqual({ "d:/a": "#112233" });
+    expect(loaded.recentHues).toEqual([12, 200]);
+  });
+
+  it("leaves the palette absent when the file has none", async () => {
+    const file = await writeSettings({ showTags: false });
+    const loaded = await loadSettings(file);
+    expect(loaded.mainColors).toBeUndefined();
+    expect(loaded.recentHues).toBeUndefined();
+  });
+
   it("returns defaults when the file is missing", async () => {
     const file = await tmpFile(); // never written
     expect(await loadSettings(file)).toEqual(defaultSettings());

@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   buildFleetGraph,
+  clusterGroups,
   fleetDomains,
   FLEET_ROOT,
 } from "../../src/renderer/graph/fleet-graph";
-import { colorFor } from "../../src/renderer/graph/domain-colors";
+import { colorFor, groupColor } from "../../src/renderer/graph/domain-colors";
 import {
   hueOfWorkspace,
   hueToHex,
@@ -119,13 +120,14 @@ describe("fleetDomains", () => {
     expect(fleetDomains(all)).toEqual(["AeroGraph", "JARVIS", "Pokemon"]);
   });
 
-  it("gives a project the same colour in Fleet as in its own graph", () => {
+  it("gives an unseeded project the same colour in Fleet as in its own graph", () => {
     const all = [ws("a", "AeroGraph"), ws("b", "Pokemon"), ws("c", "Obsidian")];
     for (const w of all) {
       // what Fleet paints the cluster: node.domain is the workspace name,
       // resolved against the fleet domain list at base hue 0
       const inFleet = colorFor(w.name, fleetDomains(all));
-      // what the workspace's own graph starts its spread from
+      // what the workspace's own graph starts its spread from, before any
+      // colour has been drawn for it
       const atHome = hueToHex(hueOfWorkspace(w, all));
       expect(inFleet).toBe(atHome);
     }
@@ -136,5 +138,38 @@ describe("fleetDomains", () => {
     expect(colorFor("AeroGraph", fleetDomains(all))).not.toBe(
       colorFor("Pokemon", fleetDomains(all)),
     );
+  });
+});
+
+describe("clusterGroups", () => {
+  const ws = (id: string, name: string) => ({
+    id,
+    name,
+    rootPath: id,
+    kind: "vault" as const,
+    sourceId: "vault",
+  });
+
+  it("paints a cluster with its project's stored main colour", () => {
+    const all = [ws("d:/a", "Alpha"), ws("d:/b", "Beta")];
+    const groups = clusterGroups(all, { "d:/a": "#112233", "d:/b": "#445566" });
+    expect(groupColor("d:/a::notes/one", groups)).toBe("#112233");
+    expect(groupColor("hub::d:/b", groups)).toBe("#445566"); // the hub too
+  });
+
+  it("skips a project that has drawn no colour yet", () => {
+    const all = [ws("d:/a", "Alpha"), ws("d:/b", "Beta")];
+    const groups = clusterGroups(all, { "d:/a": "#112233" });
+    expect(groups).toHaveLength(1);
+    expect(groupColor("d:/b::notes/one", groups)).toBeUndefined();
+  });
+
+  it("matches the longer id when one project id prefixes another", () => {
+    const all = [ws("d:/a", "A"), ws("d:/ab", "AB")];
+    const groups = clusterGroups(all, {
+      "d:/a": "#111111",
+      "d:/ab": "#222222",
+    });
+    expect(groupColor("d:/ab::notes/one", groups)).toBe("#222222");
   });
 });

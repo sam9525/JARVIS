@@ -27,6 +27,19 @@ export async function loadSettings(file: string): Promise<Settings> {
     ) {
       s.sectionFilter = p.sectionFilter;
     }
+    // absent stays absent for both: the renderer treats "no entry" as "never
+    // drawn" and draws one, where a 0 or an [] would read as a real value
+    const main = asRecord(p.mainColors);
+    for (const [id, hex] of Object.entries(main)) {
+      if (typeof hex === "string" && /^#[0-9a-f]{6}$/i.test(hex))
+        (s.mainColors ??= {})[id] = hex;
+    }
+    if (Array.isArray(p.recentHues)) {
+      const hues = p.recentHues.filter(
+        (h): h is number => typeof h === "number" && Number.isFinite(h),
+      );
+      if (hues.length > 0) s.recentHues = hues;
+    }
     if (typeof p.showTags === "boolean") s.showTags = p.showTags;
     if (typeof p.showOrphans === "boolean") s.showOrphans = p.showOrphans;
     if (typeof p.handControl === "boolean") s.handControl = p.handControl;

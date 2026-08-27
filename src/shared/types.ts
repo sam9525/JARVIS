@@ -171,6 +171,20 @@ export interface Settings {
    * is exactly a no-op. Absent on a settings file written before this existed.
    */
   panelViewport?: { width: number; height: number };
+  /**
+   * A workspace's main colour, keyed by workspace id: the first hue its groups
+   * ever drew. Fleet paints the project's whole cluster with it, so it has to
+   * outlive the session that drew it or a project would change colour in Fleet
+   * on every launch. Absent until that workspace has seeded its groups.
+   */
+  mainColors?: Record<string, string>;
+  /**
+   * The tail of the colour-pick log, newest last, in degrees. A new hue has to
+   * clear the last `RECENT_PICKS` of these, so no two colours drawn close
+   * together are near-matches. Persisted because the ban list is the only thing
+   * standing between a restart and drawing the green you just used.
+   */
+  recentHues?: number[];
 }
 
 // a workspace's groups, or NO_GROUPS if it has never been seeded — a fresh []

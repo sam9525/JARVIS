@@ -35,6 +35,7 @@ const HAND_DEG_PER_UNIT = 300;
 
 type RingProps = {
   workspaces: Workspace[];
+  mainColors?: Record<string, string>; // workspace id → its main colour
   statuses: WorkspaceStatus[];
   graphs: Map<string, VaultGraph>; // the cardGraphs cache; absent = loading
   getStore: (workspaceId: string) => HighlightState;
@@ -58,6 +59,7 @@ type RingProps = {
 // simulations is precisely what makes the card grid expensive.
 export default function Ring({
   workspaces,
+  mainColors,
   statuses,
   graphs,
   getStore,
@@ -260,7 +262,7 @@ export default function Ring({
         key={settledWs.id}
         graph={g}
         domains={domains}
-        baseHue={hueOfWorkspace(settledWs, workspaces)}
+        baseHue={hueOfWorkspace(settledWs, workspaces, mainColors)}
         groups={groups[settledWs.id] ?? NO_GROUPS}
         display={view.display}
         forces={view.forces}

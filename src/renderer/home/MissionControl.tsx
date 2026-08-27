@@ -40,6 +40,7 @@ const TEXT: Record<StatusKind, string> = {
 
 type MissionControlProps = {
   workspaces: Workspace[];
+  mainColors?: Record<string, string>; // workspace id → its main colour
   statuses: WorkspaceStatus[];
   graphs: Map<string, VaultGraph>; // only the workspaces loaded so far
   getStore: (workspaceId: string) => HighlightState;
@@ -57,6 +58,7 @@ type MissionControlProps = {
 // ready-made from main, and no card computes state of its own.
 export default function MissionControl({
   workspaces,
+  mainColors,
   statuses,
   graphs,
   getStore,
@@ -162,7 +164,7 @@ export default function MissionControl({
                 <MiniGraph
                   graph={g ?? null}
                   kind={ws.kind}
-                  baseHue={hueOfWorkspace(ws, workspaces)}
+                  baseHue={hueOfWorkspace(ws, workspaces, mainColors)}
                   state={getStore(ws.id)}
                   groups={groups[ws.id] ?? []}
                   view={view}

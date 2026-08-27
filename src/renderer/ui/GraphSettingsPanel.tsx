@@ -9,7 +9,7 @@ import type {
   ViewSettings,
 } from "../../shared/types";
 import type { TtsOption } from "../../main/tts";
-import { hueToHex, nextHue } from "../graph/workspace-color";
+import { RECENT_PICKS, hueToHex, pickHue } from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
 
@@ -70,7 +70,6 @@ type Props = {
   // same reasoning as onHandControl: voice control also starts/stops this
   // session's microphone, so it goes through App rather than onSettingsChange
   onVoiceControl: (on: boolean) => void;
-  baseHue: number; // the open workspace identity hue a new group starts from
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
 };
@@ -78,7 +77,6 @@ type Props = {
 export default function GraphSettingsPanel({
   settings,
   activeId,
-  baseHue,
   search,
   onSearchChange,
   onSettingsChange,
@@ -155,6 +153,10 @@ export default function GraphSettingsPanel({
               ...defaultSettings(),
               dimensions: settings.dimensions,
               groups: settings.groups,
+              // the palette is identity, not tuning: a reset that repainted
+              // every project would undo the one thing colours are for
+              mainColors: settings.mainColors,
+              recentHues: settings.recentHues,
               handControl: settings.handControl,
               voiceControl: settings.voiceControl,
               // both halves of the panel geometry, or the next resize rescales
@@ -247,20 +249,21 @@ export default function GraphSettingsPanel({
         ))}
         <button
           className="mt-1.5 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
-          onClick={() =>
-            setGroups([
-              ...groups,
-              {
-                query: "",
-                color: hueToHex(
-                  nextHue(
-                    groups.map((g) => g.color),
-                    baseHue,
-                  ),
-                ),
+          onClick={() => {
+            if (!activeId) return;
+            // Drawn against the shared pick log, not this workspace's own
+            // colours: the log is what stops a hand-added group repeating a
+            // green that another project drew a moment ago.
+            const recent = settings.recentHues ?? [];
+            const hue = pickHue(recent);
+            set({
+              groups: {
+                ...settings.groups,
+                [activeId]: [...groups, { query: "", color: hueToHex(hue) }],
               },
-            ])
-          }
+              recentHues: [...recent, hue].slice(-RECENT_PICKS),
+            });
+          }}
         >
           New group
         </button>

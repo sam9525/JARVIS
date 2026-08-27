@@ -1,14 +1,19 @@
-import type { GraphGroup, Workspace } from "../../shared/types";
+import type { Workspace } from "../../shared/types";
 import { fleetDomains } from "./fleet-graph";
 
-// Hue assignment, generated rather than listed. The fixed PALETTE this
-// replaces was indexed by a *local* domain list, so every workspace restarted
-// at entry 0 and two unrelated projects drew the same green.
+// Hue assignment, drawn rather than listed. Two schemes live here and they
+// answer different questions.
 //
-// Hues are spaced evenly over the count they are drawn from, which is the
-// widest any n hues can be spread. Golden angle was the other candidate and
-// packs two of its first eight within 20 degrees — the same "which green is
-// this" problem, one level down.
+// pickHue draws at random against a log of the last RECENT_PICKS hues. It is
+// what groups and workspaces actually get, and the randomness is the point:
+// every deterministic scheme this replaces — a fixed PALETTE, then an evenly
+// spaced spread — made the palette a pure function of the names, so a project
+// drew the same colour on every machine and deleting the settings file handed
+// the identical colours straight back.
+//
+// hueFrom spaces n hues evenly, which is the widest any n can be spread. It
+// survives as the fallback for anything not yet drawn, and as the floor under
+// pickHue when the ban list leaves no room to draw.
 
 /** Hue bands the highlight layer owns: cyan for the read ring, hover and
  * accent (#67e8f9 / #22d3ee / #7ef9ff), amber for `modified` (#f59e0b). A
@@ -17,6 +22,15 @@ export const RESERVED: readonly (readonly [number, number])[] = [
   [172, 202],
   [10, 40],
 ];
+
+/** Below this many degrees apart, two group colours stop being tellable apart
+ * on a graph — red at 0 and orange at 25 is the pair that prompted this. */
+export const MIN_APART = 25;
+
+const wheelGap = (a: number, b: number) => {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+};
 
 const SAT = 65;
 const LIGHT = 66;
@@ -41,20 +55,32 @@ export function hueFrom(baseHue: number, index: number, count: number): number {
   return avoidReserved(wrap(baseHue + index * step));
 }
 
-/** A workspace's identity hue. Keyed by *name* against the fleet domain list,
- * because that is what Fleet colours its clusters by — index into anything
- * else and a project draws one colour at home and another in Fleet. */
+/** A workspace's identity hue when nothing has been picked for it yet. Keyed by
+ * *name* against the fleet domain list, because that is what Fleet colours its
+ * clusters by — index into anything else and a project draws one colour at home
+ * and another in Fleet. Deterministic, so two machines agree before either has
+ * seeded anything. */
 export function workspaceHue(name: string, allNames: string[]): number {
   const sorted = [...allNames].sort();
   const i = sorted.indexOf(name);
   return hueFrom(0, i === -1 ? 0 : i, sorted.length);
 }
 
-/** The identity hue of one workspace among the fleet. The single entry point
- * for views — it pairs the name with the right list so no caller has to
- * remember that the fleet root holds a slot of its own. */
-export function hueOfWorkspace(ws: Workspace, fleet: Workspace[]): number {
-  return workspaceHue(ws.name, fleetDomains(fleet));
+/** The identity hue of one workspace among the fleet: the first hue its groups
+ * ever drew, which `Settings.mainColors` holds. The single entry point for
+ * views — Fleet paints a project's whole cluster with it, so it has to be the
+ * same number the project's own graph leads with.
+ *
+ * The deterministic spread is the fallback, not the rule: it covers a workspace
+ * whose graph has not loaded yet, which would otherwise flash grey and then
+ * jump colour the moment its folders seeded. */
+export function hueOfWorkspace(
+  ws: Workspace,
+  fleet: Workspace[],
+  mainColors: Record<string, string> = {},
+): number {
+  const picked = hexToHue(mainColors[ws.id] ?? "");
+  return picked ?? workspaceHue(ws.name, fleetDomains(fleet));
 }
 
 /** #rrggbb, not `hsl()`: graph-colors' `brighten` only matches six hex digits
@@ -101,11 +127,47 @@ export function hexToHue(hex: string): number | null {
   return wrap(h * 60);
 }
 
+/** How many recent picks a new hue has to clear. Ten is the window the whole
+ * scheme rests on: the wheel only holds about `360 / MIN_APART` ≈ 14 tellable
+ * hues, so banning the last ten leaves a real choice while making a repeat of
+ * a colour you just saw impossible. */
+export const RECENT_PICKS = 10;
+
+/** A random hue that is no near-match of anything in `recent`, and outside the
+ * reserved bands. `recent` is the tail of the pick log, newest last; only the
+ * last RECENT_PICKS entries are honoured, so a colour becomes available again
+ * once ten other picks have gone by.
+ *
+ * Rejection sampling, then `nextHue` as the floor. Ten banned hues can cover
+ * the whole wheel (10 × 2 × MIN_APART = 500° > 360°), so "keep drawing until
+ * one clears" is not guaranteed to terminate — the widest-gap pick always
+ * returns something, and returns the least-bad something. */
+export function pickHue(recent: number[], tries = 60): number {
+  const ban = recent.slice(-RECENT_PICKS);
+  for (let i = 0; i < tries; i++) {
+    const h = avoidReserved(wrap(Math.random() * 360));
+    if (ban.every((b) => wheelGap(h, b) >= MIN_APART)) return h;
+  }
+  return nextHue(ban.map((h) => hueToHex(h)));
+}
+
+/** `count` hues drawn in sequence, each one clearing the ten before it —
+ * including the ones drawn inside this same call, so seeding a workspace's
+ * folders in one go cannot hand two of them the same green. */
+export function pickHues(count: number, recent: number[] = []): number[] {
+  const log = [...recent];
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const h = pickHue(log);
+    out.push(h);
+    log.push(h);
+  }
+  return out;
+}
+
 /** The hue furthest from every colour already in use: the middle of the widest
- * gap on the wheel. What the "+ group" button picks, so a hand-added group
- * cannot come out a near-match of one already there — which is exactly how
- * the randomColor() this replaces produced red, dark pink and orange in one
- * vault. Falls back to the workspace hue when nothing is in use yet. */
+ * gap on the wheel. The floor under `pickHue` — where every random draw is
+ * blocked, this still answers, and answers with the roomiest hue left. */
 export function nextHue(used: string[], fallback = 0): number {
   const hues = used
     .map(hexToHue)
@@ -123,40 +185,4 @@ export function nextHue(used: string[], fallback = 0): number {
     }
   }
   return avoidReserved(best);
-}
-
-/** Below this many degrees apart, two group colours stop being tellable apart
- * on a graph — red at 0 and orange at 25 is the pair that prompted this. */
-export const MIN_APART = 25;
-
-const wheelGap = (a: number, b: number) => {
-  const d = Math.abs(a - b) % 360;
-  return d > 180 ? 360 - d : d;
-};
-
-function anyTooClose(groups: GraphGroup[]): boolean {
-  const hues = groups
-    .map((g) => hexToHue(g.color))
-    .filter((h): h is number => h !== null);
-  for (let i = 0; i < hues.length; i++)
-    for (let j = i + 1; j < hues.length; j++)
-      if (wheelGap(hues[i], hues[j]) < MIN_APART) return true;
-  return false;
-}
-
-/** Re-spaces the colours of groups saved before hues were generated, when two
- * of them sit too close to tell apart. Queries are untouched — only colours
- * move. Returns null when there is nothing to fix or the fix would change
- * nothing, which is what stops the caller writing settings in a loop: a second
- * pass over an already-spaced list recomputes the same colours and backs off. */
-export function respaceGroups(
-  groups: GraphGroup[],
-  baseHue: number,
-): GraphGroup[] | null {
-  if (groups.length < 2 || !anyTooClose(groups)) return null;
-  const next = groups.map((g, i) => ({
-    ...g,
-    color: hueToHex(hueFrom(baseHue, i, groups.length)),
-  }));
-  return next.some((g, i) => g.color !== groups[i].color) ? next : null;
 }

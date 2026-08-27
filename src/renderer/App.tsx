@@ -47,10 +47,10 @@ import { useWorkspaceGraphs } from "./graph/use-workspace-graphs";
 import { domainsOf } from "./graph/domain-colors";
 import { defaultSettings, groupsFor } from "../shared/types";
 import {
-  hueFrom,
+  RECENT_PICKS,
   hueOfWorkspace,
   hueToHex,
-  respaceGroups,
+  pickHues,
 } from "./graph/workspace-color";
 import { createPreviewOpener } from "./preview/preview-opener";
 import type {
@@ -61,6 +61,7 @@ import type {
   PanelState,
   Settings,
   ToolEvent,
+  VaultGraph,
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
@@ -86,6 +87,11 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
   { value: "file", label: "Files" },
   { value: "symbol", label: "Symbols" },
 ];
+
+// A folder smaller than this seeds no stored group. Its nodes still draw a
+// colour — the domain spread off the workspace's main hue — but a halo and a
+// settings entry for four notes is clutter, not information.
+const MIN_GROUP_NODES = 5;
 
 const fold = (m: PanelMap): PanelMap =>
   m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
@@ -613,51 +619,68 @@ export default function App() {
   // the open workspace's identity hue — the same one Fleet paints its cluster
   // with, so a project looks like itself in both places
   const activeHue = useMemo(
-    () => (active ? hueOfWorkspace(active, fleet) : 0),
-    [active, fleet],
+    () => (active ? hueOfWorkspace(active, fleet, settings.mainColors) : 0),
+    [active, fleet, settings.mainColors],
   );
 
-  // Seed a workspace's groups once, from its own top-level folders, the first
-  // time we have its graph — so every project (not just the vault) gets group
-  // halos. `id in groups` marks it seeded, so later deletions are respected.
+  // Seed a workspace's groups once, from its own top-level folders, as soon as
+  // its graph exists — off `cardGraphs`, which fills for the whole fleet at
+  // boot, not off the open workspace. Keying this on `active` meant a project
+  // drew no colour until you opened it, so the cards and the fleet showed the
+  // unseeded fallback and the palette appeared to change when you came back.
+  //
+  // `id in groups` marks a workspace seeded, so later deletions are respected.
+  // A workspace with no folders is skipped rather than marked: its graph may
+  // still be loading, and marking it would freeze it empty. That leaves it in
+  // `pending` forever, which is why the write is guarded on a real change —
+  // without that guard this effect would write settings, wake on its own
+  // write, and loop.
   useEffect(() => {
-    if (!settingsReady || !active || active.id in settings.groups) return;
-    // spaced evenly from the workspace's own hue, so the first folder wears
-    // the project colour and no two folders come out near-matches — the
-    // randomColor() this replaces put red, dark pink and orange in one vault
-    const hue = hueOfWorkspace(active, fleet);
-    const seed = domains.map((d, i) => ({
-      query: `${d}/`,
-      color: hueToHex(hueFrom(hue, i, domains.length)),
-    }));
-    if (seed.length === 0) return; // no graph yet, or no folders to group by
-    updateSettings({
-      ...settings,
-      groups: { ...settings.groups, [active.id]: seed },
-    });
-  }, [settingsReady, active, fleet, domains, settings]);
+    if (!settingsReady) return;
+    const pending = fleet
+      .filter((ws) => !(ws.id in settings.groups))
+      .map((ws) => [ws, cardGraphs.get(ws.id)] as const)
+      .filter((pair): pair is [Workspace, VaultGraph] => pair[1] !== undefined);
+    if (pending.length === 0) return;
 
-  // One pass over groups seeded before hues were generated: those took
-  // randomColor(), so a vault could hold red, dark pink and orange at once.
-  // Every workspace at once rather than on open, or a card would keep drawing
-  // the old colours until you visited it. The ref bounds it to one pass per
-  // session — respaceGroups is idempotent, but a settings write re-runs this.
-  const respacedRef = useRef(false);
-  useEffect(() => {
-    if (!settingsReady || respacedRef.current || fleet.length === 0) return;
-    respacedRef.current = true;
     const groups = { ...settings.groups };
+    const mainColors = { ...settings.mainColors };
+    let log = [...(settings.recentHues ?? [])];
     let changed = false;
-    for (const ws of fleet) {
-      const saved = groups[ws.id];
-      if (!saved) continue; // unseeded, or cleared on purpose — leave it
-      const next = respaceGroups(saved, hueOfWorkspace(ws, fleet));
-      if (!next) continue;
-      groups[ws.id] = next;
+
+    for (const [ws, g] of pending) {
+      const folders = domainsOf(g);
+      if (folders.length === 0) continue;
+      // One random hue per folder, each clearing the last RECENT_PICKS. The
+      // log threads through the whole loop, so two projects seeded in the same
+      // pass cannot come out the same green either.
+      const hues = pickHues(folders.length, log);
+      // A folder of a handful of notes does not earn a stored halo. It is left
+      // out of settings, and its nodes fall through to the domain spread off
+      // this workspace's main colour — a colour, never the pre-domain grey.
+      const counts = new Map<string, number>();
+      for (const n of g.nodes)
+        if (n.domain) counts.set(n.domain, (counts.get(n.domain) ?? 0) + 1);
+      groups[ws.id] = folders
+        .map((d, i) => ({ query: `${d}/`, color: hueToHex(hues[i]) }))
+        .filter((_, i) => (counts.get(folders[i]) ?? 0) > MIN_GROUP_NODES);
+      // The biggest folder's colour is the project's identity, in Fleet and at
+      // home — not the first hue drawn. Fleet paints a whole cluster with this,
+      // and the colour a cluster reads as should be the one most of its nodes
+      // already wear. Ties go to the first folder, which is alphabetical.
+      const biggest = folders.reduce(
+        (best, d, i) =>
+          (counts.get(d) ?? 0) > (counts.get(folders[best]) ?? 0) ? i : best,
+        0,
+      );
+      mainColors[ws.id] = hueToHex(hues[biggest]);
+      log = [...log, ...hues].slice(-RECENT_PICKS);
       changed = true;
     }
-    if (changed) updateSettings({ ...settings, groups });
-  }, [settingsReady, fleet, settings]);
+
+    if (changed)
+      updateSettings({ ...settings, groups, mainColors, recentHues: log });
+  }, [settingsReady, fleet, cardGraphs, settings]);
 
   const resolveLink = useMemo(
     () =>
@@ -766,6 +789,7 @@ export default function App() {
               {homeView === "fleet" ? (
                 <FleetGraph
                   workspaces={workspaces}
+                  mainColors={settings.mainColors}
                   graphs={cardGraphs}
                   view={view}
                   dimensions={settings.dimensions}
@@ -781,6 +805,7 @@ export default function App() {
               ) : homeView === "ring" ? (
                 <Ring
                   workspaces={fleet}
+                  mainColors={settings.mainColors}
                   statuses={statuses}
                   graphs={cardGraphs}
                   getStore={storeFor}
@@ -805,6 +830,7 @@ export default function App() {
               ) : (
                 <MissionControl
                   workspaces={fleet}
+                  mainColors={settings.mainColors}
                   statuses={statuses}
                   graphs={cardGraphs}
                   getStore={storeFor}
@@ -998,7 +1024,6 @@ export default function App() {
           <GraphSettingsPanel
             settings={settings}
             activeId={active?.id ?? null}
-            baseHue={activeHue}
             search={search}
             onSearchChange={setSearch}
             onSettingsChange={updateSettings}
