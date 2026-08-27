@@ -72,6 +72,12 @@ const ORCHESTRATOR: Workspace = {
   isSelf: true,
 };
 
+// App renders the voice wave onto a canvas, and jsdom has no 2D backend —
+// without this, every render logs "Not implemented: getContext". VoiceWave
+// already treats a null context as "no wave to draw"; tests/voice/VoiceWave
+// is where the drawing itself is checked.
+(HTMLCanvasElement.prototype as any).getContext = () => null;
+
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {

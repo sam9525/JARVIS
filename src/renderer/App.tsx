@@ -20,6 +20,10 @@ import Segmented from "./ui/Segmented";
 import EmptyGraph from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
+// One source of truth for the version string: the title was a literal and had
+// already drifted two releases behind the manifest.
+import { version as appVersion } from "../../package.json";
+import VoiceWave from "./voice/VoiceWave";
 import Panel from "./ui/Panel";
 import {
   SETTINGS_Z,
@@ -905,17 +909,23 @@ export default function App() {
         </div>
       )}
       <Bezel
-        title="JARVIS · V0.4.0"
+        title={`JARVIS · V${appVersion}`}
         telemetry={telemetry}
         footRight={footRight}
         footLeft={
-          showHome ? null : (
-            <Timeline
-              log={(active && logsRef.current.get(active.id)) || []}
-              index={replayIndex}
-              onScrub={onScrub}
-            />
-          )
+          // bottom-anchored column: the slot sets only `bottom`, so the head
+          // and wave stack upward and never cover the replay scrubber. The
+          // wave is pointer-transparent; the scrubber under it is not.
+          <div className="flex flex-col items-start gap-2">
+            <VoiceWave />
+            {showHome ? null : (
+              <Timeline
+                log={(active && logsRef.current.get(active.id)) || []}
+                index={replayIndex}
+                onScrub={onScrub}
+              />
+            )}
+          </div>
         }
       />
       {!showHome && previewNode && active && (

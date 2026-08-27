@@ -57,6 +57,12 @@ const setSettings = vi.fn(() => Promise.resolve());
 
 let root: Root;
 let container: HTMLDivElement;
+// App renders the voice wave onto a canvas, and jsdom has no 2D backend —
+// without this, every render logs "Not implemented: getContext". VoiceWave
+// already treats a null context as "no wave to draw"; tests/voice/VoiceWave
+// is where the drawing itself is checked.
+(HTMLCanvasElement.prototype as any).getContext = () => null;
+
 beforeEach(() => {
   tracker.stop.mockClear();
   tracker.starts = 0;

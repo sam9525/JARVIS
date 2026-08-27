@@ -27,7 +27,7 @@ let generation = 0;
 /** How long the ear stays deaf after the last sound. The segmenter only ends
  * an utterance HANG_MS after the room goes quiet and whisper runs after that,
  * so a segment recorded while the app was talking arrives with the mouth
- * already silent — `sounding()` alone reads false exactly when it matters.
+ * already silent — `isSounding()` alone reads false exactly when it matters.
  * ponytail: fixed tail, sized for HANG_MS plus one transcription; measure the
  * transcribe time and derive it if whisper ever gets slow enough to outrun it. */
 export const DEAF_TAIL_MS = 2000;
@@ -54,6 +54,65 @@ function localSpeak(text: string): void {
   synth.speak(utterance);
 }
 
+// `ended`/`paused` rather than `current !== null` alone: an utterance whose
+// `onended` never fires would otherwise leave the ear deaf for the rest of the
+// session, and a microphone that stops working is worse than an echo.
+const cloudSounding = (): boolean =>
+  current !== null && !current.ended && !current.paused;
+
+/** Samples per waveform read. 256 is the smallest fftSize that still draws a
+ * recognisable wave at the ~180px the bezel gives it. */
+export const WAVE_BINS = 256;
+
+// One graph for every utterance. A context per Audio element would open one
+// per summary, and browsers cap how many a page may hold.
+let audioCtx: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let sourceNode: MediaElementAudioSourceNode | null = null;
+
+// Routing an element through a MediaElementSource takes its sound OUT of the
+// element — without the connect to destination below, wiring the analyser
+// would mute the voice. Every failure here leaves the element unrouted and
+// still audible, with the wave flat: the sound matters more than the picture.
+function wireAnalyser(audio: HTMLAudioElement): void {
+  const Ctor = (globalThis as { AudioContext?: typeof AudioContext })
+    .AudioContext;
+  if (!Ctor) return; // jsdom, and any build without Web Audio
+  try {
+    if (!audioCtx) audioCtx = new Ctor();
+    // A suspended context passes no sound, so routing the element into one
+    // would mute the voice outright — worse than having no wave. Ask it to
+    // resume and leave this utterance unrouted; the next one gets the wave.
+    // Checked before the analyser is built, so readWave has nothing to read
+    // and the wave reports itself flat rather than drawing a dead signal.
+    if (audioCtx.state !== "running") {
+      void audioCtx.resume();
+      return;
+    }
+    if (!analyser) {
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = WAVE_BINS;
+      analyser.smoothingTimeConstant = 0.7;
+      analyser.connect(audioCtx.destination);
+    }
+    sourceNode?.disconnect(); // the previous utterance is done with it
+    sourceNode = audioCtx.createMediaElementSource(audio);
+    sourceNode.connect(analyser);
+  } catch {
+    // no analyser this time; the element plays unrouted and the wave stays flat
+  }
+}
+
+/** Fills `out` with the current waveform — bytes 0..255 centred on 128 — and
+ * returns whether it is live. False means draw a flat line, which covers both
+ * silence and the local mouth: speechSynthesis writes straight to the output
+ * device, and no Web Audio node can see it. */
+export function readWave(out: Uint8Array): boolean {
+  if (!analyser || !cloudSounding()) return false;
+  analyser.getByteTimeDomainData(out);
+  return true;
+}
+
 /** Cloud voice first; speechSynthesis whenever main hands back nothing — no
  * key, a revoked key, a spent quota and a timeout are one case here. */
 export async function speak(text: string): Promise<void> {
@@ -73,6 +132,7 @@ export async function speak(text: string): Promise<void> {
   const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
   const audio = new Audio(url);
   current = audio;
+  wireAnalyser(audio);
   audio.onended = () => {
     URL.revokeObjectURL(url);
     if (current === audio) current = null;
@@ -89,14 +149,12 @@ export async function speak(text: string): Promise<void> {
   });
 }
 
-/** True while either mouth is producing sound right now. */
-function sounding(): boolean {
-  // `ended`/`paused` rather than `current !== null` alone: an utterance whose
-  // `onended` never fires would otherwise leave the ear deaf for the rest of
-  // the session, and a microphone that stops working is worse than an echo.
-  const cloud = current !== null && !current.ended && !current.paused;
+/** True while either mouth is producing sound right now. The head reads this
+ * — not `isSpeaking()`, which stays true through the deaf tail and would leave
+ * the mouth moving for two seconds after the last word. */
+export function isSounding(): boolean {
   return (
-    cloud ||
+    cloudSounding() ||
     (globalThis as { speechSynthesis?: SpeechSynthesis }).speechSynthesis
       ?.speaking === true
   );
@@ -108,7 +166,7 @@ function sounding(): boolean {
  * out loud. The tail is the half that catches the echo — by the time the app's
  * own words come back as text, the mouth has already closed. */
 export function isSpeaking(): boolean {
-  return sounding() || Date.now() < deafUntil;
+  return isSounding() || Date.now() < deafUntil;
 }
 
 // Either mouth may be the one talking, so the mic-off transition silences
@@ -119,7 +177,7 @@ export function stopSpeaking(): void {
   generation++; // invalidates any speak() still awaiting its IPC round-trip
   // an interruption is still a mouth that was open a moment ago, so the echo
   // of what it already said is still on its way through the segmenter
-  if (sounding()) stoppedSounding();
+  if (isSounding()) stoppedSounding();
   if (current) {
     current.pause();
     URL.revokeObjectURL(current.src);

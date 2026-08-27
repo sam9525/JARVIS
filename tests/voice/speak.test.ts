@@ -3,10 +3,13 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   DEAF_TAIL_MS,
+  isSounding,
   isSpeaking,
   nextUtterance,
+  readWave,
   speak,
   stopSpeaking,
+  WAVE_BINS,
 } from "../../src/renderer/voice/speak";
 import type { WorkspaceStatus } from "../../src/shared/types";
 
@@ -253,5 +256,147 @@ describe("isSpeaking", () => {
     finish();
     vi.advanceTimersByTime(DEAF_TAIL_MS + 1);
     expect(isSpeaking()).toBe(false);
+  });
+});
+
+describe("readWave — the analyser behind the wave", () => {
+  const connected: string[] = [];
+  const sample = 200;
+
+  const install = () => {
+    connected.length = 0;
+    (globalThis as any).URL.createObjectURL = vi.fn(() => "blob:x");
+    (globalThis as any).URL.revokeObjectURL = vi.fn();
+    (globalThis as any).Audio = class {
+      src: string;
+      ended = false;
+      paused = false;
+      onended: (() => void) | null = null;
+      constructor(src: string) {
+        this.src = src;
+      }
+      play() {
+        return Promise.resolve();
+      }
+      pause = vi.fn();
+    };
+    (globalThis as any).AudioContext = class {
+      state = "running";
+      destination = { id: "destination" };
+      createAnalyser() {
+        return {
+          fftSize: 0,
+          smoothingTimeConstant: 0,
+          connect: (n: any) => connected.push(`analyser->${n.id}`),
+          getByteTimeDomainData: (out: Uint8Array) => out.fill(sample),
+        };
+      }
+      createMediaElementSource() {
+        return {
+          connect: () => connected.push("source->analyser"),
+          disconnect: () => connected.push("source-disconnect"),
+        };
+      }
+      resume() {
+        return Promise.resolve();
+      }
+    };
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
+    };
+  };
+
+  afterEach(() => {
+    stopSpeaking();
+    delete (globalThis as any).AudioContext;
+    delete (globalThis as any).window.jarvis;
+  });
+
+  it("connects the analyser to the destination, or the voice goes silent", async () => {
+    install();
+    await speak("hello");
+    expect(connected).toContain("analyser->destination");
+    expect(connected).toContain("source->analyser");
+  });
+
+  it("reads the live waveform while the cloud mouth is playing", async () => {
+    install();
+    await speak("hello");
+    const out = new Uint8Array(WAVE_BINS);
+    expect(readWave(out)).toBe(true);
+    expect(out[0]).toBe(sample);
+  });
+
+  it("reports not-live once the utterance is stopped", async () => {
+    install();
+    await speak("hello");
+    stopSpeaking();
+    expect(readWave(new Uint8Array(WAVE_BINS))).toBe(false);
+  });
+
+  it("reports not-live for the local mouth, which no node can see", async () => {
+    install();
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn(() => Promise.resolve(null)),
+    };
+    (globalThis as any).speechSynthesis = {
+      cancel: vi.fn(),
+      speak: vi.fn(),
+      speaking: true,
+    };
+    await speak("hello");
+    expect(isSounding()).toBe(true); // the head still moves
+    expect(readWave(new Uint8Array(WAVE_BINS))).toBe(false); // the wave cannot
+  });
+
+  // fresh module: the analyser is module state, so a context built by an
+  // earlier test in this file would survive into a "no Web Audio" one
+  const freshSpeak = async () => {
+    vi.resetModules();
+    return import("../../src/renderer/voice/speak");
+  };
+
+  it("still speaks, with a flat wave, when wiring throws", async () => {
+    install();
+    (globalThis as any).AudioContext = class {
+      constructor() {
+        throw new Error("no web audio");
+      }
+    };
+    const mod = await freshSpeak();
+    await expect(mod.speak("hello")).resolves.toBeUndefined();
+    expect(mod.readWave(new Uint8Array(mod.WAVE_BINS))).toBe(false);
+    mod.stopSpeaking();
+  });
+
+  it("still speaks, with a flat wave, on a platform with no Web Audio", async () => {
+    install();
+    delete (globalThis as any).AudioContext;
+    const mod = await freshSpeak();
+    await expect(mod.speak("hello")).resolves.toBeUndefined();
+    expect(mod.readWave(new Uint8Array(mod.WAVE_BINS))).toBe(false);
+    mod.stopSpeaking();
+  });
+
+  it("never routes through a suspended context, which would mute the voice", async () => {
+    install();
+    const Base = (globalThis as any).AudioContext;
+    (globalThis as any).AudioContext = class extends Base {
+      state = "suspended";
+      resume = vi.fn(() => Promise.resolve());
+    };
+    const mod = await freshSpeak();
+    await mod.speak("hello");
+    expect(connected).not.toContain("source->analyser"); // element left audible
+    expect(mod.readWave(new Uint8Array(mod.WAVE_BINS))).toBe(false);
+    mod.stopSpeaking();
+  });
+
+  it("wires one source per utterance and drops the one before it", async () => {
+    install();
+    await speak("one");
+    await speak("two");
+    expect(connected.filter((c) => c === "source->analyser")).toHaveLength(2);
+    expect(connected).toContain("source-disconnect");
   });
 });
