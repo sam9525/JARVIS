@@ -46,7 +46,12 @@ import { filterGraph } from "./graph/graph-filter";
 import { useWorkspaceGraphs } from "./graph/use-workspace-graphs";
 import { domainsOf } from "./graph/domain-colors";
 import { defaultSettings, groupsFor } from "../shared/types";
-import { hueFrom, hueOfWorkspace, hueToHex } from "./graph/workspace-color";
+import {
+  hueFrom,
+  hueOfWorkspace,
+  hueToHex,
+  respaceGroups,
+} from "./graph/workspace-color";
 import { createPreviewOpener } from "./preview/preview-opener";
 import type {
   CodeGraphLevel,
