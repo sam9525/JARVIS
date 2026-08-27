@@ -1,8 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   buildFleetGraph,
+  fleetDomains,
   FLEET_ROOT,
 } from "../../src/renderer/graph/fleet-graph";
+import { colorFor } from "../../src/renderer/graph/domain-colors";
+import {
+  hueOfWorkspace,
+  hueToHex,
+} from "../../src/renderer/graph/workspace-color";
 import type { VaultGraph, Workspace } from "../../src/shared/types";
 
 const vaultGraph: VaultGraph = {
@@ -100,5 +106,35 @@ describe("buildFleetGraph", () => {
     );
     const projNodes = f.nodes.filter((n) => n.id.startsWith("big::"));
     expect(projNodes.length).toBe(80);
+  });
+});
+
+describe("fleetDomains", () => {
+  const ws = (id: string, name: string): Workspace =>
+    ({ id, name, kind: "code", root: `/${id}` }) as Workspace;
+
+  it("holds a slot for a workspace whose graph has not loaded", () => {
+    const all = [ws("a", "AeroGraph"), ws("b", "Pokemon")];
+    // only one graph loaded, but both names still get a slot
+    expect(fleetDomains(all)).toEqual(["AeroGraph", "JARVIS", "Pokemon"]);
+  });
+
+  it("gives a project the same colour in Fleet as in its own graph", () => {
+    const all = [ws("a", "AeroGraph"), ws("b", "Pokemon"), ws("c", "Obsidian")];
+    for (const w of all) {
+      // what Fleet paints the cluster: node.domain is the workspace name,
+      // resolved against the fleet domain list at base hue 0
+      const inFleet = colorFor(w.name, fleetDomains(all));
+      // what the workspace's own graph starts its spread from
+      const atHome = hueToHex(hueOfWorkspace(w, all));
+      expect(inFleet).toBe(atHome);
+    }
+  });
+
+  it("gives two projects two different colours", () => {
+    const all = [ws("a", "AeroGraph"), ws("b", "Pokemon")];
+    expect(colorFor("AeroGraph", fleetDomains(all))).not.toBe(
+      colorFor("Pokemon", fleetDomains(all)),
+    );
   });
 });

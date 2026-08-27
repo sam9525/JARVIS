@@ -9,7 +9,7 @@ import type {
   ViewSettings,
 } from "../../shared/types";
 import type { TtsOption } from "../../main/tts";
-import { randomColor } from "../../shared/random-color";
+import { hueToHex, nextHue } from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
 
@@ -70,6 +70,7 @@ type Props = {
   // same reasoning as onHandControl: voice control also starts/stops this
   // session's microphone, so it goes through App rather than onSettingsChange
   onVoiceControl: (on: boolean) => void;
+  baseHue: number; // the open workspace identity hue a new group starts from
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
 };
@@ -77,6 +78,7 @@ type Props = {
 export default function GraphSettingsPanel({
   settings,
   activeId,
+  baseHue,
   search,
   onSearchChange,
   onSettingsChange,
@@ -246,7 +248,18 @@ export default function GraphSettingsPanel({
         <button
           className="mt-1.5 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
           onClick={() =>
-            setGroups([...groups, { query: "", color: randomColor() }])
+            setGroups([
+              ...groups,
+              {
+                query: "",
+                color: hueToHex(
+                  nextHue(
+                    groups.map((g) => g.color),
+                    baseHue,
+                  ),
+                ),
+              },
+            ])
           }
         >
           New group

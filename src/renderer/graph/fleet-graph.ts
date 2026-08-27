@@ -8,6 +8,19 @@ import { busiest } from "./graph-filter";
 import { graphMetrics } from "./graph-metrics";
 
 export const FLEET_ROOT = "root::jarvis";
+export const FLEET_ROOT_DOMAIN = "JARVIS";
+
+/** The domain list every fleet colour is drawn from: one entry per workspace
+ * name, plus the root. Derived from the workspace list rather than from the
+ * built graph, because a workspace whose graph has not loaded yet contributes
+ * no nodes — and `domainsOf(fleet)` then shifted every later workspace onto a
+ * different hue. Also what `workspaceHue` indexes into, so a project draws the
+ * same colour in its own graph as it does here. */
+export function fleetDomains(workspaces: Workspace[]): string[] {
+  return Array.from(
+    new Set([...workspaces.map((w) => w.name), FLEET_ROOT_DOMAIN]),
+  ).sort();
+}
 const PROJECT_CAP = 80;
 const VAULT_CAP = 150;
 
@@ -58,7 +71,7 @@ export function buildFleetGraph(
   graphs: Map<string, VaultGraph>,
 ): VaultGraph {
   const nodes: GraphNode[] = [
-    { id: FLEET_ROOT, type: "note", domain: "JARVIS" },
+    { id: FLEET_ROOT, type: "note", domain: FLEET_ROOT_DOMAIN },
   ];
   const edges: GraphEdge[] = [];
   const vaultNoteByName = new Map<string, string>();

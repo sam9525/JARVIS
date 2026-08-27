@@ -9,8 +9,7 @@ import { NO_GROUPS } from "../../shared/types";
 import Graph, { type GraphHandle } from "./Graph";
 import Graph3D, { type Graph3DHandle } from "./Graph3D";
 import { emptyState } from "../session/highlight-store";
-import { domainsOf } from "./domain-colors";
-import { buildFleetGraph, FLEET_ROOT } from "./fleet-graph";
+import { buildFleetGraph, fleetDomains, FLEET_ROOT } from "./fleet-graph";
 import { useHandActions, type HandActions } from "../hands/use-hand-actions";
 
 // one light-blue backdrop for the whole fleet: a single halo whose query `::`
@@ -45,7 +44,10 @@ export default function FleetGraph({
     () => buildFleetGraph(workspaces, graphs),
     [workspaces, graphs],
   );
-  const domains = useMemo(() => domainsOf(fleet), [fleet]);
+  // from the workspace list, not the built graph: a workspace still loading
+  // contributes no nodes, and indexing off the graph moved every later
+  // workspace onto a different hue as the fleet filled in
+  const domains = useMemo(() => fleetDomains(workspaces), [workspaces]);
   const stateRef = useRef(emptyState());
   const handle3d = useRef<Graph3DHandle | null>(null);
   const handle2d = useRef<GraphHandle | null>(null);

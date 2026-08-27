@@ -1,20 +1,6 @@
 import type { GraphGroup, VaultGraph } from "../../shared/types";
 import { COLORS } from "./graph-colors";
-
-// categorical hues that read on the #0d1017 background and stay distinct
-// from the highlight colors (cyan #7ef9ff, orange #ff8c42)
-export const PALETTE = [
-  "#e06c75",
-  "#61afef",
-  "#98c379",
-  "#e5c07b",
-  "#c678dd",
-  "#56b6c2",
-  "#ff8fab",
-  "#d19a66",
-  "#7f9cf5",
-  "#4fd1c5",
-];
+import { hueFrom, hueToHex } from "./workspace-color";
 
 const FALLBACK = "#4a5568"; // pre-domain note grey
 
@@ -24,13 +10,19 @@ export function domainsOf(g: VaultGraph): string[] {
   return Array.from(s).sort();
 }
 
+/** `baseHue` is the workspace's identity hue, so a project's first domain is
+ * its own colour and the rest fan out from there. Fleet leaves it at 0 and
+ * passes every workspace name as a domain, which reproduces the identity hue
+ * for each cluster without knowing that is what it is doing. */
 export function colorFor(
   domain: string | undefined,
   domains: string[],
+  baseHue = 0,
 ): string {
   if (!domain) return FALLBACK;
   const i = domains.indexOf(domain);
-  return i === -1 ? FALLBACK : PALETTE[i % PALETTE.length];
+  if (i === -1) return FALLBACK;
+  return hueToHex(hueFrom(baseHue, i, domains.length));
 }
 
 // first group whose non-empty query is a case-insensitive substring of the id
@@ -59,8 +51,11 @@ export function baseNodeColor(
   node: { id: string; type?: string; domain?: string },
   domains: string[],
   groups: GraphGroup[],
+  baseHue = 0,
 ): string {
   const g = groupOf(node.id, groups);
   if (g) return g.color;
-  return node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
+  return node.type === "tag"
+    ? COLORS.tag
+    : colorFor(node.domain, domains, baseHue);
 }

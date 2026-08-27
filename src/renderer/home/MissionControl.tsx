@@ -10,6 +10,7 @@ import type {
 import type { HighlightState } from "../session/highlight-store";
 import type { GraphFilters } from "../graph/graph-filter";
 import MiniGraph from "../graph/MiniGraph";
+import { hueOfWorkspace } from "../graph/workspace-color";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { relativeTime } from "./relative-time";
 
@@ -161,6 +162,7 @@ export default function MissionControl({
                 <MiniGraph
                   graph={g ?? null}
                   kind={ws.kind}
+                  baseHue={hueOfWorkspace(ws, workspaces)}
                   state={getStore(ws.id)}
                   groups={groups[ws.id] ?? []}
                   view={view}

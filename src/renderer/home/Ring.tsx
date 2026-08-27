@@ -12,6 +12,7 @@ import { emptyState, type HighlightState } from "../session/highlight-store";
 import Graph3D, { type Graph3DHandle } from "../graph/Graph3D";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { domainsOf } from "../graph/domain-colors";
+import { hueOfWorkspace } from "../graph/workspace-color";
 import { filterGraph, type GraphFilters } from "../graph/graph-filter";
 import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
 import { DOT } from "./MissionControl";
@@ -259,6 +260,7 @@ export default function Ring({
         key={settledWs.id}
         graph={g}
         domains={domains}
+        baseHue={hueOfWorkspace(settledWs, workspaces)}
         groups={groups[settledWs.id] ?? NO_GROUPS}
         display={view.display}
         forces={view.forces}
@@ -272,7 +274,17 @@ export default function Ring({
         height={height}
       />
     );
-  }, [settledWs, g, domains, groups, view, layoutEpoch, width, height]);
+  }, [
+    settledWs,
+    workspaces,
+    g,
+    domains,
+    groups,
+    view,
+    layoutEpoch,
+    width,
+    height,
+  ]);
 
   return (
     <div

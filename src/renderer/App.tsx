@@ -42,7 +42,7 @@ import { filterGraph } from "./graph/graph-filter";
 import { useWorkspaceGraphs } from "./graph/use-workspace-graphs";
 import { domainsOf } from "./graph/domain-colors";
 import { defaultSettings, groupsFor } from "../shared/types";
-import { randomColor } from "../shared/random-color";
+import { hueFrom, hueOfWorkspace, hueToHex } from "./graph/workspace-color";
 import { createPreviewOpener } from "./preview/preview-opener";
 import type {
   CodeGraphLevel,
@@ -601,19 +601,55 @@ export default function App() {
   );
 
   const domains = useMemo(() => domainsOf(graph), [graph]);
+  // the open workspace's identity hue — the same one Fleet paints its cluster
+  // with, so a project looks like itself in both places
+  const activeHue = useMemo(
+    () => (active ? hueOfWorkspace(active, fleet) : 0),
+    [active, fleet],
+  );
 
   // Seed a workspace's groups once, from its own top-level folders, the first
   // time we have its graph — so every project (not just the vault) gets group
   // halos. `id in groups` marks it seeded, so later deletions are respected.
   useEffect(() => {
     if (!settingsReady || !active || active.id in settings.groups) return;
-    const seed = domains.map((d) => ({ query: `${d}/`, color: randomColor() }));
+    // spaced evenly from the workspace's own hue, so the first folder wears
+    // the project colour and no two folders come out near-matches — the
+    // randomColor() this replaces put red, dark pink and orange in one vault
+    const hue = hueOfWorkspace(active, fleet);
+    const seed = domains.map((d, i) => ({
+      query: `${d}/`,
+      color: hueToHex(hueFrom(hue, i, domains.length)),
+    }));
     if (seed.length === 0) return; // no graph yet, or no folders to group by
     updateSettings({
       ...settings,
       groups: { ...settings.groups, [active.id]: seed },
     });
-  }, [settingsReady, active, domains, settings]);
+  }, [settingsReady, active, fleet, domains, settings]);
+
+  // One pass over groups seeded before hues were generated: those took
+  // randomColor(), so a vault could hold red, dark pink and orange at once.
+  // Every workspace at once rather than on open, or a card would keep drawing
+  // the old colours until you visited it. The ref bounds it to one pass per
+  // session — respaceGroups is idempotent, but a settings write re-runs this.
+  const respacedRef = useRef(false);
+  useEffect(() => {
+    if (!settingsReady || respacedRef.current || fleet.length === 0) return;
+    respacedRef.current = true;
+    const groups = { ...settings.groups };
+    let changed = false;
+    for (const ws of fleet) {
+      const saved = groups[ws.id];
+      if (!saved) continue; // unseeded, or cleared on purpose — leave it
+      const next = respaceGroups(saved, hueOfWorkspace(ws, fleet));
+      if (!next) continue;
+      groups[ws.id] = next;
+      changed = true;
+    }
+    if (changed) updateSettings({ ...settings, groups });
+  }, [settingsReady, fleet, settings]);
+
   const resolveLink = useMemo(
     () =>
       buildWikilinkResolver(
@@ -786,6 +822,7 @@ export default function App() {
                 <Graph3D
                   graph={visible}
                   domains={domains}
+                  baseHue={activeHue}
                   groups={groupsFor(settings, active?.id)}
                   display={view.display}
                   forces={view.forces}
@@ -802,6 +839,7 @@ export default function App() {
                 <Graph
                   graph={visible}
                   domains={domains}
+                  baseHue={activeHue}
                   groups={groupsFor(settings, active?.id)}
                   display={view.display}
                   forces={view.forces}
@@ -945,6 +983,7 @@ export default function App() {
           <GraphSettingsPanel
             settings={settings}
             activeId={active?.id ?? null}
+            baseHue={activeHue}
             search={search}
             onSearchChange={setSearch}
             onSettingsChange={updateSettings}

@@ -5,8 +5,12 @@ import {
   domainsOf,
   groupColor,
   groupOf,
-  PALETTE,
 } from "../../src/renderer/graph/domain-colors";
+import {
+  hueFrom,
+  hueToHex,
+  workspaceHue,
+} from "../../src/renderer/graph/workspace-color";
 import { COLORS } from "../../src/renderer/graph/graph-colors";
 import type { VaultGraph } from "../../src/shared/types";
 
@@ -29,16 +33,28 @@ describe("domainsOf", () => {
 describe("colorFor", () => {
   const domains = ["history", "physics"];
 
-  it("assigns palette colors by sorted index", () => {
-    expect(colorFor("history", domains)).toBe(PALETTE[0]);
-    expect(colorFor("physics", domains)).toBe(PALETTE[1]);
+  it("spaces domains evenly from the base hue", () => {
+    expect(colorFor("history", domains)).toBe(hueToHex(hueFrom(0, 0, 2)));
+    expect(colorFor("physics", domains)).toBe(hueToHex(hueFrom(0, 1, 2)));
   });
 
-  it("wraps past the palette length", () => {
-    const many = Array.from({ length: PALETTE.length + 1 }, (_, i) =>
-      String(i).padStart(3, "0"),
-    );
-    expect(colorFor(many[PALETTE.length], many)).toBe(PALETTE[0]);
+  it("gives the first domain the workspace's own hue", () => {
+    const hue = workspaceHue("aerograph", ["aerograph", "obsidian"]);
+    expect(colorFor("history", domains, hue)).toBe(hueToHex(hue));
+  });
+
+  it("gives two projects different colours for the same domain name", () => {
+    const ids = ["aerograph", "pokemon-tcg-pocket-data"];
+    const a = colorFor("history", domains, workspaceHue(ids[0], ids));
+    const b = colorFor("history", domains, workspaceHue(ids[1], ids));
+    expect(a).not.toBe(b);
+  });
+
+  it("gives every domain in one project a distinct colour", () => {
+    const many = ["a", "b", "c", "d", "e", "f"];
+    const hue = workspaceHue("obsidian", ["obsidian", "jarvis"]);
+    const seen = many.map((d) => colorFor(d, many, hue));
+    expect(new Set(seen).size).toBe(many.length);
   });
 
   it("falls back to grey for undefined or unknown domains", () => {
@@ -113,14 +129,25 @@ describe("baseNodeColor", () => {
     );
   });
 
-  it("ungrouped notes fall back to the domain palette", () => {
+  it("ungrouped notes fall back to the domain hue", () => {
     expect(
       baseNodeColor(
         { id: "history/a", type: "note", domain: "history" },
         domains,
         groups,
       ),
-    ).toBe(PALETTE[0]);
+    ).toBe(hueToHex(hueFrom(0, 0, 2)));
+  });
+
+  it("passes the base hue through to the domain colour", () => {
+    expect(
+      baseNodeColor(
+        { id: "history/a", type: "note", domain: "history" },
+        domains,
+        groups,
+        90,
+      ),
+    ).toBe(hueToHex(90));
   });
 
   it("no group, no domain → fallback grey", () => {
