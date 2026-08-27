@@ -2,8 +2,8 @@ import React, { useEffect, useRef } from "react";
 import { isSounding, readWave, WAVE_BINS } from "./speak";
 import { LBL_DIM } from "../ui/hud";
 
-const W = 180;
-const H = 26;
+const W = 240;
+const H = 48;
 const MID = H / 2;
 // How often to check whether speech has started. The wave is idle almost all
 // the time, so a permanent rAF would burn a frame a tick to learn nothing —
@@ -13,6 +13,28 @@ const IDLE_POLL_MS = 250;
 // not zero: a closed mouth is a line, not a missing feature.
 const MOUTH_SHUT = 0.7;
 const MOUTH_OPEN = 4.2;
+// Speech peaks well under full scale — a normal TTS line sits near a tenth of
+// the byte range, which on a strip this short is a flat line with a wobble.
+// The wave is an indicator, not a meter, so it is drawn with gain and clipped.
+// ponytail: fixed gain; make it a running-peak normaliser if a voice ever
+// clips flat or vanishes at this setting.
+const GAIN = 3;
+
+const boost = (x: number) => Math.min(x * GAIN, 1);
+
+// The strip is an equalizer, not an oscilloscope: the raw time domain stretched
+// across the strip is speech-rate oscillation, legible as hash. Each bar is the
+// peak of its slice, eased toward its new value so one noisy frame cannot spike
+// it, and it rests as a dot rather than collapsing to nothing.
+const BARS = 48;
+const SMOOTH = 0.3;
+const SPACING = W / BARS;
+// Bar thickness as a share of its slot, so the look survives a change to W or
+// BARS instead of needing a matching pixel constant.
+const BAR_W = SPACING * 0.3;
+// Half-height of a resting bar. A zero-length stroke draws nothing, so the
+// silent state is a short segment with a round cap — which is a dot.
+const DOT = 0.7;
 
 /** Peak deviation from the 128 centre line, as 0..1. */
 export function amplitudeOf(buf: Uint8Array): number {
@@ -26,7 +48,7 @@ export function amplitudeOf(buf: Uint8Array): number {
 
 /**
  * The main agent's voice, drawn. Head above, waveform below; both go still —
- * mouth shut, line flat — when nothing is talking.
+ * mouth shut, bars resting as dots — when nothing is talking.
  *
  * Nothing here is React state. The wave updates at frame rate, and a
  * re-render a frame would restart the force simulation underneath it (the
@@ -43,40 +65,52 @@ export default function VoiceWave() {
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
-    // one-time backing-store scale: the bezel is a fixed CSS size, so this
-    // never needs recomputing for a resize
+    // Backing-store scale for the bezel's fixed CSS size. setTransform, not
+    // scale: StrictMode runs this effect twice on the same canvas, and scale
+    // compounds — the second pass would draw at dpr² and each bar would leave
+    // an oversized twin behind it.
     const dpr = window.devicePixelRatio || 1;
     canvas.width = W * dpr;
     canvas.height = H * dpr;
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const styles = getComputedStyle(document.documentElement);
     const live = styles.getPropertyValue("--color-accent").trim() || "#22d3ee";
     const idle = styles.getPropertyValue("--color-edge").trim() || "#1b3a4a";
 
     const buf = new Uint8Array(WAVE_BINS);
+    const env = new Float32Array(BARS);
     let frame = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
 
     const paint = (hasWave: boolean) => {
       ctx.clearRect(0, 0, W, H);
-      ctx.lineWidth = 1.5;
-      ctx.lineJoin = "round";
+      ctx.lineWidth = BAR_W;
+      ctx.lineCap = "round";
       ctx.strokeStyle = hasWave ? live : idle;
-      ctx.beginPath();
-      if (!hasWave) {
-        ctx.moveTo(0, MID);
-        ctx.lineTo(W, MID);
-      } else {
-        for (let x = 0; x < W; x++) {
-          const v = buf[Math.floor((x / W) * buf.length)] - 128;
-          const y = MID - (v / 128) * (MID - 1);
-          if (x === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+      if (!hasWave) env.fill(0);
+      const per = buf.length / BARS;
+      for (let b = 0; b < BARS; b++) {
+        if (hasWave) {
+          let peak = 0;
+          for (
+            let i = Math.floor(b * per);
+            i < Math.floor((b + 1) * per);
+            i++
+          ) {
+            const d = Math.abs(buf[i] - 128);
+            if (d > peak) peak = d;
+          }
+          env[b] += (boost(peak / 128) - env[b]) * SMOOTH;
         }
+        const half = Math.max(DOT, env[b] * (MID - BAR_W / 2));
+        const x = (b + 0.5) * SPACING;
+        ctx.beginPath();
+        ctx.moveTo(x, MID - half);
+        ctx.lineTo(x, MID + half);
+        ctx.stroke();
       }
-      ctx.stroke();
     };
 
     const setMouth = (open: number) => {
@@ -91,7 +125,7 @@ export default function VoiceWave() {
       if (disposed) return;
       const hasWave = readWave(buf);
       paint(hasWave);
-      setMouth(hasWave ? amplitudeOf(buf) : 0);
+      setMouth(hasWave ? boost(amplitudeOf(buf)) : 0);
       // The local mouth has no waveform to read, so it keeps the head lit
       // while drawing a flat line — speechSynthesis writes straight to the
       // output device and no Web Audio node can see it.

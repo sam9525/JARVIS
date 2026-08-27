@@ -33,7 +33,7 @@ describe("VoiceWave", () => {
     strokes.length = 0;
     // jsdom has no canvas backend; the component only needs a 2D-ish context
     (HTMLCanvasElement.prototype as any).getContext = () => ({
-      scale: vi.fn(),
+      setTransform: vi.fn(),
       clearRect: vi.fn(),
       beginPath: vi.fn(),
       moveTo: vi.fn(),
