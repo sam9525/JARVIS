@@ -80,6 +80,7 @@ beforeEach(() => {
     onSay: () => () => undefined,
     ttsVoices: () => Promise.resolve([]),
     ttsModels: () => Promise.resolve([]),
+    listHeadModels: () => Promise.resolve([]),
   };
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -142,6 +143,14 @@ describe("App: hand control", () => {
     await act(async () => {
       (
         container.querySelector('[title="Graph settings"]') as HTMLElement
+      ).click();
+    });
+    // the checkbox lives on the panel's "Senses" page
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find(
+          (b) => b.textContent === "Senses",
+        ) as HTMLElement
       ).click();
     });
     await act(async () => {

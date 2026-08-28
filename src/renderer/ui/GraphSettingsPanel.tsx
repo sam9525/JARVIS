@@ -13,6 +13,13 @@ import { RECENT_PICKS, hueToHex, pickHue } from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
 
+type Page = "graph" | "senses";
+
+const PAGE_OPTIONS: { value: Page; label: string }[] = [
+  { value: "graph", label: "Graph" },
+  { value: "senses", label: "Senses" },
+];
+
 const SECTION_OPTIONS: { value: SectionFilter; label: string }[] = [
   { value: "raw", label: "Raw" },
   { value: "wiki", label: "Wiki" },
@@ -111,6 +118,8 @@ export default function GraphSettingsPanel({
   const setGroup = (i: number, patch: Partial<GraphGroup>) =>
     setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
 
+  const [page, setPage] = React.useState<Page>("graph");
+
   const mics = useMicDevices();
   // deviceId is "" and label is blank until permission has been granted once
   const named = mics.filter((d) => d.deviceId && d.label);
@@ -138,9 +147,36 @@ export default function GraphSettingsPanel({
       .catch(() => setModels([]));
   }, []);
 
+  // Uploaded head models, by name. Main owns the folder, so this is the only
+  // way to know what is in it.
+  const [heads, setHeads] = React.useState<string[]>([]);
+  const refreshHeads = React.useCallback(
+    () =>
+      void window.jarvis
+        .listHeadModels()
+        .then(setHeads)
+        .catch(() => setHeads([])),
+    [],
+  );
+  React.useEffect(refreshHeads, [refreshHeads]);
+  const headValue = settings.headModel ?? "";
+  // The list arrives a tick after the first render, so the saved name is kept
+  // selectable meanwhile — otherwise the dropdown reads "Built-in" for a frame
+  // while the setting says otherwise.
+  const headOptions =
+    headValue && !heads.includes(headValue) ? [headValue, ...heads] : heads;
+  // A cancelled picker answers null, which must not clear the current head.
+  const uploadHead = () =>
+    void window.jarvis.pickHeadModel().then((name) => {
+      if (!name) return;
+      refreshHeads();
+      set({ headModel: name });
+    });
+
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
-      <div className="flex justify-end gap-1.5">
+      <div className="mb-2.5 flex items-center justify-between gap-1.5">
+        <Segmented options={PAGE_OPTIONS} value={page} onChange={setPage} />
         <button
           className="cursor-pointer text-sm text-ink-dim hover:text-accent"
           title="Restore defaults"
@@ -164,10 +200,11 @@ export default function GraphSettingsPanel({
               panels: settings.panels,
               panelViewport: settings.panelViewport,
               // device and account choices, not graph tuning — a reset must
-              // not silently drop the mic, voice or model the user picked
+              // not silently drop the mic, voice, model or head the user picked
               micDeviceId: settings.micDeviceId,
               ttsVoiceId: settings.ttsVoiceId,
               ttsModelId: settings.ttsModelId,
+              headModel: settings.headModel,
             });
             onSearchChange("");
             onResetHighlights();
@@ -177,236 +214,276 @@ export default function GraphSettingsPanel({
         </button>
       </div>
 
-      <details open className="border-t border-edge py-2">
-        <summary className="mb-1.5 cursor-pointer font-semibold">
-          Filters
-        </summary>
-        <input
-          className="mb-2 w-full rounded-md border border-edge bg-abyss px-2 py-1.5 text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
-          placeholder="Search files…"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-        />
-        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-          Tags
-          <input
-            type="checkbox"
-            className="gs-switch"
-            checked={settings.showTags}
-            onChange={(e) => set({ showTags: e.target.checked })}
-          />
-        </label>
-        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-          Orphans
-          <input
-            type="checkbox"
-            className="gs-switch"
-            checked={settings.showOrphans}
-            onChange={(e) => set({ showOrphans: e.target.checked })}
-          />
-        </label>
-        {showSections && (
-          <div className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-            Sections
-            <Segmented
-              options={SECTION_OPTIONS}
-              value={settings.sectionFilter}
-              onChange={(f) => set({ sectionFilter: f })}
+      {page === "graph" && (
+        <>
+          <details open className="border-t border-edge py-2">
+            <summary className="mb-1.5 cursor-pointer font-semibold">
+              Filters
+            </summary>
+            <input
+              className="mb-2 w-full rounded-md border border-edge bg-abyss px-2 py-1.5 text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
+              placeholder="Search files…"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
             />
-          </div>
-        )}
-      </details>
+            <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+              Tags
+              <input
+                type="checkbox"
+                className="gs-switch"
+                checked={settings.showTags}
+                onChange={(e) => set({ showTags: e.target.checked })}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+              Orphans
+              <input
+                type="checkbox"
+                className="gs-switch"
+                checked={settings.showOrphans}
+                onChange={(e) => set({ showOrphans: e.target.checked })}
+              />
+            </label>
+            {showSections && (
+              <div className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+                Sections
+                <Segmented
+                  options={SECTION_OPTIONS}
+                  value={settings.sectionFilter}
+                  onChange={(f) => set({ sectionFilter: f })}
+                />
+              </div>
+            )}
+          </details>
 
-      <details open className="border-t border-edge py-2">
-        <summary className="mb-1.5 cursor-pointer font-semibold">
-          Groups
-        </summary>
-        {groups.map((g, i) => (
-          <div
-            className="flex items-center justify-between gap-2 py-1 text-ink-muted"
-            key={i}
-          >
-            <input
-              className="min-w-0 flex-1 rounded-md border border-edge bg-abyss px-1.5 py-1 text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
-              placeholder="path or text…"
-              value={g.query}
-              onChange={(e) => setGroup(i, { query: e.target.value })}
-            />
-            <input
-              type="color"
-              className="h-[22px] w-[26px] cursor-pointer border-none bg-transparent p-0"
-              value={g.color}
-              onChange={(e) => setGroup(i, { color: e.target.value })}
-            />
+          <details open className="border-t border-edge py-2">
+            <summary className="mb-1.5 cursor-pointer font-semibold">
+              Groups
+            </summary>
+            {groups.map((g, i) => (
+              <div
+                className="flex items-center justify-between gap-2 py-1 text-ink-muted"
+                key={i}
+              >
+                <input
+                  className="min-w-0 flex-1 rounded-md border border-edge bg-abyss px-1.5 py-1 text-ink placeholder:text-ink-dim focus:border-accent focus:outline-none"
+                  placeholder="path or text…"
+                  value={g.query}
+                  onChange={(e) => setGroup(i, { query: e.target.value })}
+                />
+                <input
+                  type="color"
+                  className="h-[22px] w-[26px] cursor-pointer border-none bg-transparent p-0"
+                  value={g.color}
+                  onChange={(e) => setGroup(i, { color: e.target.value })}
+                />
+                <button
+                  className="cursor-pointer text-ink-dim hover:text-warm"
+                  title="Remove group"
+                  onClick={() => setGroups(groups.filter((_, j) => j !== i))}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
             <button
-              className="cursor-pointer text-ink-dim hover:text-warm"
-              title="Remove group"
-              onClick={() => setGroups(groups.filter((_, j) => j !== i))}
+              className="mt-1.5 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
+              onClick={() => {
+                if (!activeId) return;
+                // Drawn against the shared pick log, not this workspace's own
+                // colours: the log is what stops a hand-added group repeating a
+                // green that another project drew a moment ago.
+                const recent = settings.recentHues ?? [];
+                const hue = pickHue(recent);
+                set({
+                  groups: {
+                    ...settings.groups,
+                    [activeId]: [
+                      ...groups,
+                      { query: "", color: hueToHex(hue) },
+                    ],
+                  },
+                  recentHues: [...recent, hue].slice(-RECENT_PICKS),
+                });
+              }}
             >
-              ✕
+              New group
             </button>
-          </div>
-        ))}
-        <button
-          className="mt-1.5 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
-          onClick={() => {
-            if (!activeId) return;
-            // Drawn against the shared pick log, not this workspace's own
-            // colours: the log is what stops a hand-added group repeating a
-            // green that another project drew a moment ago.
-            const recent = settings.recentHues ?? [];
-            const hue = pickHue(recent);
-            set({
-              groups: {
-                ...settings.groups,
-                [activeId]: [...groups, { query: "", color: hueToHex(hue) }],
-              },
-              recentHues: [...recent, hue].slice(-RECENT_PICKS),
-            });
-          }}
-        >
-          New group
-        </button>
-      </details>
+          </details>
 
-      <details open className="border-t border-edge py-2">
-        <summary className="mb-1.5 cursor-pointer font-semibold">
-          Display ({dim.toUpperCase()})
-        </summary>
-        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-          3D
-          <input
-            type="checkbox"
-            className="gs-switch"
-            checked={settings.dimensions === "3d"}
-            onChange={(e) =>
-              set({ dimensions: e.target.checked ? "3d" : "2d" })
-            }
-          />
-        </label>
-        {displaySliders.map(({ key, ...s }) => (
-          <Slider
-            key={key}
-            {...s}
-            value={view.display[key]}
-            onChange={(v) => setDisplay({ [key]: v })}
-          />
-        ))}
-      </details>
+          <details open className="border-t border-edge py-2">
+            <summary className="mb-1.5 cursor-pointer font-semibold">
+              Display ({dim.toUpperCase()})
+            </summary>
+            <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+              3D
+              <input
+                type="checkbox"
+                className="gs-switch"
+                checked={settings.dimensions === "3d"}
+                onChange={(e) =>
+                  set({ dimensions: e.target.checked ? "3d" : "2d" })
+                }
+              />
+            </label>
+            {displaySliders.map(({ key, ...s }) => (
+              <Slider
+                key={key}
+                {...s}
+                value={view.display[key]}
+                onChange={(v) => setDisplay({ [key]: v })}
+              />
+            ))}
+          </details>
 
-      <details className="border-t border-edge py-2">
-        <summary className="mb-1.5 cursor-pointer font-semibold">
-          Forces ({dim.toUpperCase()})
-        </summary>
-        {FORCE_SLIDERS.map(({ key, ...s }) => (
-          <Slider
-            key={key}
-            {...s}
-            value={view.forces[key]}
-            onChange={(v) => setForces({ [key]: v })}
-          />
-        ))}
-      </details>
-
-      <label className="flex items-center justify-between gap-2 border-t border-edge py-2 text-ink-muted">
-        Hand control
-        <input
-          type="checkbox"
-          data-testid="hand-control-setting"
-          className="gs-switch"
-          checked={settings.handControl}
-          onChange={(e) => onHandControl(e.target.checked)}
-        />
-      </label>
-
-      <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
-        Voice control
-        <input
-          type="checkbox"
-          data-testid="voice-control-setting"
-          className="gs-switch"
-          checked={settings.voiceControl}
-          onChange={(e) => onVoiceControl(e.target.checked)}
-        />
-      </label>
-
-      <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-        Microphone
-        <select
-          data-testid="mic-device-setting"
-          className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
-          value={micValue}
-          onChange={(e) => set({ micDeviceId: e.target.value || undefined })}
-        >
-          <option value="">Default microphone</option>
-          {named.map((d) => (
-            <option key={d.deviceId} value={d.deviceId}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {named.length === 0 && (
-        <div className="pb-2 text-[11.5px] text-ink-dim">
-          Device names appear after you allow the microphone once.
-        </div>
+          <details className="border-t border-edge py-2">
+            <summary className="mb-1.5 cursor-pointer font-semibold">
+              Forces ({dim.toUpperCase()})
+            </summary>
+            {FORCE_SLIDERS.map(({ key, ...s }) => (
+              <Slider
+                key={key}
+                {...s}
+                value={view.forces[key]}
+                onChange={(v) => setForces({ [key]: v })}
+              />
+            ))}
+          </details>
+        </>
       )}
 
-      <details className="border-t border-edge py-2">
-        <summary className="mb-1.5 cursor-pointer font-semibold">
-          Cloud voice
-        </summary>
-        {voices.length === 0 && models.length === 0 && (
-          <div className="pb-1.5 text-[11.5px] text-ink-dim">
-            Empty — set ELEVENLABS_API_KEY in .env. The key also needs the
-            voices_read and models_read permissions.
-          </div>
-        )}
-        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-          Voice
-          <select
-            data-testid="tts-voice-setting"
-            className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
-            value={settings.ttsVoiceId ?? ""}
-            onChange={(e) => set({ ttsVoiceId: e.target.value || undefined })}
+      {page === "senses" && (
+        <>
+          <label className="flex items-center justify-between gap-2 border-t border-edge py-2 text-ink-muted">
+            Hand control
+            <input
+              type="checkbox"
+              data-testid="hand-control-setting"
+              className="gs-switch"
+              checked={settings.handControl}
+              onChange={(e) => onHandControl(e.target.checked)}
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
+            Voice control
+            <input
+              type="checkbox"
+              data-testid="voice-control-setting"
+              className="gs-switch"
+              checked={settings.voiceControl}
+              onChange={(e) => onVoiceControl(e.target.checked)}
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+            Microphone
+            <select
+              data-testid="mic-device-setting"
+              className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
+              value={micValue}
+              onChange={(e) =>
+                set({ micDeviceId: e.target.value || undefined })
+              }
+            >
+              <option value="">Default microphone</option>
+              {named.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {named.length === 0 && (
+            <div className="pb-2 text-[11.5px] text-ink-dim">
+              Device names appear after you allow the microphone once.
+            </div>
+          )}
+
+          <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+            Head
+            <select
+              data-testid="head-model-setting"
+              className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
+              value={headValue}
+              onChange={(e) => set({ headModel: e.target.value || undefined })}
+            >
+              <option value="">Built-in helmet</option>
+              {headOptions.map((h) => (
+                <option key={h} value={h}>
+                  {h.replace(/\.glb$/i, "")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            data-testid="head-model-upload"
+            className="mb-1 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
+            title="Add a .glb head model"
+            onClick={uploadHead}
           >
-            <option value="">None — use the local voice</option>
-            {mine.length > 0 && (
-              <optgroup label="My voices">
-                {mine.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
+            Upload a .glb head
+          </button>
+
+          <details className="border-t border-edge py-2">
+            <summary className="mb-1.5 cursor-pointer font-semibold">
+              Cloud voice
+            </summary>
+            {voices.length === 0 && models.length === 0 && (
+              <div className="pb-1.5 text-[11.5px] text-ink-dim">
+                Empty — set ELEVENLABS_API_KEY in .env. The key also needs the
+                voices_read and models_read permissions.
+              </div>
+            )}
+            <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+              Voice
+              <select
+                data-testid="tts-voice-setting"
+                className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
+                value={settings.ttsVoiceId ?? ""}
+                onChange={(e) =>
+                  set({ ttsVoiceId: e.target.value || undefined })
+                }
+              >
+                <option value="">None — use the local voice</option>
+                {mine.length > 0 && (
+                  <optgroup label="My voices">
+                    {mine.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {premade.length > 0 && (
+                  <optgroup label="ElevenLabs & library">
+                    {premade.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </label>
+            <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
+              Model
+              <select
+                data-testid="tts-model-setting"
+                className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
+                value={settings.ttsModelId ?? ""}
+                onChange={(e) => set({ ttsModelId: e.target.value })}
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
                   </option>
                 ))}
-              </optgroup>
-            )}
-            {premade.length > 0 && (
-              <optgroup label="ElevenLabs & library">
-                {premade.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </label>
-        <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
-          Model
-          <select
-            data-testid="tts-model-setting"
-            className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
-            value={settings.ttsModelId ?? ""}
-            onChange={(e) => set({ ttsModelId: e.target.value })}
-          >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </details>
+              </select>
+            </label>
+          </details>
+        </>
+      )}
     </div>
   );
 }

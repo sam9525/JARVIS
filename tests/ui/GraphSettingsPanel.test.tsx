@@ -22,13 +22,22 @@ vi.mock("../../src/renderer/voice/use-mic-devices", () => ({
 // individual tests can control what the "account" returns
 const ttsVoices = vi.fn();
 const ttsModels = vi.fn();
-(globalThis as any).window.jarvis = { ttsVoices, ttsModels };
+const listHeadModels = vi.fn();
+const pickHeadModel = vi.fn();
+(globalThis as any).window.jarvis = {
+  ttsVoices,
+  ttsModels,
+  listHeadModels,
+  pickHeadModel,
+};
 
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   ttsVoices.mockReset().mockResolvedValue([]);
   ttsModels.mockReset().mockResolvedValue([]);
+  listHeadModels.mockReset().mockResolvedValue([]);
+  pickHeadModel.mockReset().mockResolvedValue(null);
   container = document.createElement("div");
   document.body.appendChild(container);
   act(() => {
@@ -159,13 +168,38 @@ function setChecked(checkbox: HTMLInputElement, checked: boolean) {
   });
 }
 
+// the panel is two pages; everything hand/voice/head lives behind the
+// "Senses" tab, so a test that wants those must switch first
+function senses(scope: Element = container) {
+  const tab = Array.from(scope.querySelectorAll("button")).find(
+    (b) => b.textContent === "Senses",
+  ) as HTMLButtonElement;
+  act(() => tab.click());
+  return scope;
+}
+
 describe("GraphSettingsPanel", () => {
-  it("renders header + four sections, Forces collapsed by default", () => {
+  it("puts hand, voice and head behind the Senses tab", () => {
+    render();
+    expect(
+      container.querySelector('[data-testid="voice-control-setting"]'),
+    ).toBeNull();
+    senses();
+    // [header, hand control, voice control, microphone, no-devices hint,
+    //  head model, head upload, cloud voice]
+    expect(container.firstElementChild!.children).toHaveLength(8);
+    expect(
+      container.querySelector('[data-testid="voice-control-setting"]'),
+    ).not.toBeNull();
+    expect(detailsSection(container, "Cloud voice")).toBeTruthy();
+  });
+
+  it("renders header + the four graph sections, Forces collapsed by default", () => {
     render();
     const panel = container.firstElementChild!;
-    // [header, Filters, Groups, Display, Forces, hand control, voice control,
-    //  microphone, no-devices hint, cloud voice]
-    expect(panel.children).toHaveLength(10);
+    // [header, Filters, Groups, Display, Forces] — the senses page is behind
+    // its own tab
+    expect(panel.children).toHaveLength(5);
     const forces = detailsSection(container, "Forces");
     expect(forces.tagName).toBe("DETAILS");
     expect(forces.open).toBe(false); // collapsed by default
@@ -269,7 +303,7 @@ describe("GraphSettingsPanel", () => {
         got = on;
       },
     });
-    const input = container.querySelector(
+    const input = senses().querySelector(
       '[data-testid="voice-control-setting"]',
     ) as HTMLInputElement;
     setChecked(input, true);
@@ -294,7 +328,7 @@ describe("GraphSettingsPanel", () => {
     ttsModels.mockResolvedValue([{ id: "m1", name: "Eleven Turbo v2.5" }]);
     const c = mount();
     await flush();
-    const section = detailsSection(c, "Cloud voice");
+    const section = detailsSection(senses(c), "Cloud voice");
     expect(section.querySelector('[data-testid="tts-key-input"]')).toBeNull();
     const voiceSelect = section.querySelector(
       '[data-testid="tts-voice-setting"]',
@@ -321,5 +355,67 @@ describe("GraphSettingsPanel", () => {
     expect(Array.from(modelSelect.options).map((o) => o.textContent)).toEqual([
       "Eleven Turbo v2.5",
     ]);
+  });
+});
+
+describe("head model", () => {
+  const select = (c: Element) =>
+    c.querySelector('[data-testid="head-model-setting"]') as HTMLSelectElement;
+
+  it("offers the built-in helmet and every uploaded model", async () => {
+    listHeadModels.mockResolvedValue(["a.glb", "b.glb"]);
+    const { container: c } = render();
+    senses();
+    await flush();
+    expect(Array.from(select(c).options).map((o) => o.textContent)).toEqual([
+      "Built-in helmet",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("keeps the saved name selectable before the list arrives", () => {
+    const { container: c } = render({ headModel: "saved.glb" });
+    senses();
+    // no flush: the list is still in flight
+    expect(select(c).value).toBe("saved.glb");
+  });
+
+  it("clears the setting when the built-in is chosen", async () => {
+    const { container: c, calls } = render({ headModel: "a.glb" });
+    senses();
+    await flush();
+    act(() => {
+      select(c).value = "";
+      select(c).dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(calls.settings.at(-1)?.headModel).toBeUndefined();
+  });
+
+  it("selects an uploaded model and refreshes the list", async () => {
+    pickHeadModel.mockResolvedValue("new.glb");
+    const { container: c, calls } = render();
+    senses();
+    await flush();
+    const button = c.querySelector(
+      '[data-testid="head-model-upload"]',
+    ) as HTMLButtonElement;
+    act(() => button.click());
+    await flush();
+    expect(calls.settings.at(-1)?.headModel).toBe("new.glb");
+    expect(listHeadModels).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the current head alone when the picker is cancelled", async () => {
+    pickHeadModel.mockResolvedValue(null);
+    const { container: c, calls } = render({ headModel: "a.glb" });
+    senses();
+    await flush();
+    const button = c.querySelector(
+      '[data-testid="head-model-upload"]',
+    ) as HTMLButtonElement;
+    act(() => button.click());
+    await flush();
+    expect(calls.settings).toHaveLength(0);
   });
 });
