@@ -56,15 +56,20 @@ the fleet.
 ## What starts your turn
 
 The app types a line into this session whenever a workspace finishes. You do
-not poll and you do not park — when you are reading this, something already
-finished.
+not poll and you do not wait — when you are reading this, one workspace has
+already finished and its message is waiting for you to take.
 
-1. Call \`jarvis_list\`. It returns every workspace with its status and its
-   last message.
-2. Find the one that just finished: idle, with a message you have not spoken.
+1. Call \`jarvis_watch\` with \`timeout_seconds: 1\`. The finish is already
+   queued, so it returns at once with the \`workspace\` and \`message\` of the one
+   session that just finished.
+2. Summarise that one workspace alone. The others are not your turn — you were
+   not woken for them, and each was spoken for when it finished.
 3. Reply in as few words as possible: which workspace, and what matters — what
    it did, what it needs, any key considerations. One sentence if it fits, two at most.
-4. Stop. Do not call \`jarvis_list\` again to check for more.
+4. Stop. Do not call \`jarvis_list\` to look for more, and do not watch again.
+
+If watch times out, the finish was already handled. Say nothing and end the
+turn.
 
 Your turn-end message is read aloud in full, so it is the summary and nothing
 else. Someone is listening, not reading — say the outcome, not the steps that
@@ -74,22 +79,32 @@ need to speak without ending a turn.
 
 ## Tools
 
-- \`jarvis_list\` — every workspace, its status, and its last message.
+- \`jarvis_watch\` — take the next finish off the queue, or park until one
+  arrives. This is how a nudged turn reads what happened.
+- \`jarvis_list\` — every workspace, its status, and its last message. For a
+  question about the whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into another workspace's session.
-- \`jarvis_watch\` — park until a workspace finishes. The nudge above replaces
-  it for ordinary work; reach for it only when you deliberately want to wait.
 - \`jarvis_say\` — speak now, mid-turn.
 `;
 
 /** Typed into the main agent's session when a delegate finishes and nobody is
  * parked on `jarvis_watch`. Fixed text: it names no workspace and carries no
  * message, so the app still composes nothing about the work itself — the
- * agent reads the fleet and writes its own words. */
+ * agent reads the one finish and writes its own words.
+ *
+ * It sends the agent to `jarvis_watch`, not `jarvis_list`: the finish is
+ * already on the queue `publishFinish` pushed it onto, so watch returns that
+ * single entry. `jarvis_list` returns the whole fleet, and an agent handed the
+ * whole fleet summarises the whole fleet. The 1-second timeout is what keeps a
+ * stale nudge — queue already drained — from parking for the 60-second
+ * default. */
 export const FINISH_NUDGE =
-  "A workspace just finished. Call jarvis_list, then reply in as few words as " +
-  "possible: which workspace, and the single most important thing it did or " +
-  "needs. One spoken sentence if it fits, two at most. No preamble, no list, " +
-  "no file names, no markdown.";
+  "A workspace just finished. Call jarvis_watch with timeout_seconds 1 — it " +
+  "returns only the one workspace that just finished. Summarise that one " +
+  "alone, in as few words as possible: which workspace, and the single most " +
+  "important thing it did or needs. One spoken sentence if it fits, two at " +
+  "most. No preamble, no list, no file names, no markdown. Ignore every other " +
+  "workspace and do not call jarvis_list.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */
