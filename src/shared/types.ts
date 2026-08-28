@@ -162,6 +162,8 @@ export interface Settings {
   micDeviceId?: string;
   ttsVoiceId?: string;
   ttsModelId?: string;
+  /** An uploaded head model's file name. Absent = the built-in helmet. */
+  headModel?: string;
   panels: Record<LayoutId, PanelMap>; // home and workspace arrange separately
   /**
    * The window `panels` was measured in. Panel geometry is pixels, so without

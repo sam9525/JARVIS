@@ -433,4 +433,15 @@ describe("settings", () => {
     // falls back to it rather than leaving the app with no model
     expect(s.ttsModelId).toBe("eleven_multilingual_v2");
   });
+
+  it("round-trips the head model, and drops a non-string one", async () => {
+    expect(
+      (await loadSettings(await writeSettings({ headModel: "a.glb" })))
+        .headModel,
+    ).toBe("a.glb");
+    // absent means the built-in helmet, which is also what a bad value gets
+    expect(
+      (await loadSettings(await writeSettings({ headModel: 7 }))).headModel,
+    ).toBeUndefined();
+  });
 });

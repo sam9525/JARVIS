@@ -68,6 +68,13 @@ const api = {
   ttsSpeak: (text: string): Promise<Uint8Array | null> =>
     ipcRenderer.invoke("tts-speak", text),
   ttsVoices: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-voices"),
+  // head models: names in, bytes out — the renderer never sees a disk path
+  listHeadModels: (): Promise<string[]> =>
+    ipcRenderer.invoke("list-head-models"),
+  readHeadModel: (name: string): Promise<Uint8Array | null> =>
+    ipcRenderer.invoke("read-head-model", name),
+  pickHeadModel: (): Promise<string | null> =>
+    ipcRenderer.invoke("pick-head-model"),
   ttsModels: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-models"),
   onPtyData: (cb: (workspaceId: string, data: string) => void) =>
     subscribe<[string, string]>("pty-data", cb),

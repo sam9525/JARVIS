@@ -37,6 +37,7 @@ import {
 } from "./main-agent";
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
+import { importHead, listHeads, readHead } from "./head-models";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
@@ -221,6 +222,28 @@ app.whenReady().then(async () => {
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
     settings = s;
     await saveSettings(settingsPath, settings);
+  });
+
+  // Head models: the renderer names one and gets bytes back, so no renderer
+  // path ever reaches the disk.
+  const userData = app.getPath("userData");
+  ipcMain.handle("list-head-models", () => listHeads(userData));
+  ipcMain.handle("read-head-model", (_e, name: string) =>
+    readHead(userData, String(name ?? "")),
+  );
+  ipcMain.handle("pick-head-model", async () => {
+    const picked = dialog.showOpenDialogSync({
+      title: "Choose a head model",
+      filters: [{ name: "glTF binary", extensions: ["glb"] }],
+      properties: ["openFile"],
+    });
+    if (!picked?.length) return null; // cancelled
+    try {
+      return await importHead(userData, picked[0]);
+    } catch (err) {
+      console.error("head model import failed:", err);
+      return null;
+    }
   });
 
   const tts = createTts({ fetch: globalThis.fetch });
