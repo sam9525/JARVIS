@@ -48,11 +48,34 @@ function avoidReserved(h: number): number {
   return wrap(h - lo <= hi - h ? lo - 1 : hi + 1);
 }
 
+// Degrees the reserved bands take, and what is left to spread over. Spacing
+// over the free wheel is what keeps two indices off one band edge: the clamp
+// maps a whole band onto a single degree, and two neighbours that both land
+// in it come out the same colour.
+const RESERVED_SPAN = RESERVED.reduce((n, [lo, hi]) => n + (hi - lo + 1), 0);
+const FREE = 360 - RESERVED_SPAN;
+
+// `offset` degrees around the wheel from `baseHue`, counting free degrees
+// only — a reserved band is stepped over rather than counted.
+function freeHue(baseHue: number, offset: number): number {
+  let h = avoidReserved(wrap(baseHue));
+  for (let i = 0; i < offset; i++) {
+    h = wrap(h + 1);
+    const band = bandOf(h);
+    if (band) h = wrap(band[1] + 1);
+  }
+  return h;
+}
+
 /** The `index`-th of `count` hues, starting at `baseHue`. Index 0 is the base
- * hue itself, so a caller's own colour always leads its own spread. */
+ * hue itself, so a caller's own colour always leads its own spread.
+ *
+ * ponytail: distinct up to FREE (298) domains, because below one free degree
+ * per index two of them share one. Spread over a second dimension —
+ * lightness — if a workspace ever carries more folders than that. */
 export function hueFrom(baseHue: number, index: number, count: number): number {
-  const step = 360 / Math.max(count, 1);
-  return avoidReserved(wrap(baseHue + index * step));
+  const step = FREE / Math.max(count, 1);
+  return freeHue(baseHue, Math.floor(index * step));
 }
 
 /** A workspace's identity hue when nothing has been picked for it yet. Keyed by

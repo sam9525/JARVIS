@@ -49,6 +49,18 @@ describe("hueFrom", () => {
     }
   });
 
+  // Clamping a banded hue to the band's nearer edge collapsed a whole band
+  // onto one degree, so a big enough count handed two domains one colour.
+  it("gives every domain its own hue well past a real folder count", () => {
+    for (const count of [26, 30, 36, 40, 60]) {
+      const hues = Array.from({ length: count }, (_, i) => hueFrom(0, i, count));
+      expect({ count, unique: new Set(hues).size }).toEqual({
+        count,
+        unique: count,
+      });
+    }
+  });
+
   it("never lands on a hue reserved for a highlight colour", () => {
     for (let count = 2; count <= 12; count++)
       for (let i = 0; i < count; i++) {
