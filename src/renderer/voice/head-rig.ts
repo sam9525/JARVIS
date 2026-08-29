@@ -35,18 +35,15 @@ export type Rig = { kind: RigKind; apply(amount: number): void };
 // The names avatar exporters actually ship: ARKit, ReadyPlayerMe, Oculus
 // visemes, VRM. Checked in this order, so a rig carrying several opens with the
 // one that means "jaw down" rather than a vowel shape.
-const MOUTH_MORPHS = [
-  "jawOpen",
-  "mouthOpen",
-  "viseme_aa",
-  "Fcl_MTH_A",
-  "A",
-];
+const MOUTH_MORPHS = ["jawOpen", "mouthOpen", "viseme_aa", "Fcl_MTH_A", "A"];
 
 // Widest the jaw swings, in radians. Past this a rigged head gapes.
 const JAW_MAX = 0.35;
 
-function walk(root: RigObject, fn: (o: RigObject) => boolean): RigObject | null {
+function walk(
+  root: RigObject,
+  fn: (o: RigObject) => boolean,
+): RigObject | null {
   if (fn(root)) return root;
   for (const child of root.children ?? []) {
     const found = walk(child, fn);
@@ -73,7 +70,9 @@ function findMorph(root: RigObject): { mesh: RigObject; slot: number } | null {
 }
 
 function findJaw(root: RigObject): RigObject | null {
-  return walk(root, (o) => Boolean(o.isBone && o.rotation && /jaw/i.test(o.name ?? "")));
+  return walk(root, (o) =>
+    Boolean(o.isBone && o.rotation && /jaw/i.test(o.name ?? "")),
+  );
 }
 
 function regionRig(kind: RigKind, model: HeadModel, region: MouthRegion): Rig {

@@ -282,7 +282,11 @@ export function regionMask(m: HeadModel, region: MouthRegion): RegionMask {
   const idx: number[] = [];
   const w: number[] = [];
   for (let i = 0, v = 0; v < m.verts.length; i++, v += 3) {
-    const d = Math.hypot(m.verts[v] - cx, m.verts[v + 1] - cy, m.verts[v + 2] - cz);
+    const d = Math.hypot(
+      m.verts[v] - cx,
+      m.verts[v + 1] - cy,
+      m.verts[v + 2] - cz,
+    );
     if (d >= r) continue;
     const fall = 0.5 + 0.5 * Math.cos((d / r) * Math.PI);
     idx.push(i);

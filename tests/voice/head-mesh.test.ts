@@ -98,7 +98,8 @@ describe("visibleEdges", () => {
       [0, 1, 2],
     );
     const segs = visibleEdges(model, 0, 0, 76);
-    for (let i = 0; i < segs.length; i++) expect(Number.isFinite(segs[i])).toBe(true);
+    for (let i = 0; i < segs.length; i++)
+      expect(Number.isFinite(segs[i])).toBe(true);
   });
 });
 
@@ -167,7 +168,14 @@ describe("normalisePoint", () => {
     const m = buildModel(PAIR.positions, PAIR.indices);
     const out = new Float32Array(3);
     // the first raw vertex, back through the same centre-and-scale
-    normalisePoint(m, PAIR.positions[0], PAIR.positions[1], PAIR.positions[2], out, 0);
+    normalisePoint(
+      m,
+      PAIR.positions[0],
+      PAIR.positions[1],
+      PAIR.positions[2],
+      out,
+      0,
+    );
     expect(out[0]).toBeCloseTo(m.verts[0], 5);
     expect(out[1]).toBeCloseTo(m.verts[1], 5);
     expect(out[2]).toBeCloseTo(m.verts[2], 5);
@@ -177,18 +185,25 @@ describe("normalisePoint", () => {
 describe("displaceRegion", () => {
   it("moves only the masked vertices and never compounds", () => {
     const m = buildModel(PAIR.positions, PAIR.indices);
-    const mask = regionMask(m, { c: [m.verts[0], m.verts[1], m.verts[2]], r: 0.5 });
+    const mask = regionMask(m, {
+      c: [m.verts[0], m.verts[1], m.verts[2]],
+      r: 0.5,
+    });
     const untouched = m.verts.length / 3 === mask.idx.length ? -1 : 3;
     displaceRegion(m, mask, 1);
     const once = m.pose[1];
     displaceRegion(m, mask, 1);
     expect(m.pose[1]).toBeCloseTo(once, 6); // second call starts from rest
-    if (untouched >= 0) expect(m.pose[untouched * 3 + 1]).toBe(m.verts[untouched * 3 + 1]);
+    if (untouched >= 0)
+      expect(m.pose[untouched * 3 + 1]).toBe(m.verts[untouched * 3 + 1]);
   });
 
   it("returns the pose to rest", () => {
     const m = buildModel(PAIR.positions, PAIR.indices);
-    const mask = regionMask(m, { c: [m.verts[0], m.verts[1], m.verts[2]], r: 0.5 });
+    const mask = regionMask(m, {
+      c: [m.verts[0], m.verts[1], m.verts[2]],
+      r: 0.5,
+    });
     displaceRegion(m, mask, 1);
     resetPose(m, mask);
     expect([...m.pose]).toEqual([...m.verts]);

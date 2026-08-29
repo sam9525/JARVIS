@@ -13,12 +13,21 @@ const morphMesh = (names: string[]): RigObject => ({
   morphTargetDictionary: Object.fromEntries(names.map((n, i) => [n, i])),
   morphTargetInfluences: names.map(() => 0),
 });
-const bone = (name: string): RigObject => ({ isBone: true, name, rotation: { x: 0 } });
+const bone = (name: string): RigObject => ({
+  isBone: true,
+  name,
+  rotation: { x: 0 },
+});
 const scene = (children: RigObject[]): RigObject => ({ children });
 
 describe("resolveRig", () => {
   it("finds a morph target by name", () => {
-    const rig = resolveRig(scene([morphMesh(["blink", "jawOpen"])]), model(), null, null);
+    const rig = resolveRig(
+      scene([morphMesh(["blink", "jawOpen"])]),
+      model(),
+      null,
+      null,
+    );
     expect(rig.kind).toBe("morph");
   });
 

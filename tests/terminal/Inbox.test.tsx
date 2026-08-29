@@ -170,36 +170,68 @@ describe("Inbox", () => {
 
   it("lets the main agent's idle message wrap, and truncates every other row", () => {
     const fleet: Workspace[] = [
-      { id: "self", name: "JARVIS", rootPath: "D:\\main", kind: "vault", isSelf: true },
+      {
+        id: "self",
+        name: "JARVIS",
+        rootPath: "D:\\main",
+        kind: "vault",
+        isSelf: true,
+      },
       { id: "w1", name: "web-app", rootPath: "D:\\web", kind: "code" },
     ];
     render(
       <Inbox
         workspaces={fleet}
         statuses={[
-          status({ workspaceId: "self", kind: "idle", message: "a long summary" }),
-          status({ workspaceId: "w1", kind: "idle", message: "a long summary" }),
+          status({
+            workspaceId: "self",
+            kind: "idle",
+            message: "a long summary",
+          }),
+          status({
+            workspaceId: "w1",
+            kind: "idle",
+            message: "a long summary",
+          }),
         ]}
         activeId={null}
         onSelect={() => {}}
       />,
     );
-    expect(screen.getByTestId("inbox-preview-self").className).not.toContain("truncate");
-    expect(screen.getByTestId("inbox-preview-w1").className).toContain("truncate");
+    expect(screen.getByTestId("inbox-preview-self").className).not.toContain(
+      "truncate",
+    );
+    expect(screen.getByTestId("inbox-preview-w1").className).toContain(
+      "truncate",
+    );
   });
 
   it("keeps the main agent's running call line on one line", () => {
     const fleet: Workspace[] = [
-      { id: "self", name: "JARVIS", rootPath: "D:\\main", kind: "vault", isSelf: true },
+      {
+        id: "self",
+        name: "JARVIS",
+        rootPath: "D:\\main",
+        kind: "vault",
+        isSelf: true,
+      },
     ];
     render(
       <Inbox
         workspaces={fleet}
-        statuses={[status({ workspaceId: "self", kind: "running", call: "Bash(npm test)" })]}
+        statuses={[
+          status({
+            workspaceId: "self",
+            kind: "running",
+            call: "Bash(npm test)",
+          }),
+        ]}
         activeId={null}
         onSelect={() => {}}
       />,
     );
-    expect(screen.getByTestId("inbox-preview-self").className).toContain("truncate");
+    expect(screen.getByTestId("inbox-preview-self").className).toContain(
+      "truncate",
+    );
   });
 });

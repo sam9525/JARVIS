@@ -159,4 +159,3 @@ export function projectRegion(
     visible: centerProj.z < 1,
   };
 }
-

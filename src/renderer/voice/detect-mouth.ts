@@ -113,9 +113,8 @@ export async function detectMouth(
 ): Promise<MouthRegion | null> {
   const restoreTelemetry = installMediaPipeTelemetryBlock();
   try {
-    const { FaceLandmarker, FilesetResolver } = await import(
-      "@mediapipe/tasks-vision"
-    );
+    const { FaceLandmarker, FilesetResolver } =
+      await import("@mediapipe/tasks-vision");
     const files = await FilesetResolver.forVisionTasks("/hands/wasm");
     const detector = await FaceLandmarker.createFromOptions(files, {
       baseOptions: { modelAssetPath: "/voice/face_landmarker.task" },
