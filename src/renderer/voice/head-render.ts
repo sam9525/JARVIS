@@ -3,9 +3,14 @@ import {
   DirectionalLight,
   Group,
   PerspectiveCamera,
+  Raycaster,
   Scene,
+  Vector2,
   WebGLRenderer,
+  type Object3D,
 } from "three";
+import { normalisePoint } from "./head-mesh";
+import type { LoadedHead } from "./load-head";
 
 /**
  * The head rendered as the model's own materials, for the colour mode.
@@ -59,5 +64,47 @@ export function mountColourHead(
       renderer.dispose();
       renderer.forceContextLoss();
     },
+  };
+}
+
+/**
+ * Canvas pixels to a point on the head, in normalised model space, or `null`.
+ *
+ * `null` is a real answer: a click past the silhouette hit nothing, and the
+ * picker must not fall back to a nearest vertex, which would mark the far side
+ * of the head.
+ */
+export function pickOnScene(
+  loaded: LoadedHead,
+  w: number,
+  h: number,
+  angle: { yaw: number; pitch: number },
+) {
+  const ray = new Raycaster();
+  const at = new Vector2();
+  const out = new Float32Array(3);
+  const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
+  camera.position.set(0, 0, DIST);
+  return (x: number, y: number): [number, number, number] | null => {
+    at.set((x / w) * 2 - 1, -((y / h) * 2 - 1));
+    ray.setFromCamera(at, camera);
+    // the scene rotates under a fixed camera, so the same angles the renderer
+    // draws with have to be on the object before the ray is cast
+    const root = (loaded.scene as { parent?: unknown }).parent as
+      Object3D | undefined;
+    if (root) {
+      root.rotation.y = angle.yaw;
+      root.rotation.x = angle.pitch;
+      root.updateMatrixWorld(true);
+    }
+    const hit = ray.intersectObject(loaded.scene as never, true)[0];
+    if (!hit) return null;
+    // The hit is in world space, and the group carries both the yaw/pitch and
+    // the Y-flip that mountColourHead applies. `normalisePoint` wants the
+    // file's own glTF units, so the point goes back through the group first —
+    // without this the pick lands mirrored in x and y.
+    const local = root ? root.worldToLocal(hit.point.clone()) : hit.point;
+    normalisePoint(loaded.model, local.x, local.y, local.z, out, 0);
+    return [out[0], out[1], out[2]];
   };
 }

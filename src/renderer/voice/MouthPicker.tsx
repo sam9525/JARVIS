@@ -1,0 +1,151 @@
+import React, { useEffect, useRef, useState } from "react";
+import type { MouthRegion } from "../../shared/types";
+
+const SIZE = 260;
+// A click with no drag still has to mark something openable, or Done would
+// store a region no vertex falls inside.
+const MIN_R = 0.06;
+
+/** The radius a drag from the centre to a second point describes. */
+export function radiusFrom(
+  c: [number, number, number],
+  to: [number, number, number],
+): number {
+  return Math.max(Math.hypot(to[0] - c[0], to[1] - c[1], to[2] - c[2]), MIN_R);
+}
+
+/**
+ * Mark where a head model's mouth is, for a model that ships no rig.
+ *
+ * The head renders in colour so a face is actually legible; a drag orbits it, a
+ * click raycasts to the surface and plants the centre, and dragging out from
+ * there sets the radius. A click that hits nothing does nothing — a
+ * nearest-vertex-anywhere fallback would put a mouth on the back of the head.
+ *
+ * The marker is drawn inside the render loop, never held in React state: this
+ * folder's rule, because a re-render a frame restarts the graph's force
+ * simulation underneath the panel.
+ */
+export default function MouthPicker({
+  headModel,
+  initial,
+  onDone,
+}: {
+  headModel?: string;
+  initial?: MouthRegion;
+  onDone(region: MouthRegion | null): void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const regionRef = useRef<MouthRegion | null>(initial ?? null);
+  // Mirrors regionRef for the button's disabled state only. The loop never
+  // reads it, so it costs one render per pick rather than one per frame.
+  const [marked, setMarked] = useState(Boolean(initial));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let disposed = false;
+    let head: {
+      render(yaw: number, pitch: number): void;
+      dispose(): void;
+    } | null = null;
+    let raycast:
+      ((x: number, y: number) => [number, number, number] | null) | null = null;
+    const angle = { yaw: 0, pitch: 0 };
+    let frame = 0;
+    let mode: "orbit" | "size" | null = null;
+    let last = { x: 0, y: 0 };
+
+    const draw = () => {
+      if (disposed || !head) return;
+      head.render(angle.yaw, angle.pitch);
+      frame = requestAnimationFrame(draw);
+    };
+
+    const onDown = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const hit =
+        raycast?.(e.clientX - rect.left, e.clientY - rect.top) ?? null;
+      if (hit) {
+        regionRef.current = { c: hit, r: MIN_R };
+        setMarked(true);
+        mode = "size";
+      } else {
+        mode = "orbit";
+      }
+      last = { x: e.clientX, y: e.clientY };
+      canvas.setPointerCapture(e.pointerId);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!mode) return;
+      if (mode === "orbit") {
+        angle.yaw += (e.clientX - last.x) * 0.01;
+        angle.pitch += (e.clientY - last.y) * 0.01;
+        last = { x: e.clientX, y: e.clientY };
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const hit =
+        raycast?.(e.clientX - rect.left, e.clientY - rect.top) ?? null;
+      const c = regionRef.current?.c;
+      if (hit && c) regionRef.current = { c, r: radiusFrom(c, hit) };
+    };
+
+    const onUp = () => {
+      mode = null;
+    };
+
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", onUp);
+
+    void (async () => {
+      const [{ loadHead }, { mountColourHead, pickOnScene }] =
+        await Promise.all([import("./load-head"), import("./head-render")]);
+      const loaded = await loadHead(headModel);
+      if (disposed) return;
+      head = mountColourHead(canvas, loaded.scene, SIZE, SIZE);
+      raycast = pickOnScene(loaded, SIZE, SIZE, angle);
+      draw();
+    })().catch((err) => console.error("mouth picker", err));
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", onUp);
+      head?.dispose();
+    };
+  }, [headModel]);
+
+  return (
+    <div
+      className="flex flex-col items-center gap-2 p-2"
+      data-testid="mouth-picker"
+    >
+      <canvas ref={canvasRef} style={{ width: SIZE, height: SIZE }} />
+      <p className="text-[11.5px] text-ink-dim">
+        Drag to turn the head. Click its mouth, then drag out to size it.
+      </p>
+      <div className="flex w-full gap-2">
+        <button
+          data-testid="mouth-pick-clear"
+          className="flex-1 cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
+          onClick={() => onDone(null)}
+        >
+          Clear
+        </button>
+        <button
+          data-testid="mouth-pick-done"
+          disabled={!marked}
+          className="flex-1 cursor-pointer rounded-md bg-accent/20 py-1.5 text-ink transition-colors hover:bg-accent/30 disabled:cursor-default disabled:opacity-40"
+          onClick={() => onDone(regionRef.current)}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}

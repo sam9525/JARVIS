@@ -68,6 +68,7 @@ type MountProps = Partial<{
   onResetHighlights: () => void;
   showSections: boolean;
   rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null;
+  onPickMouth?: () => void;
 }>;
 
 function mount(props: MountProps = {}) {
@@ -84,6 +85,7 @@ function mount(props: MountProps = {}) {
         onResetHighlights={props.onResetHighlights ?? (() => undefined)}
         showSections={props.showSections ?? true}
         rigKind={props.rigKind}
+        onPickMouth={props.onPickMouth}
       />,
     );
   });
@@ -192,8 +194,8 @@ describe("GraphSettingsPanel", () => {
     ).toBeNull();
     senses();
     // [header, hand control, voice control, microphone, no-devices hint,
-    //  head model, head upload, colour head, mouth moves, cloud voice]
-    expect(container.firstElementChild!.children).toHaveLength(10);
+    //  head model, head upload, colour head, mouth moves, pick mouth, cloud voice]
+    expect(container.firstElementChild!.children).toHaveLength(11);
     expect(
       container.querySelector('[data-testid="voice-control-setting"]'),
     ).not.toBeNull();
@@ -471,5 +473,20 @@ describe("mouth moves", () => {
     ) as HTMLInputElement;
     setChecked(input, true);
     expect(calls.settings.at(-1)?.headMouth).toBe(true);
+  });
+
+  it("fires onPickMouth when Pick the mouth button is clicked", () => {
+    let picked = false;
+    mount({
+      onPickMouth: () => {
+        picked = true;
+      },
+    });
+    senses();
+    const button = container.querySelector(
+      '[data-testid="mouth-pick-open"]',
+    ) as HTMLButtonElement;
+    act(() => button.click());
+    expect(picked).toBe(true);
   });
 });

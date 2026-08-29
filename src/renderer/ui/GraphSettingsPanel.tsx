@@ -81,6 +81,7 @@ type Props = {
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
   rigKind?: RigKind | null;
+  onPickMouth?: () => void;
 };
 
 export default function GraphSettingsPanel({
@@ -94,6 +95,7 @@ export default function GraphSettingsPanel({
   onResetHighlights,
   showSections,
   rigKind,
+  onPickMouth,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
     onSettingsChange({ ...settings, ...patch });
@@ -462,6 +464,14 @@ export default function GraphSettingsPanel({
               This model has no mouth. Pick one to give it a region to open.
             </div>
           )}
+          <button
+            data-testid="mouth-pick-open"
+            className="mb-1 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
+            title="Mark where this model's mouth is"
+            onClick={onPickMouth}
+          >
+            Pick the mouth…
+          </button>
 
           <details className="border-t border-edge py-2">
             <summary className="mb-1.5 cursor-pointer font-semibold">

@@ -10,6 +10,7 @@ import Graph3D from "./graph/Graph3D";
 import GraphSlot from "./graph/GraphSlot";
 import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
+import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
@@ -121,6 +122,7 @@ export default function App() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
+  const [showMouthPicker, setShowMouthPicker] = useState(false);
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
   // MissionControl is hook-free so it stays testable without a DOM — the
@@ -557,8 +559,9 @@ export default function App() {
     // way it looks rather than the way it is stored
     if (showSettings)
       live.settings = { ...panelState("settings"), z: SETTINGS_Z };
+    if (showMouthPicker) live.mouth = panelState("mouth");
     return live;
-  }, [deckCleared, active, previewNode, showSettings, panels]);
+  }, [deckCleared, active, previewNode, showSettings, showMouthPicker, panels]);
 
   const onHandDrag = useCallback(
     (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
@@ -1051,6 +1054,33 @@ export default function App() {
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
             rigKind={rigKind}
+            onPickMouth={() => setShowMouthPicker(true)}
+          />
+        </Panel>
+      )}
+
+      {showMouthPicker && (
+        <Panel
+          id="mouth"
+          title="PICK THE MOUTH"
+          state={panelState("mouth")}
+          focused={focusedPanel === "mouth"}
+          hidden={deckCleared}
+          onChange={(next) => setPanel("mouth", next)}
+          onFocus={() => focusPanel("mouth")}
+          onClose={() => setShowMouthPicker(false)}
+        >
+          <MouthPicker
+            headModel={settings.headModel}
+            initial={settings.headMouths?.[settings.headModel ?? "__builtin"]}
+            onDone={(region) => {
+              const key = settings.headModel ?? "__builtin";
+              const next = { ...(settings.headMouths ?? {}) };
+              if (region) next[key] = region;
+              else delete next[key];
+              updateSettings({ ...settings, headMouths: next });
+              setShowMouthPicker(false);
+            }}
           />
         </Panel>
       )}
