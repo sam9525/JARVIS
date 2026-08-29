@@ -89,10 +89,11 @@ export function workspaceHue(name: string, allNames: string[]): number {
   return hueFrom(0, i === -1 ? 0 : i, sorted.length);
 }
 
-/** The identity hue of one workspace among the fleet: the first hue its groups
- * ever drew, which `Settings.mainColors` holds. The single entry point for
- * views — Fleet paints a project's whole cluster with it, so it has to be the
- * same number the project's own graph leads with.
+/** The identity hue of one workspace among the fleet: its biggest folder's hue
+ * (ties going to the alphabetically first), not the first hue drawn, which
+ * `Settings.mainColors` holds. The single entry point for views — Fleet paints
+ * a project's whole cluster with it, so it has to be the same number the
+ * project's own graph leads with.
  *
  * The deterministic spread is the fallback, not the rule: it covers a workspace
  * whose graph has not loaded yet, which would otherwise flash grey and then
