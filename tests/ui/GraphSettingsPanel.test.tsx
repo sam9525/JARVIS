@@ -186,8 +186,8 @@ describe("GraphSettingsPanel", () => {
     ).toBeNull();
     senses();
     // [header, hand control, voice control, microphone, no-devices hint,
-    //  head model, head upload, cloud voice]
-    expect(container.firstElementChild!.children).toHaveLength(8);
+    //  head model, head upload, colour head, cloud voice]
+    expect(container.firstElementChild!.children).toHaveLength(9);
     expect(
       container.querySelector('[data-testid="voice-control-setting"]'),
     ).not.toBeNull();

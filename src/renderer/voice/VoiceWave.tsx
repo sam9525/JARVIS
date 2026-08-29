@@ -52,16 +52,25 @@ const DOT = 0.7;
  * re-render a frame would restart the force simulation underneath them (the
  * same rule HandCursor follows): they are written through refs instead.
  */
-export default function VoiceWave({ headModel }: { headModel?: string }) {
+export default function VoiceWave({
+  headModel,
+  colour,
+}: {
+  headModel?: string;
+  colour?: boolean;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const headRef = useRef<HTMLCanvasElement | null>(null);
+  const colourRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     const headCanvas = headRef.current;
     const head2d = headCanvas?.getContext("2d");
-    if (!canvas || !ctx || !headCanvas || !head2d) return;
+    if (!canvas || !ctx) return;
+    if (!colour && (!headCanvas || !head2d)) return;
+    if (colour && !colourRef.current) return;
 
     // Backing-store scale for the bezel's fixed CSS size. setTransform, not
     // scale: StrictMode runs this effect twice on the same canvas, and scale
@@ -72,9 +81,11 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    headCanvas.width = HEAD_W * dpr;
-    headCanvas.height = HEAD_H * dpr;
-    head2d.setTransform(dpr, 0, 0, dpr, (HEAD_W / 2) * dpr, (HEAD_H / 2) * dpr);
+    if (!colour && headCanvas && head2d) {
+      headCanvas.width = HEAD_W * dpr;
+      headCanvas.height = HEAD_H * dpr;
+      head2d.setTransform(dpr, 0, 0, dpr, (HEAD_W / 2) * dpr, (HEAD_H / 2) * dpr);
+    }
 
     const styles = getComputedStyle(document.documentElement);
     const live = styles.getPropertyValue("--color-accent").trim() || "#22d3ee";
@@ -89,6 +100,7 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     let disposed = false;
     let running = false;
     let head: import("./load-head").LoadedHead | null = null;
+    let colourHead: import("./head-render").ColourHead | null = null;
 
     const paint = (hasWave: boolean) => {
       ctx.clearRect(0, 0, W, H);
@@ -122,6 +134,7 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     // One path and one stroke for the whole helmet. Ten thousand separate
     // stroke calls is what would cost a frame, not the segment count.
     const paintHead = (lit: boolean) => {
+      if (!head2d) return;
       head2d.clearRect(-HEAD_W / 2, -HEAD_H / 2, HEAD_W, HEAD_H);
       if (!head) return;
       head2d.lineWidth = HEAD_LINE;
@@ -154,7 +167,8 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
       // while drawing a flat line — speechSynthesis writes straight to the
       // output device and no Web Audio node can see it.
       const sounding = isSounding();
-      paintHead(hasWave || sounding);
+      if (colourHead) colourHead.render(angle.yaw, angle.pitch);
+      else paintHead(hasWave || sounding);
       if (hasWave || sounding || !settled()) {
         frame = requestAnimationFrame(tick);
         return;
@@ -205,35 +219,54 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     // again, so nothing spins waiting for the file.
     import("./load-head")
       .then(({ loadHead }) => loadHead(headModel))
-      .then((loaded) => {
+      .then(async (loaded) => {
         if (disposed) return;
         head = loaded;
+        if (colour && colourRef.current) {
+          const { mountColourHead } = await import("./head-render");
+          colourHead = mountColourHead(
+            colourRef.current,
+            loaded.scene,
+            HEAD_W,
+            HEAD_H,
+          );
+        }
         start();
       })
       .catch((err) => console.error("head model", err));
 
-    // headModel: a different head means a different model, and the effect owns
-    // the loop that draws it. Tearing the whole thing down is the cheap and
-    // correct way to swap — it disposes the listener and the timer with it.
+    // headModel / colour: a different head or a different renderer means a
+    // different loop, and the effect owns it. Tearing the whole thing down is
+    // the cheap and correct swap — it disposes the listener, the timer and the
+    // WebGL context with it.
 
     return () => {
       disposed = true;
       window.removeEventListener("pointermove", onPointer);
       cancelAnimationFrame(frame);
       if (timer) clearTimeout(timer);
+      colourHead?.dispose();
     };
-  }, [headModel]);
+  }, [headModel, colour]);
 
   return (
     <div
       data-testid="voice-wave"
       className="pointer-events-none flex w-max flex-col gap-1"
     >
-      <canvas
-        ref={headRef}
-        data-testid="voice-head"
-        style={{ width: HEAD_W, height: HEAD_H }}
-      />
+      {colour ? (
+        <canvas
+          ref={colourRef}
+          data-testid="voice-head-colour"
+          style={{ width: HEAD_W, height: HEAD_H }}
+        />
+      ) : (
+        <canvas
+          ref={headRef}
+          data-testid="voice-head"
+          style={{ width: HEAD_W, height: HEAD_H }}
+        />
+      )}
       <canvas
         ref={canvasRef}
         data-testid="voice-wave-canvas"

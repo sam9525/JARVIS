@@ -205,6 +205,7 @@ export default function GraphSettingsPanel({
               ttsVoiceId: settings.ttsVoiceId,
               ttsModelId: settings.ttsModelId,
               headModel: settings.headModel,
+              headColor: settings.headColor,
             });
             onSearchChange("");
             onResetHighlights();
@@ -424,6 +425,17 @@ export default function GraphSettingsPanel({
           >
             Upload a .glb head
           </button>
+
+          <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
+            Colour head
+            <input
+              type="checkbox"
+              data-testid="head-colour-setting"
+              className="gs-switch"
+              checked={settings.headColor ?? false}
+              onChange={(e) => set({ headColor: e.target.checked || undefined })}
+            />
+          </label>
 
           <details className="border-t border-edge py-2">
             <summary className="mb-1.5 cursor-pointer font-semibold">

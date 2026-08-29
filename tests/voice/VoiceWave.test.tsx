@@ -151,4 +151,15 @@ describe("VoiceWave", () => {
     ) as HTMLElement;
     expect(wave.className.split(/\s+/)).toContain("pointer-events-none");
   });
+
+  it("mounts the WebGL canvas in colour mode and the 2D one otherwise", () => {
+    silent();
+    act(() => root.render(<VoiceWave colour />));
+    expect(container.querySelector('[data-testid="voice-head-colour"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="voice-head"]')).toBeNull();
+
+    act(() => root.render(<VoiceWave />));
+    expect(container.querySelector('[data-testid="voice-head"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="voice-head-colour"]')).toBeNull();
+  });
 });
