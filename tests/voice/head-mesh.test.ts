@@ -5,6 +5,11 @@ import {
   visibleEdges,
   MAX_YAW,
   MAX_PITCH,
+  recomputeNormals,
+  regionMask,
+  displaceRegion,
+  resetPose,
+  normalisePoint,
 } from "../../src/renderer/voice/head-mesh";
 
 // One triangle facing +z, in glTF's Y-up axes. Counter-clockwise seen from
@@ -117,5 +122,75 @@ describe("aimFrom", () => {
   it("clamps a pointer dragged outside the window", () => {
     expect(aimFrom(-500, 4000, 1000, 800).yaw).toBeCloseTo(-MAX_YAW, 5);
     expect(aimFrom(-500, 4000, 1000, 800).pitch).toBeCloseTo(-MAX_PITCH, 5);
+  });
+});
+
+describe("recomputeNormals", () => {
+  it("reproduces buildModel's normals on the rest pose", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const before = [...m.nx, ...m.ny, ...m.nz];
+    // scramble, then rebuild from the untouched pose
+    m.nx.fill(0);
+    m.ny.fill(0);
+    m.nz.fill(0);
+    recomputeNormals(m);
+    expect([...m.nx, ...m.ny, ...m.nz]).toEqual(before);
+  });
+});
+
+describe("regionMask", () => {
+  const m = buildModel(PAIR.positions, PAIR.indices);
+
+  it("weights a vertex at the centre fully and one at the radius not at all", () => {
+    const at = [m.verts[0], m.verts[1], m.verts[2]] as [number, number, number];
+    const mask = regionMask(m, { c: at, r: 0.5 });
+    const slot = [...mask.idx].indexOf(0);
+    expect(slot).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(mask.w[slot])).toBeCloseTo(1, 5);
+  });
+
+  it("leaves a vertex outside the radius out of the mask entirely", () => {
+    const mask = regionMask(m, { c: [99, 99, 99], r: 0.1 });
+    expect(mask.idx.length).toBe(0);
+  });
+
+  it("signs the mask so the two sides of the centre move apart", () => {
+    const mask = regionMask(m, { c: [0, 0, 0], r: 10 });
+    const signs = new Set([...mask.w].map((w) => Math.sign(w)));
+    expect(signs.has(1)).toBe(true);
+    expect(signs.has(-1)).toBe(true);
+  });
+});
+
+describe("normalisePoint", () => {
+  it("puts a raw glTF point exactly where buildModel put it", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const out = new Float32Array(3);
+    // the first raw vertex, back through the same centre-and-scale
+    normalisePoint(m, PAIR.positions[0], PAIR.positions[1], PAIR.positions[2], out, 0);
+    expect(out[0]).toBeCloseTo(m.verts[0], 5);
+    expect(out[1]).toBeCloseTo(m.verts[1], 5);
+    expect(out[2]).toBeCloseTo(m.verts[2], 5);
+  });
+});
+
+describe("displaceRegion", () => {
+  it("moves only the masked vertices and never compounds", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const mask = regionMask(m, { c: [m.verts[0], m.verts[1], m.verts[2]], r: 0.5 });
+    const untouched = m.verts.length / 3 === mask.idx.length ? -1 : 3;
+    displaceRegion(m, mask, 1);
+    const once = m.pose[1];
+    displaceRegion(m, mask, 1);
+    expect(m.pose[1]).toBeCloseTo(once, 6); // second call starts from rest
+    if (untouched >= 0) expect(m.pose[untouched * 3 + 1]).toBe(m.verts[untouched * 3 + 1]);
+  });
+
+  it("returns the pose to rest", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const mask = regionMask(m, { c: [m.verts[0], m.verts[1], m.verts[2]], r: 0.5 });
+    displaceRegion(m, mask, 1);
+    resetPose(m, mask);
+    expect([...m.pose]).toEqual([...m.verts]);
   });
 });

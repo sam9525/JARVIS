@@ -13,6 +13,8 @@
  * z toward the viewer, so the face looks out of the screen at z > 0.
  */
 
+import type { MouthRegion } from "../../shared/types";
+
 export type Pt = [number, number];
 
 /** Widest turn in radians. Past this the mesh reads as a side profile. */
@@ -23,9 +25,18 @@ export const MAX_PITCH = 0.4;
 // enough that the silhouette does not bow.
 const DIST = 4;
 
+export type Norm = { scale: number; cx: number; cy: number; cz: number };
+
 export type HeadModel = {
   /** Normalised xyz triples. */
   verts: Float32Array;
+  /** The rest pose, drawn when nothing deforms it. `verts` is never mutated. */
+  pose: Float32Array;
+  /** Triangle corners in the swapped winding, so normals can be rebuilt. */
+  tri: Uint32Array;
+  /** The centre-and-scale that took the raw soup to normalised space, kept so
+   *  a GPU-deformed vertex read back in raw units can take the same path. */
+  norm: Norm;
   /** Edge endpoints, as vertex indices. */
   ea: Uint32Array;
   eb: Uint32Array;
@@ -96,6 +107,7 @@ export function buildModel(
   const eb: number[] = [];
   const ef1: number[] = [];
   const ef2: number[] = [];
+  const triList: number[] = [];
   // The second and third corners are swapped because negating y mirrors the
   // space, which reverses every triangle's winding. Without the swap every
   // normal points inward and the cull keeps exactly the wrong half.
@@ -121,6 +133,7 @@ export function buildModel(
     ny[f] = cny / len;
     nz[f] = cnz / len;
     const tri = [ia, ib, ic];
+    triList.push(ia, ib, ic);
     for (let k = 0; k < 3; k++) {
       const p = tri[k];
       const q = tri[(k + 1) % 3];
@@ -143,6 +156,9 @@ export function buildModel(
   const n = verts.length / 3;
   return {
     verts,
+    pose: Float32Array.from(verts),
+    tri: Uint32Array.from(triList),
+    norm: { scale, cx, cy, cz },
     ea: Uint32Array.from(ea),
     eb: Uint32Array.from(eb),
     ef1: Int32Array.from(ef1),
@@ -174,10 +190,10 @@ export function visibleEdges(
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
 
-  for (let i = 0, v = 0; v < m.verts.length; i++, v += 3) {
-    const x = m.verts[v];
-    const y = m.verts[v + 1];
-    const z = m.verts[v + 2];
+  for (let i = 0, v = 0; v < m.pose.length; i++, v += 3) {
+    const x = m.pose[v];
+    const y = m.pose[v + 1];
+    const z = m.pose[v + 2];
     const x1 = x * cy + z * sy;
     const z1 = -x * sy + z * cy;
     const y1 = y * cp - z1 * sp;
@@ -221,4 +237,106 @@ export function aimFrom(
     yaw: (clamp01(x / w) - 0.5) * 2 * MAX_YAW,
     pitch: -(clamp01(y / h) - 0.5) * 2 * MAX_PITCH,
   };
+}
+
+/** Rebuild every face normal from the current pose. */
+export function recomputeNormals(m: HeadModel): void {
+  const p = m.pose;
+  for (let f = 0, t = 0; t < m.tri.length; f++, t += 3) {
+    const a = m.tri[t] * 3;
+    const b = m.tri[t + 1] * 3;
+    const c = m.tri[t + 2] * 3;
+    const ux = p[b] - p[a];
+    const uy = p[b + 1] - p[a + 1];
+    const uz = p[b + 2] - p[a + 2];
+    const vx = p[c] - p[a];
+    const vy = p[c + 1] - p[a + 1];
+    const vz = p[c + 2] - p[a + 2];
+    const cnx = uy * vz - uz * vy;
+    const cny = uz * vx - ux * vz;
+    const cnz = ux * vy - uy * vx;
+    const len = Math.hypot(cnx, cny, cnz) || 1;
+    m.nx[f] = cnx / len;
+    m.ny[f] = cny / len;
+    m.nz[f] = cnz / len;
+  }
+}
+
+/** The vertices a marked mouth moves, with a signed cosine falloff. */
+export type RegionMask = { idx: Uint32Array; w: Float32Array };
+
+// How far a fully-weighted vertex travels, as a share of the region's radius. A
+// mouth that opens its own width reads as speech; more reads as a yawn.
+const OPEN = 0.55;
+
+/**
+ * Vertices within the region, weighted 1 at the centre and 0 at the radius.
+ *
+ * The weight is signed by which side of the centre the vertex sits on — y is
+ * down, so the lower lip takes a positive weight and the upper a negative one,
+ * and the two travel apart rather than together.
+ */
+export function regionMask(m: HeadModel, region: MouthRegion): RegionMask {
+  const [cx, cy, cz] = region.c;
+  const r = Math.max(region.r, 1e-6);
+  const idx: number[] = [];
+  const w: number[] = [];
+  for (let i = 0, v = 0; v < m.verts.length; i++, v += 3) {
+    const d = Math.hypot(m.verts[v] - cx, m.verts[v + 1] - cy, m.verts[v + 2] - cz);
+    if (d >= r) continue;
+    const fall = 0.5 + 0.5 * Math.cos((d / r) * Math.PI);
+    idx.push(i);
+    w.push(m.verts[v + 1] < cy ? -fall : fall);
+  }
+  return { idx: Uint32Array.from(idx), w: Float32Array.from(w) };
+}
+
+/**
+ * Open the marked mouth by `amount` (0–1).
+ *
+ * Every masked vertex is written from the rest pose, not from its last
+ * position, so calling this each frame cannot compound.
+ */
+export function displaceRegion(
+  m: HeadModel,
+  mask: RegionMask,
+  amount: number,
+  radius = 1,
+): void {
+  const travel = amount * OPEN * radius;
+  for (let k = 0; k < mask.idx.length; k++) {
+    const v = mask.idx[k] * 3;
+    m.pose[v + 1] = m.verts[v + 1] + mask.w[k] * travel;
+  }
+}
+
+/** Put the masked vertices back where `buildModel` left them. */
+export function resetPose(m: HeadModel, mask: RegionMask): void {
+  for (let k = 0; k < mask.idx.length; k++) {
+    const v = mask.idx[k] * 3;
+    m.pose[v] = m.verts[v];
+    m.pose[v + 1] = m.verts[v + 1];
+    m.pose[v + 2] = m.verts[v + 2];
+  }
+}
+
+/**
+ * A point in the file's own glTF units, written into normalised head space.
+ *
+ * The same y-negation, centring and scaling `buildModel` applies, exposed so a
+ * vertex read back off the GPU lands where the rest pose put it instead of at
+ * the size of the file's bounding box.
+ */
+export function normalisePoint(
+  m: HeadModel,
+  x: number,
+  y: number,
+  z: number,
+  out: Float32Array,
+  at: number,
+): void {
+  const { scale, cx, cy, cz } = m.norm;
+  out[at] = (x - cx) * scale;
+  out[at + 1] = (-y - cy) * scale;
+  out[at + 2] = (z - cz) * scale;
 }
