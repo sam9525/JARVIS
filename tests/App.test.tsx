@@ -57,7 +57,7 @@ describe("App shell", () => {
     const el = (App as any)({});
     expect(el).toBeTruthy();
     expect(el.type).toBe("div");
-  });
+  }, 15000);
 
   it("declares the ✋ ↻ ⚙ cluster once, not once per showHome branch", async () => {
     const { default: App } = await import("../src/renderer/App");

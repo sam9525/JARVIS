@@ -1,6 +1,15 @@
 import React, { useEffect, useRef } from "react";
 import { isSounding, readWave, WAVE_BINS } from "./speak";
-import { aimFrom, visibleEdges, type HeadModel } from "./head-mesh";
+import {
+  aimFrom,
+  normalisePoint,
+  recomputeNormals,
+  visibleEdges,
+} from "./head-mesh";
+import type { LoadedHead } from "./load-head";
+import type { Rig, RigKind } from "./head-rig";
+import type { MouthRegion } from "../../shared/types";
+import type { Vector3 } from "three";
 
 const W = 240;
 const H = 48;
@@ -29,6 +38,10 @@ const GAIN = 3;
 
 const boost = (x: number) => Math.min(x * GAIN, 1);
 
+// The mouth opens on the loudest bin in the buffer, smoothed like the bars are
+// so one noisy frame cannot snap the jaw.
+const MOUTH_SMOOTH = 0.4;
+
 // The strip is an equalizer, not an oscilloscope: the raw time domain stretched
 // across the strip is speech-rate oscillation, legible as hash. Each bar is the
 // peak of its slice, eased toward its new value so one noisy frame cannot spike
@@ -55,9 +68,15 @@ const DOT = 0.7;
 export default function VoiceWave({
   headModel,
   colour,
+  mouth,
+  mouthRegion,
+  onRig,
 }: {
   headModel?: string;
   colour?: boolean;
+  mouth?: boolean;
+  mouthRegion?: MouthRegion;
+  onRig?: (kind: RigKind) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const headRef = useRef<HTMLCanvasElement | null>(null);
@@ -84,7 +103,14 @@ export default function VoiceWave({
     if (!colour && headCanvas && head2d) {
       headCanvas.width = HEAD_W * dpr;
       headCanvas.height = HEAD_H * dpr;
-      head2d.setTransform(dpr, 0, 0, dpr, (HEAD_W / 2) * dpr, (HEAD_H / 2) * dpr);
+      head2d.setTransform(
+        dpr,
+        0,
+        0,
+        dpr,
+        (HEAD_W / 2) * dpr,
+        (HEAD_H / 2) * dpr,
+      );
     }
 
     const styles = getComputedStyle(document.documentElement);
@@ -95,12 +121,71 @@ export default function VoiceWave({
     const env = new Float32Array(BARS);
     const angle = { yaw: 0, pitch: 0 };
     const aim = { yaw: 0, pitch: 0 };
+    let rig: Rig | null = null;
+    let open = 0;
+    let scratch: Vector3 | null = null;
     let frame = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     let running = false;
-    let head: import("./load-head").LoadedHead | null = null;
+    let head: LoadedHead | null = null;
     let colourHead: import("./head-render").ColourHead | null = null;
+
+    // Detection needs a picture of the head, so it borrows the colour renderer
+    // for exactly one frame on an offscreen canvas. Square, because landmarks
+    // come back normalised per axis and a 240×200 frame would skew them.
+    const DETECT_SIZE = 256;
+    const detectFront = async (loaded: LoadedHead) => {
+      try {
+        if (!loaded.scene?.isObject3D && !loaded.scene?.dispatchEvent)
+          return null;
+        const off = document.createElement("canvas");
+        off.width = DETECT_SIZE;
+        off.height = DETECT_SIZE;
+        const [{ mountColourHead }, { detectMouth }] = await Promise.all([
+          import("./head-render"),
+          import("./detect-mouth"),
+        ]);
+        const shot = mountColourHead(
+          off,
+          loaded.scene,
+          DETECT_SIZE,
+          DETECT_SIZE,
+        );
+        shot.render(0, 0);
+        try {
+          return await detectMouth(loaded.model, off, HEAD_SCALE, DETECT_SIZE);
+        } finally {
+          shot.dispose();
+        }
+      } catch {
+        return null;
+      }
+    };
+
+    // The morph and bone tiers deform on the GPU, so the wireframe reads the
+    // result back: getVertexPosition applies morph targets, and SkinnedMesh
+    // overrides it to apply skinning too. The region tiers write `pose`
+    // themselves and skip this.
+    const readBackPose = (loaded: LoadedHead) => {
+      if (!scratch) return;
+      if (rig?.kind === "manual" || rig?.kind === "detected") return;
+      for (const part of loaded.parts) {
+        for (let i = 0; i < part.count; i++) {
+          part.mesh.getVertexPosition(i, scratch);
+          part.mesh.localToWorld(scratch);
+          normalisePoint(
+            loaded.model,
+            scratch.x,
+            scratch.y,
+            scratch.z,
+            loaded.model.pose,
+            (part.start + i) * 3,
+          );
+        }
+      }
+      recomputeNormals(loaded.model);
+    };
 
     const paint = (hasWave: boolean) => {
       ctx.clearRect(0, 0, W, H);
@@ -156,6 +241,17 @@ export default function VoiceWave({
       if (disposed) return;
       const hasWave = readWave(buf);
       paint(hasWave);
+      if (rig && mouth && rig.kind !== "none") {
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const d = Math.abs(buf[i] - 128);
+          if (d > peak) peak = d;
+        }
+        const target = hasWave ? boost(peak / 128) : 0;
+        open += (target - open) * MOUTH_SMOOTH;
+        rig.apply(open);
+        if (!colourHead && head) readBackPose(head);
+      }
       if (settled()) {
         angle.yaw = aim.yaw;
         angle.pitch = aim.pitch;
@@ -222,8 +318,38 @@ export default function VoiceWave({
       .then(async (loaded) => {
         if (disposed) return;
         head = loaded;
+        const [{ resolveRig }, { Vector3 }] = await Promise.all([
+          import("./head-rig"),
+          import("three"),
+        ]);
+        if (disposed) return;
+        scratch = new Vector3();
+        // Detection only earns its offscreen render when nothing cheaper can
+        // answer, so it runs after a pick is ruled out and the tiers above it
+        // decide whether its result is ever consulted.
+        let rigCandidate = resolveRig(
+          loaded.scene,
+          loaded.model,
+          mouthRegion ?? null,
+          null,
+        );
+        if (rigCandidate.kind === "none" && !mouthRegion) {
+          const detected = await detectFront(loaded);
+          if (disposed) return;
+          if (detected) {
+            rigCandidate = resolveRig(
+              loaded.scene,
+              loaded.model,
+              null,
+              detected,
+            );
+          }
+        }
+        rig = rigCandidate;
+        onRig?.(rig.kind);
         if (colour && colourRef.current) {
           const { mountColourHead } = await import("./head-render");
+          if (disposed) return;
           colourHead = mountColourHead(
             colourRef.current,
             loaded.scene,
@@ -247,7 +373,7 @@ export default function VoiceWave({
       if (timer) clearTimeout(timer);
       colourHead?.dispose();
     };
-  }, [headModel, colour]);
+  }, [headModel, colour, mouth, mouthRegion, onRig]);
 
   return (
     <div

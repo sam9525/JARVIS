@@ -9,6 +9,7 @@ import type {
   ViewSettings,
 } from "../../shared/types";
 import type { TtsOption } from "../../main/tts";
+import type { RigKind } from "../voice/head-rig";
 import { RECENT_PICKS, hueToHex, pickHue } from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
@@ -79,6 +80,7 @@ type Props = {
   onVoiceControl: (on: boolean) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
+  rigKind?: RigKind | null;
 };
 
 export default function GraphSettingsPanel({
@@ -91,6 +93,7 @@ export default function GraphSettingsPanel({
   onVoiceControl,
   onResetHighlights,
   showSections,
+  rigKind,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
     onSettingsChange({ ...settings, ...patch });
@@ -206,6 +209,8 @@ export default function GraphSettingsPanel({
               ttsModelId: settings.ttsModelId,
               headModel: settings.headModel,
               headColor: settings.headColor,
+              headMouth: settings.headMouth,
+              headMouths: settings.headMouths,
             });
             onSearchChange("");
             onResetHighlights();
@@ -433,9 +438,30 @@ export default function GraphSettingsPanel({
               data-testid="head-colour-setting"
               className="gs-switch"
               checked={settings.headColor ?? false}
-              onChange={(e) => set({ headColor: e.target.checked || undefined })}
+              onChange={(e) =>
+                set({ headColor: e.target.checked || undefined })
+              }
             />
           </label>
+
+          <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
+            Mouth moves
+            <input
+              type="checkbox"
+              data-testid="head-mouth-setting"
+              className="gs-switch"
+              disabled={rigKind === "none"}
+              checked={(settings.headMouth ?? false) && rigKind !== "none"}
+              onChange={(e) =>
+                set({ headMouth: e.target.checked || undefined })
+              }
+            />
+          </label>
+          {rigKind === "none" && (
+            <div className="pb-2 text-[11.5px] text-ink-dim">
+              This model has no mouth. Pick one to give it a region to open.
+            </div>
+          )}
 
           <details className="border-t border-edge py-2">
             <summary className="mb-1.5 cursor-pointer font-semibold">

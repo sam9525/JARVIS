@@ -64,6 +64,12 @@ describe("VoiceWave", () => {
     vi.spyOn(speak, "isSounding").mockReturnValue(false);
   };
 
+  const flush = async () => {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 500));
+    });
+  };
+
   it("draws a flat wave before the head model has loaded", () => {
     silent();
     act(() => root.render(<VoiceWave />));
@@ -80,9 +86,8 @@ describe("VoiceWave", () => {
       scene: {},
       parts: [],
     });
-    await act(async () => {
-      root.render(<VoiceWave />);
-    });
+    act(() => root.render(<VoiceWave />));
+    await flush();
     // 48 bars, then the whole helmet in one batched path
     expect(moves.length).toBeGreaterThan(48);
   });
@@ -93,9 +98,8 @@ describe("VoiceWave", () => {
       /* the failure is the point; do not print it */
     });
     loadHead.mockRejectedValue(new Error("404"));
-    await act(async () => {
-      root.render(<VoiceWave />);
-    });
+    act(() => root.render(<VoiceWave />));
+    await flush();
     expect(strokes.length).toBe(48);
   });
 
@@ -155,11 +159,60 @@ describe("VoiceWave", () => {
   it("mounts the WebGL canvas in colour mode and the 2D one otherwise", () => {
     silent();
     act(() => root.render(<VoiceWave colour />));
-    expect(container.querySelector('[data-testid="voice-head-colour"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="voice-head-colour"]'),
+    ).not.toBeNull();
     expect(container.querySelector('[data-testid="voice-head"]')).toBeNull();
 
     act(() => root.render(<VoiceWave />));
-    expect(container.querySelector('[data-testid="voice-head"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="voice-head-colour"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="voice-head"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="voice-head-colour"]'),
+    ).toBeNull();
+  });
+
+  it("leaves the rest pose alone while the mouth switch is off", async () => {
+    const model = buildModel([-1, -1, 0, 1, -1, 0, 0, 1, 0], [0, 1, 2]);
+    loadHead.mockResolvedValue({ model, scene: { children: [] }, parts: [] });
+    vi.spyOn(speak, "isSounding").mockReturnValue(true);
+    vi.spyOn(speak, "readWave").mockReturnValue(false);
+    act(() => root.render(<VoiceWave mouth={false} />));
+    await flush();
+    expect([...model.pose]).toEqual([...model.verts]);
+  });
+
+  it("reports the resolved rig kind to its parent", async () => {
+    const model = buildModel([-1, -1, 0, 1, -1, 0, 0, 1, 0], [0, 1, 2]);
+    loadHead.mockResolvedValue({ model, scene: { children: [] }, parts: [] });
+    let seen: string | null = null;
+    act(() =>
+      root.render(
+        <VoiceWave
+          onRig={(k) => {
+            seen = k;
+          }}
+        />,
+      ),
+    );
+    await flush();
+    expect(seen).toBe("none"); // an empty scene carries no morph and no bone
+  });
+
+  it("opens the mouth from the wave when the switch is on", async () => {
+    const model = buildModel([-1, -1, 0, 1, -1, 0, 0, 1, 0], [0, 1, 2]);
+    loadHead.mockResolvedValue({ model, scene: { children: [] }, parts: [] });
+    vi.spyOn(speak, "isSounding").mockReturnValue(true);
+    // a loud buffer, so the peak is well above the resting floor
+    vi.spyOn(speak, "readWave").mockImplementation((out: Uint8Array) => {
+      out.fill(255);
+      return true;
+    });
+    act(() =>
+      root.render(<VoiceWave mouth mouthRegion={{ c: [0, 0, 0], r: 10 }} />),
+    );
+    await flush();
+    expect([...model.pose]).not.toEqual([...model.verts]);
   });
 });

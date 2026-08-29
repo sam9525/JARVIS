@@ -67,6 +67,7 @@ type MountProps = Partial<{
   onVoiceControl: (on: boolean) => void;
   onResetHighlights: () => void;
   showSections: boolean;
+  rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null;
 }>;
 
 function mount(props: MountProps = {}) {
@@ -82,13 +83,17 @@ function mount(props: MountProps = {}) {
         onVoiceControl={props.onVoiceControl ?? (() => undefined)}
         onResetHighlights={props.onResetHighlights ?? (() => undefined)}
         showSections={props.showSections ?? true}
+        rigKind={props.rigKind}
       />,
     );
   });
   return container;
 }
 
-function render(overrides: Partial<Settings> = {}) {
+function render(
+  overrides: Partial<Settings> = {},
+  rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null,
+) {
   const calls: {
     settings: Settings[];
     search: string[];
@@ -105,6 +110,7 @@ function render(overrides: Partial<Settings> = {}) {
     onResetHighlights: () => {
       calls.resets++;
     },
+    rigKind,
   });
   return { container, calls };
 }
@@ -186,8 +192,8 @@ describe("GraphSettingsPanel", () => {
     ).toBeNull();
     senses();
     // [header, hand control, voice control, microphone, no-devices hint,
-    //  head model, head upload, colour head, cloud voice]
-    expect(container.firstElementChild!.children).toHaveLength(9);
+    //  head model, head upload, colour head, mouth moves, cloud voice]
+    expect(container.firstElementChild!.children).toHaveLength(10);
     expect(
       container.querySelector('[data-testid="voice-control-setting"]'),
     ).not.toBeNull();
@@ -417,5 +423,53 @@ describe("head model", () => {
     act(() => button.click());
     await flush();
     expect(calls.settings).toHaveLength(0);
+  });
+});
+
+describe("mouth moves", () => {
+  it("disables the mouth moves switch and shows explanation when rigKind is 'none'", () => {
+    const { container: c } = render({ headMouth: true }, "none");
+    senses(c);
+    const input = c.querySelector(
+      '[data-testid="head-mouth-setting"]',
+    ) as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(input.checked).toBe(false);
+    expect(c.textContent).toContain(
+      "This model has no mouth. Pick one to give it a region to open.",
+    );
+  });
+
+  it("enables the mouth moves switch when rigKind is 'morph'", () => {
+    const { container: c } = render({ headMouth: true }, "morph");
+    senses(c);
+    const input = c.querySelector(
+      '[data-testid="head-mouth-setting"]',
+    ) as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    expect(input.checked).toBe(true);
+    expect(c.textContent).not.toContain(
+      "This model has no mouth. Pick one to give it a region to open.",
+    );
+  });
+
+  it("enables the mouth moves switch when rigKind is null", () => {
+    const { container: c } = render({ headMouth: true }, null);
+    senses(c);
+    const input = c.querySelector(
+      '[data-testid="head-mouth-setting"]',
+    ) as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    expect(input.checked).toBe(true);
+  });
+
+  it("toggles headMouth on change", () => {
+    const { container: c, calls } = render({ headMouth: false }, "bone");
+    senses(c);
+    const input = c.querySelector(
+      '[data-testid="head-mouth-setting"]',
+    ) as HTMLInputElement;
+    setChecked(input, true);
+    expect(calls.settings.at(-1)?.headMouth).toBe(true);
   });
 });

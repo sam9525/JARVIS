@@ -24,6 +24,7 @@ import Bezel from "./ui/Bezel";
 // already drifted two releases behind the manifest.
 import { version as appVersion } from "../../package.json";
 import VoiceWave from "./voice/VoiceWave";
+import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
 import {
   SETTINGS_Z,
@@ -440,6 +441,10 @@ export default function App() {
   // separately so a tracker failure can stop the mic without touching the
   // preference — the same split as cameraOn/handControl above.
   const [micOn, setMicOn] = useState(false);
+  // Reported by VoiceWave once the head resolves, so the settings panel can
+  // grey the mouth switch without loading the model a second time. Null while
+  // voice is off, which is why the switch is not disabled on null.
+  const [rigKind, setRigKind] = useState<RigKind | null>(null);
   const voice = useVoiceControl({
     micOn,
     micDeviceId: settings.micDeviceId,
@@ -456,6 +461,10 @@ export default function App() {
   useEffect(() => {
     if (settingsReady && settings.voiceControl) setMicOn(true);
   }, [settingsReady]);
+
+  useEffect(() => {
+    if (!micOn) setRigKind(null);
+  }, [micOn]);
 
   // The mouth. Only the orchestrator's row is read, and only once per message
   // — spokenRef is a ref because speaking must not itself cause a render.
@@ -952,6 +961,11 @@ export default function App() {
               <VoiceWave
                 headModel={settings.headModel}
                 colour={settings.headColor}
+                mouth={settings.headMouth}
+                mouthRegion={
+                  settings.headMouths?.[settings.headModel ?? "__builtin"]
+                }
+                onRig={setRigKind}
               />
             ) : null}
             {showHome ? null : (
@@ -1036,6 +1050,7 @@ export default function App() {
             onVoiceControl={setVoiceControl}
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
+            rigKind={rigKind}
           />
         </Panel>
       )}
