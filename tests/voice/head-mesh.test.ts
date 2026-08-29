@@ -84,6 +84,17 @@ describe("visibleEdges", () => {
     const m = buildModel(TRI.positions, TRI.indices);
     expect(visibleEdges(m, 0, 0, 1).buffer).toBe(m.seg.buffer);
   });
+
+  // normalisation is by height, so a model far deeper than it is tall can put
+  // a vertex at or past the camera and emit Infinity/NaN segments
+  it("keeps a deep model's projection finite", () => {
+    const model = buildModel(
+      [-0.1, -0.1, 0, 0.1, -0.1, 0, 0, 0.1, 0.8],
+      [0, 1, 2],
+    );
+    const segs = visibleEdges(model, 0, 0, 76);
+    for (let i = 0; i < segs.length; i++) expect(Number.isFinite(segs[i])).toBe(true);
+  });
 });
 
 describe("aimFrom", () => {

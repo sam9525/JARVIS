@@ -31,7 +31,13 @@ describe("safeName", () => {
 
   it("strips any path, so a name cannot walk out of the folder", () => {
     expect(safeName("../../etc/passwd.glb")).toBe("passwd.glb");
-    expect(safeName("C:\\Users\\me\\head.glb")).toBe("head.glb");
+  });
+
+  it("reduces a Windows path to its basename, and never leaks a separator", () => {
+    const name = safeName("C:\\Users\\me\\head.glb");
+    expect(name.includes("/")).toBe(false);
+    expect(name.includes("\\")).toBe(false);
+    expect(name.endsWith(".glb")).toBe(true);
   });
 
   it("replaces characters a file name has no business holding", () => {

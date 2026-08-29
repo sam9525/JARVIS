@@ -88,7 +88,7 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
   { value: "symbol", label: "Symbols" },
 ];
 
-// A folder smaller than this seeds no stored group. Its nodes still draw a
+// A folder of this many notes or fewer seeds no stored group. Its nodes still draw a
 // colour — the domain spread off the workspace's main hue — but a halo and a
 // settings entry for four notes is clutter, not information.
 const MIN_GROUP_NODES = 5;

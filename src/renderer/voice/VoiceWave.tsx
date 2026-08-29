@@ -43,16 +43,6 @@ const BAR_W = SPACING * 0.3;
 // silent state is a short segment with a round cap — which is a dot.
 const DOT = 0.7;
 
-/** Peak deviation from the 128 centre line, as 0..1. */
-export function amplitudeOf(buf: Uint8Array): number {
-  let peak = 0;
-  for (let i = 0; i < buf.length; i++) {
-    const d = Math.abs(buf[i] - 128);
-    if (d > peak) peak = d;
-  }
-  return Math.min(peak / 128, 1);
-}
-
 /**
  * The main agent's voice, drawn. A wireframe head above, waveform below; both
  * go still — mouth shut, bars resting as dots — when nothing is talking. The

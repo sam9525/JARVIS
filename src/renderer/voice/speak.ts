@@ -182,6 +182,9 @@ export function stopSpeaking(): void {
     current.pause();
     URL.revokeObjectURL(current.src);
     current = null;
+    // the node was built from this element; it has nothing left to carry
+    sourceNode?.disconnect();
+    sourceNode = null;
   }
   (
     globalThis as { speechSynthesis?: SpeechSynthesis }

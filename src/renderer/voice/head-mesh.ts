@@ -182,7 +182,10 @@ export function visibleEdges(
     const z1 = -x * sy + z * cy;
     const y1 = y * cp - z1 * sp;
     const z2 = y * sp + z1 * cp;
-    const k = (DIST / (DIST - z2)) * scale;
+    // The mesh is normalised by height, so an uploaded model deep in z can put
+    // a vertex at or past the camera. Held just short of it, that vertex
+    // projects large instead of infinite.
+    const k = (DIST / Math.max(DIST - z2, 0.1)) * scale;
     m.px[i] = x1 * k;
     m.py[i] = y1 * k;
   }

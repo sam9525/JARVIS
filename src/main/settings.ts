@@ -38,7 +38,9 @@ export async function loadSettings(file: string): Promise<Settings> {
       const hues = p.recentHues.filter(
         (h): h is number => typeof h === "number" && Number.isFinite(h),
       );
-      if (hues.length > 0) s.recentHues = hues;
+      // only the last RECENT_PICKS (10) are ever honoured; trimming on the way
+      // in stops a corrupted file being loaded and written back at full length
+      if (hues.length > 0) s.recentHues = hues.slice(-10);
     }
     if (typeof p.showTags === "boolean") s.showTags = p.showTags;
     if (typeof p.showOrphans === "boolean") s.showOrphans = p.showOrphans;

@@ -4,7 +4,7 @@ import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
-import VoiceWave, { amplitudeOf } from "../../src/renderer/voice/VoiceWave";
+import VoiceWave from "../../src/renderer/voice/VoiceWave";
 import { buildModel } from "../../src/renderer/voice/head-mesh";
 import * as speak from "../../src/renderer/voice/speak";
 
@@ -17,21 +17,6 @@ vi.mock("../../src/renderer/voice/load-head", () => ({ loadHead }));
 
 // One triangle facing the viewer: three visible edges once it loads.
 const TRIANGLE = () => buildModel([-1, -1, 0, 1, -1, 0, 0, 1, 0], [0, 1, 2]);
-
-describe("amplitudeOf", () => {
-  it("is 0 for a silent buffer, which sits flat on the 128 centre line", () => {
-    expect(amplitudeOf(new Uint8Array(64).fill(128))).toBe(0);
-  });
-
-  it("is 1 at full deflection, in either direction", () => {
-    expect(amplitudeOf(new Uint8Array([128, 0, 128]))).toBe(1);
-    expect(amplitudeOf(new Uint8Array([128, 255, 128]))).toBeCloseTo(1, 1);
-  });
-
-  it("reads the peak, not the last sample", () => {
-    expect(amplitudeOf(new Uint8Array([128, 192, 128]))).toBeCloseTo(0.5, 2);
-  });
-});
 
 describe("VoiceWave", () => {
   let root: Root;
