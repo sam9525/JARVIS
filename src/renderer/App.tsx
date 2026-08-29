@@ -948,7 +948,7 @@ export default function App() {
           // and wave stack upward and never cover the replay scrubber. The
           // wave is pointer-transparent; the scrubber under it is not.
           <div className="flex flex-col items-start gap-2">
-            <VoiceWave headModel={settings.headModel} />
+            {micOn ? <VoiceWave headModel={settings.headModel} /> : null}
             {showHome ? null : (
               <Timeline
                 log={(active && logsRef.current.get(active.id)) || []}

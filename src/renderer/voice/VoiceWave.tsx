@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { isSounding, readWave, WAVE_BINS } from "./speak";
 import { aimFrom, visibleEdges, type HeadModel } from "./head-mesh";
-import { loadHead } from "./load-head";
 
 const W = 240;
 const H = 48;
@@ -209,9 +208,13 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     running = true;
     tick(); // paint once now, then let tick pick rAF or the idle poll
 
-    // The head arrives a moment after the wave. `start` draws it once and the
-    // loop settles again, so nothing spins waiting for the file.
-    loadHead(headModel)
+    // load-head drags GLTFLoader and the whole of three with it, so it is
+    // imported here rather than at module scope — the same boundary that
+    // keeps the whisper pipeline out of renderer startup. The head arrives a
+    // moment after the wave; `start` draws it once and the loop settles
+    // again, so nothing spins waiting for the file.
+    import("./load-head")
+      .then(({ loadHead }) => loadHead(headModel))
       .then((m) => {
         if (disposed) return;
         model = m;
