@@ -59,3 +59,17 @@ if (!(await readdir(WASM_SRC)).includes(ORT_WASM))
   throw new Error(`${ORT_WASM} missing from ${WASM_SRC}`);
 await copyFile(join(WASM_SRC, ORT_WASM), join(WASM_OUT, ORT_WASM));
 console.log("copied", ORT_WASM);
+
+// The face landmarker, for finding the mouth on a head model that ships no rig.
+// Same reason the whisper weights are fetched here: default-src 'self' forbids
+// the CDN fetch, so the file has to be on the app origin before it is asked for.
+const FACE_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const faceRes = await fetch(FACE_URL);
+if (!faceRes.ok) throw new Error(`face_landmarker: ${faceRes.status}`);
+await mkdir("public/voice", { recursive: true });
+await writeFile(
+  "public/voice/face_landmarker.task",
+  Buffer.from(await faceRes.arrayBuffer()),
+);
+console.log("saved public/voice/face_landmarker.task");
