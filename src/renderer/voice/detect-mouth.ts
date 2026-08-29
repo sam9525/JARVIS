@@ -1,4 +1,5 @@
 import type { MouthRegion } from "../../shared/types";
+import { installMediaPipeTelemetryBlock } from "../hands/hand-tracker";
 import type { HeadModel } from "./head-mesh";
 
 /**
@@ -110,6 +111,7 @@ export async function detectMouth(
   scale: number,
   size: number,
 ): Promise<MouthRegion | null> {
+  const restoreTelemetry = installMediaPipeTelemetryBlock();
   try {
     const { FaceLandmarker, FilesetResolver } = await import(
       "@mediapipe/tasks-vision"
@@ -133,5 +135,7 @@ export async function detectMouth(
     // five, so it degrades to the next one rather than costing the head.
     console.warn("mouth detection unavailable", err);
     return null;
+  } finally {
+    restoreTelemetry();
   }
 }

@@ -36,6 +36,7 @@ export default function MouthPicker({
   onDone(region: MouthRegion | null): void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const regionRef = useRef<MouthRegion | null>(initial ?? null);
   // Mirrors regionRef for the button's disabled state only. The loop never
   // reads it, so it costs one render per pick rather than one per frame.
@@ -43,7 +44,16 @@ export default function MouthPicker({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const overlay = overlayRef.current;
+    if (!canvas || !overlay) return;
+    const overlayCtx = overlay.getContext("2d");
+    if (!overlayCtx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    overlay.width = SIZE * dpr;
+    overlay.height = SIZE * dpr;
+    overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
     let disposed = false;
     let head: {
       render(yaw: number, pitch: number): void;
@@ -51,14 +61,39 @@ export default function MouthPicker({
     } | null = null;
     let raycast:
       ((x: number, y: number) => [number, number, number] | null) | null = null;
+    let project:
+      | ((
+          region: MouthRegion,
+        ) => { x: number; y: number; r: number; visible: boolean } | null)
+      | null = null;
     const angle = { yaw: 0, pitch: 0 };
     let frame = 0;
     let mode: "orbit" | "size" | null = null;
     let last = { x: 0, y: 0 };
 
+    const drawMarker = () => {
+      overlayCtx.clearRect(0, 0, SIZE, SIZE);
+      const reg = regionRef.current;
+      if (!reg || !project) return;
+      const pt = project(reg);
+      if (!pt || !pt.visible) return;
+
+      overlayCtx.beginPath();
+      overlayCtx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+      overlayCtx.strokeStyle = "#22d3ee";
+      overlayCtx.lineWidth = 1.5;
+      overlayCtx.stroke();
+
+      overlayCtx.beginPath();
+      overlayCtx.arc(pt.x, pt.y, 2.5, 0, Math.PI * 2);
+      overlayCtx.fillStyle = "#22d3ee";
+      overlayCtx.fill();
+    };
+
     const draw = () => {
       if (disposed || !head) return;
       head.render(angle.yaw, angle.pitch);
+      drawMarker();
       frame = requestAnimationFrame(draw);
     };
 
@@ -101,12 +136,16 @@ export default function MouthPicker({
     canvas.addEventListener("pointerup", onUp);
 
     void (async () => {
-      const [{ loadHead }, { mountColourHead, pickOnScene }] =
+      const [{ loadHead }, { mountColourHead, pickOnScene, projectRegion }] =
         await Promise.all([import("./load-head"), import("./head-render")]);
       const loaded = await loadHead(headModel);
       if (disposed) return;
       head = mountColourHead(canvas, loaded.scene, SIZE, SIZE);
       raycast = pickOnScene(loaded, SIZE, SIZE, angle);
+      if (projectRegion) {
+        project = (region: MouthRegion) =>
+          projectRegion(loaded, SIZE, SIZE, angle, region);
+      }
       draw();
     })().catch((err) => console.error("mouth picker", err));
 
@@ -116,6 +155,7 @@ export default function MouthPicker({
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
+      overlayCtx.clearRect(0, 0, SIZE, SIZE);
       head?.dispose();
     };
   }, [headModel]);
@@ -125,7 +165,19 @@ export default function MouthPicker({
       className="flex flex-col items-center gap-2 p-2"
       data-testid="mouth-picker"
     >
-      <canvas ref={canvasRef} style={{ width: SIZE, height: SIZE }} />
+      <div className="relative" style={{ width: SIZE, height: SIZE }}>
+        <canvas
+          ref={canvasRef}
+          data-testid="mouth-picker-canvas"
+          style={{ width: SIZE, height: SIZE }}
+        />
+        <canvas
+          ref={overlayRef}
+          data-testid="mouth-picker-overlay"
+          className="pointer-events-none absolute inset-0"
+          style={{ width: SIZE, height: SIZE }}
+        />
+      </div>
       <p className="text-[11.5px] text-ink-dim">
         Drag to turn the head. Click its mouth, then drag out to size it.
       </p>
@@ -133,7 +185,11 @@ export default function MouthPicker({
         <button
           data-testid="mouth-pick-clear"
           className="flex-1 cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
-          onClick={() => onDone(null)}
+          onClick={() => {
+            regionRef.current = null;
+            setMarked(false);
+            onDone(null);
+          }}
         >
           Clear
         </button>

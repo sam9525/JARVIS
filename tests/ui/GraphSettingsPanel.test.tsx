@@ -44,7 +44,8 @@ beforeEach(() => {
     root = createRoot(container);
   });
 });
-afterEach(() => {
+afterEach(async () => {
+  await flush();
   act(() => root.unmount());
   container.remove();
 });
@@ -187,12 +188,13 @@ function senses(scope: Element = container) {
 }
 
 describe("GraphSettingsPanel", () => {
-  it("puts hand, voice and head behind the Senses tab", () => {
+  it("puts hand, voice and head behind the Senses tab", async () => {
     render();
     expect(
       container.querySelector('[data-testid="voice-control-setting"]'),
     ).toBeNull();
     senses();
+    await flush();
     // [header, hand control, voice control, microphone, no-devices hint,
     //  head model, head upload, colour head, mouth moves, pick mouth, cloud voice]
     expect(container.firstElementChild!.children).toHaveLength(11);
@@ -202,8 +204,9 @@ describe("GraphSettingsPanel", () => {
     expect(detailsSection(container, "Cloud voice")).toBeTruthy();
   });
 
-  it("renders header + the four graph sections, Forces collapsed by default", () => {
+  it("renders header + the four graph sections, Forces collapsed by default", async () => {
     render();
+    await flush();
     const panel = container.firstElementChild!;
     // [header, Filters, Groups, Display, Forces] — the senses page is behind
     // its own tab
@@ -214,7 +217,7 @@ describe("GraphSettingsPanel", () => {
     expect(detailsSection(container, "Filters").open).toBe(true);
   });
 
-  it("reset restores defaults but keeps dimensions, groups, hand control, mic and cloud voice choices", () => {
+  it("reset restores defaults but keeps dimensions, groups, hand control, mic and cloud voice choices", async () => {
     const groups = { ws1: [{ query: "tech/", color: "#aa00ff" }] };
     const { container, calls } = render({
       showTags: false,
@@ -225,6 +228,7 @@ describe("GraphSettingsPanel", () => {
       ttsVoiceId: "voice-1",
       ttsModelId: "model-1",
     });
+    await flush();
     const resetBtn = container.querySelector(
       'button[title="Restore defaults"]',
     ) as HTMLButtonElement;
@@ -245,8 +249,9 @@ describe("GraphSettingsPanel", () => {
     expect(calls.resets).toBe(1);
   });
 
-  it("new group gets a random hex color and empty query", () => {
+  it("new group gets a random hex color and empty query", async () => {
     const { container, calls } = render();
+    await flush();
     const groupsSection = detailsSection(container, "Groups");
     const newGroupBtn = Array.from(
       groupsSection.querySelectorAll("button"),
@@ -257,8 +262,9 @@ describe("GraphSettingsPanel", () => {
     expect(calls.settings[0].groups.ws1[0].color).toMatch(/^#[0-9a-f]{6}$/);
   });
 
-  it("3D toggle switches dimensions", () => {
+  it("3D toggle switches dimensions", async () => {
     const { container, calls } = render();
+    await flush();
     const display = detailsSection(container, "Display");
     const label = Array.from(display.querySelectorAll("label")).find(
       (l) => l.textContent?.trim() === "3D",
@@ -270,17 +276,19 @@ describe("GraphSettingsPanel", () => {
     expect(calls.settings[0].dimensions).toBe("3d");
   });
 
-  it("display sliders edit the active view only", () => {
+  it("display sliders edit the active view only", async () => {
     const { container, calls } = render({ dimensions: "3d" });
+    await flush();
     const display = detailsSection(container, "Display");
     changeRange(sliderByLabel(display, "Node size"), 2.5);
     expect(calls.settings[0].views["3d"].display.nodeSize).toBe(2.5);
     expect(calls.settings[0].views["2d"].display.nodeSize).toBe(1); // untouched
   });
 
-  it("focus slider follows the active dimension and edits only that view", () => {
+  it("focus slider follows the active dimension and edits only that view", async () => {
     // 2D: labelled "Focus zoom", and the 3D-only knobs stay out
     const twoD = render({ dimensions: "2d" });
+    await flush();
     const twoDDisplay = detailsSection(twoD.container, "Display");
     const twoDLabels = sliderLabels(twoDDisplay);
     expect(twoDLabels).toContain("Focus zoom");
@@ -292,6 +300,7 @@ describe("GraphSettingsPanel", () => {
 
     // 3D: label "Focus distance", plus the halo/opacity knobs
     const threeD = render({ dimensions: "3d" });
+    await flush();
     const threeDDisplay = detailsSection(threeD.container, "Display");
     const threeDLabels = sliderLabels(threeDDisplay);
     expect(threeDLabels).toContain("Focus distance");
@@ -302,7 +311,7 @@ describe("GraphSettingsPanel", () => {
     expect(threeD.calls.settings[0].views["2d"].display.focusZoom).toBe(6.8);
   });
 
-  it("reports a voice control change", () => {
+  it("reports a voice control change", async () => {
     let got: boolean | null = null;
     mount({
       settings: defaultSettings(),
@@ -311,6 +320,8 @@ describe("GraphSettingsPanel", () => {
         got = on;
       },
     });
+    senses();
+    await flush();
     const input = senses().querySelector(
       '[data-testid="voice-control-setting"]',
     ) as HTMLInputElement;
@@ -318,8 +329,9 @@ describe("GraphSettingsPanel", () => {
     expect(got).toBe(true);
   });
 
-  it("reset keeps voice control, since that path cannot stop the mic", () => {
+  it("reset keeps voice control, since that path cannot stop the mic", async () => {
     const { container, calls } = render({ voiceControl: true });
+    await flush();
     // click the reset button the same way the hand-control reset test does
     const resetBtn = container.querySelector(
       'button[title="Restore defaults"]',
@@ -382,11 +394,12 @@ describe("head model", () => {
     ]);
   });
 
-  it("keeps the saved name selectable before the list arrives", () => {
+  it("keeps the saved name selectable before the list arrives", async () => {
     const { container: c } = render({ headModel: "saved.glb" });
     senses();
-    // no flush: the list is still in flight
+    // no flush yet: the list is still in flight
     expect(select(c).value).toBe("saved.glb");
+    await flush();
   });
 
   it("clears the setting when the built-in is chosen", async () => {
@@ -429,9 +442,10 @@ describe("head model", () => {
 });
 
 describe("mouth moves", () => {
-  it("disables the mouth moves switch and shows explanation when rigKind is 'none'", () => {
+  it("disables the mouth moves switch and shows explanation when rigKind is 'none'", async () => {
     const { container: c } = render({ headMouth: true }, "none");
     senses(c);
+    await flush();
     const input = c.querySelector(
       '[data-testid="head-mouth-setting"]',
     ) as HTMLInputElement;
@@ -442,9 +456,10 @@ describe("mouth moves", () => {
     );
   });
 
-  it("enables the mouth moves switch when rigKind is 'morph'", () => {
+  it("enables the mouth moves switch when rigKind is 'morph'", async () => {
     const { container: c } = render({ headMouth: true }, "morph");
     senses(c);
+    await flush();
     const input = c.querySelector(
       '[data-testid="head-mouth-setting"]',
     ) as HTMLInputElement;
@@ -455,9 +470,10 @@ describe("mouth moves", () => {
     );
   });
 
-  it("enables the mouth moves switch when rigKind is null", () => {
+  it("enables the mouth moves switch when rigKind is null", async () => {
     const { container: c } = render({ headMouth: true }, null);
     senses(c);
+    await flush();
     const input = c.querySelector(
       '[data-testid="head-mouth-setting"]',
     ) as HTMLInputElement;
@@ -465,9 +481,10 @@ describe("mouth moves", () => {
     expect(input.checked).toBe(true);
   });
 
-  it("toggles headMouth on change", () => {
+  it("toggles headMouth on change", async () => {
     const { container: c, calls } = render({ headMouth: false }, "bone");
     senses(c);
+    await flush();
     const input = c.querySelector(
       '[data-testid="head-mouth-setting"]',
     ) as HTMLInputElement;
@@ -475,7 +492,7 @@ describe("mouth moves", () => {
     expect(calls.settings.at(-1)?.headMouth).toBe(true);
   });
 
-  it("fires onPickMouth when Pick the mouth button is clicked", () => {
+  it("fires onPickMouth when Pick the mouth button is clicked", async () => {
     let picked = false;
     mount({
       onPickMouth: () => {
@@ -483,6 +500,7 @@ describe("mouth moves", () => {
       },
     });
     senses();
+    await flush();
     const button = container.querySelector(
       '[data-testid="mouth-pick-open"]',
     ) as HTMLButtonElement;

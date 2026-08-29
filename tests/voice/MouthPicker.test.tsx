@@ -13,6 +13,7 @@ vi.mock("../../src/renderer/voice/load-head", () => ({
 vi.mock("../../src/renderer/voice/head-render", () => ({
   mountColourHead: vi.fn(),
   pickOnScene: vi.fn(),
+  projectRegion: vi.fn(),
 }));
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;

@@ -40,7 +40,8 @@ function isTelemetry(input: Parameters<typeof fetch>[0]): boolean {
   const url = urlOfFetchInput(input);
   if (!url) return false;
   try {
-    return new URL(url, location.href).hostname === MEDIAPIPE_LOG_HOST;
+    const host = new URL(url, location.href).hostname;
+    return host === MEDIAPIPE_LOG_HOST || host === "play.googleapis.com";
   } catch {
     return false; // unparseable is not ours to swallow
   }

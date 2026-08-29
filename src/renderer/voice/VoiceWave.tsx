@@ -81,6 +81,14 @@ export default function VoiceWave({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const headRef = useRef<HTMLCanvasElement | null>(null);
   const colourRef = useRef<HTMLCanvasElement | null>(null);
+  const mouthRef = useRef(mouth);
+  mouthRef.current = mouth;
+  const startRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    mouthRef.current = mouth;
+    startRef.current?.();
+  }, [mouth]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -241,16 +249,22 @@ export default function VoiceWave({
       if (disposed) return;
       const hasWave = readWave(buf);
       paint(hasWave);
-      if (rig && mouth && rig.kind !== "none") {
-        let peak = 0;
-        for (let i = 0; i < buf.length; i++) {
-          const d = Math.abs(buf[i] - 128);
-          if (d > peak) peak = d;
+      if (rig && rig.kind !== "none") {
+        if (mouthRef.current) {
+          let peak = 0;
+          for (let i = 0; i < buf.length; i++) {
+            const d = Math.abs(buf[i] - 128);
+            if (d > peak) peak = d;
+          }
+          const target = hasWave ? boost(peak / 128) : 0;
+          open += (target - open) * MOUTH_SMOOTH;
+          rig.apply(open);
+          if (!colourHead && head) readBackPose(head);
+        } else if (open > 0) {
+          open = 0;
+          rig.apply(0);
+          if (!colourHead && head) readBackPose(head);
         }
-        const target = hasWave ? boost(peak / 128) : 0;
-        open += (target - open) * MOUTH_SMOOTH;
-        rig.apply(open);
-        if (!colourHead && head) readBackPose(head);
       }
       if (settled()) {
         angle.yaw = aim.yaw;
@@ -291,6 +305,7 @@ export default function VoiceWave({
       timer = null;
       tick();
     };
+    startRef.current = start;
 
     const onPointer = (e: PointerEvent) => {
       const next = aimFrom(
@@ -368,12 +383,13 @@ export default function VoiceWave({
 
     return () => {
       disposed = true;
+      startRef.current = null;
       window.removeEventListener("pointermove", onPointer);
       cancelAnimationFrame(frame);
       if (timer) clearTimeout(timer);
       colourHead?.dispose();
     };
-  }, [headModel, colour, mouth, mouthRegion, onRig]);
+  }, [headModel, colour, mouthRegion, onRig]);
 
   return (
     <div

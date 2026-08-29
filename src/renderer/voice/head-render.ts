@@ -6,6 +6,7 @@ import {
   Raycaster,
   Scene,
   Vector2,
+  Vector3,
   WebGLRenderer,
   type Object3D,
 } from "three";
@@ -108,3 +109,54 @@ export function pickOnScene(
     return [out[0], out[1], out[2]];
   };
 }
+
+/**
+ * Project a model-space mouth region to canvas 2D coordinates.
+ */
+export function projectRegion(
+  loaded: LoadedHead,
+  w: number,
+  h: number,
+  angle: { yaw: number; pitch: number },
+  region: import("../../shared/types").MouthRegion,
+): { x: number; y: number; r: number; visible: boolean } | null {
+  const root = (loaded.scene as { parent?: unknown }).parent as
+    Object3D | undefined;
+  if (!root) return null;
+  root.rotation.y = angle.yaw;
+  root.rotation.x = angle.pitch;
+  root.updateMatrixWorld(true);
+
+  const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
+  camera.position.set(0, 0, DIST);
+  camera.updateMatrixWorld(true);
+
+  const { scale, cx, cy, cz } = loaded.model.norm;
+  const [rcx, rcy, rcz] = region.c;
+  const lx = rcx / scale + cx;
+  const ly = -(rcy / scale + cy);
+  const lz = rcz / scale + cz;
+
+  const centerLocal = new Vector3(lx, ly, lz);
+  const centerWorld = root.localToWorld(centerLocal);
+  const centerProj = centerWorld.clone().project(camera);
+
+  const rLocal = region.r / scale;
+  const edgeLocal = new Vector3(lx + rLocal, ly, lz);
+  const edgeWorld = root.localToWorld(edgeLocal);
+  const edgeProj = edgeWorld.clone().project(camera);
+
+  const x = ((centerProj.x + 1) / 2) * w;
+  const y = ((-centerProj.y + 1) / 2) * h;
+  const edgeX = ((edgeProj.x + 1) / 2) * w;
+  const edgeY = ((-edgeProj.y + 1) / 2) * h;
+  const r = Math.max(Math.hypot(edgeX - x, edgeY - y), 2);
+
+  return {
+    x,
+    y,
+    r,
+    visible: centerProj.z < 1,
+  };
+}
+

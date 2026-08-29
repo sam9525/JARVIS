@@ -129,5 +129,10 @@ export function resolveRig(
 
   if (detected) return regionRig("detected", model, detected);
 
-  return { kind: "none", apply() {} };
+  return {
+    kind: "none",
+    apply() {
+      /* no-op when model has no mouth */
+    },
+  };
 }
