@@ -12,6 +12,7 @@ import { emptyState, type HighlightState } from "../session/highlight-store";
 import Graph3D, { type Graph3DHandle } from "../graph/Graph3D";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { domainsOf } from "../graph/domain-colors";
+import { hueOfWorkspace } from "../graph/workspace-color";
 import { filterGraph, type GraphFilters } from "../graph/graph-filter";
 import { ringLayout, rotationTo, snapRotation } from "../graph/ring-layout";
 import { DOT } from "./MissionControl";
@@ -34,6 +35,7 @@ const HAND_DEG_PER_UNIT = 300;
 
 type RingProps = {
   workspaces: Workspace[];
+  mainColors?: Record<string, string>; // workspace id → its main colour
   statuses: WorkspaceStatus[];
   graphs: Map<string, VaultGraph>; // the cardGraphs cache; absent = loading
   getStore: (workspaceId: string) => HighlightState;
@@ -57,6 +59,7 @@ type RingProps = {
 // simulations is precisely what makes the card grid expensive.
 export default function Ring({
   workspaces,
+  mainColors,
   statuses,
   graphs,
   getStore,
@@ -259,6 +262,7 @@ export default function Ring({
         key={settledWs.id}
         graph={g}
         domains={domains}
+        baseHue={hueOfWorkspace(settledWs, workspaces, mainColors)}
         groups={groups[settledWs.id] ?? NO_GROUPS}
         display={view.display}
         forces={view.forces}
@@ -272,7 +276,17 @@ export default function Ring({
         height={height}
       />
     );
-  }, [settledWs, g, domains, groups, view, layoutEpoch, width, height]);
+  }, [
+    settledWs,
+    workspaces,
+    g,
+    domains,
+    groups,
+    view,
+    layoutEpoch,
+    width,
+    height,
+  ]);
 
   return (
     <div

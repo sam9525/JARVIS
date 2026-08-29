@@ -8,6 +8,38 @@ import { busiest } from "./graph-filter";
 import { graphMetrics } from "./graph-metrics";
 
 export const FLEET_ROOT = "root::jarvis";
+export const FLEET_ROOT_DOMAIN = "JARVIS";
+
+/** One group per workspace that has a stored main colour, so each cluster wears
+ * the first hue that project's own groups drew. Every fleet id holds its
+ * workspace id — `<wsId>::note` for a member, `hub::<wsId>` for the hub — so
+ * the bare id matches both. Longest query first: one workspace id can be a
+ * prefix of another, and `groupOf` takes the first match it finds.
+ *
+ * Colour goes through groups rather than the domain spread because these are
+ * arbitrary stored colours, not an nth-of-n position. Both views read `groups`
+ * for colour only and take halos from a separate prop, so this adds no halo. */
+export function clusterGroups(
+  workspaces: Workspace[],
+  mainColors: Record<string, string> = {},
+): { query: string; color: string }[] {
+  return workspaces
+    .filter((ws) => mainColors[ws.id])
+    .map((ws) => ({ query: ws.id, color: mainColors[ws.id] }))
+    .sort((a, b) => b.query.length - a.query.length);
+}
+/** The domain list every view colours a project by. The main agent is left
+ * out: it has no graph, so Fleet draws no cluster for it, and a caller that
+ * passed the unfiltered array would have counted a domain the home views do
+ * not — which is one project wearing two colours. */
+export function fleetDomains(workspaces: Workspace[]): string[] {
+  return Array.from(
+    new Set([
+      ...workspaces.filter((w) => !w.isSelf).map((w) => w.name),
+      FLEET_ROOT_DOMAIN,
+    ]),
+  ).sort();
+}
 const PROJECT_CAP = 80;
 const VAULT_CAP = 150;
 
@@ -58,7 +90,7 @@ export function buildFleetGraph(
   graphs: Map<string, VaultGraph>,
 ): VaultGraph {
   const nodes: GraphNode[] = [
-    { id: FLEET_ROOT, type: "note", domain: "JARVIS" },
+    { id: FLEET_ROOT, type: "note", domain: FLEET_ROOT_DOMAIN },
   ];
   const edges: GraphEdge[] = [];
   const vaultNoteByName = new Map<string, string>();

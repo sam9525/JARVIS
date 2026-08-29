@@ -57,6 +57,12 @@ const setSettings = vi.fn(() => Promise.resolve());
 
 let root: Root;
 let container: HTMLDivElement;
+// App renders the voice wave onto a canvas, and jsdom has no 2D backend —
+// without this, every render logs "Not implemented: getContext". VoiceWave
+// already treats a null context as "no wave to draw"; tests/voice/VoiceWave
+// is where the drawing itself is checked.
+(HTMLCanvasElement.prototype as any).getContext = () => null;
+
 beforeEach(() => {
   tracker.stop.mockClear();
   tracker.starts = 0;
@@ -74,6 +80,7 @@ beforeEach(() => {
     onSay: () => () => undefined,
     ttsVoices: () => Promise.resolve([]),
     ttsModels: () => Promise.resolve([]),
+    listHeadModels: () => Promise.resolve([]),
   };
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -136,6 +143,14 @@ describe("App: hand control", () => {
     await act(async () => {
       (
         container.querySelector('[title="Graph settings"]') as HTMLElement
+      ).click();
+    });
+    // the checkbox lives on the panel's "Senses" page
+    await act(async () => {
+      (
+        Array.from(container.querySelectorAll("button")).find(
+          (b) => b.textContent === "Senses",
+        ) as HTMLElement
       ).click();
     });
     await act(async () => {

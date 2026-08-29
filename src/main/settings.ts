@@ -27,13 +27,28 @@ export async function loadSettings(file: string): Promise<Settings> {
     ) {
       s.sectionFilter = p.sectionFilter;
     }
+    // absent stays absent for both: the renderer treats "no entry" as "never
+    // drawn" and draws one, where a 0 or an [] would read as a real value
+    const main = asRecord(p.mainColors);
+    for (const [id, hex] of Object.entries(main)) {
+      if (typeof hex === "string" && /^#[0-9a-f]{6}$/i.test(hex))
+        (s.mainColors ??= {})[id] = hex;
+    }
+    if (Array.isArray(p.recentHues)) {
+      const hues = p.recentHues.filter(
+        (h): h is number => typeof h === "number" && Number.isFinite(h),
+      );
+      // only the last RECENT_PICKS (10) are ever honoured; trimming on the way
+      // in stops a corrupted file being loaded and written back at full length
+      if (hues.length > 0) s.recentHues = hues.slice(-10);
+    }
     if (typeof p.showTags === "boolean") s.showTags = p.showTags;
     if (typeof p.showOrphans === "boolean") s.showOrphans = p.showOrphans;
     if (typeof p.handControl === "boolean") s.handControl = p.handControl;
     if (typeof p.voiceControl === "boolean") s.voiceControl = p.voiceControl;
     if (typeof p.micDeviceId === "string" && p.micDeviceId)
       s.micDeviceId = p.micDeviceId;
-    for (const k of ["ttsVoiceId", "ttsModelId"] as const) {
+    for (const k of ["ttsVoiceId", "ttsModelId", "headModel"] as const) {
       if (typeof p[k] === "string" && p[k]) s[k] = p[k] as string;
     }
     // groups are keyed by workspace id; a legacy flat array is dropped (the

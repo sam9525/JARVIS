@@ -19,6 +19,7 @@ const MINI_NODE_SCALE = 1.5; // dots shrink with the fit; hubs must stay visible
 type MiniGraphProps = {
   graph: VaultGraph | null; // null while the workspace's graph is still loading
   kind: Workspace["kind"]; // code workspaces have no sections — see below
+  baseHue: number; // the workspace identity hue — same one Fleet paints it with
   state: HighlightState;
   groups: GraphGroup[];
   view: ViewSettings; // always the 2D view's, even when the app is in 3D
@@ -35,6 +36,7 @@ type MiniGraphProps = {
 export default function MiniGraph({
   graph,
   kind,
+  baseHue,
   state,
   groups,
   view,
@@ -85,6 +87,7 @@ export default function MiniGraph({
         <Graph
           graph={mini}
           domains={domains}
+          baseHue={baseHue}
           groups={groups}
           display={display}
           forces={view.forces}

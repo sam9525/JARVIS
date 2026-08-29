@@ -72,6 +72,12 @@ const ORCHESTRATOR: Workspace = {
   isSelf: true,
 };
 
+// App renders the voice wave onto a canvas, and jsdom has no 2D backend —
+// without this, every render logs "Not implemented: getContext". VoiceWave
+// already treats a null context as "no wave to draw"; tests/voice/VoiceWave
+// is where the drawing itself is checked.
+(HTMLCanvasElement.prototype as any).getContext = () => null;
+
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
@@ -284,6 +290,32 @@ describe("App: voice restored-message race", () => {
     await act(async () => sayListener?.("build is green"));
 
     expect(speakSpy).not.toHaveBeenCalled();
+  });
+
+  // the head and wave are the voice made visible; a user who never turns the
+  // mic on should not pay a GLB fetch, a pointer listener and a rAF loop
+  it("draws no head or wave while voice control is off", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: false };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+
+    expect(container.querySelector('[data-testid="voice-wave"]')).toBeNull();
+  });
+
+  it("draws the head and wave once voice control is on", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+
+    expect(
+      container.querySelector('[data-testid="voice-wave"]'),
+    ).not.toBeNull();
   });
 
   // the mirror case: switched on, the same line is spoken

@@ -133,9 +133,17 @@ describe("ensureMainAgent", () => {
 });
 
 describe("FINISH_NUDGE", () => {
-  it("names no workspace and carries no message — the agent reads the fleet itself", () => {
-    expect(FINISH_NUDGE).toContain("jarvis_list");
+  it("names no workspace and carries no message — the agent reads the finish itself", () => {
+    expect(FINISH_NUDGE).toContain("jarvis_watch");
     expect(FINISH_NUDGE).not.toContain("{");
+  });
+
+  // jarvis_list hands back the whole fleet, and an agent given the whole fleet
+  // summarises the whole fleet — the queued finish is the one entry it was
+  // woken for
+  it("sends the agent to the queued finish, not to the fleet", () => {
+    expect(FINISH_NUDGE).toContain("timeout_seconds 1");
+    expect(FINISH_NUDGE).toContain("do not call jarvis_list");
   });
 
   it("fits on one line, since it is typed into a TUI composer", () => {
@@ -144,8 +152,8 @@ describe("FINISH_NUDGE", () => {
 
   // the summary is heard, not read: a listener cannot skim, so length is the
   // whole design constraint
-  it("asks for one sentence and rules out the shapes that pad speech", () => {
-    expect(FINISH_NUDGE).toContain("ONE or TWO spoken sentences");
+  it("asks for the fewest words and rules out the shapes that pad speech", () => {
+    expect(FINISH_NUDGE).toContain("as few words as");
     for (const banned of ["preamble", "list", "file names", "markdown"]) {
       expect(FINISH_NUDGE).toContain(banned);
     }
@@ -154,12 +162,17 @@ describe("FINISH_NUDGE", () => {
 
 describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
   it("tells the agent it is started by the app rather than by polling", () => {
-    expect(AGENT_GUIDE).toContain("jarvis_list");
-    expect(AGENT_GUIDE).toContain("do not park");
+    expect(AGENT_GUIDE).toContain("jarvis_watch");
+    expect(AGENT_GUIDE).toContain("not poll and you do not wait");
   });
 
-  it("holds the guide and the nudge to the same one-or-two-sentence brief", () => {
-    expect(AGENT_GUIDE).toContain("ONE or TWO sentences");
+  it("scopes the summary to the one finish the turn was woken for", () => {
+    expect(AGENT_GUIDE).toContain("that one workspace alone");
+    expect(AGENT_GUIDE).toContain("Do not call `jarvis_list` to look for more");
+  });
+
+  it("holds the guide and the nudge to the same fewest-words brief", () => {
+    expect(AGENT_GUIDE).toContain("as few words as possible");
     expect(AGENT_GUIDE).toContain("Someone is listening, not reading");
   });
 });

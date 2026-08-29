@@ -71,6 +71,32 @@ describe("settings", () => {
     expect(await loadSettings(file)).toEqual(s);
   });
 
+  // both stay absent when the file has none: the renderer reads "no entry" as
+  // "never drawn" and draws one, where a {} or an [] would read as a real value
+  it("round-trips the drawn palette, dropping entries it cannot use", async () => {
+    const file = await writeSettings({
+      mainColors: { "d:/a": "#112233", "d:/b": "nonsense", "d:/c": 7 },
+      recentHues: [12, "purple", 200, null],
+    });
+    const loaded = await loadSettings(file);
+    expect(loaded.mainColors).toEqual({ "d:/a": "#112233" });
+    expect(loaded.recentHues).toEqual([12, 200]);
+  });
+
+  it("keeps only the last ten hues from an oversized pick log", async () => {
+    const recentHues = Array.from({ length: 500 }, (_, i) => i % 360);
+    const file = await writeSettings({ recentHues });
+    const s = await loadSettings(file);
+    expect(s.recentHues).toEqual(recentHues.slice(-10));
+  });
+
+  it("leaves the palette absent when the file has none", async () => {
+    const file = await writeSettings({ showTags: false });
+    const loaded = await loadSettings(file);
+    expect(loaded.mainColors).toBeUndefined();
+    expect(loaded.recentHues).toBeUndefined();
+  });
+
   it("returns defaults when the file is missing", async () => {
     const file = await tmpFile(); // never written
     expect(await loadSettings(file)).toEqual(defaultSettings());
@@ -413,5 +439,16 @@ describe("settings", () => {
     // no voice default exists, but the model has one — a malformed value
     // falls back to it rather than leaving the app with no model
     expect(s.ttsModelId).toBe("eleven_multilingual_v2");
+  });
+
+  it("round-trips the head model, and drops a non-string one", async () => {
+    expect(
+      (await loadSettings(await writeSettings({ headModel: "a.glb" })))
+        .headModel,
+    ).toBe("a.glb");
+    // absent means the built-in helmet, which is also what a bad value gets
+    expect(
+      (await loadSettings(await writeSettings({ headModel: 7 }))).headModel,
+    ).toBeUndefined();
   });
 });

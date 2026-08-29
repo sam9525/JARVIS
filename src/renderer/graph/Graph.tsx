@@ -31,7 +31,8 @@ export const PAN_PX_PER_UNIT = 900;
 
 type GraphProps = {
   graph: VaultGraph; // may be filtered
-  domains: string[]; // from the FULL graph — keeps palette indices stable
+  domains: string[]; // from the FULL graph — keeps hue indices stable
+  baseHue?: number; // the workspace identity hue its domains fan out from
   groups: GraphGroup[];
   display: ViewSettings["display"];
   forces: ViewSettings["forces"];
@@ -50,6 +51,7 @@ type GraphProps = {
 export default function Graph({
   graph,
   domains,
+  baseHue = 0,
   groups,
   display,
   forces,
@@ -219,7 +221,9 @@ export default function Graph({
         const r = displayRadius(node.r ?? 4, display.nodeSize, t);
         const d = nodeDisplay(stateRef.current, hk);
         const base =
-          node.type === "tag" ? COLORS.tag : colorFor(node.domain, domains);
+          node.type === "tag"
+            ? COLORS.tag
+            : colorFor(node.domain, domains, baseHue);
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
         // modified wins, then group color, then domain palette; reads keep

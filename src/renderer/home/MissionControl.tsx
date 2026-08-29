@@ -10,6 +10,7 @@ import type {
 import type { HighlightState } from "../session/highlight-store";
 import type { GraphFilters } from "../graph/graph-filter";
 import MiniGraph from "../graph/MiniGraph";
+import { hueOfWorkspace } from "../graph/workspace-color";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { relativeTime } from "./relative-time";
 
@@ -39,6 +40,7 @@ const TEXT: Record<StatusKind, string> = {
 
 type MissionControlProps = {
   workspaces: Workspace[];
+  mainColors?: Record<string, string>; // workspace id → its main colour
   statuses: WorkspaceStatus[];
   graphs: Map<string, VaultGraph>; // only the workspaces loaded so far
   getStore: (workspaceId: string) => HighlightState;
@@ -56,6 +58,7 @@ type MissionControlProps = {
 // ready-made from main, and no card computes state of its own.
 export default function MissionControl({
   workspaces,
+  mainColors,
   statuses,
   graphs,
   getStore,
@@ -161,6 +164,7 @@ export default function MissionControl({
                 <MiniGraph
                   graph={g ?? null}
                   kind={ws.kind}
+                  baseHue={hueOfWorkspace(ws, workspaces, mainColors)}
                   state={getStore(ws.id)}
                   groups={groups[ws.id] ?? []}
                   view={view}

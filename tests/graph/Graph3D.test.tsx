@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { vi, describe, it, expect } from "vitest";
 import type { VaultGraph } from "../../src/shared/types";
+import { hueToHex } from "../../src/renderer/graph/workspace-color";
 
 // Mock React before any other code or dynamic imports run
 vi.mock("react", async () => {
@@ -176,8 +177,18 @@ describe("Graph3D component", () => {
       domain: "physics",
     });
     const hot = element.props.nodeColor({ id: "physics/a", domain: "physics" });
-    expect(cold).toBe("#e06c75"); // domain palette index 0
+    expect(cold).toBe(hueToHex(0)); // first domain wears the base hue itself
     expect(hot).not.toBe(cold);
     expect(hot).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("colours a node from the workspace base hue it is given", async () => {
+    const { default: Graph3D } =
+      await import("../../src/renderer/graph/Graph3D");
+
+    const props = makeProps(sampleGraph) as any;
+    props.baseHue = 207;
+    const node = { id: "physics/b", domain: "physics" };
+    expect((Graph3D(props) as any).props.nodeColor(node)).toBe(hueToHex(207));
   });
 });

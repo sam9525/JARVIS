@@ -78,7 +78,8 @@ function clearTrail(group: Group): void {
 
 type GraphProps = {
   graph: VaultGraph; // may be filtered
-  domains: string[]; // from the FULL graph — keeps palette indices stable
+  domains: string[]; // from the FULL graph — keeps hue indices stable
+  baseHue?: number; // the workspace identity hue its domains fan out from
   groups: GraphGroup[];
   haloGroups?: GraphGroup[]; // group halos only; decoupled from node coloring (fleet: blue backdrops over per-project node colors)
   display: ViewSettings["display"];
@@ -97,6 +98,7 @@ type GraphProps = {
 export default function Graph3D({
   graph,
   domains,
+  baseHue = 0,
   groups,
   haloGroups,
   display,
@@ -264,9 +266,10 @@ export default function Graph3D({
   // baseNodeColor excludes highlight state so read flares don't recolor edges.
   const linkColors = useMemo(() => {
     const m = new Map<string, string>();
-    for (const n of graph.nodes) m.set(n.id, baseNodeColor(n, domains, groups));
+    for (const n of graph.nodes)
+      m.set(n.id, baseNodeColor(n, domains, groups, baseHue));
     return m;
-  }, [graph, domains, groups]);
+  }, [graph, domains, groups, baseHue]);
 
   // one material shared by every link line; linewidth is screen-space px.
   // refresh() flush-disposes each link object's material, but this one is
@@ -487,11 +490,12 @@ export default function Graph3D({
           { id, type: node.type, domain: node.domain },
           domains,
           groups,
+          baseHue,
         ),
         t,
       );
     },
-    [stateRef, domains, groups],
+    [stateRef, domains, groups, baseHue],
   );
 
   const updateNodeAdornment = useCallback(
