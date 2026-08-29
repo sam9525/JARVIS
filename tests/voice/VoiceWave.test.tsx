@@ -75,7 +75,11 @@ describe("VoiceWave", () => {
 
   it("draws the head's visible edges once the model arrives", async () => {
     silent();
-    loadHead.mockResolvedValue(TRIANGLE());
+    loadHead.mockResolvedValue({
+      model: TRIANGLE(),
+      scene: {},
+      parts: [],
+    });
     await act(async () => {
       root.render(<VoiceWave />);
     });

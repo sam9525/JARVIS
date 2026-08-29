@@ -14,10 +14,17 @@ const HEAD_URL = "/head/head.glb";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+export type MeshPart = { mesh: any; start: number; count: number };
+
 /** Flatten every mesh in the file into one triangle soup in world space. */
-function soup(scene: any): { positions: number[]; indices: number[] } {
+function soup(scene: any): {
+  positions: number[];
+  indices: number[];
+  parts: MeshPart[];
+} {
   const positions: number[] = [];
   const indices: number[] = [];
+  const parts: MeshPart[] = [];
   scene.updateMatrixWorld(true);
   scene.traverse((o: any) => {
     const geo = o.geometry?.attributes?.position
@@ -30,24 +37,37 @@ function soup(scene: any): { positions: number[]; indices: number[] } {
     const ix = geo.index?.array as ArrayLike<number> | undefined;
     if (ix) for (let i = 0; i < ix.length; i++) indices.push(base + ix[i]);
     else for (let i = 0; i < p.length / 3; i++) indices.push(base + i);
+    parts.push({ mesh: o, start: base, count: p.length / 3 });
     geo.dispose();
   });
-  return { positions, indices };
+  return { positions, indices, parts };
 }
 
+export type LoadedHead = {
+  model: HeadModel;
+  /** The GLTF scene itself. Colour mode renders it; the wireframe reads its
+   *  deformed vertices out of it, so both modes need it kept. */
+  scene: any;
+  parts: MeshPart[];
+};
+
 /** Parse GLB bytes into the drawable model. */
-export function parseHead(buf: ArrayBuffer): Promise<HeadModel> {
+export function parseHead(buf: ArrayBuffer): Promise<LoadedHead> {
   return new Promise((resolve, reject) => {
     new GLTFLoader().parse(
       buf,
       "",
       (gltf: any) => {
-        const { positions, indices } = soup(gltf.scene);
+        const { positions, indices, parts } = soup(gltf.scene);
         if (!indices.length) {
           reject(new Error("the file has no triangles"));
           return;
         }
-        resolve(buildModel(positions, indices));
+        resolve({
+          model: buildModel(positions, indices),
+          scene: gltf.scene,
+          parts,
+        });
       },
       reject,
     );
@@ -60,7 +80,7 @@ export function parseHead(buf: ArrayBuffer): Promise<HeadModel> {
  * A name that no longer resolves falls back rather than throwing, so deleting
  * a file behind the app's back costs the head, not the whole wave.
  */
-export async function loadHead(name?: string): Promise<HeadModel> {
+export async function loadHead(name?: string): Promise<LoadedHead> {
   if (name) {
     const bytes = await window.jarvis.readHeadModel(name);
     if (bytes) return parseHead(bytes.buffer as ArrayBuffer);

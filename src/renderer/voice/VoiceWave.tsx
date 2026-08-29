@@ -60,8 +60,8 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     const headCanvas = headRef.current;
-    const head = headCanvas?.getContext("2d");
-    if (!canvas || !ctx || !headCanvas || !head) return;
+    const head2d = headCanvas?.getContext("2d");
+    if (!canvas || !ctx || !headCanvas || !head2d) return;
 
     // Backing-store scale for the bezel's fixed CSS size. setTransform, not
     // scale: StrictMode runs this effect twice on the same canvas, and scale
@@ -74,7 +74,7 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     headCanvas.width = HEAD_W * dpr;
     headCanvas.height = HEAD_H * dpr;
-    head.setTransform(dpr, 0, 0, dpr, (HEAD_W / 2) * dpr, (HEAD_H / 2) * dpr);
+    head2d.setTransform(dpr, 0, 0, dpr, (HEAD_W / 2) * dpr, (HEAD_H / 2) * dpr);
 
     const styles = getComputedStyle(document.documentElement);
     const live = styles.getPropertyValue("--color-accent").trim() || "#22d3ee";
@@ -88,7 +88,7 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     let running = false;
-    let model: HeadModel | null = null;
+    let head: import("./load-head").LoadedHead | null = null;
 
     const paint = (hasWave: boolean) => {
       ctx.clearRect(0, 0, W, H);
@@ -122,17 +122,17 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     // One path and one stroke for the whole helmet. Ten thousand separate
     // stroke calls is what would cost a frame, not the segment count.
     const paintHead = (lit: boolean) => {
-      head.clearRect(-HEAD_W / 2, -HEAD_H / 2, HEAD_W, HEAD_H);
-      if (!model) return;
-      head.lineWidth = HEAD_LINE;
-      head.strokeStyle = lit ? live : idle;
-      const seg = visibleEdges(model, angle.yaw, angle.pitch, HEAD_SCALE);
-      head.beginPath();
+      head2d.clearRect(-HEAD_W / 2, -HEAD_H / 2, HEAD_W, HEAD_H);
+      if (!head) return;
+      head2d.lineWidth = HEAD_LINE;
+      head2d.strokeStyle = lit ? live : idle;
+      const seg = visibleEdges(head.model, angle.yaw, angle.pitch, HEAD_SCALE);
+      head2d.beginPath();
       for (let i = 0; i < seg.length; i += 4) {
-        head.moveTo(seg[i], seg[i + 1]);
-        head.lineTo(seg[i + 2], seg[i + 3]);
+        head2d.moveTo(seg[i], seg[i + 1]);
+        head2d.lineTo(seg[i + 2], seg[i + 3]);
       }
-      head.stroke();
+      head2d.stroke();
     };
 
     const settled = () =>
@@ -205,9 +205,9 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     // again, so nothing spins waiting for the file.
     import("./load-head")
       .then(({ loadHead }) => loadHead(headModel))
-      .then((m) => {
+      .then((loaded) => {
         if (disposed) return;
-        model = m;
+        head = loaded;
         start();
       })
       .catch((err) => console.error("head model", err));
