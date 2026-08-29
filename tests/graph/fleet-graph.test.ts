@@ -133,6 +133,18 @@ describe("fleetDomains", () => {
     }
   });
 
+  // Fleet was handed the whole workspace array and home the isSelf-filtered
+  // one, so the two lists differed in length and an unseeded project drew a
+  // different colour in each. The filter lives here so neither caller can.
+  it("leaves the main agent out, whichever list a caller passes", () => {
+    const self = { ...ws("self", "Main Agent"), isSelf: true } as Workspace;
+    const all = [ws("a", "AeroGraph"), ws("b", "Pokemon"), self];
+    expect(fleetDomains(all)).toEqual(["AeroGraph", "JARVIS", "Pokemon"]);
+    expect(fleetDomains(all)).toEqual(
+      fleetDomains(all.filter((w) => !w.isSelf)),
+    );
+  });
+
   it("gives two projects two different colours", () => {
     const all = [ws("a", "AeroGraph"), ws("b", "Pokemon")];
     expect(colorFor("AeroGraph", fleetDomains(all))).not.toBe(

@@ -28,16 +28,16 @@ export function clusterGroups(
     .map((ws) => ({ query: ws.id, color: mainColors[ws.id] }))
     .sort((a, b) => b.query.length - a.query.length);
 }
-
-/** The domain list every fleet colour is drawn from: one entry per workspace
- * name, plus the root. Derived from the workspace list rather than from the
- * built graph, because a workspace whose graph has not loaded yet contributes
- * no nodes — and `domainsOf(fleet)` then shifted every later workspace onto a
- * different hue. Also what `workspaceHue` indexes into, so a project draws the
- * same colour in its own graph as it does here. */
+/** The domain list every view colours a project by. The main agent is left
+ * out: it has no graph, so Fleet draws no cluster for it, and a caller that
+ * passed the unfiltered array would have counted a domain the home views do
+ * not — which is one project wearing two colours. */
 export function fleetDomains(workspaces: Workspace[]): string[] {
   return Array.from(
-    new Set([...workspaces.map((w) => w.name), FLEET_ROOT_DOMAIN]),
+    new Set([
+      ...workspaces.filter((w) => !w.isSelf).map((w) => w.name),
+      FLEET_ROOT_DOMAIN,
+    ]),
   ).sort();
 }
 const PROJECT_CAP = 80;

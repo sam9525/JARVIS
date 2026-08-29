@@ -788,7 +788,7 @@ export default function App() {
             <>
               {homeView === "fleet" ? (
                 <FleetGraph
-                  workspaces={workspaces}
+                  workspaces={fleet}
                   mainColors={settings.mainColors}
                   graphs={cardGraphs}
                   view={view}
