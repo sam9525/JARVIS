@@ -17,6 +17,14 @@ function preview(s: WorkspaceStatus): string {
   return s.kind === "idle" ? (s.message ?? "") : s.call;
 }
 
+// The main agent's whole job is to write you a sentence about the fleet, so its
+// idle summary wraps to as many lines as it takes. A running call line stays on
+// one line even there — a wrapped Bash command pushes the fleet off screen to
+// say nothing.
+function wraps(w: Workspace, s: WorkspaceStatus): boolean {
+  return Boolean(w.isSelf) && s.kind === "idle";
+}
+
 export default function Inbox({
   workspaces,
   statuses,
@@ -67,7 +75,9 @@ export default function Inbox({
                 )}
               </span>
               <span
-                className="block truncate text-[12px] text-ink-dim"
+                className={`block text-[12px] text-ink-dim ${
+                  wraps(w, s) ? "" : "truncate"
+                }`}
                 data-testid={`inbox-preview-${w.id}`}
               >
                 {preview(s)}
