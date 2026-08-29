@@ -70,6 +70,14 @@ describe("defaultPanel", () => {
       expect(p.y).toBeGreaterThanOrEqual(BEZEL_INSET);
     }
   });
+
+  it("gives the mouth picker a default panel inside the viewport", () => {
+    const vp = { width: 1600, height: 900 };
+    const p = defaultPanel("mouth", vp);
+    expect(p.w).toBeGreaterThan(0);
+    expect(p.x + p.w).toBeLessThanOrEqual(vp.width);
+    expect(p.collapsed).toBe(false);
+  });
 });
 
 describe("clampToViewport", () => {

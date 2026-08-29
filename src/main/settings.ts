@@ -51,6 +51,26 @@ export async function loadSettings(file: string): Promise<Settings> {
     for (const k of ["ttsVoiceId", "ttsModelId", "headModel"] as const) {
       if (typeof p[k] === "string" && p[k]) s[k] = p[k] as string;
     }
+    for (const k of ["headColor", "headMouth"] as const) {
+      if (typeof p[k] === "boolean") s[k] = p[k] as boolean;
+    }
+    for (const [name, region] of Object.entries(asRecord(p.headMouths))) {
+      const r = region as { c?: unknown; r?: unknown } | null;
+      if (
+        r &&
+        Array.isArray(r.c) &&
+        r.c.length === 3 &&
+        r.c.every((n) => typeof n === "number" && Number.isFinite(n)) &&
+        typeof r.r === "number" &&
+        Number.isFinite(r.r) &&
+        r.r > 0
+      ) {
+        (s.headMouths ??= {})[name] = {
+          c: r.c as [number, number, number],
+          r: r.r,
+        };
+      }
+    }
     // groups are keyed by workspace id; a legacy flat array is dropped (the
     // renderer re-seeds each workspace from its own graph on first open)
     if (typeof p.groups === "object" && p.groups !== null) {
@@ -123,7 +143,12 @@ export async function saveSettings(file: string, s: Settings): Promise<void> {
   await fs.writeFile(file, JSON.stringify(s, null, 2) + "\n", "utf8");
 }
 
-const PANEL_IDS: readonly PanelId[] = ["terminal", "preview", "settings"];
+const PANEL_IDS: readonly PanelId[] = [
+  "terminal",
+  "preview",
+  "settings",
+  "mouth",
+];
 
 function readPanelMap(u: unknown): PanelMap {
   const src = asRecord(u);

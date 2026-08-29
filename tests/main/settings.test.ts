@@ -451,4 +451,31 @@ describe("settings", () => {
       (await loadSettings(await writeSettings({ headModel: 7 }))).headModel,
     ).toBeUndefined();
   });
+
+  it("round-trips the head colour, mouth and picked regions", async () => {
+    const file = await writeSettings({
+      headColor: true,
+      headMouth: true,
+      headMouths: { "avatar.glb": { c: [0, 0.4, 0.9], r: 0.18 } },
+    });
+    const s = await loadSettings(file);
+    expect(s.headColor).toBe(true);
+    expect(s.headMouth).toBe(true);
+    expect(s.headMouths?.["avatar.glb"]).toEqual({ c: [0, 0.4, 0.9], r: 0.18 });
+  });
+
+  it("drops a malformed picked region rather than loading it", async () => {
+    const file = await writeSettings({
+      headColor: "yes",
+      headMouths: {
+        ok: { c: [0, 0, 0], r: 0.2 },
+        shortVector: { c: [0, 0], r: 0.2 },
+        noRadius: { c: [0, 0, 0] },
+        stringRadius: { c: [0, 0, 0], r: "wide" },
+      },
+    });
+    const s = await loadSettings(file);
+    expect(s.headColor).toBeUndefined();
+    expect(Object.keys(s.headMouths ?? {})).toEqual(["ok"]);
+  });
 });

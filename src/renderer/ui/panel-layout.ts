@@ -40,6 +40,8 @@ const WIDTH: Record<PanelId, number> = {
   terminal: 0.36,
   preview: 0.36,
   settings: 0.15,
+  // wide enough to orbit a head and see where the marker lands
+  mouth: 0.26,
 };
 
 /**
