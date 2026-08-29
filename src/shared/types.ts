@@ -174,10 +174,11 @@ export interface Settings {
    */
   panelViewport?: { width: number; height: number };
   /**
-   * A workspace's main colour, keyed by workspace id: the first hue its groups
-   * ever drew. Fleet paints the project's whole cluster with it, so it has to
-   * outlive the session that drew it or a project would change colour in Fleet
-   * on every launch. Absent until that workspace has seeded its groups.
+   * A workspace's main colour, keyed by workspace id: its biggest folder's hue
+   * (ties going to the alphabetically first). Fleet paints the project's whole
+   * cluster with it, so it has to outlive the session that drew it or a project
+   * would change colour in Fleet on every launch. Absent until that workspace
+   * has seeded its groups.
    */
   mainColors?: Record<string, string>;
   /**
