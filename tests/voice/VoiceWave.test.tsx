@@ -13,6 +13,19 @@ import * as speak from "../../src/renderer/voice/speak";
 const loadHead = vi.hoisted(() => vi.fn());
 vi.mock("../../src/renderer/voice/load-head", () => ({ loadHead }));
 
+// The colour renderer is a real WebGL context, which jsdom has none of. The
+// stub records the angles it is asked to draw, which is what the loop owes it.
+const rendered = vi.hoisted(() => [] as { yaw: number; pitch: number }[]);
+const mountColourHead = vi.hoisted(() =>
+  vi.fn(() => ({
+    render: (yaw: number, pitch: number) => {
+      rendered.push({ yaw, pitch });
+    },
+    dispose: () => undefined,
+  })),
+);
+vi.mock("../../src/renderer/voice/head-render", () => ({ mountColourHead }));
+
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 // One triangle facing the viewer: three visible edges once it loads.
@@ -173,6 +186,25 @@ describe("VoiceWave", () => {
     ).toBeNull();
   });
 
+  // A canvas grants one context for its whole life. Both branches are a
+  // <canvas> in the same slot, so without keys React keeps the node and only
+  // moves the ref — and the reused node refuses the other kind of context,
+  // which is a head that never draws again until the app restarts.
+  it("builds a new canvas element when the colour mode flips", () => {
+    silent();
+    act(() => root.render(<VoiceWave />));
+    const wire = container.querySelector('[data-testid="voice-head"]');
+    act(() => root.render(<VoiceWave colour />));
+    const colour = container.querySelector('[data-testid="voice-head-colour"]');
+    expect(wire).not.toBeNull();
+    expect(colour).not.toBeNull();
+    expect(colour).not.toBe(wire);
+    act(() => root.render(<VoiceWave />));
+    expect(container.querySelector('[data-testid="voice-head"]')).not.toBe(
+      colour,
+    );
+  });
+
   it("leaves the rest pose alone while the mouth switch is off", async () => {
     const model = buildModel([-1, -1, 0, 1, -1, 0, 0, 1, 0], [0, 1, 2]);
     loadHead.mockResolvedValue({ model, scene: { children: [] }, parts: [] });
@@ -198,6 +230,54 @@ describe("VoiceWave", () => {
     );
     await flush();
     expect(seen).toBe("none"); // an empty scene carries no morph and no bone
+  });
+
+  it("reports whether the head carries a colour texture", async () => {
+    const model = buildModel([-1, -1, 0, 1, -1, 0, 0, 1, 0], [0, 1, 2]);
+    loadHead.mockResolvedValue({
+      model,
+      textured: false,
+      scene: { children: [] },
+      parts: [],
+    });
+    let seen: boolean | null = null;
+    act(() =>
+      root.render(
+        <VoiceWave
+          onTextured={(t) => {
+            seen = t;
+          }}
+        />,
+      ),
+    );
+    await flush();
+    expect(seen).toBe(false);
+  });
+
+  it("turns the colour head toward the pointer", async () => {
+    silent();
+    rendered.length = 0;
+    loadHead.mockResolvedValue({
+      model: TRIANGLE(),
+      textured: true,
+      scene: { children: [] },
+      parts: [],
+    });
+    act(() => root.render(<VoiceWave colour />));
+    await flush();
+    const before = rendered.length;
+    act(() => {
+      window.dispatchEvent(
+        new window.MouseEvent("pointermove", {
+          clientX: 10,
+          clientY: 10,
+        }) as unknown as PointerEvent,
+      );
+    });
+    await flush();
+    expect(rendered.length).toBeGreaterThan(before);
+    const last = rendered[rendered.length - 1];
+    expect(Math.abs(last.yaw) + Math.abs(last.pitch)).toBeGreaterThan(0);
   });
 
   it("opens the mouth from the wave when the switch is on", async () => {

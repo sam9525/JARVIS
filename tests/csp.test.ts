@@ -21,8 +21,9 @@ describe("index.html Content-Security-Policy", () => {
     expect(csp).toMatch(/connect-src 'self'[^;]*$|connect-src 'self'[^;]*;/);
     // script-src must NOT allow inline handlers like <img onerror=...>
     expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
-    // img-src must not allow arbitrary remote hosts
-    expect(csp).toMatch(/img-src 'self' data:(;|$)/);
+    // img-src must not allow arbitrary remote hosts. blob: is our own bytes:
+    // a GLB's embedded textures are decoded from a blob the renderer made.
+    expect(csp).toMatch(/img-src 'self' data: blob:(;|$)/);
   });
 
   // v0.3.3: hand tracking compiles MediaPipe WASM, which needs
@@ -35,12 +36,14 @@ describe("index.html Content-Security-Policy", () => {
   });
 
   // v0.4.1: cloud TTS bytes are handed to the renderer over IPC and played from
-  // a blob: URL. media-src is the only opening — connect-src stays shut, because
-  // the ElevenLabs request runs in main.
-  it("allows blob: media and nothing else new", () => {
+  // a blob: URL. v0.4.3 widens img-src and connect-src to blob: as well: a GLB's
+  // embedded textures are decoded from a blob the renderer itself made, and
+  // three fetches that blob URL back. Local bytes, never a remote host — which
+  // is the line these directives hold.
+  it("allows blob: bytes and no remote host", () => {
     const csp = match ? match[1] : "";
     expect(csp).toContain("media-src 'self' blob:");
     expect(csp).not.toContain("elevenlabs");
-    expect(csp).toMatch(/connect-src 'self' ws:\/\/localhost:\*/);
+    expect(csp).toMatch(/connect-src 'self' blob: ws:\/\/localhost:\*/);
   });
 });

@@ -38,6 +38,10 @@ const GAIN = 3;
 
 const boost = (x: number) => Math.min(x * GAIN, 1);
 
+// What face detection made of each head, by model name — null included, so a
+// head with no findable mouth is not re-searched on every mode flip.
+const found = new Map<string, MouthRegion | null>();
+
 // The mouth opens on the loudest bin in the buffer, smoothed like the bars are
 // so one noisy frame cannot snap the jaw.
 const MOUTH_SMOOTH = 0.4;
@@ -71,12 +75,14 @@ export default function VoiceWave({
   mouth,
   mouthRegion,
   onRig,
+  onTextured,
 }: {
   headModel?: string;
   colour?: boolean;
   mouth?: boolean;
   mouthRegion?: MouthRegion;
   onRig?: (kind: RigKind) => void;
+  onTextured?: (has: boolean) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const headRef = useRef<HTMLCanvasElement | null>(null);
@@ -349,7 +355,14 @@ export default function VoiceWave({
           null,
         );
         if (rigCandidate.kind === "none" && !mouthRegion) {
-          const detected = await detectFront(loaded);
+          const key = headModel ?? "";
+          // Detection loads MediaPipe and renders the head offscreen. The
+          // colour switch remounts this effect, and paying that again for a
+          // head that has already answered is what makes the switch feel stuck.
+          const detected = found.has(key)
+            ? (found.get(key) ?? null)
+            : await detectFront(loaded);
+          found.set(key, detected);
           if (disposed) return;
           if (detected) {
             rigCandidate = resolveRig(
@@ -362,6 +375,7 @@ export default function VoiceWave({
         }
         rig = rigCandidate;
         onRig?.(rig.kind);
+        onTextured?.(loaded.textured);
         if (colour && colourRef.current) {
           const { mountColourHead } = await import("./head-render");
           if (disposed) return;
@@ -389,21 +403,30 @@ export default function VoiceWave({
       if (timer) clearTimeout(timer);
       colourHead?.dispose();
     };
-  }, [headModel, colour, mouthRegion, onRig]);
+  }, [headModel, colour, mouthRegion, onRig, onTextured]);
 
   return (
     <div
       data-testid="voice-wave"
       className="pointer-events-none flex w-max flex-col gap-1"
     >
+      {/* The keys are what make this a swap rather than a reuse. Both branches
+          are a <canvas> in the same slot, so React would keep the same DOM node
+          and only move the ref — and a canvas grants one context for its whole
+          life. The reused node hands back null for the other kind: WebGL on the
+          node that drew the wireframe throws "Error creating WebGL context",
+          and 2D on the node that drew in colour comes back null and the effect
+          bails, which is a head that never draws again until a restart. */}
       {colour ? (
         <canvas
+          key="colour"
           ref={colourRef}
           data-testid="voice-head-colour"
           style={{ width: HEAD_W, height: HEAD_H }}
         />
       ) : (
         <canvas
+          key="wire"
           ref={headRef}
           data-testid="voice-head"
           style={{ width: HEAD_W, height: HEAD_H }}

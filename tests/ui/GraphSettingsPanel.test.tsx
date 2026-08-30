@@ -69,6 +69,7 @@ type MountProps = Partial<{
   onResetHighlights: () => void;
   showSections: boolean;
   rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null;
+  headTextured?: boolean | null;
   onPickMouth?: () => void;
 }>;
 
@@ -86,6 +87,7 @@ function mount(props: MountProps = {}) {
         onResetHighlights={props.onResetHighlights ?? (() => undefined)}
         showSections={props.showSections ?? true}
         rigKind={props.rigKind}
+        headTextured={props.headTextured}
         onPickMouth={props.onPickMouth}
       />,
     );
@@ -96,6 +98,7 @@ function mount(props: MountProps = {}) {
 function render(
   overrides: Partial<Settings> = {},
   rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null,
+  headTextured?: boolean | null,
 ) {
   const calls: {
     settings: Settings[];
@@ -114,6 +117,7 @@ function render(
       calls.resets++;
     },
     rigKind,
+    headTextured,
   });
   return { container, calls };
 }
@@ -438,6 +442,33 @@ describe("head model", () => {
     act(() => button.click());
     await flush();
     expect(calls.settings).toHaveLength(0);
+  });
+});
+
+describe("colour head", () => {
+  it("disables the colour switch and explains when the head has no texture", async () => {
+    const { container: c } = render({ headColor: true }, null, false);
+    senses(c);
+    await flush();
+    const input = c.querySelector(
+      '[data-testid="head-colour-setting"]',
+    ) as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(input.checked).toBe(false);
+    expect(c.textContent).toContain("This model carries no colour texture.");
+  });
+
+  it("leaves the colour switch live for a textured head and while voice is off", async () => {
+    for (const textured of [true, null] as const) {
+      const { container: c } = render({ headColor: true }, null, textured);
+      senses(c);
+      await flush();
+      const input = c.querySelector(
+        '[data-testid="head-colour-setting"]',
+      ) as HTMLInputElement;
+      expect(input.disabled).toBe(false);
+      expect(input.checked).toBe(true);
+    }
   });
 });
 
