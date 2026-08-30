@@ -1,5 +1,6 @@
 import {
   AmbientLight,
+  PMREMGenerator,
   DirectionalLight,
   Group,
   PerspectiveCamera,
@@ -10,6 +11,7 @@ import {
   WebGLRenderer,
   type Object3D,
 } from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { normalisePoint } from "./head-mesh";
 import type { LoadedHead } from "./load-head";
 
@@ -29,6 +31,19 @@ export type ColourHead = {
 // as the wireframe and the two modes frame the model identically.
 const DIST = 4;
 
+/**
+ * Turn the head to face a yaw/pitch aim.
+ *
+ * Pitch is negated: a positive pitch means "look up", and rotating about +x
+ * brings the crown toward the camera, which reads as looking down. Every path
+ * that poses the head goes through here — the renderer and the picker must
+ * agree, or a marked mouth lands where the head is not.
+ */
+function aimAt(root: Object3D, yaw: number, pitch: number): void {
+  root.rotation.y = yaw;
+  root.rotation.x = -pitch;
+}
+
 export function mountColourHead(
   canvas: HTMLCanvasElement,
   model: unknown,
@@ -41,27 +56,35 @@ export function mountColourHead(
 
   const scene = new Scene();
   const root = new Group();
-  // glTF is Y-up and the app's head space is Y-down, the same flip buildModel
-  // applies to the soup — without it the colour head hangs upside down beside
-  // an identical wireframe.
-  root.rotation.z = Math.PI;
+  // No flip: buildModel negates y for the wireframe because a canvas counts y
+  // downward, and the two cancel — so the file's own Y-up orientation is the
+  // one both modes draw. Rolling this group π only stands the colour head on
+  // its head beside an upright wireframe.
   root.add(model as never);
   scene.add(root);
   scene.add(new AmbientLight(0xffffff, 1.4));
   const key = new DirectionalLight(0xffffff, 1.8);
   key.position.set(1, 1, 2);
   scene.add(key);
+  // A glTF material with a metallicRoughness texture and no metallicFactor is
+  // fully metal, and metal has no diffuse colour: lit by lamps alone it renders
+  // near black however bright they are, because it can only reflect. The room
+  // is what it reflects — three's own procedural one, so no asset ships.
+  const pmrem = new PMREMGenerator(renderer);
+  const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = env;
 
   const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
   camera.position.set(0, 0, DIST);
 
   return {
     render(yaw, pitch) {
-      root.rotation.y = yaw;
-      root.rotation.x = pitch;
+      aimAt(root, yaw, pitch);
       renderer.render(scene, camera);
     },
     dispose() {
+      env.dispose();
+      pmrem.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
     },
@@ -94,16 +117,15 @@ export function pickOnScene(
     const root = (loaded.scene as { parent?: unknown }).parent as
       Object3D | undefined;
     if (root) {
-      root.rotation.y = angle.yaw;
-      root.rotation.x = angle.pitch;
+      aimAt(root, angle.yaw, angle.pitch);
       root.updateMatrixWorld(true);
     }
     const hit = ray.intersectObject(loaded.scene as never, true)[0];
     if (!hit) return null;
-    // The hit is in world space, and the group carries both the yaw/pitch and
-    // the Y-flip that mountColourHead applies. `normalisePoint` wants the
-    // file's own glTF units, so the point goes back through the group first —
-    // without this the pick lands mirrored in x and y.
+    // The hit is in world space and the group carries the yaw/pitch.
+    // `normalisePoint` wants the file's own glTF units, so the point goes back
+    // through the group first — without this the pick lands wherever the head
+    // happened to be turned.
     const local = root ? root.worldToLocal(hit.point.clone()) : hit.point;
     normalisePoint(loaded.model, local.x, local.y, local.z, out, 0);
     return [out[0], out[1], out[2]];
@@ -123,8 +145,7 @@ export function projectRegion(
   const root = (loaded.scene as { parent?: unknown }).parent as
     Object3D | undefined;
   if (!root) return null;
-  root.rotation.y = angle.yaw;
-  root.rotation.x = angle.pitch;
+  aimAt(root, angle.yaw, angle.pitch);
   root.updateMatrixWorld(true);
 
   const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
