@@ -12,7 +12,7 @@ import {
   type Object3D,
 } from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { normalisePoint } from "./head-mesh";
+import { denormalisePoint, normalisePoint } from "./head-mesh";
 import type { LoadedHead } from "./load-head";
 
 /**
@@ -120,23 +120,24 @@ export function pickOnScene(
   const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
   camera.position.set(0, 0, DIST);
   return (x: number, y: number): [number, number, number] | null => {
-    at.set((x / w) * 2 - 1, -((y / h) * 2 - 1));
-    ray.setFromCamera(at, camera);
     // the scene rotates under a fixed camera, so the same angles the renderer
-    // draws with have to be on the object before the ray is cast
+    // draws with have to be on the object before the ray is cast. An unmounted
+    // scene carries no angle at all: a ray cast at it would hit an unturned
+    // head and answer confidently with the wrong point, so it answers nothing.
     const root = (loaded.scene as { parent?: unknown }).parent as
       Object3D | undefined;
-    if (root) {
-      aimAt(root, angle.yaw, angle.pitch);
-      root.updateMatrixWorld(true);
-    }
+    if (!root) return null;
+    at.set((x / w) * 2 - 1, -((y / h) * 2 - 1));
+    ray.setFromCamera(at, camera);
+    aimAt(root, angle.yaw, angle.pitch);
+    root.updateMatrixWorld(true);
     const hit = ray.intersectObject(loaded.scene as never, true)[0];
     if (!hit) return null;
     // The hit is in world space and the group carries the yaw/pitch.
     // `normalisePoint` wants the file's own glTF units, so the point goes back
     // through the group first — without this the pick lands wherever the head
     // happened to be turned.
-    const local = root ? root.worldToLocal(hit.point.clone()) : hit.point;
+    const local = root.worldToLocal(hit.point.clone());
     normalisePoint(loaded.model, local.x, local.y, local.z, out, 0);
     return [out[0], out[1], out[2]];
   };
@@ -162,17 +163,12 @@ export function projectRegion(
   camera.position.set(0, 0, DIST);
   camera.updateMatrixWorld(true);
 
-  const { scale, cx, cy, cz } = loaded.model.norm;
-  const [rcx, rcy, rcz] = region.c;
-  const lx = rcx / scale + cx;
-  const ly = -(rcy / scale + cy);
-  const lz = rcz / scale + cz;
-
+  const [lx, ly, lz] = denormalisePoint(loaded.model, ...region.c);
   const centerLocal = new Vector3(lx, ly, lz);
   const centerWorld = root.localToWorld(centerLocal);
   const centerProj = centerWorld.clone().project(camera);
 
-  const rLocal = region.r / scale;
+  const rLocal = region.r / loaded.model.norm.scale;
   const edgeLocal = new Vector3(lx + rLocal, ly, lz);
   const edgeWorld = root.localToWorld(edgeLocal);
   const edgeProj = edgeWorld.clone().project(camera);
@@ -183,10 +179,19 @@ export function projectRegion(
   const edgeY = ((-edgeProj.y + 1) / 2) * h;
   const r = Math.max(Math.hypot(edgeX - x, edgeY - y), 2);
 
+  // Front or back, not near or far: the camera looks down -z at a head centred
+  // on the model's own middle, so a region whose outward direction still points
+  // at the camera is the one facing it. Testing the far plane instead drew the
+  // marker straight through the back of the skull.
+  const originWorld = root.localToWorld(
+    new Vector3(...denormalisePoint(loaded.model, 0, 0, 0)),
+  );
+  const outward = centerWorld.clone().sub(originWorld);
+
   return {
     x,
     y,
     r,
-    visible: centerProj.z < 1,
+    visible: outward.z > 0,
   };
 }

@@ -90,11 +90,17 @@ export default function MouthPicker({
       overlayCtx.fill();
     };
 
+    // The head is still between interactions, so the loop stops rather than
+    // redrawing an unchanged picture at 60 fps in a second WebGL context
+    // beside the graph. Every path that moves something invalidates instead.
     const draw = () => {
+      frame = 0;
       if (disposed || !head) return;
       head.render(angle.yaw, angle.pitch);
       drawMarker();
-      frame = requestAnimationFrame(draw);
+    };
+    const invalidate = () => {
+      if (!frame && !disposed) frame = requestAnimationFrame(draw);
     };
 
     const onDown = (e: PointerEvent) => {
@@ -110,6 +116,7 @@ export default function MouthPicker({
       }
       last = { x: e.clientX, y: e.clientY };
       canvas.setPointerCapture(e.pointerId);
+      invalidate();
     };
 
     const onMove = (e: PointerEvent) => {
@@ -118,15 +125,21 @@ export default function MouthPicker({
         angle.yaw += (e.clientX - last.x) * 0.01;
         angle.pitch += (e.clientY - last.y) * 0.01;
         last = { x: e.clientX, y: e.clientY };
+        invalidate();
         return;
       }
       const rect = canvas.getBoundingClientRect();
       const hit =
         raycast?.(e.clientX - rect.left, e.clientY - rect.top) ?? null;
       const c = regionRef.current?.c;
-      if (hit && c) regionRef.current = { c, r: radiusFrom(c, hit) };
+      if (hit && c) {
+        regionRef.current = { c, r: radiusFrom(c, hit) };
+        invalidate();
+      }
     };
 
+    // pointercancel as well as pointerup: a cancelled pointer never reports an
+    // up, and a mode left set keeps orbiting on the next move that arrives.
     const onUp = () => {
       mode = null;
     };
@@ -134,6 +147,7 @@ export default function MouthPicker({
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("pointercancel", onUp);
 
     void (async () => {
       const [{ loadHead }, { mountColourHead, pickOnScene, projectRegion }] =
@@ -148,7 +162,7 @@ export default function MouthPicker({
         project = (region: MouthRegion) =>
           projectRegion(loaded, SIZE, SIZE, angle, region);
       }
-      draw();
+      draw(); // paint on the spot; the loop wakes on the next interaction
     })().catch((err) => console.error("mouth picker", err));
 
     return () => {
@@ -157,6 +171,7 @@ export default function MouthPicker({
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onUp);
       overlayCtx.clearRect(0, 0, SIZE, SIZE);
       head?.dispose();
     };

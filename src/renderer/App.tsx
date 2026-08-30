@@ -99,6 +99,11 @@ const fold = (m: PanelMap): PanelMap =>
   m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
 
 /** absent entries fall back to defaultPanel, which already folds the terminal */
+// Which head a marked mouth belongs to. The built-in helmet has no name of its
+// own, so it needs a stand-in — spelt once, because the picker and the wave
+// have to agree on it or a marked mouth is stored where nothing reads it.
+const headKey = (s: Settings) => s.headModel ?? "__builtin";
+
 const withFoldedTerminal = (s: Settings): Settings => ({
   ...s,
   panels: { home: fold(s.panels.home), workspace: fold(s.panels.workspace) },
@@ -965,9 +970,7 @@ export default function App() {
                 headModel={settings.headModel}
                 colour={settings.headColor}
                 mouth={settings.headMouth}
-                mouthRegion={
-                  settings.headMouths?.[settings.headModel ?? "__builtin"]
-                }
+                mouthRegion={settings.headMouths?.[headKey(settings)]}
                 onRig={setRigKind}
               />
             ) : null}
@@ -1072,9 +1075,9 @@ export default function App() {
         >
           <MouthPicker
             headModel={settings.headModel}
-            initial={settings.headMouths?.[settings.headModel ?? "__builtin"]}
+            initial={settings.headMouths?.[headKey(settings)]}
             onDone={(region) => {
-              const key = settings.headModel ?? "__builtin";
+              const key = headKey(settings);
               const next = { ...(settings.headMouths ?? {}) };
               if (region) next[key] = region;
               else delete next[key];

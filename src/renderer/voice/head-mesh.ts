@@ -239,10 +239,20 @@ export function aimFrom(
   };
 }
 
-/** Rebuild every face normal from the current pose. */
-export function recomputeNormals(m: HeadModel): void {
+/**
+ * Rebuild face normals from the current pose — every face, or just the ones
+ * named. A region tier moves a handful of vertices a frame, and rebuilding ten
+ * thousand normals to catch a few dozen is the whole cost of the mouth.
+ */
+export function recomputeNormals(
+  m: HeadModel,
+  faces?: ArrayLike<number>,
+): void {
   const p = m.pose;
-  for (let f = 0, t = 0; t < m.tri.length; f++, t += 3) {
+  const count = faces ? faces.length : m.tri.length / 3;
+  for (let k = 0; k < count; k++) {
+    const f = faces ? faces[k] : k;
+    const t = f * 3;
     const a = m.tri[t] * 3;
     const b = m.tri[t + 1] * 3;
     const c = m.tri[t + 2] * 3;
@@ -262,8 +272,13 @@ export function recomputeNormals(m: HeadModel): void {
   }
 }
 
-/** The vertices a marked mouth moves, with a signed cosine falloff. */
-export type RegionMask = { idx: Uint32Array; w: Float32Array };
+/** The vertices a marked mouth moves, with a signed cosine falloff, and the
+ *  faces that touch them — the only normals a displacement can change. */
+export type RegionMask = {
+  idx: Uint32Array;
+  w: Float32Array;
+  faces: Uint32Array;
+};
 
 // How far a fully-weighted vertex travels, as a share of the region's radius. A
 // mouth that opens its own width reads as speech; more reads as a yawn.
@@ -292,7 +307,18 @@ export function regionMask(m: HeadModel, region: MouthRegion): RegionMask {
     idx.push(i);
     w.push(m.verts[v + 1] < cy ? -fall : fall);
   }
-  return { idx: Uint32Array.from(idx), w: Float32Array.from(w) };
+  const moved = new Uint8Array(m.verts.length / 3);
+  for (const i of idx) moved[i] = 1;
+  const faces: number[] = [];
+  for (let f = 0, t = 0; t < m.tri.length; f++, t += 3) {
+    if (moved[m.tri[t]] || moved[m.tri[t + 1]] || moved[m.tri[t + 2]])
+      faces.push(f);
+  }
+  return {
+    idx: Uint32Array.from(idx),
+    w: Float32Array.from(w),
+    faces: Uint32Array.from(faces),
+  };
 }
 
 /**
@@ -343,4 +369,21 @@ export function normalisePoint(
   out[at] = (x - cx) * scale;
   out[at + 1] = (-y - cy) * scale;
   out[at + 2] = (z - cz) * scale;
+}
+
+/**
+ * The way back: a normalised point in the file's own glTF units.
+ *
+ * Whatever draws the model itself rather than the wireframe works in file
+ * units, so the inverse lives beside the forward transform — one pair, so a
+ * change to the normalisation cannot be applied to only one direction.
+ */
+export function denormalisePoint(
+  m: HeadModel,
+  x: number,
+  y: number,
+  z: number,
+): [number, number, number] {
+  const { scale, cx, cy, cz } = m.norm;
+  return [x / scale + cx, -(y / scale + cy), z / scale + cz];
 }

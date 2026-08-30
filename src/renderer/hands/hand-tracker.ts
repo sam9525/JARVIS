@@ -27,6 +27,9 @@ export const MEDIAPIPE_LOG_URL = "https://odml.pa.googleapis.com/v1/log";
 // matched by host, not by the whole URL: the SDK may append an api key or
 // alt= to the path, and an exact compare that misses restores the storm
 export const MEDIAPIPE_LOG_HOST = "odml.pa.googleapis.com";
+// Every host the SDK reports to. Named together, because a host left as a
+// literal in the test below is a host nobody finds when the list changes.
+export const MEDIAPIPE_LOG_HOSTS = [MEDIAPIPE_LOG_HOST, "play.googleapis.com"];
 
 function urlOfFetchInput(input: Parameters<typeof fetch>[0]): string | null {
   if (typeof input === "string") return input;
@@ -41,7 +44,7 @@ function isTelemetry(input: Parameters<typeof fetch>[0]): boolean {
   if (!url) return false;
   try {
     const host = new URL(url, location.href).hostname;
-    return host === MEDIAPIPE_LOG_HOST || host === "play.googleapis.com";
+    return MEDIAPIPE_LOG_HOSTS.includes(host);
   } catch {
     return false; // unparseable is not ours to swallow
   }

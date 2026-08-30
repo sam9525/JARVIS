@@ -35,9 +35,33 @@ export async function importHead(
 ): Promise<string> {
   const dir = headsDir(userData);
   await fs.mkdir(dir, { recursive: true });
-  const name = safeName(src);
-  await fs.copyFile(src, path.join(dir, name));
+  const bytes = await fs.readFile(src);
+  const name = await freeName(dir, safeName(src), bytes);
+  await fs.writeFile(path.join(dir, name), bytes);
   return name;
+}
+
+/**
+ * The name this upload may have without displacing a different head.
+ *
+ * A new file must never land on an older one's name: the renderer caches a
+ * parsed head by name and holds it for the session, so an overwrite leaves the
+ * app drawing the head it already had. The same file picked twice keeps the
+ * name it has rather than piling up copies of itself.
+ */
+async function freeName(
+  dir: string,
+  base: string,
+  bytes: Buffer,
+): Promise<string> {
+  const ext = path.extname(base);
+  const stem = base.slice(0, base.length - ext.length);
+  for (let n = 1; n < 100; n++) {
+    const name = n === 1 ? base : `${stem}-${n}${ext}`;
+    const held = await fs.readFile(path.join(dir, name)).catch(() => null);
+    if (!held || held.equals(bytes)) return name;
+  }
+  return base; // a hundred heads under one name: reuse rather than grow forever
 }
 
 export async function readHead(

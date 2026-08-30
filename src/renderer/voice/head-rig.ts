@@ -53,20 +53,22 @@ function walk(
 }
 
 function findMorph(root: RigObject): { mesh: RigObject; slot: number } | null {
-  let hit: { mesh: RigObject; slot: number } | null = null;
+  // The whole scene is searched before answering: stopping at the first mesh
+  // carrying any of these names would rank by mesh order, so an early mesh's
+  // vowel shape would beat a later mesh's jaw.
+  let hit: { mesh: RigObject; slot: number; rank: number } | null = null;
   walk(root, (o) => {
     const dict = o.morphTargetDictionary;
     if (!dict || !o.morphTargetInfluences) return false;
-    for (const name of MOUTH_MORPHS) {
-      const slot = dict[name];
-      if (typeof slot === "number") {
-        hit = { mesh: o, slot };
-        return true;
-      }
+    for (let rank = 0; rank < MOUTH_MORPHS.length; rank++) {
+      const slot = dict[MOUTH_MORPHS[rank]];
+      if (typeof slot !== "number") continue;
+      if (!hit || rank < hit.rank) hit = { mesh: o, slot, rank };
+      break;
     }
     return false;
   });
-  return hit;
+  return hit && { mesh: hit.mesh, slot: hit.slot };
 }
 
 function findJaw(root: RigObject): RigObject | null {
@@ -85,7 +87,7 @@ function regionRig(kind: RigKind, model: HeadModel, region: MouthRegion): Rig {
       open = amount;
       if (amount <= 0) resetPose(model, mask);
       else displaceRegion(model, mask, amount, region.r);
-      recomputeNormals(model);
+      recomputeNormals(model, mask.faces);
     },
   };
 }

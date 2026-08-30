@@ -10,6 +10,7 @@ import {
   displaceRegion,
   resetPose,
   normalisePoint,
+  denormalisePoint,
 } from "../../src/renderer/voice/head-mesh";
 
 // One triangle facing +z, in glTF's Y-up axes. Counter-clockwise seen from
@@ -137,6 +138,18 @@ describe("recomputeNormals", () => {
     recomputeNormals(m);
     expect([...m.nx, ...m.ny, ...m.nz]).toEqual(before);
   });
+
+  // The mouth moves a handful of vertices a frame. Rebuilding every normal to
+  // catch a few dozen is what the whole displacement costs.
+  it("rebuilds only the faces it is given", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    m.nx.fill(0);
+    m.ny.fill(0);
+    m.nz.fill(0);
+    recomputeNormals(m, [1]);
+    expect(m.nz[0]).toBe(0); // untouched
+    expect(Math.abs(m.nz[1])).toBeCloseTo(1, 5);
+  });
 });
 
 describe("regionMask", () => {
@@ -160,6 +173,34 @@ describe("regionMask", () => {
     const signs = new Set([...mask.w].map((w) => Math.sign(w)));
     expect(signs.has(1)).toBe(true);
     expect(signs.has(-1)).toBe(true);
+  });
+
+  it("names every face a masked vertex belongs to, and no other", () => {
+    const whole = regionMask(m, { c: [0, 0, 0], r: 10 });
+    expect([...whole.faces]).toEqual([0, 1]);
+
+    // vertex 3 belongs to the second triangle alone
+    const at = [m.verts[9], m.verts[10], m.verts[11]] as [
+      number,
+      number,
+      number,
+    ];
+    const corner = regionMask(m, { c: at, r: 0.2 });
+    expect([...corner.idx]).toEqual([3]);
+    expect([...corner.faces]).toEqual([1]);
+  });
+});
+
+describe("denormalisePoint", () => {
+  it("takes a normalised point back to the glTF units it came from", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const out = new Float32Array(3);
+    const [x, y, z] = [PAIR.positions[3], PAIR.positions[4], PAIR.positions[5]];
+    normalisePoint(m, x, y, z, out, 0);
+    const back = denormalisePoint(m, out[0], out[1], out[2]);
+    expect(back[0]).toBeCloseTo(x, 5);
+    expect(back[1]).toBeCloseTo(y, 5);
+    expect(back[2]).toBeCloseTo(z, 5);
   });
 });
 

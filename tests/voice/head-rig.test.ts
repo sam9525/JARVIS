@@ -38,6 +38,17 @@ describe("resolveRig", () => {
     expect(mesh.morphTargetInfluences).toEqual([0, 0.5]);
   });
 
+  // The list ranks jaw shapes above vowel shapes, and a scene puts its meshes
+  // in whatever order the exporter did — so the rank has to outrank the order.
+  it("takes the better-named morph from a later mesh", () => {
+    const vowel = morphMesh(["viseme_aa"]);
+    const jaw = morphMesh(["jawOpen"]);
+    const rig = resolveRig(scene([vowel, jaw]), model(), null, null);
+    rig.apply(0.5);
+    expect(vowel.morphTargetInfluences).toEqual([0]);
+    expect(jaw.morphTargetInfluences).toEqual([0.5]);
+  });
+
   it("falls back to a jaw bone when there is no morph target", () => {
     const b = bone("Head_Jaw");
     const rig = resolveRig(scene([b]), model(), null, null);
