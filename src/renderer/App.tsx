@@ -447,9 +447,6 @@ export default function App() {
   // grey the mouth switch without loading the model a second time. Null while
   // voice is off, which is why the switch is not disabled on null.
   const [rigKind, setRigKind] = useState<RigKind | null>(null);
-  // Same shape, same reason: whether the loaded head carries a colour map, so
-  // the colour switch is offered only for a head that has one to show.
-  const [headTextured, setHeadTextured] = useState<boolean | null>(null);
   const voice = useVoiceControl({
     micOn,
     micDeviceId: settings.micDeviceId,
@@ -468,10 +465,7 @@ export default function App() {
   }, [settingsReady]);
 
   useEffect(() => {
-    if (!micOn) {
-      setRigKind(null);
-      setHeadTextured(null);
-    }
+    if (!micOn) setRigKind(null);
   }, [micOn]);
 
   // The mouth. Only the orchestrator's row is read, and only once per message
@@ -969,15 +963,12 @@ export default function App() {
             {micOn ? (
               <VoiceWave
                 headModel={settings.headModel}
-                // an untextured head renders flat grey in colour mode, so a
-                // setting left on by a previous head does not carry over
-                colour={settings.headColor && headTextured !== false}
+                colour={settings.headColor}
                 mouth={settings.headMouth}
                 mouthRegion={
                   settings.headMouths?.[settings.headModel ?? "__builtin"]
                 }
                 onRig={setRigKind}
-                onTextured={setHeadTextured}
               />
             ) : null}
             {showHome ? null : (
@@ -1063,7 +1054,6 @@ export default function App() {
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
             rigKind={rigKind}
-            headTextured={headTextured}
             onPickMouth={() => setShowMouthPicker(true)}
           />
         </Panel>

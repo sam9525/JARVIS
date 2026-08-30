@@ -75,14 +75,12 @@ export default function VoiceWave({
   mouth,
   mouthRegion,
   onRig,
-  onTextured,
 }: {
   headModel?: string;
   colour?: boolean;
   mouth?: boolean;
   mouthRegion?: MouthRegion;
   onRig?: (kind: RigKind) => void;
-  onTextured?: (has: boolean) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const headRef = useRef<HTMLCanvasElement | null>(null);
@@ -184,7 +182,12 @@ export default function VoiceWave({
     const readBackPose = (loaded: LoadedHead) => {
       if (!scratch) return;
       if (rig?.kind === "manual" || rig?.kind === "detected") return;
+      // A bone tier writes a rotation, and skinning reads the bones'
+      // matrixWorld — which only a render refreshes. Colour mode renders; the
+      // wireframe never does, so without this the jaw moves in one mode only.
+      loaded.scene.updateMatrixWorld(true);
       for (const part of loaded.parts) {
+        part.mesh.skeleton?.update();
         for (let i = 0; i < part.count; i++) {
           part.mesh.getVertexPosition(i, scratch);
           part.mesh.localToWorld(scratch);
@@ -375,7 +378,6 @@ export default function VoiceWave({
         }
         rig = rigCandidate;
         onRig?.(rig.kind);
-        onTextured?.(loaded.textured);
         if (colour && colourRef.current) {
           const { mountColourHead } = await import("./head-render");
           if (disposed) return;
@@ -403,7 +405,7 @@ export default function VoiceWave({
       if (timer) clearTimeout(timer);
       colourHead?.dispose();
     };
-  }, [headModel, colour, mouthRegion, onRig, onTextured]);
+  }, [headModel, colour, mouthRegion, onRig]);
 
   return (
     <div

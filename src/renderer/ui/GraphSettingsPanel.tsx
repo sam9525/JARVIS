@@ -81,9 +81,6 @@ type Props = {
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
   rigKind?: RigKind | null;
-  // Null while voice is off: the switch stays live rather than claiming an
-  // unloaded head has no colours, the same reasoning as rigKind above.
-  headTextured?: boolean | null;
   onPickMouth?: () => void;
 };
 
@@ -98,7 +95,6 @@ export default function GraphSettingsPanel({
   onResetHighlights,
   showSections,
   rigKind,
-  headTextured,
   onPickMouth,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
@@ -443,19 +439,12 @@ export default function GraphSettingsPanel({
               type="checkbox"
               data-testid="head-colour-setting"
               className="gs-switch"
-              disabled={headTextured === false}
-              checked={(settings.headColor ?? false) && headTextured !== false}
+              checked={settings.headColor ?? false}
               onChange={(e) =>
                 set({ headColor: e.target.checked || undefined })
               }
             />
           </label>
-          {headTextured === false && (
-            <div className="pb-2 text-[11.5px] text-ink-dim">
-              This model carries no colour texture. Only the wireframe can draw
-              it.
-            </div>
-          )}
 
           <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
             Mouth moves

@@ -43,24 +43,8 @@ function soup(scene: any): {
   return { positions, indices, parts };
 }
 
-/**
- * Whether the file paints itself: a material carrying a colour map anywhere in
- * the scene. Without one the colour renderer draws flat untextured grey, so the
- * setting is offered only for a head that has something to show.
- */
-export function hasTexture(scene: any): boolean {
-  let found = false;
-  scene.traverse?.((o: any) => {
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    if (mats.some((m: any) => m?.map)) found = true;
-  });
-  return found;
-}
-
 export type LoadedHead = {
   model: HeadModel;
-  /** True when a material carries a colour map. */
-  textured: boolean;
   /** The GLTF scene itself. Colour mode renders it; the wireframe reads its
    *  deformed vertices out of it, so both modes need it kept. */
   scene: any;
@@ -81,7 +65,6 @@ export function parseHead(buf: ArrayBuffer): Promise<LoadedHead> {
         }
         resolve({
           model: buildModel(positions, indices),
-          textured: hasTexture(gltf.scene),
           scene: gltf.scene,
           parts,
         });
@@ -111,8 +94,14 @@ let cached: { name: string; head: Promise<LoadedHead> } | null = null;
  * re-reading tens of megabytes over IPC and re-parsing its textures on the
  * window's own thread is a frozen app, not a slow one.
  */
-export function loadHead(name?: string): Promise<LoadedHead> {
+export function loadHead(name?: string, fresh = false): Promise<LoadedHead> {
   const key = name ?? "";
+  // `fresh` is not an opt-out of the cache for speed — it is the only safe way
+  // for a second renderer to hold this head. `Object3D.add` unparents whatever
+  // it is given, so two mounts of one cached scene fight over it: the second
+  // steals the model and the first draws an empty group. A consumer that lives
+  // alongside the wave asks for its own parse instead of sharing this one.
+  if (fresh) return read(name);
   if (cached?.name === key) return cached.head;
   const head = read(name).catch((e) => {
     // a failed load must not be remembered as the answer for this name

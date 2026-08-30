@@ -60,7 +60,13 @@ export function mountColourHead(
   // downward, and the two cancel — so the file's own Y-up orientation is the
   // one both modes draw. Rolling this group π only stands the colour head on
   // its head beside an upright wireframe.
-  root.add(model as never);
+  //
+  // `add` unparents the model, so the parent it had is put back on dispose:
+  // a short-lived mount (the detection shot) must hand the head back rather
+  // than leave it hanging off a group nobody renders any more.
+  const head = model as Object3D;
+  const wasParentedTo = head.parent;
+  root.add(head);
   scene.add(root);
   scene.add(new AmbientLight(0xffffff, 1.4));
   const key = new DirectionalLight(0xffffff, 1.8);
@@ -71,7 +77,8 @@ export function mountColourHead(
   // near black however bright they are, because it can only reflect. The room
   // is what it reflects — three's own procedural one, so no asset ships.
   const pmrem = new PMREMGenerator(renderer);
-  const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  const room = new RoomEnvironment();
+  const env = pmrem.fromScene(room, 0.04).texture;
   scene.environment = env;
 
   const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
@@ -83,7 +90,10 @@ export function mountColourHead(
       renderer.render(scene, camera);
     },
     dispose() {
+      root.remove(head);
+      wasParentedTo?.add(head);
       env.dispose();
+      room.dispose();
       pmrem.dispose();
       renderer.dispose();
       renderer.forceContextLoss();

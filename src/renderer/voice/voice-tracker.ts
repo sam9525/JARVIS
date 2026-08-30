@@ -14,6 +14,9 @@ const CAPTURE_WORKLET_URL = new URL("./capture-worklet.js", import.meta.url)
 
 export type VoiceChunk = { text: string };
 
+// How long the worker gets to load the model and answer the handshake.
+const HELLO_MS = 60_000;
+
 export async function startVoiceTracker(
   onUtterance: (c: VoiceChunk) => void,
   onSpeaking: (active: boolean) => void,
@@ -92,15 +95,39 @@ export async function startVoiceTracker(
       waiting.set(id, { resolve, reject });
       worker.postMessage({ ...msg, id } as AsrRequest);
     });
+  // A worker that throws before installing its own onmessage answers nothing
+  // ever again, and a waiter parked on it never settles. That matters most for
+  // the handshake below: it is awaited before anything is returned, so a
+  // handshake that cannot fail is a live microphone with no stop handle.
+  const fail = (why: string) => {
+    const e = new Error(why);
+    for (const seat of waiting.values()) seat.reject(e);
+    waiting.clear();
+  };
+  worker.onerror = (ev) => fail(ev.message || "the voice worker crashed");
+  worker.onmessageerror = () =>
+    fail("the voice worker sent a reply it could not encode");
 
   // which backend actually loaded, reported in the debug object below
   let device: "webgpu" | "wasm" = "wasm";
+  let bell: ReturnType<typeof setTimeout> | undefined;
   try {
     // The handshake waits for the model, so a failed load is a failed start
-    // rather than a microphone that hears nothing.
-    const hello = await ask({ ping: true });
+    // rather than a microphone that hears nothing. Bounded, because a module
+    // that hangs mid-load fires no error to end it — generously, since the
+    // first start reads the better part of a gigabyte off disk.
+    const hello = await Promise.race([
+      ask({ ping: true }),
+      new Promise<never>((_, reject) => {
+        bell = setTimeout(
+          () => reject(new Error(`no answer in ${HELLO_MS / 1000}s`)),
+          HELLO_MS,
+        );
+      }),
+    ]);
     if ("device" in hello) device = hello.device;
   } catch (e) {
+    fail("voice start abandoned");
     worker.terminate();
     stream.getTracks().forEach((t) => t.stop());
     // Keep the cause: the library names the specific failure (loader disabled,
@@ -109,6 +136,8 @@ export async function startVoiceTracker(
     // parse error on an index.html body.
     const why = e instanceof Error ? e.message : String(e);
     throw new Error(`Voice model failed to load — ${why}`);
+  } finally {
+    clearTimeout(bell);
   }
 
   const transcribe = async (a: Float32Array) => {
@@ -268,6 +297,7 @@ export async function startVoiceTracker(
       void audioCtx.close();
       // terminate, not dispose: the session lives in the worker, and killing
       // the thread frees it whatever state it is in
+      fail("the microphone stopped");
       worker.terminate();
       stream.getTracks().forEach((t) => t.stop());
     };
@@ -275,6 +305,7 @@ export async function startVoiceTracker(
     // nothing has been returned yet, so a throw here would strand a live
     // microphone with no stop handle — tear down before rethrowing
     if (ctx) void ctx.close();
+    fail("the microphone failed to start");
     worker.terminate();
     stream.getTracks().forEach((t) => t.stop());
     throw e instanceof RangeError ? e : new Error("Microphone failed to start");

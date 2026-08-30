@@ -138,7 +138,9 @@ export default function MouthPicker({
     void (async () => {
       const [{ loadHead }, { mountColourHead, pickOnScene, projectRegion }] =
         await Promise.all([import("./load-head"), import("./head-render")]);
-      const loaded = await loadHead(headModel);
+      // Its own parse, not the wave's cached one: mounting a scene that the
+      // wave is already drawing would unparent it and blank the bezel head.
+      const loaded = await loadHead(headModel, true);
       if (disposed) return;
       head = mountColourHead(canvas, loaded.scene, SIZE, SIZE);
       raycast = pickOnScene(loaded, SIZE, SIZE, angle);

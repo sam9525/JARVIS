@@ -232,34 +232,11 @@ describe("VoiceWave", () => {
     expect(seen).toBe("none"); // an empty scene carries no morph and no bone
   });
 
-  it("reports whether the head carries a colour texture", async () => {
-    const model = buildModel([-1, -1, 0, 1, -1, 0, 0, 1, 0], [0, 1, 2]);
-    loadHead.mockResolvedValue({
-      model,
-      textured: false,
-      scene: { children: [] },
-      parts: [],
-    });
-    let seen: boolean | null = null;
-    act(() =>
-      root.render(
-        <VoiceWave
-          onTextured={(t) => {
-            seen = t;
-          }}
-        />,
-      ),
-    );
-    await flush();
-    expect(seen).toBe(false);
-  });
-
   it("turns the colour head toward the pointer", async () => {
     silent();
     rendered.length = 0;
     loadHead.mockResolvedValue({
       model: TRIANGLE(),
-      textured: true,
       scene: { children: [] },
       parts: [],
     });
@@ -294,5 +271,40 @@ describe("VoiceWave", () => {
     );
     await flush();
     expect([...model.pose]).not.toEqual([...model.verts]);
+  });
+
+  // A bone writes a rotation and the skin reads matrixWorld, which only a
+  // render refreshes. The wireframe never renders, so it has to refresh them
+  // itself or the jaw moves in colour mode alone.
+  it("refreshes the skinned matrices before reading a bone pose back", async () => {
+    const model = TRIANGLE();
+    const jaw = { isBone: true, name: "jaw", rotation: { x: 0 } };
+    const updateMatrixWorld = vi.fn();
+    const skeletonUpdate = vi.fn();
+    loadHead.mockResolvedValue({
+      model,
+      scene: { children: [jaw], updateMatrixWorld },
+      parts: [
+        {
+          mesh: {
+            getVertexPosition: (i: number, v: any) => v.set(i, i, i),
+            localToWorld: (v: any) => v,
+            skeleton: { update: skeletonUpdate },
+          },
+          start: 0,
+          count: 3,
+        },
+      ],
+    });
+    vi.spyOn(speak, "isSounding").mockReturnValue(true);
+    vi.spyOn(speak, "readWave").mockImplementation((out: Uint8Array) => {
+      out.fill(255);
+      return true;
+    });
+    act(() => root.render(<VoiceWave mouth />));
+    await flush();
+    expect(jaw.rotation.x).toBeGreaterThan(0);
+    expect(updateMatrixWorld).toHaveBeenCalledWith(true);
+    expect(skeletonUpdate).toHaveBeenCalled();
   });
 });
