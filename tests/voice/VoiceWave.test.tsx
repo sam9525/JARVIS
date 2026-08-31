@@ -186,9 +186,10 @@ describe("VoiceWave", () => {
     ).toBeNull();
   });
 
-  // A canvas grants one context for its whole life. Both branches are a
-  // <canvas> in the same slot, so without keys React keeps the node and only
-  // moves the ref — and the reused node refuses the other kind of context,
+  // A canvas grants one context for its whole life. The colour branch is a
+  // host div now, but both branches still sit in the same slot, so without
+  // keys React would keep one node and only move the ref — and a wireframe
+  // canvas that came back from the colour branch would refuse a 2D context,
   // which is a head that never draws again until the app restarts.
   it("builds a new canvas element when the colour mode flips", () => {
     silent();
@@ -237,6 +238,7 @@ describe("VoiceWave", () => {
     rendered.length = 0;
     loadHead.mockResolvedValue({
       model: TRIANGLE(),
+      coloured: true,
       scene: { children: [] },
       parts: [],
     });
@@ -271,6 +273,61 @@ describe("VoiceWave", () => {
     );
     await flush();
     expect([...model.pose]).not.toEqual([...model.verts]);
+  });
+
+  it("reports whether the head carries colours of its own", async () => {
+    silent();
+    loadHead.mockResolvedValue({
+      model: TRIANGLE(),
+      coloured: false,
+      scene: { children: [] },
+      parts: [],
+    });
+    let seen: boolean | null = null;
+    act(() =>
+      root.render(
+        <VoiceWave
+          onColoured={(has) => {
+            seen = has;
+          }}
+        />,
+      ),
+    );
+    await flush();
+    expect(seen).toBe(false);
+  });
+
+  // The setting can outlive the head that earned it, and a grey model in the
+  // colour renderer is what the wireframe draws better.
+  it("does not mount the colour renderer for a head with no colours", async () => {
+    silent();
+    mountColourHead.mockClear();
+    loadHead.mockResolvedValue({
+      model: TRIANGLE(),
+      coloured: false,
+      scene: { children: [] },
+      parts: [],
+    });
+    act(() => root.render(<VoiceWave colour />));
+    await flush();
+    expect(mountColourHead).not.toHaveBeenCalled();
+  });
+
+  it("reports why a head never drew", async () => {
+    silent();
+    loadHead.mockRejectedValue(new Error("that head is 4,000,000 triangles"));
+    let seen: string | null = null;
+    act(() =>
+      root.render(
+        <VoiceWave
+          onHeadError={(why) => {
+            seen = why;
+          }}
+        />,
+      ),
+    );
+    await flush();
+    expect(seen).toContain("4,000,000 triangles");
   });
 
   // A bone writes a rotation and the skin reads matrixWorld, which only a

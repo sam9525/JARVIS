@@ -37,7 +37,7 @@ beforeEach(() => {
   ttsVoices.mockReset().mockResolvedValue([]);
   ttsModels.mockReset().mockResolvedValue([]);
   listHeadModels.mockReset().mockResolvedValue([]);
-  pickHeadModel.mockReset().mockResolvedValue(null);
+  pickHeadModel.mockReset().mockResolvedValue({});
   container = document.createElement("div");
   document.body.appendChild(container);
   act(() => {
@@ -69,6 +69,8 @@ type MountProps = Partial<{
   onResetHighlights: () => void;
   showSections: boolean;
   rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null;
+  headError?: string | null;
+  headColoured?: boolean | null;
   onPickMouth?: () => void;
 }>;
 
@@ -86,6 +88,8 @@ function mount(props: MountProps = {}) {
         onResetHighlights={props.onResetHighlights ?? (() => undefined)}
         showSections={props.showSections ?? true}
         rigKind={props.rigKind}
+        headError={props.headError}
+        headColoured={props.headColoured}
         onPickMouth={props.onPickMouth}
       />,
     );
@@ -96,6 +100,8 @@ function mount(props: MountProps = {}) {
 function render(
   overrides: Partial<Settings> = {},
   rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null,
+  headError?: string | null,
+  headColoured?: boolean | null,
 ) {
   const calls: {
     settings: Settings[];
@@ -114,6 +120,8 @@ function render(
       calls.resets++;
     },
     rigKind,
+    headError,
+    headColoured,
   });
   return { container, calls };
 }
@@ -414,7 +422,7 @@ describe("head model", () => {
   });
 
   it("selects an uploaded model and refreshes the list", async () => {
-    pickHeadModel.mockResolvedValue("new.glb");
+    pickHeadModel.mockResolvedValue({ name: "new.glb" });
     const { container: c, calls } = render();
     senses();
     await flush();
@@ -428,7 +436,7 @@ describe("head model", () => {
   });
 
   it("leaves the current head alone when the picker is cancelled", async () => {
-    pickHeadModel.mockResolvedValue(null);
+    pickHeadModel.mockResolvedValue({});
     const { container: c, calls } = render({ headModel: "a.glb" });
     senses();
     await flush();
@@ -439,12 +447,45 @@ describe("head model", () => {
     await flush();
     expect(calls.settings).toHaveLength(0);
   });
+
+  // A refused upload used to answer exactly like a cancelled one, so the head
+  // simply never appeared and nothing said why.
+  it("shows why an upload was refused, and keeps the current head", async () => {
+    pickHeadModel.mockResolvedValue({ error: "that model is 900 MB" });
+    const { container: c, calls } = render({ headModel: "a.glb" });
+    senses();
+    await flush();
+    act(() =>
+      (
+        c.querySelector(
+          '[data-testid="head-model-upload"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    await flush();
+    expect(calls.settings).toHaveLength(0);
+    expect(
+      c.querySelector('[data-testid="head-model-error"]')?.textContent,
+    ).toContain("900 MB");
+  });
+
+  it("shows why a chosen head never drew", async () => {
+    const { container: c } = render(
+      {},
+      null,
+      "that head is 4,000,000 triangles",
+    );
+    senses();
+    await flush();
+    expect(
+      c.querySelector('[data-testid="head-model-error"]')?.textContent,
+    ).toContain("4,000,000 triangles");
+  });
 });
 
 describe("colour head", () => {
-  // The switch is never gated on what the model carries: an untextured mesh
-  // renders as a lit helmet under the environment map, and the head that ships
-  // declares no material at all — gating on one locked the mode out entirely.
+  // Null is "no head loaded yet", not "nothing to show": the switch stays live
+  // so it never reads as refused for a file that has not been opened.
   it("keeps the colour switch live and follows the setting", async () => {
     for (const on of [true, false] as const) {
       const { container: c } = render({ headColor: on });
@@ -456,6 +497,18 @@ describe("colour head", () => {
       expect(input.disabled).toBe(false);
       expect(input.checked).toBe(on);
     }
+  });
+
+  it("refuses the switch for a head with no colours of its own", async () => {
+    const { container: c } = render({ headColor: true }, null, null, false);
+    senses(c);
+    await flush();
+    const input = c.querySelector(
+      '[data-testid="head-colour-setting"]',
+    ) as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(input.checked).toBe(false); // and the stale setting does not show
+    expect(c.textContent).toContain("no colours of its own");
   });
 });
 

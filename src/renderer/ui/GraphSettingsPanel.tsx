@@ -81,6 +81,11 @@ type Props = {
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
   rigKind?: RigKind | null;
+  // Why the head is missing, reported by whatever tried to draw it.
+  headError?: string | null;
+  // Whether the loaded head carries colours; null while none is loaded, which
+  // leaves the switch alone rather than claiming an unread file is plain.
+  headColoured?: boolean | null;
   onPickMouth?: () => void;
 };
 
@@ -95,6 +100,8 @@ export default function GraphSettingsPanel({
   onResetHighlights,
   showSections,
   rigKind,
+  headError,
+  headColoured,
   onPickMouth,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
@@ -170,12 +177,20 @@ export default function GraphSettingsPanel({
   // while the setting says otherwise.
   const headOptions =
     headValue && !heads.includes(headValue) ? [headValue, ...heads] : heads;
-  // A cancelled picker answers null, which must not clear the current head.
+  // A refused upload is not a cancelled one: an empty answer means the dialog
+  // was dismissed and the current head stands, a named error means the file
+  // was read and turned down, and only that second case has something to say.
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  // A refusal is about the file that was turned down, so it stops being the
+  // answer the moment a different head is chosen — otherwise it outranks the
+  // load error of the head actually on screen.
+  React.useEffect(() => setUploadError(null), [headValue]);
   const uploadHead = () =>
-    void window.jarvis.pickHeadModel().then((name) => {
-      if (!name) return;
+    void window.jarvis.pickHeadModel().then((picked) => {
+      setUploadError(picked.error ?? null);
+      if (!picked.name) return;
       refreshHeads();
-      set({ headModel: name });
+      set({ headModel: picked.name });
     });
 
   return (
@@ -432,6 +447,14 @@ export default function GraphSettingsPanel({
           >
             Upload a .glb head
           </button>
+          {(uploadError ?? headError) && (
+            <div
+              data-testid="head-model-error"
+              className="pb-2 text-[11.5px] text-ink-dim"
+            >
+              {uploadError ?? headError}
+            </div>
+          )}
 
           <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
             Colour head
@@ -439,12 +462,19 @@ export default function GraphSettingsPanel({
               type="checkbox"
               data-testid="head-colour-setting"
               className="gs-switch"
-              checked={settings.headColor ?? false}
+              disabled={headColoured === false}
+              checked={(settings.headColor ?? false) && headColoured !== false}
               onChange={(e) =>
                 set({ headColor: e.target.checked || undefined })
               }
             />
           </label>
+          {headColoured === false && (
+            <div className="pb-2 text-[11.5px] text-ink-dim">
+              This model carries no colours of its own. Only the wireframe can
+              draw it.
+            </div>
+          )}
 
           <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
             Mouth moves

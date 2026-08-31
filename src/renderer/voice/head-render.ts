@@ -21,8 +21,18 @@ import type { LoadedHead } from "./load-head";
  * A second WebGL context beside `Graph3D`. Browsers allow around sixteen, so
  * this is safe, but `dispose` must actually run on unmount or a few mode flips
  * leak them — which is why the whole thing is one object with one teardown.
+ *
+ * The canvas belongs to this object, not to the caller: `forceContextLoss`
+ * leaves a canvas that can never grant a working context again, so a node the
+ * caller keeps across two mounts kills the second renderer inside three, where
+ * it reads `precision` off a null format. It takes a host element and puts its
+ * own canvas inside.
  */
 export type ColourHead = {
+  /** The canvas this head draws into. It belongs to the object, so whatever
+   *  needs the picture reads it from here rather than holding a node of its
+   *  own — which is the whole point of the host/canvas split. */
+  canvas: HTMLCanvasElement;
   render(yaw: number, pitch: number): void;
   dispose(): void;
 };
@@ -45,14 +55,31 @@ function aimAt(root: Object3D, yaw: number, pitch: number): void {
 }
 
 export function mountColourHead(
-  canvas: HTMLCanvasElement,
+  host: HTMLElement,
   model: unknown,
   w: number,
   h: number,
 ): ColourHead {
-  const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true });
+  const canvas = document.createElement("canvas");
+  // A canvas is inline by default, which leaves descender space under it and
+  // pushes the head down inside a host box of exactly its own height.
+  canvas.style.display = "block";
+  host.appendChild(canvas);
+  let renderer: WebGLRenderer;
+  try {
+    renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true });
+  } catch (e) {
+    // Three's own failure here reads as a null property deep inside its
+    // capabilities check, which tells a person nothing about their head.
+    canvas.remove();
+    throw new Error(
+      `the head could not open a WebGL view — ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
   renderer.setPixelRatio(window.devicePixelRatio || 1);
-  renderer.setSize(w, h, false);
+  renderer.setSize(w, h);
 
   const scene = new Scene();
   const root = new Group();
@@ -85,6 +112,7 @@ export function mountColourHead(
   camera.position.set(0, 0, DIST);
 
   return {
+    canvas,
     render(yaw, pitch) {
       aimAt(root, yaw, pitch);
       renderer.render(scene, camera);
@@ -97,6 +125,7 @@ export function mountColourHead(
       pmrem.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
+      canvas.remove();
     },
   };
 }

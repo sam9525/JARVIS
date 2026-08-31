@@ -35,7 +35,8 @@ export default function MouthPicker({
   initial?: MouthRegion;
   onDone(region: MouthRegion | null): void;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // A host element: mountColourHead brings its own canvas.
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const regionRef = useRef<MouthRegion | null>(initial ?? null);
   // Mirrors regionRef for the button's disabled state only. The loop never
@@ -43,9 +44,9 @@ export default function MouthPicker({
   const [marked, setMarked] = useState(Boolean(initial));
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const host = hostRef.current;
     const overlay = overlayRef.current;
-    if (!canvas || !overlay) return;
+    if (!host || !overlay) return;
     const overlayCtx = overlay.getContext("2d");
     if (!overlayCtx) return;
 
@@ -104,7 +105,7 @@ export default function MouthPicker({
     };
 
     const onDown = (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
+      const rect = host.getBoundingClientRect();
       const hit =
         raycast?.(e.clientX - rect.left, e.clientY - rect.top) ?? null;
       if (hit) {
@@ -115,7 +116,7 @@ export default function MouthPicker({
         mode = "orbit";
       }
       last = { x: e.clientX, y: e.clientY };
-      canvas.setPointerCapture(e.pointerId);
+      host.setPointerCapture(e.pointerId);
       invalidate();
     };
 
@@ -128,7 +129,7 @@ export default function MouthPicker({
         invalidate();
         return;
       }
-      const rect = canvas.getBoundingClientRect();
+      const rect = host.getBoundingClientRect();
       const hit =
         raycast?.(e.clientX - rect.left, e.clientY - rect.top) ?? null;
       const c = regionRef.current?.c;
@@ -144,10 +145,10 @@ export default function MouthPicker({
       mode = null;
     };
 
-    canvas.addEventListener("pointerdown", onDown);
-    canvas.addEventListener("pointermove", onMove);
-    canvas.addEventListener("pointerup", onUp);
-    canvas.addEventListener("pointercancel", onUp);
+    host.addEventListener("pointerdown", onDown);
+    host.addEventListener("pointermove", onMove);
+    host.addEventListener("pointerup", onUp);
+    host.addEventListener("pointercancel", onUp);
 
     void (async () => {
       const [{ loadHead }, { mountColourHead, pickOnScene, projectRegion }] =
@@ -156,7 +157,7 @@ export default function MouthPicker({
       // wave is already drawing would unparent it and blank the bezel head.
       const loaded = await loadHead(headModel, true);
       if (disposed) return;
-      head = mountColourHead(canvas, loaded.scene, SIZE, SIZE);
+      head = mountColourHead(host, loaded.scene, SIZE, SIZE);
       raycast = pickOnScene(loaded, SIZE, SIZE, angle);
       if (projectRegion) {
         project = (region: MouthRegion) =>
@@ -168,10 +169,10 @@ export default function MouthPicker({
     return () => {
       disposed = true;
       cancelAnimationFrame(frame);
-      canvas.removeEventListener("pointerdown", onDown);
-      canvas.removeEventListener("pointermove", onMove);
-      canvas.removeEventListener("pointerup", onUp);
-      canvas.removeEventListener("pointercancel", onUp);
+      host.removeEventListener("pointerdown", onDown);
+      host.removeEventListener("pointermove", onMove);
+      host.removeEventListener("pointerup", onUp);
+      host.removeEventListener("pointercancel", onUp);
       overlayCtx.clearRect(0, 0, SIZE, SIZE);
       head?.dispose();
     };
@@ -183,8 +184,8 @@ export default function MouthPicker({
       data-testid="mouth-picker"
     >
       <div className="relative" style={{ width: SIZE, height: SIZE }}>
-        <canvas
-          ref={canvasRef}
+        <div
+          ref={hostRef}
           data-testid="mouth-picker-canvas"
           style={{ width: SIZE, height: SIZE }}
         />

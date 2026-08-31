@@ -47,6 +47,14 @@ export type HeadModel = {
   nx: Float32Array;
   ny: Float32Array;
   nz: Float32Array;
+  /** The sampled faces the wireframe draws, and the vertices its edges use.
+   *  A dense head keeps every vertex and face — the mouth, the pick and the
+   *  read-back all index into them — but strokes a sample, so the drawing
+   *  costs the same whatever the file holds. Only the drawing: the morph and
+   *  bone tiers read every vertex back and renormal every face per frame, so
+   *  a rigged head with the mouth open is not bounded by this. */
+  wireFaces: Uint32Array;
+  wireVerts: Uint32Array;
   /** Per-frame scratch, allocated once so a frame allocates nothing. */
   px: Float32Array;
   py: Float32Array;
@@ -57,10 +65,35 @@ export type HeadModel = {
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
 /**
+ * How many faces the wireframe draws, at most.
+ *
+ * A legibility budget before a frame budget: the head is 240×200, and the
+ * built-in helmet's 9,842 faces already need a 0.4px hairline not to fill in
+ * solid. A denser mesh is sampled down to this rather than drawn whole, which
+ * is both faster and more legible than every edge of a million triangles.
+ *
+ * A stride also splits the mesh: two triangles share an edge only when both
+ * are sampled, which above a stride of 1 is rare, so a dense head draws as
+ * scattered outlined triangles rather than a connected shell. At this size
+ * that reads as a denser wireframe, which is why the stride is a stride.
+ *
+ * ponytail: a fixed stride through the face list, so a mesh whose triangles
+ * are grouped by part samples those parts unevenly. Weight the sample by area
+ * if a head ever comes out patchy.
+ */
+export const MAX_WIRE_FACES = 20_000;
+
+/**
  * Build the drawable model from a triangle soup in glTF's axes.
  *
  * glTF is Y-up, so y is negated; the mesh is then centred and scaled to span
  * 2 units tall, which is what lets one canvas scale suit any uploaded head.
+ *
+ * Every vertex and face is kept, whatever the size — the mouth region, the
+ * pick and the GPU read-back all index into them. Only the edge derivation is
+ * bounded, by striding through the faces: the unique-edge map over a few
+ * million triangles is the part that costs more memory than the rest of the
+ * model put together, to build a list nothing can stroke in a frame.
  */
 export function buildModel(
   positions: ArrayLike<number>,
@@ -107,7 +140,11 @@ export function buildModel(
   const eb: number[] = [];
   const ef1: number[] = [];
   const ef2: number[] = [];
-  const triList: number[] = [];
+  // Preallocated: the length is known, and a boxed array of three numbers per
+  // face is the unbounded allocation the face stride exists to avoid.
+  const tri = new Uint32Array(indices.length);
+  const wireFaces: number[] = [];
+  const stride = Math.max(1, Math.ceil(faces / MAX_WIRE_FACES));
   // The second and third corners are swapped because negating y mirrors the
   // space, which reverses every triangle's winding. Without the swap every
   // normal points inward and the cull keeps exactly the wrong half.
@@ -132,11 +169,15 @@ export function buildModel(
     nx[f] = cnx / len;
     ny[f] = cny / len;
     nz[f] = cnz / len;
-    const tri = [ia, ib, ic];
-    triList.push(ia, ib, ic);
+    tri[t] = ia;
+    tri[t + 1] = ib;
+    tri[t + 2] = ic;
+    if (f % stride) continue;
+    wireFaces.push(f);
+    const corners = [ia, ib, ic];
     for (let k = 0; k < 3; k++) {
-      const p = tri[k];
-      const q = tri[(k + 1) % 3];
+      const p = corners[k];
+      const q = corners[(k + 1) % 3];
       const lo = Math.min(p, q);
       const hi = Math.max(p, q);
       const key = lo * 0x400000 + hi;
@@ -157,8 +198,13 @@ export function buildModel(
   return {
     verts,
     pose: Float32Array.from(verts),
-    tri: Uint32Array.from(triList),
+    tri,
     norm: { scale, cx, cy, cz },
+    wireFaces: Uint32Array.from(wireFaces),
+    // The endpoints the projection has to visit. Sampled edges touch a
+    // fraction of a dense mesh, and projecting the rest would put the whole
+    // vertex count back into every frame.
+    wireVerts: Uint32Array.from(new Set([...ea, ...eb])),
     ea: Uint32Array.from(ea),
     eb: Uint32Array.from(eb),
     ef1: Int32Array.from(ef1),
@@ -190,7 +236,9 @@ export function visibleEdges(
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
 
-  for (let i = 0, v = 0; v < m.pose.length; i++, v += 3) {
+  for (let w = 0; w < m.wireVerts.length; w++) {
+    const i = m.wireVerts[w];
+    const v = i * 3;
     const x = m.pose[v];
     const y = m.pose[v + 1];
     const z = m.pose[v + 2];
@@ -207,7 +255,8 @@ export function visibleEdges(
   }
   // Only the rotated z of each normal decides visibility, so the other two
   // components are never computed.
-  for (let f = 0; f < m.nx.length; f++) {
+  for (let w = 0; w < m.wireFaces.length; w++) {
+    const f = m.wireFaces[w];
     const z1 = -m.nx[f] * sy + m.nz[f] * cy;
     m.vis[f] = m.ny[f] * sp + z1 * cp > 0 ? 1 : 0;
   }

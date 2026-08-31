@@ -43,8 +43,35 @@ function soup(scene: any): {
   return { positions, indices, parts };
 }
 
+/**
+ * Whether the file paints itself.
+ *
+ * Anything a person would call colour counts: a base colour texture, per-vertex
+ * colours, or a material tinted away from white. A normal or roughness map is
+ * deliberately not enough — it shapes the light and leaves the model grey, and
+ * a grey model is what the wireframe draws better.
+ *
+ * A primitive with no material at all gets three's default white standard
+ * material, which is the built-in helmet's case, so it answers false.
+ */
+export function hasColour(scene: any): boolean {
+  let found = false;
+  scene.traverse((o: any) => {
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m) continue;
+      const tinted = m.color && m.color.getHex && m.color.getHex() !== 0xffffff;
+      if (m.map || m.vertexColors || tinted) found = true;
+    }
+  });
+  return found;
+}
+
 export type LoadedHead = {
   model: HeadModel;
+  /** True when the file carries colours of its own. Without them the colour
+   *  renderer draws a grey model, which the wireframe says better. */
+  coloured: boolean;
   /** The GLTF scene itself. Colour mode renders it; the wireframe reads its
    *  deformed vertices out of it, so both modes need it kept. */
   scene: any;
@@ -65,6 +92,7 @@ export function parseHead(buf: ArrayBuffer): Promise<LoadedHead> {
         }
         resolve({
           model: buildModel(positions, indices),
+          coloured: hasColour(gltf.scene),
           scene: gltf.scene,
           parts,
         });

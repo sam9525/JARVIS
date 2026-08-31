@@ -5,6 +5,11 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import MouthPicker, { radiusFrom } from "../../src/renderer/voice/MouthPicker";
+import { loadHead } from "../../src/renderer/voice/load-head";
+import {
+  mountColourHead,
+  pickOnScene,
+} from "../../src/renderer/voice/head-render";
 
 vi.mock("../../src/renderer/voice/load-head", () => ({
   loadHead: vi.fn(),
@@ -21,6 +26,19 @@ vi.mock("../../src/renderer/voice/head-render", () => ({
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
+  // jsdom has no canvas backend, and the picker's effect bails without a 2D
+  // context — which takes the pointer listeners with it.
+  (HTMLCanvasElement.prototype as any).getContext = () => ({
+    setTransform: () => {},
+    clearRect: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    stroke: () => {},
+    fill: () => {},
+    strokeStyle: "",
+    fillStyle: "",
+    lineWidth: 0,
+  });
   container = document.createElement("div");
   document.body.appendChild(container);
   act(() => {
@@ -95,5 +113,51 @@ describe("MouthPicker", () => {
   it("disables Done until something is marked", () => {
     render(<MouthPicker onDone={() => {}} />);
     expect(screen.getByTestId("mouth-pick-done").props.disabled).toBe(true);
+  });
+
+  // The pointer path moved off the canvas when the renderer took ownership of
+  // its own: the listeners, the capture and the rect all read the host div
+  // now. A div that stops receiving these is a picker that cannot pick.
+  it("marks the raycast hit from a press on the host", async () => {
+    const hit: [number, number, number] = [0, 0.4, 0.9];
+    const pick = vi.fn(() => hit);
+    (loadHead as any).mockResolvedValue({ scene: {}, model: {} });
+    (mountColourHead as any).mockReturnValue({
+      canvas: document.createElement("canvas"),
+      render: () => {},
+      dispose: () => {},
+    });
+    (pickOnScene as any).mockReturnValue(pick);
+
+    let sent: unknown = "unset";
+    render(
+      <MouthPicker
+        onDone={(r) => {
+          sent = r;
+        }}
+      />,
+    );
+    await act(async () => {});
+
+    const host = container.querySelector(
+      '[data-testid="mouth-picker-canvas"]',
+    ) as HTMLElement;
+    // jsdom implements no pointer capture, and the handler calls it.
+    host.setPointerCapture = () => {};
+    act(() => {
+      host.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          clientX: 30,
+          clientY: 40,
+          bubbles: true,
+        }),
+      );
+    });
+
+    // The offsets are the host's own rect, which jsdom reports as the origin.
+    expect(pick).toHaveBeenCalledWith(30, 40);
+    expect(screen.getByTestId("mouth-pick-done").props.disabled).toBe(false);
+    screen.getByTestId("mouth-pick-done").props.onClick();
+    expect(sent).toEqual({ c: hit, r: expect.any(Number) });
   });
 });

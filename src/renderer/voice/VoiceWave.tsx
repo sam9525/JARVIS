@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { isSounding, readWave, WAVE_BINS } from "./speak";
 import {
   aimFrom,
@@ -75,16 +75,29 @@ export default function VoiceWave({
   mouth,
   mouthRegion,
   onRig,
+  onHeadError,
+  onColoured,
 }: {
   headModel?: string;
   colour?: boolean;
   mouth?: boolean;
   mouthRegion?: MouthRegion;
   onRig?: (kind: RigKind) => void;
+  onHeadError?: (why: string | null) => void;
+  onColoured?: (has: boolean) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const headRef = useRef<HTMLCanvasElement | null>(null);
-  const colourRef = useRef<HTMLCanvasElement | null>(null);
+  // A host element, not a canvas: mountColourHead brings its own, because a
+  // canvas whose context was force-lost can never grant another one.
+  const colourRef = useRef<HTMLDivElement | null>(null);
+  // Whether the head on screen carries colours of its own. The one piece of
+  // React state here, and not a per-frame one: it settles once per head, and
+  // the choice of canvas below depends on it. Without it a colour host with
+  // nothing mounted inside draws no head at all — the caller cannot be trusted
+  // to gate `colour`, because `onColoured` is optional.
+  const [colourable, setColourable] = useState(true);
+  const showColour = !!colour && colourable;
   const mouthRef = useRef(mouth);
   mouthRef.current = mouth;
   const startRef = useRef<(() => void) | null>(null);
@@ -100,8 +113,8 @@ export default function VoiceWave({
     const headCanvas = headRef.current;
     const head2d = headCanvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    if (!colour && (!headCanvas || !head2d)) return;
-    if (colour && !colourRef.current) return;
+    if (!showColour && (!headCanvas || !head2d)) return;
+    if (showColour && !colourRef.current) return;
 
     // Backing-store scale for the bezel's fixed CSS size. setTransform, not
     // scale: StrictMode runs this effect twice on the same canvas, and scale
@@ -112,7 +125,7 @@ export default function VoiceWave({
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (!colour && headCanvas && head2d) {
+    if (!showColour && headCanvas && head2d) {
       headCanvas.width = HEAD_W * dpr;
       headCanvas.height = HEAD_H * dpr;
       head2d.setTransform(
@@ -151,9 +164,7 @@ export default function VoiceWave({
       try {
         if (!loaded.scene?.isObject3D && !loaded.scene?.dispatchEvent)
           return null;
-        const off = document.createElement("canvas");
-        off.width = DETECT_SIZE;
-        off.height = DETECT_SIZE;
+        const off = document.createElement("div");
         const [{ mountColourHead }, { detectMouth }] = await Promise.all([
           import("./head-render"),
           import("./detect-mouth"),
@@ -166,7 +177,14 @@ export default function VoiceWave({
         );
         shot.render(0, 0);
         try {
-          return await detectMouth(loaded.model, off, HEAD_SCALE, DETECT_SIZE);
+          // The detector uploads this through texImage2D, so it must be the
+          // rendered canvas, not the host box that holds it.
+          return await detectMouth(
+            loaded.model,
+            shot.canvas,
+            HEAD_SCALE,
+            DETECT_SIZE,
+          );
         } finally {
           shot.dispose();
         }
@@ -378,7 +396,15 @@ export default function VoiceWave({
         }
         rig = rigCandidate;
         onRig?.(rig.kind);
-        if (colour && colourRef.current) {
+        onHeadError?.(null);
+        // What the file carries decides whether colour mode is offered at all,
+        // and only the loaded model knows.
+        onColoured?.(loaded.coloured);
+        // A colourless head falls back to the wireframe here rather than in
+        // the caller: this re-renders, the effect re-runs on `showColour`, and
+        // the second pass takes the wire branch.
+        setColourable(loaded.coloured);
+        if (showColour && loaded.coloured && colourRef.current) {
           const { mountColourHead } = await import("./head-render");
           if (disposed) return;
           colourHead = mountColourHead(
@@ -390,7 +416,13 @@ export default function VoiceWave({
         }
         start();
       })
-      .catch((err) => console.error("head model", err));
+      .catch((err) => {
+        // A head that will not load leaves an empty box and no reason for it,
+        // so the message goes where the head was chosen.
+        console.error("head model", err);
+        if (!disposed)
+          onHeadError?.(err instanceof Error ? err.message : String(err));
+      });
 
     // headModel / colour: a different head or a different renderer means a
     // different loop, and the effect owns it. Tearing the whole thing down is
@@ -405,7 +437,7 @@ export default function VoiceWave({
       if (timer) clearTimeout(timer);
       colourHead?.dispose();
     };
-  }, [headModel, colour, mouthRegion, onRig]);
+  }, [headModel, showColour, mouthRegion, onRig, onHeadError, onColoured]);
 
   return (
     <div
@@ -419,8 +451,8 @@ export default function VoiceWave({
           node that drew the wireframe throws "Error creating WebGL context",
           and 2D on the node that drew in colour comes back null and the effect
           bails, which is a head that never draws again until a restart. */}
-      {colour ? (
-        <canvas
+      {showColour ? (
+        <div
           key="colour"
           ref={colourRef}
           data-testid="voice-head-colour"

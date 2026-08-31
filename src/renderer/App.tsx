@@ -452,6 +452,13 @@ export default function App() {
   // grey the mouth switch without loading the model a second time. Null while
   // voice is off, which is why the switch is not disabled on null.
   const [rigKind, setRigKind] = useState<RigKind | null>(null);
+  // Why the head is missing, when it is. A model that fails to load leaves an
+  // empty box, and the box is nowhere near the setting that chose the model.
+  const [headError, setHeadError] = useState<string | null>(null);
+  // Whether the loaded head carries colours of its own. Null until one loads,
+  // which is why the check below is against false rather than falsy — an
+  // unloaded head must not read as a head with nothing to show.
+  const [headColoured, setHeadColoured] = useState<boolean | null>(null);
   const voice = useVoiceControl({
     micOn,
     micDeviceId: settings.micDeviceId,
@@ -469,9 +476,14 @@ export default function App() {
     if (settingsReady && settings.voiceControl) setMicOn(true);
   }, [settingsReady]);
 
+  // A new head answers all three of these itself, but only once it loads.
+  // Clearing them on the way in stops the previous head's verdict standing
+  // in for the new one — forever, if the new one never loads.
   useEffect(() => {
-    if (!micOn) setRigKind(null);
-  }, [micOn]);
+    setRigKind(null);
+    setHeadError(null);
+    setHeadColoured(null);
+  }, [micOn, settings.headModel]);
 
   // The mouth. Only the orchestrator's row is read, and only once per message
   // — spokenRef is a ref because speaking must not itself cause a render.
@@ -972,6 +984,8 @@ export default function App() {
                 mouth={settings.headMouth}
                 mouthRegion={settings.headMouths?.[headKey(settings)]}
                 onRig={setRigKind}
+                onHeadError={setHeadError}
+                onColoured={setHeadColoured}
               />
             ) : null}
             {showHome ? null : (
@@ -1057,6 +1071,8 @@ export default function App() {
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
             rigKind={rigKind}
+            headError={headError}
+            headColoured={headColoured}
             onPickMouth={() => setShowMouthPicker(true)}
           />
         </Panel>

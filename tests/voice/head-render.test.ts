@@ -1,6 +1,8 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { Group } from "three";
 import {
+  mountColourHead,
   pickOnScene,
   projectRegion,
 } from "../../src/renderer/voice/head-render";
@@ -35,6 +37,20 @@ const loose = (): LoadedHead =>
   }) as unknown as LoadedHead;
 
 const SIZE = 200;
+
+describe("mountColourHead", () => {
+  // A canvas whose context was force-lost can never grant a working one again,
+  // so a node kept across two mounts kills the second renderer inside three,
+  // where it reads a property off a null precision format. The renderer brings
+  // its own canvas, and takes it away with it.
+  it("brings its own canvas, and removes it when the view cannot open", () => {
+    const host = document.createElement("div");
+    // jsdom grants no WebGL context, which is the failure a person would
+    // otherwise read as "Cannot read properties of null".
+    expect(() => mountColourHead(host, new Group(), 10, 10)).toThrow(/WebGL/);
+    expect(host.childElementCount).toBe(0);
+  });
+});
 
 describe("pickOnScene", () => {
   // A scene with no parent carries no yaw or pitch, so a ray would meet an

@@ -7,6 +7,7 @@ import {
   MAX_PITCH,
   recomputeNormals,
   regionMask,
+  MAX_WIRE_FACES,
   displaceRegion,
   resetPose,
   normalisePoint,
@@ -149,6 +150,63 @@ describe("recomputeNormals", () => {
     recomputeNormals(m, [1]);
     expect(m.nz[0]).toBe(0); // untouched
     expect(Math.abs(m.nz[1])).toBeCloseTo(1, 5);
+  });
+});
+
+describe("a mesh denser than the wireframe budget", () => {
+  // One long strip of triangles: enough faces to force the stride, built as
+  // typed arrays so the test itself stays quick.
+  const strip = (faces: number) => {
+    const positions = new Float32Array((faces + 2) * 3);
+    for (let i = 0; i < faces + 2; i++) {
+      positions[i * 3] = i % 2;
+      positions[i * 3 + 1] = i * 0.01;
+      positions[i * 3 + 2] = 0;
+    }
+    const indices = new Uint32Array(faces * 3);
+    for (let f = 0; f < faces; f++) {
+      indices[f * 3] = f;
+      indices[f * 3 + 1] = f + 1;
+      indices[f * 3 + 2] = f + 2;
+    }
+    return buildModel(positions, indices);
+  };
+
+  it("keeps every vertex and face, and samples the faces it strokes", () => {
+    const dense = strip(MAX_WIRE_FACES * 3);
+    expect(dense.tri.length / 3).toBe(MAX_WIRE_FACES * 3); // every face kept
+    expect(dense.verts.length / 3).toBe(MAX_WIRE_FACES * 3 + 2);
+    expect(dense.wireFaces.length).toBeLessThanOrEqual(MAX_WIRE_FACES);
+    expect(dense.wireFaces.length).toBeGreaterThan(MAX_WIRE_FACES / 2);
+    // and the sample spreads across the mesh rather than stopping early
+    expect(dense.wireFaces.at(-1)).toBeGreaterThan(MAX_WIRE_FACES * 2);
+  });
+
+  it("strokes the sample, so a frame costs the same whatever the file holds", () => {
+    const dense = strip(MAX_WIRE_FACES * 3);
+    const drawn = visibleEdges(dense, 0, 0, 50).length / 4;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThanOrEqual(dense.ea.length);
+    // bounded by the sample, not by the mesh: three edges per sampled face is
+    // the worst case, and the mesh itself has three times as many faces
+    expect(dense.ea.length).toBeLessThanOrEqual(dense.wireFaces.length * 3);
+  });
+
+  it("projects both ends of every edge it strokes", () => {
+    const dense = strip(MAX_WIRE_FACES * 3);
+    const seg = visibleEdges(dense, 0, 0, 50);
+    expect(seg.length).toBeGreaterThan(0);
+    // wireVerts is what the projection walks. Were it empty, px/py would stay
+    // zero and every segment would be a point — still "drawn", still counted.
+    let sized = 0;
+    for (let i = 0; i < seg.length; i += 4)
+      if (seg[i] !== seg[i + 2] || seg[i + 1] !== seg[i + 3]) sized++;
+    expect(sized).toBe(seg.length / 4);
+  });
+
+  it("leaves a mesh under the budget whole", () => {
+    const small = buildModel(PAIR.positions, PAIR.indices);
+    expect([...small.wireFaces]).toEqual([0, 1]);
   });
 });
 
