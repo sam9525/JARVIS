@@ -55,19 +55,34 @@ export async function loadSettings(file: string): Promise<Settings> {
       if (typeof p[k] === "boolean") s[k] = p[k] as boolean;
     }
     for (const [name, region] of Object.entries(asRecord(p.headMouths))) {
-      const r = region as { c?: unknown; r?: unknown } | null;
+      const m = region as Record<string, unknown> | null;
+      const half = (v: unknown, fallback: unknown) => {
+        const n = typeof v === "number" ? v : fallback;
+        return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
+      };
+      // `r` is the sphere a mouth used to be: an old file keeps its pick,
+      // squared off, rather than losing it. Height takes half the radius —
+      // travel is the height times OPEN(0.9) where the sphere moved 0.55r, so
+      // carrying `r` straight across would open a migrated pick much wider
+      // than the one that was marked.
+      const r = m && half(m.r, 0);
+      const w = m && half(m.w, r);
+      const h = m && half(m.h, r ? r / 2 : 0);
+      const d = m && half(m.d, r);
       if (
-        r &&
-        Array.isArray(r.c) &&
-        r.c.length === 3 &&
-        r.c.every((n) => typeof n === "number" && Number.isFinite(n)) &&
-        typeof r.r === "number" &&
-        Number.isFinite(r.r) &&
-        r.r > 0
+        m &&
+        Array.isArray(m.c) &&
+        m.c.length === 3 &&
+        m.c.every((n) => typeof n === "number" && Number.isFinite(n)) &&
+        w &&
+        h &&
+        d
       ) {
         (s.headMouths ??= {})[name] = {
-          c: r.c as [number, number, number],
-          r: r.r,
+          c: m.c as [number, number, number],
+          w,
+          h,
+          d,
         };
       }
     }

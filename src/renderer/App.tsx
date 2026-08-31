@@ -103,6 +103,13 @@ const fold = (m: PanelMap): PanelMap =>
 // own, so it needs a stand-in — spelt once, because the picker and the wave
 // have to agree on it or a marked mouth is stored where nothing reads it.
 const headKey = (s: Settings) => s.headModel ?? "__builtin";
+// A marked mouth is the consent: the switch is disabled until a head has one,
+// so nobody can turn it on beforehand, and a mouth marked by hand that then
+// sits shut reads as broken. An explicit false still wins — it is how you
+// silence it. Computed here once, because the settings panel draws the same
+// switch and `rigKind` is null until a head has loaded.
+const mouthOn = (s: Settings) =>
+  s.headMouth ?? Boolean(s.headMouths?.[headKey(s)]);
 
 const withFoldedTerminal = (s: Settings): Settings => ({
   ...s,
@@ -981,7 +988,7 @@ export default function App() {
               <VoiceWave
                 headModel={settings.headModel}
                 colour={settings.headColor}
-                mouth={settings.headMouth}
+                mouth={mouthOn(settings)}
                 mouthRegion={settings.headMouths?.[headKey(settings)]}
                 onRig={setRigKind}
                 onHeadError={setHeadError}
@@ -1071,6 +1078,7 @@ export default function App() {
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
             rigKind={rigKind}
+            mouthOn={mouthOn(settings)}
             headError={headError}
             headColoured={headColoured}
             onPickMouth={() => setShowMouthPicker(true)}

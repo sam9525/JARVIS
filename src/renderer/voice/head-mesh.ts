@@ -329,32 +329,48 @@ export type RegionMask = {
   faces: Uint32Array;
 };
 
-// How far a fully-weighted vertex travels, as a share of the region's radius. A
-// mouth that opens its own width reads as speech; more reads as a yawn.
-const OPEN = 0.55;
+// How far a fully-weighted vertex travels, as a share of the region's height.
+// A mouth that opens most of its own height reads as speech; more is a yawn.
+const OPEN = 0.9;
+
+// What the upper lip does while the jaw drops: a little, and upward. A real
+// face is about four to one, and an even split reads as a fish.
+const UPPER_SHARE = 0.25;
+
+// 1 at the centre of an axis, 0 at its edge, flat at both ends so the moved
+// skin meets the still skin without a crease.
+const taper = (t: number) => 0.5 + 0.5 * Math.cos(t * Math.PI);
 
 /**
- * Vertices within the region, weighted 1 at the centre and 0 at the radius.
+ * Vertices inside the box, weighted for a jaw rather than a bubble.
  *
- * The weight is signed by which side of the centre the vertex sits on — y is
- * down, so the lower lip takes a positive weight and the upper a negative one,
- * and the two travel apart rather than together.
+ * Three separable tapers multiply: across the face, into the head, and down it.
+ * The first two are what hold the corners and the cheeks still — a radius moved
+ * them with the centre, so the face inflated instead of parting.
+ *
+ * The weight is signed by which side of the mouth line a vertex sits on — y
+ * counts downward, so the lower lip takes a positive weight and rides the jaw
+ * down, and the upper takes a small negative one.
  */
 export function regionMask(m: HeadModel, region: MouthRegion): RegionMask {
   const [cx, cy, cz] = region.c;
-  const r = Math.max(region.r, 1e-6);
+  const hw = Math.max(region.w, 1e-6);
+  const hh = Math.max(region.h, 1e-6);
+  const hd = Math.max(region.d, 1e-6);
   const idx: number[] = [];
   const w: number[] = [];
   for (let i = 0, v = 0; v < m.verts.length; i++, v += 3) {
-    const d = Math.hypot(
-      m.verts[v] - cx,
-      m.verts[v + 1] - cy,
-      m.verts[v + 2] - cz,
-    );
-    if (d >= r) continue;
-    const fall = 0.5 + 0.5 * Math.cos((d / r) * Math.PI);
+    const dx = (m.verts[v] - cx) / hw;
+    const dy = (m.verts[v + 1] - cy) / hh;
+    const dz = (m.verts[v + 2] - cz) / hd;
+    if (Math.abs(dx) >= 1 || Math.abs(dy) >= 1 || Math.abs(dz) >= 1) continue;
+    const across = taper(dx) * taper(dz);
+    if (across === 0) continue;
+    // Full at the lip line and easing to nothing at the chin edge: the lip
+    // itself travels furthest, which is what makes the mouth read as open.
+    const along = dy >= 0 ? taper(dy) : -UPPER_SHARE * taper(dy);
     idx.push(i);
-    w.push(m.verts[v + 1] < cy ? -fall : fall);
+    w.push(across * along);
   }
   const moved = new Uint8Array(m.verts.length / 3);
   for (const i of idx) moved[i] = 1;
@@ -380,9 +396,9 @@ export function displaceRegion(
   m: HeadModel,
   mask: RegionMask,
   amount: number,
-  radius = 1,
+  height = 1,
 ): void {
-  const travel = amount * OPEN * radius;
+  const travel = amount * OPEN * height;
   for (let k = 0; k < mask.idx.length; k++) {
     const v = mask.idx[k] * 3;
     m.pose[v + 1] = m.verts[v + 1] + mask.w[k] * travel;
@@ -432,7 +448,11 @@ export function denormalisePoint(
   x: number,
   y: number,
   z: number,
-): [number, number, number] {
+  out: Float32Array | number[],
+  at = 0,
+): void {
   const { scale, cx, cy, cz } = m.norm;
-  return [x / scale + cx, -(y / scale + cy), z / scale + cz];
+  out[at] = x / scale + cx;
+  out[at + 1] = -(y / scale + cy);
+  out[at + 2] = z / scale + cz;
 }

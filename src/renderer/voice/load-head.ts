@@ -1,3 +1,4 @@
+import { Matrix4 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildModel, type HeadModel } from "./head-mesh";
 
@@ -14,7 +15,15 @@ const HEAD_URL = "/head/head.glb";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type MeshPart = { mesh: any; start: number; count: number };
+export type MeshPart = {
+  mesh: any;
+  start: number;
+  count: number;
+  /** The way back from soup space into this mesh's own vertices. Taken here,
+   *  where the scene is still unparented, because once it is mounted the same
+   *  matrix carries the head's yaw and pitch as well. */
+  inv: Matrix4;
+};
 
 /** Flatten every mesh in the file into one triangle soup in world space. */
 function soup(scene: any): {
@@ -37,7 +46,12 @@ function soup(scene: any): {
     const ix = geo.index?.array as ArrayLike<number> | undefined;
     if (ix) for (let i = 0; i < ix.length; i++) indices.push(base + ix[i]);
     else for (let i = 0; i < p.length / 3; i++) indices.push(base + i);
-    parts.push({ mesh: o, start: base, count: p.length / 3 });
+    parts.push({
+      mesh: o,
+      start: base,
+      count: p.length / 3,
+      inv: o.matrixWorld.clone().invert(),
+    });
     geo.dispose();
   });
   return { positions, indices, parts };

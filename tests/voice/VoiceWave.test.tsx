@@ -4,6 +4,7 @@ import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { Matrix4 } from "three";
 import VoiceWave from "../../src/renderer/voice/VoiceWave";
 import { buildModel } from "../../src/renderer/voice/head-mesh";
 import * as speak from "../../src/renderer/voice/speak";
@@ -269,10 +270,60 @@ describe("VoiceWave", () => {
       return true;
     });
     act(() =>
-      root.render(<VoiceWave mouth mouthRegion={{ c: [0, 0, 0], r: 10 }} />),
+      root.render(
+        <VoiceWave mouth mouthRegion={{ c: [0, 0, 0], w: 10, h: 10, d: 10 }} />,
+      ),
     );
     await flush();
     expect([...model.pose]).not.toEqual([...model.verts]);
+    // NaN satisfies `not.toEqual` on its own, so a region the mask cannot read
+    // would pass the line above while moving nothing.
+    expect([...model.pose].every(Number.isFinite)).toBe(true);
+  });
+
+  // The mouth on a colour head is the whole feature: that renderer draws the
+  // file's own geometry and never reads the CPU model, so the displacement has
+  // to be copied into the buffer it does draw.
+  it("copies the marked mouth into the drawn geometry in colour mode", async () => {
+    const model = TRIANGLE();
+    const setXYZ = vi.fn();
+    const attr = { setXYZ, needsUpdate: false };
+    loadHead.mockResolvedValue({
+      model,
+      coloured: true,
+      scene: { children: [] },
+      parts: [
+        {
+          mesh: { geometry: { attributes: { position: attr } } },
+          start: 0,
+          count: 3,
+          inv: new Matrix4(),
+        },
+      ],
+    });
+    vi.spyOn(speak, "isSounding").mockReturnValue(true);
+    vi.spyOn(speak, "readWave").mockImplementation((out: Uint8Array) => {
+      out.fill(255);
+      return true;
+    });
+    act(() =>
+      root.render(
+        <VoiceWave
+          colour
+          mouth
+          mouthRegion={{ c: [0, 0, 0], w: 10, h: 10, d: 10 }}
+        />,
+      ),
+    );
+    await flush();
+    expect(setXYZ).toHaveBeenCalled();
+    expect(attr.needsUpdate).toBe(true);
+    // Every write lands on a vertex this part owns, in its own local index.
+    for (const [at, x, y, z] of setXYZ.mock.calls) {
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(at).toBeLessThan(3);
+      expect([x, y, z].every(Number.isFinite)).toBe(true);
+    }
   });
 
   it("reports whether the head carries colours of its own", async () => {

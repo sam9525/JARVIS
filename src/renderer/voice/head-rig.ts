@@ -5,6 +5,7 @@ import {
   regionMask,
   resetPose,
   type HeadModel,
+  type RegionMask,
 } from "./head-mesh";
 
 /**
@@ -30,7 +31,23 @@ export type RigObject = {
 };
 
 export type RigKind = "manual" | "morph" | "bone" | "detected" | "none";
-export type Rig = { kind: RigKind; apply(amount: number): void };
+export type Rig = {
+  kind: RigKind;
+  /**
+   * Open the mouth, and say whether anything moved — a caller that copies the
+   * pose somewhere else has nothing to copy when it did not.
+   *
+   * `normals` is what the wireframe needs and the colour renderer does not: it
+   * draws the file's own geometry, whose normals live on the GPU, so rebuilding
+   * the CPU model's is work nothing reads.
+   */
+  apply(amount: number, normals?: boolean): boolean;
+  /** The vertices a region tier moves, for a renderer that draws the file's
+   *  own geometry rather than the CPU model — it has to copy the displacement
+   *  across, and only these vertices ever change. Absent on the GPU tiers,
+   *  which deform the geometry themselves. */
+  mask?: RegionMask;
+};
 
 // The names avatar exporters actually ship: ARKit, ReadyPlayerMe, Oculus
 // visemes, VRM. Checked in this order, so a rig carrying several opens with the
@@ -82,12 +99,17 @@ function regionRig(kind: RigKind, model: HeadModel, region: MouthRegion): Rig {
   let open = -1;
   return {
     kind,
-    apply(amount) {
-      if (amount === open) return;
+    mask,
+    apply(amount, normals = true) {
+      if (amount === open) return false;
       open = amount;
       if (amount <= 0) resetPose(model, mask);
-      else displaceRegion(model, mask, amount, region.r);
-      recomputeNormals(model, mask.faces);
+      else displaceRegion(model, mask, amount, region.h);
+      // ponytail: colour mode leaves the GPU normals at rest, so an open mouth
+      // is lit as if shut. Write the mask's face normals across in
+      // `writeBackPose` if that flat lip ever reads wrong at 240×200.
+      if (normals) recomputeNormals(model, mask.faces);
+      return true;
     },
   };
 }
@@ -113,7 +135,9 @@ export function resolveRig(
     return {
       kind: "morph",
       apply(amount) {
+        if (mesh.morphTargetInfluences![slot] === amount) return false;
         mesh.morphTargetInfluences![slot] = amount;
+        return true;
       },
     };
   }
@@ -123,7 +147,10 @@ export function resolveRig(
     return {
       kind: "bone",
       apply(amount) {
-        jaw.rotation!.x = amount * JAW_MAX;
+        const next = amount * JAW_MAX;
+        if (jaw.rotation!.x === next) return false;
+        jaw.rotation!.x = next;
+        return true;
       },
     };
   }
@@ -133,7 +160,7 @@ export function resolveRig(
   return {
     kind: "none",
     apply() {
-      /* no-op when model has no mouth */
+      return false; // no mouth to move
     },
   };
 }

@@ -41,6 +41,25 @@ export type ColourHead = {
 // as the wireframe and the two modes frame the model identically.
 const DIST = 4;
 
+// `projectRegion` runs per invalidated frame and again on every pointer press,
+// so its camera and its denormalise scratch are hoisted rather than rebuilt.
+let flat: PerspectiveCamera | null = null;
+const pt = new Float32Array(3);
+
+function flatCamera(w: number, h: number): PerspectiveCamera {
+  if (!flat) {
+    flat = new PerspectiveCamera(30, w / h, 0.1, 100);
+    flat.position.set(0, 0, DIST);
+  } else if (flat.aspect !== w / h) {
+    flat.aspect = w / h;
+    flat.updateProjectionMatrix();
+  }
+  // Same reason as `pickOnScene`: the projection reads `matrixWorld`, which
+  // `position` alone never refreshes.
+  flat.updateMatrixWorld(true);
+  return flat;
+}
+
 /**
  * Turn the head to face a yaw/pitch aim.
  *
@@ -148,6 +167,10 @@ export function pickOnScene(
   const out = new Float32Array(3);
   const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
   camera.position.set(0, 0, DIST);
+  // `setFromCamera` reads the ray origin off `matrixWorld`, which `position`
+  // alone does not touch: without this the ray starts at the world origin,
+  // inside the head, and every pick lands on the far side of it.
+  camera.updateMatrixWorld(true);
   return (x: number, y: number): [number, number, number] | null => {
     // the scene rotates under a fixed camera, so the same angles the renderer
     // draws with have to be on the object before the ray is cast. An unmounted
@@ -173,7 +196,8 @@ export function pickOnScene(
 }
 
 /**
- * Project a model-space mouth region to canvas 2D coordinates.
+ * Project a model-space mouth region to a canvas rectangle: centre, and half a
+ * width and height in pixels.
  */
 export function projectRegion(
   loaded: LoadedHead,
@@ -181,46 +205,55 @@ export function projectRegion(
   h: number,
   angle: { yaw: number; pitch: number },
   region: import("../../shared/types").MouthRegion,
-): { x: number; y: number; r: number; visible: boolean } | null {
+): { x: number; y: number; w: number; h: number; visible: boolean } | null {
   const root = (loaded.scene as { parent?: unknown }).parent as
     Object3D | undefined;
   if (!root) return null;
   aimAt(root, angle.yaw, angle.pitch);
   root.updateMatrixWorld(true);
 
-  const camera = new PerspectiveCamera(30, w / h, 0.1, 100);
-  camera.position.set(0, 0, DIST);
-  camera.updateMatrixWorld(true);
+  const camera = flatCamera(w, h);
 
-  const [lx, ly, lz] = denormalisePoint(loaded.model, ...region.c);
-  const centerLocal = new Vector3(lx, ly, lz);
+  denormalisePoint(loaded.model, ...region.c, pt);
+  const centerLocal = new Vector3(pt[0], pt[1], pt[2]);
   const centerWorld = root.localToWorld(centerLocal);
   const centerProj = centerWorld.clone().project(camera);
 
-  const rLocal = region.r / loaded.model.norm.scale;
-  const edgeLocal = new Vector3(lx + rLocal, ly, lz);
-  const edgeWorld = root.localToWorld(edgeLocal);
-  const edgeProj = edgeWorld.clone().project(camera);
-
   const x = ((centerProj.x + 1) / 2) * w;
   const y = ((-centerProj.y + 1) / 2) * h;
-  const edgeX = ((edgeProj.x + 1) / 2) * w;
-  const edgeY = ((-edgeProj.y + 1) / 2) * h;
-  const r = Math.max(Math.hypot(edgeX - x, edgeY - y), 2);
+
+  // Each half-extent is projected as its own edge point, so a region seen at an
+  // angle narrows the way the face it sits on does.
+  const extent = (dx: number, dy: number) => {
+    denormalisePoint(
+      loaded.model,
+      region.c[0] + dx,
+      region.c[1] + dy,
+      region.c[2],
+      pt,
+    );
+    const p = root
+      .localToWorld(new Vector3(pt[0], pt[1], pt[2]))
+      .project(camera);
+    return Math.max(
+      Math.hypot(((p.x + 1) / 2) * w - x, ((-p.y + 1) / 2) * h - y),
+      2,
+    );
+  };
 
   // Front or back, not near or far: the camera looks down -z at a head centred
   // on the model's own middle, so a region whose outward direction still points
   // at the camera is the one facing it. Testing the far plane instead drew the
   // marker straight through the back of the skull.
-  const originWorld = root.localToWorld(
-    new Vector3(...denormalisePoint(loaded.model, 0, 0, 0)),
-  );
+  denormalisePoint(loaded.model, 0, 0, 0, pt);
+  const originWorld = root.localToWorld(new Vector3(pt[0], pt[1], pt[2]));
   const outward = centerWorld.clone().sub(originWorld);
 
   return {
     x,
     y,
-    r,
+    w: extent(region.w, 0),
+    h: extent(0, region.h),
     visible: outward.z > 0,
   };
 }

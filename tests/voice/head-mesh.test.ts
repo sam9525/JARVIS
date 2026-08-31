@@ -213,28 +213,43 @@ describe("a mesh denser than the wireframe budget", () => {
 describe("regionMask", () => {
   const m = buildModel(PAIR.positions, PAIR.indices);
 
-  it("weights a vertex at the centre fully and one at the radius not at all", () => {
+  it("weights a vertex at the centre of the box fully", () => {
     const at = [m.verts[0], m.verts[1], m.verts[2]] as [number, number, number];
-    const mask = regionMask(m, { c: at, r: 0.5 });
+    const mask = regionMask(m, { c: at, w: 0.5, h: 0.5, d: 0.5 });
     const slot = [...mask.idx].indexOf(0);
     expect(slot).toBeGreaterThanOrEqual(0);
     expect(Math.abs(mask.w[slot])).toBeCloseTo(1, 5);
   });
 
-  it("leaves a vertex outside the radius out of the mask entirely", () => {
-    const mask = regionMask(m, { c: [99, 99, 99], r: 0.1 });
+  it("leaves a vertex outside the box out of the mask entirely", () => {
+    const mask = regionMask(m, { c: [99, 99, 99], w: 0.1, h: 0.1, d: 0.1 });
     expect(mask.idx.length).toBe(0);
   });
 
   it("signs the mask so the two sides of the centre move apart", () => {
-    const mask = regionMask(m, { c: [0, 0, 0], r: 10 });
+    const mask = regionMask(m, { c: [0, 0, 0], w: 10, h: 10, d: 10 });
     const signs = new Set([...mask.w].map((w) => Math.sign(w)));
     expect(signs.has(1)).toBe(true);
     expect(signs.has(-1)).toBe(true);
   });
 
+  // A jaw, not a bubble: the lower lip carries the opening and the upper lip
+  // barely moves. An even split reads as a fish.
+  it("gives the upper lip a quarter of the jaw's travel, and upward", () => {
+    // A square, unlike PAIR: vertices 0 and 2 share an x and sit an equal
+    // distance either side of the mouth line, so only the sides differ.
+    const square = buildModel(
+      [-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0],
+      [0, 1, 2, 1, 3, 2],
+    );
+    const mask = regionMask(square, { c: [0, 0, 0], w: 2, h: 2, d: 1 });
+    const weight = (i: number) => mask.w[[...mask.idx].indexOf(i)];
+    expect(weight(0)).toBeGreaterThan(0);
+    expect(weight(2)).toBeCloseTo(-0.25 * weight(0), 6);
+  });
+
   it("names every face a masked vertex belongs to, and no other", () => {
-    const whole = regionMask(m, { c: [0, 0, 0], r: 10 });
+    const whole = regionMask(m, { c: [0, 0, 0], w: 10, h: 10, d: 10 });
     expect([...whole.faces]).toEqual([0, 1]);
 
     // vertex 3 belongs to the second triangle alone
@@ -243,7 +258,7 @@ describe("regionMask", () => {
       number,
       number,
     ];
-    const corner = regionMask(m, { c: at, r: 0.2 });
+    const corner = regionMask(m, { c: at, w: 0.2, h: 0.2, d: 0.2 });
     expect([...corner.idx]).toEqual([3]);
     expect([...corner.faces]).toEqual([1]);
   });
@@ -255,7 +270,8 @@ describe("denormalisePoint", () => {
     const out = new Float32Array(3);
     const [x, y, z] = [PAIR.positions[3], PAIR.positions[4], PAIR.positions[5]];
     normalisePoint(m, x, y, z, out, 0);
-    const back = denormalisePoint(m, out[0], out[1], out[2]);
+    const back = new Float32Array(3);
+    denormalisePoint(m, out[0], out[1], out[2], back);
     expect(back[0]).toBeCloseTo(x, 5);
     expect(back[1]).toBeCloseTo(y, 5);
     expect(back[2]).toBeCloseTo(z, 5);
@@ -286,7 +302,9 @@ describe("displaceRegion", () => {
     const m = buildModel(PAIR.positions, PAIR.indices);
     const mask = regionMask(m, {
       c: [m.verts[0], m.verts[1], m.verts[2]],
-      r: 0.5,
+      w: 0.5,
+      h: 0.5,
+      d: 0.5,
     });
     const untouched = m.verts.length / 3 === mask.idx.length ? -1 : 3;
     displaceRegion(m, mask, 1);
@@ -301,7 +319,9 @@ describe("displaceRegion", () => {
     const m = buildModel(PAIR.positions, PAIR.indices);
     const mask = regionMask(m, {
       c: [m.verts[0], m.verts[1], m.verts[2]],
-      r: 0.5,
+      w: 0.5,
+      h: 0.5,
+      d: 0.5,
     });
     displaceRegion(m, mask, 1);
     resetPose(m, mask);

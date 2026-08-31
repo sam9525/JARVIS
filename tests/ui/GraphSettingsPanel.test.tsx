@@ -69,6 +69,7 @@ type MountProps = Partial<{
   onResetHighlights: () => void;
   showSections: boolean;
   rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null;
+  mouthOn?: boolean;
   headError?: string | null;
   headColoured?: boolean | null;
   onPickMouth?: () => void;
@@ -88,6 +89,7 @@ function mount(props: MountProps = {}) {
         onResetHighlights={props.onResetHighlights ?? (() => undefined)}
         showSections={props.showSections ?? true}
         rigKind={props.rigKind}
+        mouthOn={props.mouthOn}
         headError={props.headError}
         headColoured={props.headColoured}
         onPickMouth={props.onPickMouth}
@@ -102,6 +104,9 @@ function render(
   rigKind?: import("../../src/renderer/voice/head-rig").RigKind | null,
   headError?: string | null,
   headColoured?: boolean | null,
+  // App decides this now, so the panel's own tests state it rather than
+  // deriving it a second way from the settings.
+  mouthOn?: boolean,
 ) {
   const calls: {
     settings: Settings[];
@@ -120,6 +125,7 @@ function render(
       calls.resets++;
     },
     rigKind,
+    mouthOn,
     headError,
     headColoured,
   });
@@ -514,7 +520,7 @@ describe("colour head", () => {
 
 describe("mouth moves", () => {
   it("disables the mouth moves switch and shows explanation when rigKind is 'none'", async () => {
-    const { container: c } = render({ headMouth: true }, "none");
+    const { container: c } = render({}, "none", null, null, true);
     senses(c);
     await flush();
     const input = c.querySelector(
@@ -528,7 +534,7 @@ describe("mouth moves", () => {
   });
 
   it("enables the mouth moves switch when rigKind is 'morph'", async () => {
-    const { container: c } = render({ headMouth: true }, "morph");
+    const { container: c } = render({}, "morph", null, null, true);
     senses(c);
     await flush();
     const input = c.querySelector(
@@ -542,7 +548,7 @@ describe("mouth moves", () => {
   });
 
   it("enables the mouth moves switch when rigKind is null", async () => {
-    const { container: c } = render({ headMouth: true }, null);
+    const { container: c } = render({}, null, null, null, true);
     senses(c);
     await flush();
     const input = c.querySelector(

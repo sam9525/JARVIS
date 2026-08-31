@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { isSounding, readWave, WAVE_BINS } from "./speak";
 import {
   aimFrom,
+  denormalisePoint,
   normalisePoint,
   recomputeNormals,
   visibleEdges,
@@ -37,6 +38,14 @@ const SETTLED = 0.002;
 const GAIN = 3;
 
 const boost = (x: number) => Math.min(x * GAIN, 1);
+
+// The fallback voice hands out no audio at all, so the mouth chatters on a
+// clock while it sounds rather than sitting shut through every word.
+// ponytail: a fixed rate; drive it from real amplitude if speechSynthesis ever
+// grants any.
+const MIME_HZ = 5;
+const mime = () =>
+  0.35 + 0.35 * Math.sin((performance.now() / 1000) * MIME_HZ * Math.PI * 2);
 
 // What face detection made of each head, by model name — null included, so a
 // head with no findable mouth is not re-searched on every mode flip.
@@ -149,6 +158,10 @@ export default function VoiceWave({
     let rig: Rig | null = null;
     let open = 0;
     let scratch: Vector3 | null = null;
+    // The masked vertices each mesh owns, and one scratch point for the trip
+    // back into file units — a frame writing the mouth allocates nothing.
+    let poseParts: Uint32Array[] | null = null;
+    const back = new Float32Array(3);
     let frame = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
@@ -222,6 +235,63 @@ export default function VoiceWave({
       recomputeNormals(loaded.model);
     };
 
+    // The other direction, for colour mode: that renderer draws the file's own
+    // geometry and never looks at the CPU model, so a region tier's
+    // displacement has to be copied into the buffer it does draw. Only the
+    // masked vertices ever move, so a dense head costs the mouth, not the mesh.
+    const writeBackPose = (loaded: LoadedHead) => {
+      if (!scratch || !poseParts) return;
+      for (let p = 0; p < loaded.parts.length; p++) {
+        const own = poseParts[p];
+        if (own.length === 0) continue;
+        const part = loaded.parts[p];
+        const attr = part.mesh.geometry?.attributes?.position;
+        if (!attr) continue;
+        for (let k = 0; k < own.length; k++) {
+          const v = own[k] * 3;
+          denormalisePoint(
+            loaded.model,
+            loaded.model.pose[v],
+            loaded.model.pose[v + 1],
+            loaded.model.pose[v + 2],
+            back,
+          );
+          scratch.set(back[0], back[1], back[2]).applyMatrix4(part.inv);
+          attr.setXYZ(own[k] - part.start, scratch.x, scratch.y, scratch.z);
+        }
+        attr.needsUpdate = true;
+      }
+    };
+
+    // Which of the mask's vertices each mesh owns, worked out once when the rig
+    // resolves. Walking every part for every masked vertex is the same answer
+    // every frame, and a twenty-mesh head pays it twenty times over.
+    const bucketMask = (loaded: LoadedHead) => {
+      const mask = rig?.mask;
+      if (!mask) {
+        poseParts = null;
+        return;
+      }
+      const buckets: number[][] = loaded.parts.map(() => []);
+      for (const i of mask.idx) {
+        for (let p = 0; p < loaded.parts.length; p++) {
+          const at = i - loaded.parts[p].start;
+          if (at >= 0 && at < loaded.parts[p].count) {
+            buckets[p].push(i);
+            break;
+          }
+        }
+      }
+      poseParts = buckets.map((b) => Uint32Array.from(b));
+    };
+
+    // One name for both directions: which renderer is on screen decides which
+    // way the pose has to travel, and the caller has no business knowing.
+    const syncPose = (loaded: LoadedHead) => {
+      if (colourHead) writeBackPose(loaded);
+      else readBackPose(loaded);
+    };
+
     const paint = (hasWave: boolean) => {
       ctx.clearRect(0, 0, W, H);
       ctx.lineWidth = BAR_W;
@@ -275,6 +345,10 @@ export default function VoiceWave({
     const tick = () => {
       if (disposed) return;
       const hasWave = readWave(buf);
+      // The local mouth has no waveform to read, so it keeps the head lit
+      // while drawing a flat line — speechSynthesis writes straight to the
+      // output device and no Web Audio node can see it.
+      const sounding = isSounding();
       paint(hasWave);
       if (rig && rig.kind !== "none") {
         if (mouthRef.current) {
@@ -283,14 +357,14 @@ export default function VoiceWave({
             const d = Math.abs(buf[i] - 128);
             if (d > peak) peak = d;
           }
-          const target = hasWave ? boost(peak / 128) : 0;
+          const target = hasWave ? boost(peak / 128) : sounding ? mime() : 0;
           open += (target - open) * MOUTH_SMOOTH;
-          rig.apply(open);
-          if (!colourHead && head) readBackPose(head);
+          // A still mouth on a turning head moved nothing, and copying the pose
+          // across costs the same whether or not it changed.
+          if (rig.apply(open, !colourHead) && head) syncPose(head);
         } else if (open > 0) {
           open = 0;
-          rig.apply(0);
-          if (!colourHead && head) readBackPose(head);
+          if (rig.apply(0, !colourHead) && head) syncPose(head);
         }
       }
       if (settled()) {
@@ -300,10 +374,6 @@ export default function VoiceWave({
         angle.yaw += (aim.yaw - angle.yaw) * TURN;
         angle.pitch += (aim.pitch - angle.pitch) * TURN;
       }
-      // The local mouth has no waveform to read, so it keeps the head lit
-      // while drawing a flat line — speechSynthesis writes straight to the
-      // output device and no Web Audio node can see it.
-      const sounding = isSounding();
       if (colourHead) colourHead.render(angle.yaw, angle.pitch);
       else paintHead(hasWave || sounding);
       if (hasWave || sounding || !settled()) {
@@ -395,6 +465,7 @@ export default function VoiceWave({
           }
         }
         rig = rigCandidate;
+        bucketMask(loaded);
         onRig?.(rig.kind);
         onHeadError?.(null);
         // What the file carries decides whether colour mode is offered at all,

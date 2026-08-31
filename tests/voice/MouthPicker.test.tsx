@@ -4,11 +4,12 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import MouthPicker, { radiusFrom } from "../../src/renderer/voice/MouthPicker";
+import MouthPicker from "../../src/renderer/voice/MouthPicker";
 import { loadHead } from "../../src/renderer/voice/load-head";
 import {
   mountColourHead,
   pickOnScene,
+  projectRegion,
 } from "../../src/renderer/voice/head-render";
 
 vi.mock("../../src/renderer/voice/load-head", () => ({
@@ -68,39 +69,26 @@ const screen = {
   },
 };
 
-describe("radiusFrom", () => {
-  it("grows with the drag distance, in model units", () => {
-    const near = radiusFrom([0, 0, 0], [0.1, 0, 0]);
-    const far = radiusFrom([0, 0, 0], [0.4, 0, 0]);
-    expect(far).toBeGreaterThan(near);
-    expect(near).toBeCloseTo(0.1, 6);
-  });
-
-  it("never returns zero, so a click without a drag still marks something", () => {
-    expect(radiusFrom([0, 0, 0], [0, 0, 0])).toBeGreaterThan(0);
-  });
-});
-
 describe("MouthPicker", () => {
   it("sends the marked region when Done is pressed", () => {
     let sent: unknown = "unset";
     render(
       <MouthPicker
-        initial={{ c: [0, 0.4, 0.9], r: 0.2 }}
+        initial={{ c: [0, 0.4, 0.9], w: 0.2, h: 0.1, d: 0.2 }}
         onDone={(r) => {
           sent = r;
         }}
       />,
     );
     screen.getByTestId("mouth-pick-done").props.onClick();
-    expect(sent).toEqual({ c: [0, 0.4, 0.9], r: 0.2 });
+    expect(sent).toEqual({ c: [0, 0.4, 0.9], w: 0.2, h: 0.1, d: 0.2 });
   });
 
   it("sends null when Clear is pressed", () => {
     let sent: unknown = "unset";
     render(
       <MouthPicker
-        initial={{ c: [0, 0.4, 0.9], r: 0.2 }}
+        initial={{ c: [0, 0.4, 0.9], w: 0.2, h: 0.1, d: 0.2 }}
         onDone={(r) => {
           sent = r;
         }}
@@ -118,8 +106,7 @@ describe("MouthPicker", () => {
   // The pointer path moved off the canvas when the renderer took ownership of
   // its own: the listeners, the capture and the rect all read the host div
   // now. A div that stops receiving these is a picker that cannot pick.
-  it("marks the raycast hit from a press on the host", async () => {
-    const hit: [number, number, number] = [0, 0.4, 0.9];
+  const mountHead = (hit: [number, number, number] | null) => {
     const pick = vi.fn(() => hit);
     (loadHead as any).mockResolvedValue({ scene: {}, model: {} });
     (mountColourHead as any).mockReturnValue({
@@ -128,6 +115,28 @@ describe("MouthPicker", () => {
       dispose: () => {},
     });
     (pickOnScene as any).mockReturnValue(pick);
+    return pick;
+  };
+
+  const host = () => {
+    const el = container.querySelector(
+      '[data-testid="mouth-picker-canvas"]',
+    ) as HTMLElement;
+    // jsdom implements no pointer capture, and the handler calls it.
+    el.setPointerCapture = () => {};
+    return el;
+  };
+
+  const pointer = (el: HTMLElement, type: string, x: number, y: number) =>
+    act(() => {
+      el.dispatchEvent(
+        new MouseEvent(type, { clientX: x, clientY: y, bubbles: true }),
+      );
+    });
+
+  it("marks the raycast hit from a click on the host", async () => {
+    const hit: [number, number, number] = [0, 0.4, 0.9];
+    const pick = mountHead(hit);
 
     let sent: unknown = "unset";
     render(
@@ -139,25 +148,70 @@ describe("MouthPicker", () => {
     );
     await act(async () => {});
 
-    const host = container.querySelector(
-      '[data-testid="mouth-picker-canvas"]',
-    ) as HTMLElement;
-    // jsdom implements no pointer capture, and the handler calls it.
-    host.setPointerCapture = () => {};
-    act(() => {
-      host.dispatchEvent(
-        new MouseEvent("pointerdown", {
-          clientX: 30,
-          clientY: 40,
-          bubbles: true,
-        }),
-      );
-    });
+    const el = host();
+    pointer(el, "pointerdown", 30, 40);
+    pointer(el, "pointerup", 30, 40);
 
     // The offsets are the host's own rect, which jsdom reports as the origin.
     expect(pick).toHaveBeenCalledWith(30, 40);
     expect(screen.getByTestId("mouth-pick-done").props.disabled).toBe(false);
     screen.getByTestId("mouth-pick-done").props.onClick();
-    expect(sent).toEqual({ c: hit, r: expect.any(Number) });
+    expect(sent).toEqual({
+      c: hit,
+      w: expect.any(Number),
+      h: expect.any(Number),
+      d: expect.any(Number),
+    });
+  });
+
+  // The two used to share the press, so turning the head moved the mouth.
+  it("turns the head on a drag without marking anything", async () => {
+    const pick = mountHead([0, 0.4, 0.9]);
+    render(<MouthPicker onDone={() => {}} />);
+    await act(async () => {});
+
+    const el = host();
+    pointer(el, "pointerdown", 30, 40);
+    pointer(el, "pointermove", 90, 60);
+    pointer(el, "pointerup", 90, 60);
+
+    expect(pick).not.toHaveBeenCalled();
+    expect(screen.getByTestId("mouth-pick-done").props.disabled).toBe(true);
+  });
+
+  // The resize used to measure from the box centre, so a press anywhere but
+  // the exact corner snapped the box shut on the first pixel of movement.
+  it("grows the box from where the drag grabbed it", async () => {
+    mountHead([0, 0.4, 0.9]);
+    (projectRegion as any).mockReturnValue({
+      x: 100,
+      y: 100,
+      w: 20,
+      h: 10,
+      visible: true,
+    });
+
+    let sent: any = null;
+    render(
+      <MouthPicker
+        initial={{ c: [0, 0.4, 0.9], w: 0.16, h: 0.06, d: 0.16 }}
+        onDone={(r) => {
+          sent = r;
+        }}
+      />,
+    );
+    await act(async () => {});
+
+    const el = host();
+    // well inside the box, not on its corner
+    pointer(el, "pointerdown", 105, 102);
+    pointer(el, "pointermove", 125, 102);
+    pointer(el, "pointerup", 125, 102);
+
+    screen.getByTestId("mouth-pick-done").props.onClick();
+    // 20px further out at 0.16/20 model units a pixel, and a height the drag
+    // never touched — not the MIN_HALF the old maths collapsed it to.
+    expect(sent.w).toBeCloseTo(0.32, 5);
+    expect(sent.h).toBeCloseTo(0.06, 5);
   });
 });

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Matrix4 } from "three";
 import { hasColour, loadHead } from "../../src/renderer/voice/load-head";
 import { MAX_WIRE_FACES } from "../../src/renderer/voice/head-mesh";
 
@@ -37,7 +38,9 @@ vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => {
           scene: {
             updateMatrixWorld: () => undefined,
             traverse: (fn: (o: unknown) => void) =>
-              fn({ geometry: geometry(), matrixWorld: {} }),
+              // a real Matrix4: soup inverts it, so the part carries the way
+              // back from soup space into this mesh's own vertices
+              fn({ geometry: geometry(), matrixWorld: new Matrix4() }),
           },
         });
       }

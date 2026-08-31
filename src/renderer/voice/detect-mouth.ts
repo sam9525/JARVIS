@@ -93,9 +93,14 @@ export function regionAt(
   }
   const v = best * 3;
   const k = (DIST / Math.max(DIST - m.verts[v + 2], 0.1)) * scale;
+  const half = Math.max((spread * size * REACH) / k, 1e-3);
   return {
     c: [m.verts[v], m.verts[v + 1], m.verts[v + 2]],
-    r: Math.max((spread * size * REACH) / k, 1e-3),
+    // The landmarks give one spread, and a mouth is about twice as wide as it
+    // is tall — a square box would take in the nose and the chin with it.
+    w: half,
+    h: half * 0.5,
+    d: half,
   };
 }
 

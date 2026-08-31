@@ -49,9 +49,12 @@ describe("regionAt", () => {
     expect(low.c[1]).toBeGreaterThan(high.c[1]); // y is down
   });
 
-  it("scales the radius with the spread", () => {
+  it("scales the box with the spread", () => {
     const narrow = regionAt(m, 0.5, 0.5, 0.05, 76, 200);
     const wide = regionAt(m, 0.5, 0.5, 0.2, 76, 200);
-    expect(wide.r).toBeGreaterThan(narrow.r);
+    expect(wide.w).toBeGreaterThan(narrow.w);
+    expect(wide.h).toBeGreaterThan(narrow.h);
+    // a mouth is wider than it is tall
+    expect(wide.h).toBeLessThan(wide.w);
   });
 });

@@ -81,6 +81,9 @@ type Props = {
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
   rigKind?: RigKind | null;
+  // Whether the mouth moves, decided in App — the same value the head itself
+  // is given, so the switch cannot disagree with what is on screen.
+  mouthOn?: boolean;
   // Why the head is missing, reported by whatever tried to draw it.
   headError?: string | null;
   // Whether the loaded head carries colours; null while none is loaded, which
@@ -100,12 +103,18 @@ export default function GraphSettingsPanel({
   onResetHighlights,
   showSections,
   rigKind,
+  mouthOn,
   headError,
   headColoured,
   onPickMouth,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
     onSettingsChange({ ...settings, ...patch });
+  // `headMouth` is one flag over every head, so it has to go when the head
+  // does: unticking one model would otherwise silence the marked-mouth default
+  // for every other model, including one marked afterwards.
+  const setHead = (name?: string) =>
+    set({ headModel: name, headMouth: undefined });
   // display + forces edit the active view (2d/3d); the 3D toggle swaps which
   const dim = settings.dimensions;
   const view = settings.views[dim];
@@ -190,7 +199,7 @@ export default function GraphSettingsPanel({
       setUploadError(picked.error ?? null);
       if (!picked.name) return;
       refreshHeads();
-      set({ headModel: picked.name });
+      setHead(picked.name);
     });
 
   return (
@@ -429,7 +438,7 @@ export default function GraphSettingsPanel({
               data-testid="head-model-setting"
               className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
               value={headValue}
-              onChange={(e) => set({ headModel: e.target.value || undefined })}
+              onChange={(e) => setHead(e.target.value || undefined)}
             >
               <option value="">Built-in helmet</option>
               {headOptions.map((h) => (
@@ -483,10 +492,8 @@ export default function GraphSettingsPanel({
               data-testid="head-mouth-setting"
               className="gs-switch"
               disabled={rigKind === "none"}
-              checked={(settings.headMouth ?? false) && rigKind !== "none"}
-              onChange={(e) =>
-                set({ headMouth: e.target.checked || undefined })
-              }
+              checked={(mouthOn ?? false) && rigKind !== "none"}
+              onChange={(e) => set({ headMouth: e.target.checked })}
             />
           </label>
           {rigKind === "none" && (
