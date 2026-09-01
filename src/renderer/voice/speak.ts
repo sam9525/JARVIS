@@ -190,3 +190,30 @@ export function stopSpeaking(): void {
     globalThis as { speechSynthesis?: SpeechSynthesis }
   ).speechSynthesis?.cancel();
 }
+
+/**
+ * How far the mouth is open for the waveform in `buf`, as 0..1.
+ *
+ * RMS, not the loudest sample: a single plosive spikes the peak, and the jaw
+ * then snaps on one frame of one consonant. RMS is also what loudness sounds
+ * like, so the opening tracks the syllable rather than its hardest edge.
+ *
+ * The knee is an exponential rather than the wave's `Math.min(x * GAIN, 1)`:
+ * clipping pins the jaw wide open across a whole loud phrase, and a mouth that
+ * cannot vary between loud syllables reads as flapping instead of speaking.
+ * The curve is monotone, so every syllable still differs from the next.
+ *
+ * ponytail: one fixed knee, sized so a normal TTS line uses most of the
+ * travel; make it a running normaliser if a voice ever sits shut or gapes.
+ */
+export const MOUTH_KNEE = 10;
+
+export function mouthOpen(buf: Uint8Array): number {
+  if (!buf.length) return 0;
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const d = (buf[i] - 128) / 128;
+    sum += d * d;
+  }
+  return 1 - Math.exp(-MOUTH_KNEE * Math.sqrt(sum / buf.length));
+}

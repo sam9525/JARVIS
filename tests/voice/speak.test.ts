@@ -6,6 +6,7 @@ import {
   isSounding,
   isSpeaking,
   nextUtterance,
+  mouthOpen,
   readWave,
   speak,
   stopSpeaking,
@@ -398,5 +399,48 @@ describe("readWave — the analyser behind the wave", () => {
     await speak("two");
     expect(connected.filter((c) => c === "source->analyser")).toHaveLength(2);
     expect(connected).toContain("source-disconnect");
+  });
+});
+
+describe("mouthOpen — the jaw curve", () => {
+  const wave = (amp: number) => {
+    const buf = new Uint8Array(WAVE_BINS);
+    for (let i = 0; i < buf.length; i++) {
+      buf[i] = 128 + Math.round(127 * amp * Math.sin((i / buf.length) * 20));
+    }
+    return buf;
+  };
+
+  it("is shut on silence", () => {
+    expect(mouthOpen(new Uint8Array(WAVE_BINS).fill(128))).toBe(0);
+  });
+
+  it("is shut on an empty buffer", () => {
+    expect(mouthOpen(new Uint8Array(0))).toBe(0);
+  });
+
+  it("stays inside 0..1", () => {
+    const full = mouthOpen(wave(1));
+    expect(full).toBeGreaterThan(0);
+    expect(full).toBeLessThanOrEqual(1);
+  });
+
+  it("never clips, so two loud syllables still differ", () => {
+    // the old peak curve pinned both of these to exactly 1
+    expect(mouthOpen(wave(0.9))).toBeGreaterThan(mouthOpen(wave(0.5)));
+  });
+
+  it("rises with loudness", () => {
+    const quiet = mouthOpen(wave(0.05));
+    const mid = mouthOpen(wave(0.3));
+    expect(quiet).toBeLessThan(mid);
+    expect(mid).toBeLessThan(mouthOpen(wave(0.7)));
+  });
+
+  it("dilutes one loud sample, unlike a peak reading", () => {
+    const spike = new Uint8Array(WAVE_BINS).fill(128);
+    spike[7] = 255; // a plosive edge, full scale for one sample
+    // a peak reading calls this as wide open as the sustained sound below
+    expect(mouthOpen(spike)).toBeLessThan(mouthOpen(wave(1)) * 0.6);
   });
 });

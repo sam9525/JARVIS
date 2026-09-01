@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { isSounding, readWave, WAVE_BINS } from "./speak";
+import { isSounding, mouthOpen, readWave, WAVE_BINS } from "./speak";
 import {
   aimFrom,
   denormalisePoint,
@@ -51,8 +51,9 @@ const mime = () =>
 // head with no findable mouth is not re-searched on every mode flip.
 const found = new Map<string, MouthRegion | null>();
 
-// The mouth opens on the loudest bin in the buffer, smoothed like the bars are
-// so one noisy frame cannot snap the jaw.
+// The mouth opens on `mouthOpen`, which reads the buffer as RMS rather than
+// as the loudest bin the bars use, and eased on top of that so one noisy frame
+// cannot snap the jaw.
 const MOUTH_SMOOTH = 0.4;
 
 // The strip is an equalizer, not an oscilloscope: the raw time domain stretched
@@ -352,12 +353,7 @@ export default function VoiceWave({
       paint(hasWave);
       if (rig && rig.kind !== "none") {
         if (mouthRef.current) {
-          let peak = 0;
-          for (let i = 0; i < buf.length; i++) {
-            const d = Math.abs(buf[i] - 128);
-            if (d > peak) peak = d;
-          }
-          const target = hasWave ? boost(peak / 128) : sounding ? mime() : 0;
+          const target = hasWave ? mouthOpen(buf) : sounding ? mime() : 0;
           open += (target - open) * MOUTH_SMOOTH;
           // A still mouth on a turning head moved nothing, and copying the pose
           // across costs the same whether or not it changed.
