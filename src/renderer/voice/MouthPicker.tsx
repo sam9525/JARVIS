@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { MouthRegion } from "../../shared/types";
 
-const SIZE = 260;
+const SIZE = 520;
 // A mark with no drag still has to be openable, or Done would store a region
 // no vertex falls inside.
 const MIN_HALF = 0.02;
@@ -245,7 +245,7 @@ export default function MouthPicker({
 
   return (
     <div
-      className="flex flex-col items-center gap-2 p-2"
+      className="flex h-full flex-col items-center justify-center gap-2 p-2"
       data-testid="mouth-picker"
     >
       <div className="relative" style={{ width: SIZE, height: SIZE }}>
@@ -266,7 +266,7 @@ export default function MouthPicker({
           ? "Marked. Drag the box out to a corner to size it, or click elsewhere to move it."
           : "Drag to turn the head. Click its mouth to mark it."}
       </p>
-      <div className="flex w-full gap-2">
+      <div className="flex gap-2" style={{ width: SIZE }}>
         <button
           data-testid="mouth-pick-clear"
           className="flex-1 cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"

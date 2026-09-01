@@ -35,14 +35,14 @@ const clamp = (v: number, lo: number, hi: number) =>
 /** the workspace rail is a fixed 56px column; a panel must not cover its pips */
 const RAIL_CLEAR = 66;
 /** default width, as a fraction of the window */
-const WIDTH: Record<PanelId, number> = {
+const WIDTH: Record<Exclude<PanelId, "mouth">, number> = {
   // wide enough for Claude Code's TUI — the panel you actually work in
   terminal: 0.36,
   preview: 0.36,
   settings: 0.15,
-  // wide enough to orbit a head and see where the marker lands
-  mouth: 0.26,
 };
+/** the picker is a fixed 520px canvas, so its panel is sized in pixels too */
+const MOUTH_W = 720;
 
 /**
  * Defaults, entirely proportional to the current window: every panel runs the
@@ -51,7 +51,7 @@ const WIDTH: Record<PanelId, number> = {
  * a laptop as on a 4K monitor instead of drifting toward one corner.
  */
 export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
-  const w = Math.round(vp.width * WIDTH[id]);
+  const w = id === "mouth" ? MOUTH_W : Math.round(vp.width * WIDTH[id]);
   return clampToViewport(
     {
       x:
