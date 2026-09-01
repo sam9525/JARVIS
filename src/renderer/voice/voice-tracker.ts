@@ -2,9 +2,9 @@
 // utterances. Deliberately not unit tested, matching hand-tracker.ts and the
 // PTY/CLI boundaries — every rule with a threshold in it lives in segment.ts,
 // which is.
-import type { pipeline as PipelineFn } from "@huggingface/transformers";
 import { Segmenter, SAMPLE_RATE, RMS_ON } from "./segment";
-import { WHISPER_MODEL, WHISPER_DTYPE } from "../../shared/voice-model.mjs";
+import { WHISPER_MODEL } from "../../shared/voice-model.mjs";
+import type { AsrReply, AsrRequest } from "./asr-worker";
 // A URL, not an import: the browser fetches and compiles a worklet module
 // itself. `new URL(..., import.meta.url)` is the form Vite always emits as a
 // real file — `?url` inlines anything under 4 KB as a data: URL, which the
@@ -14,40 +14,8 @@ const CAPTURE_WORKLET_URL = new URL("./capture-worklet.js", import.meta.url)
 
 export type VoiceChunk = { text: string };
 
-type ModelEnv = (typeof import("@huggingface/transformers"))["env"];
-
-// wasmPaths names this file, never the directory holding it. Given a prefix
-// string, ORT also dynamic-imports its .mjs loader from that prefix, and Vite
-// refuses to resolve an import of anything under public/. The default
-// `ort.bundle.min.mjs` build inlines that loader, so naming the .wasm leaves
-// this one fetch and no import.
-const ORT_WASM_URL = "/voice/wasm/ort-wasm-simd-threaded.jsep.wasm";
-
-/** Point transformers.js at public/voice, the only place the CSP's
- * default-src 'self' can reach.
- *
- * allowLocalModels is set explicitly because it defaults to FALSE in a browser
- * (node_modules/@huggingface/transformers/src/env.js:145) — clearing
- * allowRemoteModels alone leaves both loaders off and nothing loads.
- *
- * Exported for tests; the rest of this file is a hardware boundary. */
-export function configureModelEnv(env: ModelEnv): void {
-  env.allowRemoteModels = false;
-  env.allowLocalModels = true;
-  // Cache Storage is read before the network (hub.js:442), so a stale entry
-  // replays with no request at all. These files come off local disk already.
-  // the cost is that a mic off→on cycle re-reads and re-initialises the whole
-  // model from disk — seconds, not milliseconds
-  env.useBrowserCache = false;
-  env.localModelPath = "/voice/models";
-  env.backends.onnx.wasm.wasmPaths = { wasm: ORT_WASM_URL };
-  // ORT runs the model on whatever thread calls it, and whisper is seconds of
-  // solid wasm — on the renderer's own thread that is a frozen window, not a
-  // slow one. `proxy` moves session creation and every run into ORT's own
-  // worker. The worker is the ORT module itself (`import.meta.url`), so it is
-  // same-origin and the CSP needs nothing added.
-  env.backends.onnx.wasm.proxy = true;
-}
+// How long the worker gets to load the model and answer the handshake.
+const HELLO_MS = 60_000;
 
 export async function startVoiceTracker(
   onUtterance: (c: VoiceChunk) => void,
@@ -98,47 +66,69 @@ export async function startVoiceTracker(
     }
   }
 
-  // hoisted so the teardown paths below (both this function's failure catch
-  // and the AudioContext block's) can dispose it — a pipeline that is only
-  // ever constructed and never disposed leaks its ONNX session per mic toggle
-  let asr!: Awaited<ReturnType<typeof PipelineFn>>;
-  let transcribe: (a: Float32Array) => Promise<{ text?: string }>;
+  // The model lives in asr-worker.ts. Whisper is seconds of solid compute per
+  // utterance, and transformers.js runs it on the calling thread — called from
+  // here that is the window, which stops painting until the sentence is
+  // transcribed. `new URL(..., import.meta.url)` is the form Vite emits as a
+  // real same-origin file, which is all the CSP's default-src 'self' allows.
+  const worker = new Worker(new URL("./asr-worker.ts", import.meta.url), {
+    type: "module",
+  });
+  // Depth is one in `run` below, but each reply is matched to its request by
+  // id anyway: a late answer to an abandoned utterance must never resolve the
+  // one waiting now.
+  let nextId = 1;
+  const waiting = new Map<
+    number,
+    { resolve: (r: AsrReply) => void; reject: (e: Error) => void }
+  >();
+  worker.onmessage = (e: MessageEvent<AsrReply>) => {
+    const seat = waiting.get(e.data.id);
+    if (!seat) return;
+    waiting.delete(e.data.id);
+    if ("error" in e.data) seat.reject(new Error(e.data.error));
+    else seat.resolve(e.data);
+  };
+  const ask = (msg: Omit<AsrRequest, "id">) =>
+    new Promise<AsrReply>((resolve, reject) => {
+      const id = nextId++;
+      waiting.set(id, { resolve, reject });
+      worker.postMessage({ ...msg, id } as AsrRequest);
+    });
+  // A worker that throws before installing its own onmessage answers nothing
+  // ever again, and a waiter parked on it never settles. That matters most for
+  // the handshake below: it is awaited before anything is returned, so a
+  // handshake that cannot fail is a live microphone with no stop handle.
+  const fail = (why: string) => {
+    const e = new Error(why);
+    for (const seat of waiting.values()) seat.reject(e);
+    waiting.clear();
+  };
+  worker.onerror = (ev) => fail(ev.message || "the voice worker crashed");
+  worker.onmessageerror = () =>
+    fail("the voice worker sent a reply it could not encode");
+
   // which backend actually loaded, reported in the debug object below
   let device: "webgpu" | "wasm" = "wasm";
+  let bell: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Loaded here, not at module scope: importing this module must not pull
-    // in @huggingface/transformers (and onnxruntime-web) on every renderer
-    // startup when voice is switched off.
-    const { env, pipeline } = await import("@huggingface/transformers");
-    configureModelEnv(env);
-    // WHISPER_MODEL is the directory name under env.localModelPath and
-    // WHISPER_DTYPE names the weight files inside it. The fetch script builds
-    // its download list from the same two constants, so they cannot drift.
-    //
-    // WebGPU first: turbo at q4 is ~760 MB, and on WASM that is roughly three
-    // seconds per utterance — slower than the sentence being spoken. The jsep
-    // .wasm already in public/voice/wasm IS the WebGPU build, so the GPU path
-    // needs no extra asset. Falling back keeps voice working on a machine that
-    // reports no adapter, at WASM speed.
-    const load = (device: "webgpu" | "wasm") =>
-      pipeline("automatic-speech-recognition", WHISPER_MODEL, {
-        device,
-        dtype: WHISPER_DTYPE,
-      });
-    try {
-      asr = await load("webgpu");
-      device = "webgpu";
-    } catch {
-      asr = await load("wasm");
-    }
-    // turbo is multilingual, so the language is stated rather than detected —
-    // detection on a two-second command is a coin toss, and a wrong guess
-    // returns a translation of what you said instead of a transcript.
-    transcribe = (a) =>
-      asr(a, { language: "en", task: "transcribe" }) as Promise<{
-        text?: string;
-      }>;
+    // The handshake waits for the model, so a failed load is a failed start
+    // rather than a microphone that hears nothing. Bounded, because a module
+    // that hangs mid-load fires no error to end it — generously, since the
+    // first start reads the better part of a gigabyte off disk.
+    const hello = await Promise.race([
+      ask({ ping: true }),
+      new Promise<never>((_, reject) => {
+        bell = setTimeout(
+          () => reject(new Error(`no answer in ${HELLO_MS / 1000}s`)),
+          HELLO_MS,
+        );
+      }),
+    ]);
+    if ("device" in hello) device = hello.device;
   } catch (e) {
+    fail("voice start abandoned");
+    worker.terminate();
     stream.getTracks().forEach((t) => t.stop());
     // Keep the cause: the library names the specific failure (loader disabled,
     // asset 404, unsupported dtype). vite.renderer.config.ts sets appType
@@ -146,7 +136,14 @@ export async function startVoiceTracker(
     // parse error on an index.html body.
     const why = e instanceof Error ? e.message : String(e);
     throw new Error(`Voice model failed to load — ${why}`);
+  } finally {
+    clearTimeout(bell);
   }
+
+  const transcribe = async (a: Float32Array) => {
+    const out = await ask({ audio: a });
+    return { text: "text" in out ? out.text : "" };
+  };
 
   let ctx: AudioContext | undefined;
   try {
@@ -298,14 +295,18 @@ export async function startVoiceTracker(
       mute.disconnect();
       source.disconnect();
       void audioCtx.close();
-      void asr.dispose();
+      // terminate, not dispose: the session lives in the worker, and killing
+      // the thread frees it whatever state it is in
+      fail("the microphone stopped");
+      worker.terminate();
       stream.getTracks().forEach((t) => t.stop());
     };
   } catch (e) {
     // nothing has been returned yet, so a throw here would strand a live
     // microphone with no stop handle — tear down before rethrowing
     if (ctx) void ctx.close();
-    void asr.dispose();
+    fail("the microphone failed to start");
+    worker.terminate();
     stream.getTracks().forEach((t) => t.stop());
     throw e instanceof RangeError ? e : new Error("Microphone failed to start");
   }

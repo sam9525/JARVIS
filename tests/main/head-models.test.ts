@@ -6,6 +6,7 @@ import {
   headsDir,
   importHead,
   listHeads,
+  MAX_HEAD_BYTES,
   readHead,
   safeName,
 } from "../../src/main/head-models";
@@ -74,16 +75,50 @@ describe("importHead", () => {
     await expect(fs.stat(headsDir(dir))).resolves.toBeTruthy();
   });
 
-  it("replaces a model uploaded under the same name", async () => {
+  // The renderer caches a parsed head by name for the session, so a different
+  // file arriving under an old name would leave the app drawing the old head.
+  // "Different" is by length: comparing the bytes means reading the whole file
+  // on every upload, and a head runs to hundreds of megabytes.
+  it("keeps a different model beside the name it would have replaced", async () => {
     await importHead(dir, await write("head.glb", "one"));
     const second = path.join(dir, "again", "head.glb");
     await fs.mkdir(path.dirname(second));
-    await fs.writeFile(second, "two");
-    await importHead(dir, second);
-    await expect(listHeads(dir)).resolves.toEqual(["head.glb"]);
+    await fs.writeFile(second, "two but longer");
+    await expect(importHead(dir, second)).resolves.toBe("head-2.glb");
+    await expect(listHeads(dir)).resolves.toEqual(["head-2.glb", "head.glb"]);
     expect(await readHead(dir, "head.glb")).toEqual(
-      new Uint8Array(Buffer.from("two")),
+      new Uint8Array(Buffer.from("one")),
     );
+  });
+
+  it("keeps the name when the very same file is picked again", async () => {
+    const src = await write("head.glb", "one");
+    await expect(importHead(dir, src)).resolves.toBe("head.glb");
+    await expect(importHead(dir, src)).resolves.toBe("head.glb");
+    await expect(listHeads(dir)).resolves.toEqual(["head.glb"]);
+  });
+
+  // The stated trade-off of comparing by length: two different heads of equal
+  // size share a name, and the second never lands. One stale head, which a
+  // rename fixes — against reading hundreds of megabytes on every upload.
+  it("reuses the name for a different file of the same length", async () => {
+    await importHead(dir, await write("head.glb", "one"));
+    const second = path.join(dir, "again", "head.glb");
+    await fs.mkdir(path.dirname(second));
+    await fs.writeFile(second, "two"); // same length, different bytes
+    await expect(importHead(dir, second)).resolves.toBe("head.glb");
+    await expect(listHeads(dir)).resolves.toEqual(["head.glb"]);
+  });
+
+  // The whole file crosses IPC as one array and parses on the window's thread,
+  // so an oversized model does not load slowly — it takes the renderer with it.
+  it("refuses a model past the size cap, and says the size", async () => {
+    const big = path.join(dir, "huge.glb");
+    const handle = await fs.open(big, "w");
+    await handle.truncate(MAX_HEAD_BYTES + 1); // sparse: no gigabyte written
+    await handle.close();
+    await expect(importHead(dir, big)).rejects.toThrow(/256 MB/);
+    await expect(listHeads(dir)).resolves.toEqual([]);
   });
 });
 

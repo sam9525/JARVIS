@@ -10,6 +10,7 @@ import Graph3D from "./graph/Graph3D";
 import GraphSlot from "./graph/GraphSlot";
 import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
+import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
@@ -24,6 +25,7 @@ import Bezel from "./ui/Bezel";
 // already drifted two releases behind the manifest.
 import { version as appVersion } from "../../package.json";
 import VoiceWave from "./voice/VoiceWave";
+import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
 import {
   SETTINGS_Z,
@@ -97,6 +99,18 @@ const fold = (m: PanelMap): PanelMap =>
   m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
 
 /** absent entries fall back to defaultPanel, which already folds the terminal */
+// Which head a marked mouth belongs to. The built-in helmet has no name of its
+// own, so it needs a stand-in — spelt once, because the picker and the wave
+// have to agree on it or a marked mouth is stored where nothing reads it.
+const headKey = (s: Settings) => s.headModel ?? "__builtin";
+// A marked mouth is the consent: the switch is disabled until a head has one,
+// so nobody can turn it on beforehand, and a mouth marked by hand that then
+// sits shut reads as broken. An explicit false still wins — it is how you
+// silence it. Computed here once, because the settings panel draws the same
+// switch and `rigKind` is null until a head has loaded.
+const mouthOn = (s: Settings) =>
+  s.headMouth ?? Boolean(s.headMouths?.[headKey(s)]);
+
 const withFoldedTerminal = (s: Settings): Settings => ({
   ...s,
   panels: { home: fold(s.panels.home), workspace: fold(s.panels.workspace) },
@@ -120,6 +134,7 @@ export default function App() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
+  const [showMouthPicker, setShowMouthPicker] = useState(false);
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
   // MissionControl is hook-free so it stays testable without a DOM — the
@@ -440,6 +455,17 @@ export default function App() {
   // separately so a tracker failure can stop the mic without touching the
   // preference — the same split as cameraOn/handControl above.
   const [micOn, setMicOn] = useState(false);
+  // Reported by VoiceWave once the head resolves, so the settings panel can
+  // grey the mouth switch without loading the model a second time. Null while
+  // voice is off, which is why the switch is not disabled on null.
+  const [rigKind, setRigKind] = useState<RigKind | null>(null);
+  // Why the head is missing, when it is. A model that fails to load leaves an
+  // empty box, and the box is nowhere near the setting that chose the model.
+  const [headError, setHeadError] = useState<string | null>(null);
+  // Whether the loaded head carries colours of its own. Null until one loads,
+  // which is why the check below is against false rather than falsy — an
+  // unloaded head must not read as a head with nothing to show.
+  const [headColoured, setHeadColoured] = useState<boolean | null>(null);
   const voice = useVoiceControl({
     micOn,
     micDeviceId: settings.micDeviceId,
@@ -456,6 +482,15 @@ export default function App() {
   useEffect(() => {
     if (settingsReady && settings.voiceControl) setMicOn(true);
   }, [settingsReady]);
+
+  // A new head answers all three of these itself, but only once it loads.
+  // Clearing them on the way in stops the previous head's verdict standing
+  // in for the new one — forever, if the new one never loads.
+  useEffect(() => {
+    setRigKind(null);
+    setHeadError(null);
+    setHeadColoured(null);
+  }, [micOn, settings.headModel]);
 
   // The mouth. Only the orchestrator's row is read, and only once per message
   // — spokenRef is a ref because speaking must not itself cause a render.
@@ -548,8 +583,9 @@ export default function App() {
     // way it looks rather than the way it is stored
     if (showSettings)
       live.settings = { ...panelState("settings"), z: SETTINGS_Z };
+    if (showMouthPicker) live.mouth = panelState("mouth");
     return live;
-  }, [deckCleared, active, previewNode, showSettings, panels]);
+  }, [deckCleared, active, previewNode, showSettings, showMouthPicker, panels]);
 
   const onHandDrag = useCallback(
     (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
@@ -948,7 +984,17 @@ export default function App() {
           // and wave stack upward and never cover the replay scrubber. The
           // wave is pointer-transparent; the scrubber under it is not.
           <div className="flex flex-col items-start gap-2">
-            {micOn ? <VoiceWave headModel={settings.headModel} /> : null}
+            {micOn ? (
+              <VoiceWave
+                headModel={settings.headModel}
+                colour={settings.headColor}
+                mouth={mouthOn(settings)}
+                mouthRegion={settings.headMouths?.[headKey(settings)]}
+                onRig={setRigKind}
+                onHeadError={setHeadError}
+                onColoured={setHeadColoured}
+              />
+            ) : null}
             {showHome ? null : (
               <Timeline
                 log={(active && logsRef.current.get(active.id)) || []}
@@ -1031,6 +1077,37 @@ export default function App() {
             onVoiceControl={setVoiceControl}
             onResetHighlights={() => resetHighlights(stateRef.current)}
             showSections={active?.kind !== "code"}
+            rigKind={rigKind}
+            mouthOn={mouthOn(settings)}
+            headError={headError}
+            headColoured={headColoured}
+            onPickMouth={() => setShowMouthPicker(true)}
+          />
+        </Panel>
+      )}
+
+      {showMouthPicker && (
+        <Panel
+          id="mouth"
+          title="PICK THE MOUTH"
+          state={panelState("mouth")}
+          focused={focusedPanel === "mouth"}
+          hidden={deckCleared}
+          onChange={(next) => setPanel("mouth", next)}
+          onFocus={() => focusPanel("mouth")}
+          onClose={() => setShowMouthPicker(false)}
+        >
+          <MouthPicker
+            headModel={settings.headModel}
+            initial={settings.headMouths?.[headKey(settings)]}
+            onDone={(region) => {
+              const key = headKey(settings);
+              const next = { ...(settings.headMouths ?? {}) };
+              if (region) next[key] = region;
+              else delete next[key];
+              updateSettings({ ...settings, headMouths: next });
+              setShowMouthPicker(false);
+            }}
           />
         </Panel>
       )}

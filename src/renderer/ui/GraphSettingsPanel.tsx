@@ -9,6 +9,7 @@ import type {
   ViewSettings,
 } from "../../shared/types";
 import type { TtsOption } from "../../main/tts";
+import type { RigKind } from "../voice/head-rig";
 import { RECENT_PICKS, hueToHex, pickHue } from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
@@ -79,6 +80,16 @@ type Props = {
   onVoiceControl: (on: boolean) => void;
   onResetHighlights: () => void; // ↺ also clears rings/trail
   showSections: boolean; // code workspaces have no raw/wiki sections
+  rigKind?: RigKind | null;
+  // Whether the mouth moves, decided in App — the same value the head itself
+  // is given, so the switch cannot disagree with what is on screen.
+  mouthOn?: boolean;
+  // Why the head is missing, reported by whatever tried to draw it.
+  headError?: string | null;
+  // Whether the loaded head carries colours; null while none is loaded, which
+  // leaves the switch alone rather than claiming an unread file is plain.
+  headColoured?: boolean | null;
+  onPickMouth?: () => void;
 };
 
 export default function GraphSettingsPanel({
@@ -91,9 +102,19 @@ export default function GraphSettingsPanel({
   onVoiceControl,
   onResetHighlights,
   showSections,
+  rigKind,
+  mouthOn,
+  headError,
+  headColoured,
+  onPickMouth,
 }: Props) {
   const set = (patch: Partial<Settings>) =>
     onSettingsChange({ ...settings, ...patch });
+  // `headMouth` is one flag over every head, so it has to go when the head
+  // does: unticking one model would otherwise silence the marked-mouth default
+  // for every other model, including one marked afterwards.
+  const setHead = (name?: string) =>
+    set({ headModel: name, headMouth: undefined });
   // display + forces edit the active view (2d/3d); the 3D toggle swaps which
   const dim = settings.dimensions;
   const view = settings.views[dim];
@@ -165,12 +186,20 @@ export default function GraphSettingsPanel({
   // while the setting says otherwise.
   const headOptions =
     headValue && !heads.includes(headValue) ? [headValue, ...heads] : heads;
-  // A cancelled picker answers null, which must not clear the current head.
+  // A refused upload is not a cancelled one: an empty answer means the dialog
+  // was dismissed and the current head stands, a named error means the file
+  // was read and turned down, and only that second case has something to say.
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  // A refusal is about the file that was turned down, so it stops being the
+  // answer the moment a different head is chosen — otherwise it outranks the
+  // load error of the head actually on screen.
+  React.useEffect(() => setUploadError(null), [headValue]);
   const uploadHead = () =>
-    void window.jarvis.pickHeadModel().then((name) => {
-      if (!name) return;
+    void window.jarvis.pickHeadModel().then((picked) => {
+      setUploadError(picked.error ?? null);
+      if (!picked.name) return;
       refreshHeads();
-      set({ headModel: name });
+      setHead(picked.name);
     });
 
   return (
@@ -205,6 +234,9 @@ export default function GraphSettingsPanel({
               ttsVoiceId: settings.ttsVoiceId,
               ttsModelId: settings.ttsModelId,
               headModel: settings.headModel,
+              headColor: settings.headColor,
+              headMouth: settings.headMouth,
+              headMouths: settings.headMouths,
             });
             onSearchChange("");
             onResetHighlights();
@@ -406,7 +438,7 @@ export default function GraphSettingsPanel({
               data-testid="head-model-setting"
               className="max-w-[60%] cursor-pointer truncate rounded-md border border-edge bg-abyss py-1 pl-2 pr-6 text-ink focus:border-accent focus:outline-none"
               value={headValue}
-              onChange={(e) => set({ headModel: e.target.value || undefined })}
+              onChange={(e) => setHead(e.target.value || undefined)}
             >
               <option value="">Built-in helmet</option>
               {headOptions.map((h) => (
@@ -423,6 +455,59 @@ export default function GraphSettingsPanel({
             onClick={uploadHead}
           >
             Upload a .glb head
+          </button>
+          {(uploadError ?? headError) && (
+            <div
+              data-testid="head-model-error"
+              className="pb-2 text-[11.5px] text-ink-dim"
+            >
+              {uploadError ?? headError}
+            </div>
+          )}
+
+          <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
+            Colour head
+            <input
+              type="checkbox"
+              data-testid="head-colour-setting"
+              className="gs-switch"
+              disabled={headColoured === false}
+              checked={(settings.headColor ?? false) && headColoured !== false}
+              onChange={(e) =>
+                set({ headColor: e.target.checked || undefined })
+              }
+            />
+          </label>
+          {headColoured === false && (
+            <div className="pb-2 text-[11.5px] text-ink-dim">
+              This model carries no colours of its own. Only the wireframe can
+              draw it.
+            </div>
+          )}
+
+          <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
+            Mouth moves
+            <input
+              type="checkbox"
+              data-testid="head-mouth-setting"
+              className="gs-switch"
+              disabled={rigKind === "none"}
+              checked={(mouthOn ?? false) && rigKind !== "none"}
+              onChange={(e) => set({ headMouth: e.target.checked })}
+            />
+          </label>
+          {rigKind === "none" && (
+            <div className="pb-2 text-[11.5px] text-ink-dim">
+              This model has no mouth. Pick one to give it a region to open.
+            </div>
+          )}
+          <button
+            data-testid="mouth-pick-open"
+            className="mb-1 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
+            title="Mark where this model's mouth is"
+            onClick={onPickMouth}
+          >
+            Pick the mouth…
           </button>
 
           <details className="border-t border-edge py-2">

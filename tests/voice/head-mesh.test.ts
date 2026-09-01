@@ -5,6 +5,13 @@ import {
   visibleEdges,
   MAX_YAW,
   MAX_PITCH,
+  recomputeNormals,
+  regionMask,
+  MAX_WIRE_FACES,
+  displaceRegion,
+  resetPose,
+  normalisePoint,
+  denormalisePoint,
 } from "../../src/renderer/voice/head-mesh";
 
 // One triangle facing +z, in glTF's Y-up axes. Counter-clockwise seen from
@@ -93,7 +100,8 @@ describe("visibleEdges", () => {
       [0, 1, 2],
     );
     const segs = visibleEdges(model, 0, 0, 76);
-    for (let i = 0; i < segs.length; i++) expect(Number.isFinite(segs[i])).toBe(true);
+    for (let i = 0; i < segs.length; i++)
+      expect(Number.isFinite(segs[i])).toBe(true);
   });
 });
 
@@ -117,5 +125,206 @@ describe("aimFrom", () => {
   it("clamps a pointer dragged outside the window", () => {
     expect(aimFrom(-500, 4000, 1000, 800).yaw).toBeCloseTo(-MAX_YAW, 5);
     expect(aimFrom(-500, 4000, 1000, 800).pitch).toBeCloseTo(-MAX_PITCH, 5);
+  });
+});
+
+describe("recomputeNormals", () => {
+  it("reproduces buildModel's normals on the rest pose", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const before = [...m.nx, ...m.ny, ...m.nz];
+    // scramble, then rebuild from the untouched pose
+    m.nx.fill(0);
+    m.ny.fill(0);
+    m.nz.fill(0);
+    recomputeNormals(m);
+    expect([...m.nx, ...m.ny, ...m.nz]).toEqual(before);
+  });
+
+  // The mouth moves a handful of vertices a frame. Rebuilding every normal to
+  // catch a few dozen is what the whole displacement costs.
+  it("rebuilds only the faces it is given", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    m.nx.fill(0);
+    m.ny.fill(0);
+    m.nz.fill(0);
+    recomputeNormals(m, [1]);
+    expect(m.nz[0]).toBe(0); // untouched
+    expect(Math.abs(m.nz[1])).toBeCloseTo(1, 5);
+  });
+});
+
+describe("a mesh denser than the wireframe budget", () => {
+  // One long strip of triangles: enough faces to force the stride, built as
+  // typed arrays so the test itself stays quick.
+  const strip = (faces: number) => {
+    const positions = new Float32Array((faces + 2) * 3);
+    for (let i = 0; i < faces + 2; i++) {
+      positions[i * 3] = i % 2;
+      positions[i * 3 + 1] = i * 0.01;
+      positions[i * 3 + 2] = 0;
+    }
+    const indices = new Uint32Array(faces * 3);
+    for (let f = 0; f < faces; f++) {
+      indices[f * 3] = f;
+      indices[f * 3 + 1] = f + 1;
+      indices[f * 3 + 2] = f + 2;
+    }
+    return buildModel(positions, indices);
+  };
+
+  it("keeps every vertex and face, and samples the faces it strokes", () => {
+    const dense = strip(MAX_WIRE_FACES * 3);
+    expect(dense.tri.length / 3).toBe(MAX_WIRE_FACES * 3); // every face kept
+    expect(dense.verts.length / 3).toBe(MAX_WIRE_FACES * 3 + 2);
+    expect(dense.wireFaces.length).toBeLessThanOrEqual(MAX_WIRE_FACES);
+    expect(dense.wireFaces.length).toBeGreaterThan(MAX_WIRE_FACES / 2);
+    // and the sample spreads across the mesh rather than stopping early
+    expect(dense.wireFaces.at(-1)).toBeGreaterThan(MAX_WIRE_FACES * 2);
+  });
+
+  it("strokes the sample, so a frame costs the same whatever the file holds", () => {
+    const dense = strip(MAX_WIRE_FACES * 3);
+    const drawn = visibleEdges(dense, 0, 0, 50).length / 4;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThanOrEqual(dense.ea.length);
+    // bounded by the sample, not by the mesh: three edges per sampled face is
+    // the worst case, and the mesh itself has three times as many faces
+    expect(dense.ea.length).toBeLessThanOrEqual(dense.wireFaces.length * 3);
+  });
+
+  it("projects both ends of every edge it strokes", () => {
+    const dense = strip(MAX_WIRE_FACES * 3);
+    const seg = visibleEdges(dense, 0, 0, 50);
+    expect(seg.length).toBeGreaterThan(0);
+    // wireVerts is what the projection walks. Were it empty, px/py would stay
+    // zero and every segment would be a point — still "drawn", still counted.
+    let sized = 0;
+    for (let i = 0; i < seg.length; i += 4)
+      if (seg[i] !== seg[i + 2] || seg[i + 1] !== seg[i + 3]) sized++;
+    expect(sized).toBe(seg.length / 4);
+  });
+
+  it("leaves a mesh under the budget whole", () => {
+    const small = buildModel(PAIR.positions, PAIR.indices);
+    expect([...small.wireFaces]).toEqual([0, 1]);
+  });
+});
+
+describe("regionMask", () => {
+  const m = buildModel(PAIR.positions, PAIR.indices);
+
+  it("weights a vertex at the centre of the box fully", () => {
+    const at = [m.verts[0], m.verts[1], m.verts[2]] as [number, number, number];
+    const mask = regionMask(m, { c: at, w: 0.5, h: 0.5, d: 0.5 });
+    const slot = [...mask.idx].indexOf(0);
+    expect(slot).toBeGreaterThanOrEqual(0);
+    expect(Math.abs(mask.w[slot])).toBeCloseTo(1, 5);
+  });
+
+  it("leaves a vertex outside the box out of the mask entirely", () => {
+    const mask = regionMask(m, { c: [99, 99, 99], w: 0.1, h: 0.1, d: 0.1 });
+    expect(mask.idx.length).toBe(0);
+  });
+
+  it("signs the mask so the two sides of the centre move apart", () => {
+    const mask = regionMask(m, { c: [0, 0, 0], w: 10, h: 10, d: 10 });
+    const signs = new Set([...mask.w].map((w) => Math.sign(w)));
+    expect(signs.has(1)).toBe(true);
+    expect(signs.has(-1)).toBe(true);
+  });
+
+  // A jaw, not a bubble: the lower lip carries the opening and the upper lip
+  // barely moves. An even split reads as a fish.
+  it("gives the upper lip a quarter of the jaw's travel, and upward", () => {
+    // A square, unlike PAIR: vertices 0 and 2 share an x and sit an equal
+    // distance either side of the mouth line, so only the sides differ.
+    const square = buildModel(
+      [-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0],
+      [0, 1, 2, 1, 3, 2],
+    );
+    const mask = regionMask(square, { c: [0, 0, 0], w: 2, h: 2, d: 1 });
+    const weight = (i: number) => mask.w[[...mask.idx].indexOf(i)];
+    expect(weight(0)).toBeGreaterThan(0);
+    expect(weight(2)).toBeCloseTo(-0.25 * weight(0), 6);
+  });
+
+  it("names every face a masked vertex belongs to, and no other", () => {
+    const whole = regionMask(m, { c: [0, 0, 0], w: 10, h: 10, d: 10 });
+    expect([...whole.faces]).toEqual([0, 1]);
+
+    // vertex 3 belongs to the second triangle alone
+    const at = [m.verts[9], m.verts[10], m.verts[11]] as [
+      number,
+      number,
+      number,
+    ];
+    const corner = regionMask(m, { c: at, w: 0.2, h: 0.2, d: 0.2 });
+    expect([...corner.idx]).toEqual([3]);
+    expect([...corner.faces]).toEqual([1]);
+  });
+});
+
+describe("denormalisePoint", () => {
+  it("takes a normalised point back to the glTF units it came from", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const out = new Float32Array(3);
+    const [x, y, z] = [PAIR.positions[3], PAIR.positions[4], PAIR.positions[5]];
+    normalisePoint(m, x, y, z, out, 0);
+    const back = new Float32Array(3);
+    denormalisePoint(m, out[0], out[1], out[2], back);
+    expect(back[0]).toBeCloseTo(x, 5);
+    expect(back[1]).toBeCloseTo(y, 5);
+    expect(back[2]).toBeCloseTo(z, 5);
+  });
+});
+
+describe("normalisePoint", () => {
+  it("puts a raw glTF point exactly where buildModel put it", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const out = new Float32Array(3);
+    // the first raw vertex, back through the same centre-and-scale
+    normalisePoint(
+      m,
+      PAIR.positions[0],
+      PAIR.positions[1],
+      PAIR.positions[2],
+      out,
+      0,
+    );
+    expect(out[0]).toBeCloseTo(m.verts[0], 5);
+    expect(out[1]).toBeCloseTo(m.verts[1], 5);
+    expect(out[2]).toBeCloseTo(m.verts[2], 5);
+  });
+});
+
+describe("displaceRegion", () => {
+  it("moves only the masked vertices and never compounds", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const mask = regionMask(m, {
+      c: [m.verts[0], m.verts[1], m.verts[2]],
+      w: 0.5,
+      h: 0.5,
+      d: 0.5,
+    });
+    const untouched = m.verts.length / 3 === mask.idx.length ? -1 : 3;
+    displaceRegion(m, mask, 1);
+    const once = m.pose[1];
+    displaceRegion(m, mask, 1);
+    expect(m.pose[1]).toBeCloseTo(once, 6); // second call starts from rest
+    if (untouched >= 0)
+      expect(m.pose[untouched * 3 + 1]).toBe(m.verts[untouched * 3 + 1]);
+  });
+
+  it("returns the pose to rest", () => {
+    const m = buildModel(PAIR.positions, PAIR.indices);
+    const mask = regionMask(m, {
+      c: [m.verts[0], m.verts[1], m.verts[2]],
+      w: 0.5,
+      h: 0.5,
+      d: 0.5,
+    });
+    displaceRegion(m, mask, 1);
+    resetPose(m, mask);
+    expect([...m.pose]).toEqual([...m.verts]);
   });
 });

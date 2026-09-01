@@ -99,8 +99,27 @@ export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
 
-export type PanelId = "terminal" | "preview" | "settings";
+export type PanelId = "terminal" | "preview" | "settings" | "mouth";
 export type LayoutId = "home" | "workspace";
+
+/**
+ * A mouth marked on a head model: a centre and three half-extents in the
+ * model's own normalised space (two units tall, centred), so it means the same
+ * thing in any file at any scale or triangle count.
+ *
+ * A box, not a sphere. A mouth is wider than it is tall and its corners sit
+ * still, which a radius cannot say — a sphere pushed the corners out with the
+ * centre and the face bulged instead of opening.
+ */
+export type MouthRegion = {
+  c: [number, number, number];
+  /** Half-width, across the face. */
+  w: number;
+  /** Half-height. The mouth opens by a share of this. */
+  h: number;
+  /** Half-depth, so the region stops short of the back of the head. */
+  d: number;
+};
 
 /**
  * Geometry only — never openness. Which panels are open lives in App state
@@ -164,6 +183,16 @@ export interface Settings {
   ttsModelId?: string;
   /** An uploaded head model's file name. Absent = the built-in helmet. */
   headModel?: string;
+  /** Render the head as the model's own materials instead of edges. */
+  headColor?: boolean;
+  /** Move the head's mouth with the voice, when the model has one. */
+  headMouth?: boolean;
+  /**
+   * A mouth marked by hand, keyed by model name (`"__builtin"` for the shipped
+   * helmet). Outranks a detected region and a real rig alike: picking one costs
+   * opening a panel and clicking a face, so it is never accidental.
+   */
+  headMouths?: Record<string, MouthRegion>;
   panels: Record<LayoutId, PanelMap>; // home and workspace arrange separately
   /**
    * The window `panels` was measured in. Panel geometry is pixels, so without

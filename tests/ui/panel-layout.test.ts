@@ -32,8 +32,15 @@ const at = (x: number, y: number, w = 300, h = 400, z = 1): PanelState => ({
 });
 
 describe("defaultPanel", () => {
+  it("gives settings a fixed 250px width at any window size", () => {
+    expect(defaultPanel("settings", VP).w).toBe(250);
+    expect(
+      defaultPanel("settings", { width: VP.width * 2, height: VP.height }).w,
+    ).toBe(250);
+  });
+
   it("sizes every panel as a fraction of the window, full height", () => {
-    for (const id of ["terminal", "preview", "settings"] as const) {
+    for (const id of ["terminal", "preview"] as const) {
       const p = defaultPanel(id, VP);
       // no fixed pixel sizes: doubling the window doubles the panel
       const big = defaultPanel(id, { width: VP.width * 2, height: VP.height });
@@ -69,6 +76,14 @@ describe("defaultPanel", () => {
       expect(p.x).toBeGreaterThanOrEqual(BEZEL_INSET);
       expect(p.y).toBeGreaterThanOrEqual(BEZEL_INSET);
     }
+  });
+
+  it("gives the mouth picker a default panel inside the viewport", () => {
+    const vp = { width: 1600, height: 900 };
+    const p = defaultPanel("mouth", vp);
+    expect(p.w).toBeGreaterThan(0);
+    expect(p.x + p.w).toBeLessThanOrEqual(vp.width);
+    expect(p.collapsed).toBe(false);
   });
 });
 
@@ -381,6 +396,13 @@ describe("rescaleAll", () => {
     const p = rescaleAll({ terminal: docked }, from, to).terminal!;
     expect(p.x + p.w).toBe(to.width - BEZEL_INSET);
     expect(p.y + p.h).toBe(to.height - BEZEL_INSET);
+  });
+
+  it("holds the settings width and its right dock when the window grows", () => {
+    const docked = at(from.width - BEZEL_INSET - 250, TOP_INSET, 250, 600);
+    const p = rescaleAll({ settings: docked }, from, to).settings!;
+    expect(p.w).toBe(250);
+    expect(p.x + p.w).toBe(to.width - BEZEL_INSET);
   });
 
   it("scales a panel's size with the window, not just its position", () => {

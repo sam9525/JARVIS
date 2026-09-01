@@ -73,7 +73,8 @@ const api = {
     ipcRenderer.invoke("list-head-models"),
   readHeadModel: (name: string): Promise<Uint8Array | null> =>
     ipcRenderer.invoke("read-head-model", name),
-  pickHeadModel: (): Promise<string | null> =>
+  // `{}` is a cancelled dialog; `error` is a refusal worth showing.
+  pickHeadModel: (): Promise<{ name?: string; error?: string }> =>
     ipcRenderer.invoke("pick-head-model"),
   ttsModels: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-models"),
   onPtyData: (cb: (workspaceId: string, data: string) => void) =>

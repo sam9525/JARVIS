@@ -237,12 +237,14 @@ app.whenReady().then(async () => {
       filters: [{ name: "glTF binary", extensions: ["glb"] }],
       properties: ["openFile"],
     });
-    if (!picked?.length) return null; // cancelled
+    if (!picked?.length) return {}; // cancelled
     try {
-      return await importHead(userData, picked[0]);
+      return { name: await importHead(userData, picked[0]) };
     } catch (err) {
+      // The reason travels: swallowing it here made a refused upload look
+      // exactly like a cancelled one, so the head simply never appeared.
       console.error("head model import failed:", err);
-      return null;
+      return { error: err instanceof Error ? err.message : String(err) };
     }
   });
 

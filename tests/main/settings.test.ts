@@ -451,4 +451,57 @@ describe("settings", () => {
       (await loadSettings(await writeSettings({ headModel: 7 }))).headModel,
     ).toBeUndefined();
   });
+
+  it("round-trips the head colour, mouth and picked regions", async () => {
+    const file = await writeSettings({
+      headColor: true,
+      headMouth: true,
+      headMouths: {
+        "avatar.glb": { c: [0, 0.4, 0.9], w: 0.18, h: 0.07, d: 0.18 },
+      },
+    });
+    const s = await loadSettings(file);
+    expect(s.headColor).toBe(true);
+    expect(s.headMouth).toBe(true);
+    expect(s.headMouths?.["avatar.glb"]).toEqual({
+      c: [0, 0.4, 0.9],
+      w: 0.18,
+      h: 0.07,
+      d: 0.18,
+    });
+  });
+
+  // A mouth used to be a sphere. Squaring an old pick off keeps it; dropping it
+  // would silently un-mark a head the user had already marked. Height takes
+  // half the radius: the box travels its own height times OPEN(0.9) where the
+  // sphere moved 0.55r, so carrying `r` across whole would open it much wider
+  // than the mark it came from.
+  it("squares off a region saved as a radius", async () => {
+    const file = await writeSettings({
+      headMouths: { "old.glb": { c: [0, 0.4, 0.9], r: 0.18 } },
+    });
+    const s = await loadSettings(file);
+    expect(s.headMouths?.["old.glb"]).toEqual({
+      c: [0, 0.4, 0.9],
+      w: 0.18,
+      h: 0.09,
+      d: 0.18,
+    });
+  });
+
+  it("drops a malformed picked region rather than loading it", async () => {
+    const file = await writeSettings({
+      headColor: "yes",
+      headMouths: {
+        ok: { c: [0, 0, 0], w: 0.2, h: 0.1, d: 0.2 },
+        shortVector: { c: [0, 0], w: 0.2, h: 0.1, d: 0.2 },
+        noExtents: { c: [0, 0, 0] },
+        stringExtent: { c: [0, 0, 0], w: "wide", h: 0.1, d: 0.2 },
+        negative: { c: [0, 0, 0], w: -1, h: 0.1, d: 0.2 },
+      },
+    });
+    const s = await loadSettings(file);
+    expect(s.headColor).toBeUndefined();
+    expect(Object.keys(s.headMouths ?? {})).toEqual(["ok"]);
+  });
 });

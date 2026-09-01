@@ -1,6 +1,16 @@
-import React, { useEffect, useRef } from "react";
-import { isSounding, readWave, WAVE_BINS } from "./speak";
-import { aimFrom, visibleEdges, type HeadModel } from "./head-mesh";
+import React, { useEffect, useRef, useState } from "react";
+import { isSounding, mouthOpen, readWave, WAVE_BINS } from "./speak";
+import {
+  aimFrom,
+  denormalisePoint,
+  normalisePoint,
+  recomputeNormals,
+  visibleEdges,
+} from "./head-mesh";
+import type { LoadedHead } from "./load-head";
+import type { Rig, RigKind } from "./head-rig";
+import type { MouthRegion } from "../../shared/types";
+import type { Vector3 } from "three";
 
 const W = 240;
 const H = 48;
@@ -29,6 +39,23 @@ const GAIN = 3;
 
 const boost = (x: number) => Math.min(x * GAIN, 1);
 
+// The fallback voice hands out no audio at all, so the mouth chatters on a
+// clock while it sounds rather than sitting shut through every word.
+// ponytail: a fixed rate; drive it from real amplitude if speechSynthesis ever
+// grants any.
+const MIME_HZ = 5;
+const mime = () =>
+  0.35 + 0.35 * Math.sin((performance.now() / 1000) * MIME_HZ * Math.PI * 2);
+
+// What face detection made of each head, by model name — null included, so a
+// head with no findable mouth is not re-searched on every mode flip.
+const found = new Map<string, MouthRegion | null>();
+
+// The mouth opens on `mouthOpen`, which reads the buffer as RMS rather than
+// as the loudest bin the bars use, and eased on top of that so one noisy frame
+// cannot snap the jaw.
+const MOUTH_SMOOTH = 0.4;
+
 // The strip is an equalizer, not an oscilloscope: the raw time domain stretched
 // across the strip is speech-rate oscillation, legible as hash. Each bar is the
 // peak of its slice, eased toward its new value so one noisy frame cannot spike
@@ -52,16 +79,52 @@ const DOT = 0.7;
  * re-render a frame would restart the force simulation underneath them (the
  * same rule HandCursor follows): they are written through refs instead.
  */
-export default function VoiceWave({ headModel }: { headModel?: string }) {
+export default function VoiceWave({
+  headModel,
+  colour,
+  mouth,
+  mouthRegion,
+  onRig,
+  onHeadError,
+  onColoured,
+}: {
+  headModel?: string;
+  colour?: boolean;
+  mouth?: boolean;
+  mouthRegion?: MouthRegion;
+  onRig?: (kind: RigKind) => void;
+  onHeadError?: (why: string | null) => void;
+  onColoured?: (has: boolean) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const headRef = useRef<HTMLCanvasElement | null>(null);
+  // A host element, not a canvas: mountColourHead brings its own, because a
+  // canvas whose context was force-lost can never grant another one.
+  const colourRef = useRef<HTMLDivElement | null>(null);
+  // Whether the head on screen carries colours of its own. The one piece of
+  // React state here, and not a per-frame one: it settles once per head, and
+  // the choice of canvas below depends on it. Without it a colour host with
+  // nothing mounted inside draws no head at all — the caller cannot be trusted
+  // to gate `colour`, because `onColoured` is optional.
+  const [colourable, setColourable] = useState(true);
+  const showColour = !!colour && colourable;
+  const mouthRef = useRef(mouth);
+  mouthRef.current = mouth;
+  const startRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    mouthRef.current = mouth;
+    startRef.current?.();
+  }, [mouth]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     const headCanvas = headRef.current;
-    const head = headCanvas?.getContext("2d");
-    if (!canvas || !ctx || !headCanvas || !head) return;
+    const head2d = headCanvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    if (!showColour && (!headCanvas || !head2d)) return;
+    if (showColour && !colourRef.current) return;
 
     // Backing-store scale for the bezel's fixed CSS size. setTransform, not
     // scale: StrictMode runs this effect twice on the same canvas, and scale
@@ -72,9 +135,18 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    headCanvas.width = HEAD_W * dpr;
-    headCanvas.height = HEAD_H * dpr;
-    head.setTransform(dpr, 0, 0, dpr, (HEAD_W / 2) * dpr, (HEAD_H / 2) * dpr);
+    if (!showColour && headCanvas && head2d) {
+      headCanvas.width = HEAD_W * dpr;
+      headCanvas.height = HEAD_H * dpr;
+      head2d.setTransform(
+        dpr,
+        0,
+        0,
+        dpr,
+        (HEAD_W / 2) * dpr,
+        (HEAD_H / 2) * dpr,
+      );
+    }
 
     const styles = getComputedStyle(document.documentElement);
     const live = styles.getPropertyValue("--color-accent").trim() || "#22d3ee";
@@ -84,11 +156,142 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     const env = new Float32Array(BARS);
     const angle = { yaw: 0, pitch: 0 };
     const aim = { yaw: 0, pitch: 0 };
+    let rig: Rig | null = null;
+    let open = 0;
+    let scratch: Vector3 | null = null;
+    // The masked vertices each mesh owns, and one scratch point for the trip
+    // back into file units — a frame writing the mouth allocates nothing.
+    let poseParts: Uint32Array[] | null = null;
+    const back = new Float32Array(3);
     let frame = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     let running = false;
-    let model: HeadModel | null = null;
+    let head: LoadedHead | null = null;
+    let colourHead: import("./head-render").ColourHead | null = null;
+
+    // Detection needs a picture of the head, so it borrows the colour renderer
+    // for exactly one frame on an offscreen canvas. Square, because landmarks
+    // come back normalised per axis and a 240×200 frame would skew them.
+    const DETECT_SIZE = 256;
+    const detectFront = async (loaded: LoadedHead) => {
+      try {
+        if (!loaded.scene?.isObject3D && !loaded.scene?.dispatchEvent)
+          return null;
+        const off = document.createElement("div");
+        const [{ mountColourHead }, { detectMouth }] = await Promise.all([
+          import("./head-render"),
+          import("./detect-mouth"),
+        ]);
+        const shot = mountColourHead(
+          off,
+          loaded.scene,
+          DETECT_SIZE,
+          DETECT_SIZE,
+        );
+        shot.render(0, 0);
+        try {
+          // The detector uploads this through texImage2D, so it must be the
+          // rendered canvas, not the host box that holds it.
+          return await detectMouth(
+            loaded.model,
+            shot.canvas,
+            HEAD_SCALE,
+            DETECT_SIZE,
+          );
+        } finally {
+          shot.dispose();
+        }
+      } catch {
+        return null;
+      }
+    };
+
+    // The morph and bone tiers deform on the GPU, so the wireframe reads the
+    // result back: getVertexPosition applies morph targets, and SkinnedMesh
+    // overrides it to apply skinning too. The region tiers write `pose`
+    // themselves and skip this.
+    const readBackPose = (loaded: LoadedHead) => {
+      if (!scratch) return;
+      if (rig?.kind === "manual" || rig?.kind === "detected") return;
+      // A bone tier writes a rotation, and skinning reads the bones'
+      // matrixWorld — which only a render refreshes. Colour mode renders; the
+      // wireframe never does, so without this the jaw moves in one mode only.
+      loaded.scene.updateMatrixWorld(true);
+      for (const part of loaded.parts) {
+        part.mesh.skeleton?.update();
+        for (let i = 0; i < part.count; i++) {
+          part.mesh.getVertexPosition(i, scratch);
+          part.mesh.localToWorld(scratch);
+          normalisePoint(
+            loaded.model,
+            scratch.x,
+            scratch.y,
+            scratch.z,
+            loaded.model.pose,
+            (part.start + i) * 3,
+          );
+        }
+      }
+      recomputeNormals(loaded.model);
+    };
+
+    // The other direction, for colour mode: that renderer draws the file's own
+    // geometry and never looks at the CPU model, so a region tier's
+    // displacement has to be copied into the buffer it does draw. Only the
+    // masked vertices ever move, so a dense head costs the mouth, not the mesh.
+    const writeBackPose = (loaded: LoadedHead) => {
+      if (!scratch || !poseParts) return;
+      for (let p = 0; p < loaded.parts.length; p++) {
+        const own = poseParts[p];
+        if (own.length === 0) continue;
+        const part = loaded.parts[p];
+        const attr = part.mesh.geometry?.attributes?.position;
+        if (!attr) continue;
+        for (let k = 0; k < own.length; k++) {
+          const v = own[k] * 3;
+          denormalisePoint(
+            loaded.model,
+            loaded.model.pose[v],
+            loaded.model.pose[v + 1],
+            loaded.model.pose[v + 2],
+            back,
+          );
+          scratch.set(back[0], back[1], back[2]).applyMatrix4(part.inv);
+          attr.setXYZ(own[k] - part.start, scratch.x, scratch.y, scratch.z);
+        }
+        attr.needsUpdate = true;
+      }
+    };
+
+    // Which of the mask's vertices each mesh owns, worked out once when the rig
+    // resolves. Walking every part for every masked vertex is the same answer
+    // every frame, and a twenty-mesh head pays it twenty times over.
+    const bucketMask = (loaded: LoadedHead) => {
+      const mask = rig?.mask;
+      if (!mask) {
+        poseParts = null;
+        return;
+      }
+      const buckets: number[][] = loaded.parts.map(() => []);
+      for (const i of mask.idx) {
+        for (let p = 0; p < loaded.parts.length; p++) {
+          const at = i - loaded.parts[p].start;
+          if (at >= 0 && at < loaded.parts[p].count) {
+            buckets[p].push(i);
+            break;
+          }
+        }
+      }
+      poseParts = buckets.map((b) => Uint32Array.from(b));
+    };
+
+    // One name for both directions: which renderer is on screen decides which
+    // way the pose has to travel, and the caller has no business knowing.
+    const syncPose = (loaded: LoadedHead) => {
+      if (colourHead) writeBackPose(loaded);
+      else readBackPose(loaded);
+    };
 
     const paint = (hasWave: boolean) => {
       ctx.clearRect(0, 0, W, H);
@@ -122,17 +325,18 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     // One path and one stroke for the whole helmet. Ten thousand separate
     // stroke calls is what would cost a frame, not the segment count.
     const paintHead = (lit: boolean) => {
-      head.clearRect(-HEAD_W / 2, -HEAD_H / 2, HEAD_W, HEAD_H);
-      if (!model) return;
-      head.lineWidth = HEAD_LINE;
-      head.strokeStyle = lit ? live : idle;
-      const seg = visibleEdges(model, angle.yaw, angle.pitch, HEAD_SCALE);
-      head.beginPath();
+      if (!head2d) return;
+      head2d.clearRect(-HEAD_W / 2, -HEAD_H / 2, HEAD_W, HEAD_H);
+      if (!head) return;
+      head2d.lineWidth = HEAD_LINE;
+      head2d.strokeStyle = lit ? live : idle;
+      const seg = visibleEdges(head.model, angle.yaw, angle.pitch, HEAD_SCALE);
+      head2d.beginPath();
       for (let i = 0; i < seg.length; i += 4) {
-        head.moveTo(seg[i], seg[i + 1]);
-        head.lineTo(seg[i + 2], seg[i + 3]);
+        head2d.moveTo(seg[i], seg[i + 1]);
+        head2d.lineTo(seg[i + 2], seg[i + 3]);
       }
-      head.stroke();
+      head2d.stroke();
     };
 
     const settled = () =>
@@ -142,7 +346,23 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     const tick = () => {
       if (disposed) return;
       const hasWave = readWave(buf);
+      // The local mouth has no waveform to read, so it keeps the head lit
+      // while drawing a flat line — speechSynthesis writes straight to the
+      // output device and no Web Audio node can see it.
+      const sounding = isSounding();
       paint(hasWave);
+      if (rig && rig.kind !== "none") {
+        if (mouthRef.current) {
+          const target = hasWave ? mouthOpen(buf) : sounding ? mime() : 0;
+          open += (target - open) * MOUTH_SMOOTH;
+          // A still mouth on a turning head moved nothing, and copying the pose
+          // across costs the same whether or not it changed.
+          if (rig.apply(open, !colourHead) && head) syncPose(head);
+        } else if (open > 0) {
+          open = 0;
+          if (rig.apply(0, !colourHead) && head) syncPose(head);
+        }
+      }
       if (settled()) {
         angle.yaw = aim.yaw;
         angle.pitch = aim.pitch;
@@ -150,11 +370,8 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
         angle.yaw += (aim.yaw - angle.yaw) * TURN;
         angle.pitch += (aim.pitch - angle.pitch) * TURN;
       }
-      // The local mouth has no waveform to read, so it keeps the head lit
-      // while drawing a flat line — speechSynthesis writes straight to the
-      // output device and no Web Audio node can see it.
-      const sounding = isSounding();
-      paintHead(hasWave || sounding);
+      if (colourHead) colourHead.render(angle.yaw, angle.pitch);
+      else paintHead(hasWave || sounding);
       if (hasWave || sounding || !settled()) {
         frame = requestAnimationFrame(tick);
         return;
@@ -181,6 +398,7 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
       timer = null;
       tick();
     };
+    startRef.current = start;
 
     const onPointer = (e: PointerEvent) => {
       const next = aimFrom(
@@ -205,35 +423,116 @@ export default function VoiceWave({ headModel }: { headModel?: string }) {
     // again, so nothing spins waiting for the file.
     import("./load-head")
       .then(({ loadHead }) => loadHead(headModel))
-      .then((m) => {
+      .then(async (loaded) => {
         if (disposed) return;
-        model = m;
+        head = loaded;
+        const [{ resolveRig }, { Vector3 }] = await Promise.all([
+          import("./head-rig"),
+          import("three"),
+        ]);
+        if (disposed) return;
+        scratch = new Vector3();
+        // Detection only earns its offscreen render when nothing cheaper can
+        // answer, so it runs after a pick is ruled out and the tiers above it
+        // decide whether its result is ever consulted.
+        let rigCandidate = resolveRig(
+          loaded.scene,
+          loaded.model,
+          mouthRegion ?? null,
+          null,
+        );
+        if (rigCandidate.kind === "none" && !mouthRegion) {
+          const key = headModel ?? "";
+          // Detection loads MediaPipe and renders the head offscreen. The
+          // colour switch remounts this effect, and paying that again for a
+          // head that has already answered is what makes the switch feel stuck.
+          const detected = found.has(key)
+            ? (found.get(key) ?? null)
+            : await detectFront(loaded);
+          found.set(key, detected);
+          if (disposed) return;
+          if (detected) {
+            rigCandidate = resolveRig(
+              loaded.scene,
+              loaded.model,
+              null,
+              detected,
+            );
+          }
+        }
+        rig = rigCandidate;
+        bucketMask(loaded);
+        onRig?.(rig.kind);
+        onHeadError?.(null);
+        // What the file carries decides whether colour mode is offered at all,
+        // and only the loaded model knows.
+        onColoured?.(loaded.coloured);
+        // A colourless head falls back to the wireframe here rather than in
+        // the caller: this re-renders, the effect re-runs on `showColour`, and
+        // the second pass takes the wire branch.
+        setColourable(loaded.coloured);
+        if (showColour && loaded.coloured && colourRef.current) {
+          const { mountColourHead } = await import("./head-render");
+          if (disposed) return;
+          colourHead = mountColourHead(
+            colourRef.current,
+            loaded.scene,
+            HEAD_W,
+            HEAD_H,
+          );
+        }
         start();
       })
-      .catch((err) => console.error("head model", err));
+      .catch((err) => {
+        // A head that will not load leaves an empty box and no reason for it,
+        // so the message goes where the head was chosen.
+        console.error("head model", err);
+        if (!disposed)
+          onHeadError?.(err instanceof Error ? err.message : String(err));
+      });
 
-    // headModel: a different head means a different model, and the effect owns
-    // the loop that draws it. Tearing the whole thing down is the cheap and
-    // correct way to swap — it disposes the listener and the timer with it.
+    // headModel / colour: a different head or a different renderer means a
+    // different loop, and the effect owns it. Tearing the whole thing down is
+    // the cheap and correct swap — it disposes the listener, the timer and the
+    // WebGL context with it.
 
     return () => {
       disposed = true;
+      startRef.current = null;
       window.removeEventListener("pointermove", onPointer);
       cancelAnimationFrame(frame);
       if (timer) clearTimeout(timer);
+      colourHead?.dispose();
     };
-  }, [headModel]);
+  }, [headModel, showColour, mouthRegion, onRig, onHeadError, onColoured]);
 
   return (
     <div
       data-testid="voice-wave"
       className="pointer-events-none flex w-max flex-col gap-1"
     >
-      <canvas
-        ref={headRef}
-        data-testid="voice-head"
-        style={{ width: HEAD_W, height: HEAD_H }}
-      />
+      {/* The keys are what make this a swap rather than a reuse. Both branches
+          are a <canvas> in the same slot, so React would keep the same DOM node
+          and only move the ref — and a canvas grants one context for its whole
+          life. The reused node hands back null for the other kind: WebGL on the
+          node that drew the wireframe throws "Error creating WebGL context",
+          and 2D on the node that drew in colour comes back null and the effect
+          bails, which is a head that never draws again until a restart. */}
+      {showColour ? (
+        <div
+          key="colour"
+          ref={colourRef}
+          data-testid="voice-head-colour"
+          style={{ width: HEAD_W, height: HEAD_H }}
+        />
+      ) : (
+        <canvas
+          key="wire"
+          ref={headRef}
+          data-testid="voice-head"
+          style={{ width: HEAD_W, height: HEAD_H }}
+        />
+      )}
       <canvas
         ref={canvasRef}
         data-testid="voice-wave-canvas"

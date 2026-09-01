@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { configureModelEnv } from "../../src/renderer/voice/voice-tracker";
+import { configureModelEnv } from "../../src/renderer/voice/model-env";
 
-// Only configureModelEnv is tested. The rest of voice-tracker.ts is the
-// microphone/AudioContext/whisper boundary, untested by design the same way
+// configureModelEnv is the one testable piece of the voice model path. The
+// worker that calls it and voice-tracker.ts around it are the
+// whisper/microphone/AudioContext boundary, untested by design the same way
 // hand-tracker.ts is.
 
 // The defaults transformers.js hands a browser: remote allowed, local denied.
@@ -61,11 +62,13 @@ describe("configureModelEnv", () => {
     expect((paths as { wasm: string }).wasm).toMatch(/\.wasm$/);
   });
 
-  // Whisper is seconds of solid wasm, and ORT runs it on the calling thread.
-  it("runs inference in ORT's worker, so the window keeps painting", () => {
+  // ORT runs the model on the calling thread, and that thread is asr-worker's
+  // own. Its proxy would nest a second worker inside this one and copy every
+  // tensor across the extra hop; the window is off this thread either way.
+  it("leaves ORT on the calling thread, which is already a worker", () => {
     const env = browserEnv();
     configureModelEnv(env);
-    expect(env.backends.onnx.wasm.proxy).toBe(true);
+    expect(env.backends.onnx.wasm.proxy).toBe(false);
   });
 
   it("asks for no .mjs, which is what Vite would refuse to serve", () => {
