@@ -35,12 +35,18 @@ const clamp = (v: number, lo: number, hi: number) =>
 /** the workspace rail is a fixed 56px column; a panel must not cover its pips */
 const RAIL_CLEAR = 66;
 /** default width, as a fraction of the window */
-const WIDTH: Record<Exclude<PanelId, "mouth">, number> = {
+const WIDTH: Record<"terminal" | "preview", number> = {
   // wide enough for Claude Code's TUI — the panel you actually work in
   terminal: 0.36,
   preview: 0.36,
-  settings: 0.15,
 };
+/**
+ * Panels sized in pixels rather than as a fraction of the window. A control
+ * column reads the same at any window size, so a wider window widens the graph
+ * behind it and leaves these alone: rescaleAll skips their width too, which is
+ * what keeps a maximize from stretching them.
+ */
+const FIXED_W: Partial<Record<PanelId, number>> = { settings: 250 };
 /** the picker is a fixed 520px canvas, so its panel is sized in pixels too */
 const MOUTH_W = 720;
 
@@ -51,7 +57,11 @@ const MOUTH_W = 720;
  * a laptop as on a 4K monitor instead of drifting toward one corner.
  */
 export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
-  const w = id === "mouth" ? MOUTH_W : Math.round(vp.width * WIDTH[id]);
+  const w =
+    id === "mouth"
+      ? MOUTH_W
+      : (FIXED_W[id] ??
+        Math.round(vp.width * WIDTH[id as "terminal" | "preview"]));
   return clampToViewport(
     {
       x:
@@ -242,17 +252,31 @@ export function rescaleAll(
   const fx = span(to.width, BEZEL_INSET) / span(from.width, BEZEL_INSET);
   const fy = span(to.height, TOP_INSET) / span(from.height, TOP_INSET);
   const next: PanelMap = {};
-  for (const [id, p] of Object.entries(panels) as Array<[PanelId, PanelState]>)
+  for (const [id, p] of Object.entries(panels) as Array<
+    [PanelId, PanelState]
+  >) {
+    // A fixed-width panel keeps its width, so scaling both its edges apart
+    // would leave it floating between them. It holds the gap to whichever
+    // bezel edge it already sits nearer instead, which keeps a docked column
+    // docked.
+    const fixed = FIXED_W[id] !== undefined;
+    const leftGap = p.x - BEZEL_INSET;
+    const rightGap = from.width - BEZEL_INSET - (p.x + p.w);
     next[id] = clampToViewport(
       {
         ...p,
-        x: Math.round(BEZEL_INSET + (p.x - BEZEL_INSET) * fx),
+        x: fixed
+          ? leftGap <= rightGap
+            ? p.x
+            : to.width - BEZEL_INSET - rightGap - p.w
+          : Math.round(BEZEL_INSET + leftGap * fx),
         y: Math.round(TOP_INSET + (p.y - TOP_INSET) * fy),
-        w: Math.round(p.w * fx),
+        w: fixed ? p.w : Math.round(p.w * fx),
         h: Math.round(p.h * fy),
       },
       to,
     );
+  }
   return next;
 }
 
