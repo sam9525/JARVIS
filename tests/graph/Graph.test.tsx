@@ -341,4 +341,86 @@ describe("Graph component", () => {
     expect(arcs[0].x).toBe(10);
     expect(arcs[0].y).toBe(20);
   });
+
+  it("renders impact nodes with tier colours and rings for depths <= 1", async () => {
+    const { default: Graph } = await import("../../src/renderer/graph/Graph");
+    const { RADIUS_COLOR } =
+      await import("../../src/renderer/graph/graph-colors");
+
+    const graph: VaultGraph = {
+      nodes: [
+        { id: "a", type: "note", domain: "physics", section: "raw" },
+        { id: "b", type: "note", domain: "physics", section: "wiki" },
+        { id: "c", type: "note", domain: "physics", section: "wiki" },
+      ],
+      edges: [],
+    };
+    const stateRef = {
+      current: {
+        sessionId: null,
+        nodes: new Map(),
+        trail: [],
+        pulseAt: 0,
+        matched: new Set(),
+        matchAt: 0,
+        frozenAt: 0,
+        heat: new Map(),
+        rev: 0,
+        impacted: new Map([
+          ["a", 0],
+          ["b", 1],
+          ["c", 2],
+        ]),
+      },
+    };
+
+    const element = Graph({
+      graph,
+      domains: ["physics"],
+      groups: [],
+      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      forces: {
+        centerStrength: 1,
+        repelStrength: 30,
+        linkStrength: 1,
+        linkDistance: 30,
+      },
+      stateRef: stateRef as any,
+      onNodeClick: noop,
+    } as any) as any;
+
+    const fillStyles: string[] = [];
+    const strokeStyles: string[] = [];
+    const makeCtx = () => ({
+      fillStyle: "",
+      strokeStyle: "",
+      lineWidth: 0,
+      beginPath: noop,
+      arc: noop,
+      fill: function () {
+        fillStyles.push(this.fillStyle);
+      },
+      stroke: function () {
+        strokeStyles.push(this.strokeStyle);
+      },
+    });
+
+    const nodeA = { id: "a", type: "note", domain: "physics", x: 0, y: 0 };
+    const ctxA = makeCtx();
+    element.props.nodeCanvasObject(nodeA, ctxA, 1);
+    expect(fillStyles[0]).toBe(RADIUS_COLOR);
+    expect(strokeStyles[0]).toBe(RADIUS_COLOR);
+
+    const nodeB = { id: "b", type: "note", domain: "physics", x: 10, y: 0 };
+    const ctxB = makeCtx();
+    element.props.nodeCanvasObject(nodeB, ctxB, 1);
+    expect(fillStyles[1]).not.toBe(RADIUS_COLOR);
+    expect(strokeStyles[1]).toBe(RADIUS_COLOR);
+
+    const nodeC = { id: "c", type: "note", domain: "physics", x: 20, y: 0 };
+    const ctxC = makeCtx();
+    element.props.nodeCanvasObject(nodeC, ctxC, 1);
+    expect(fillStyles[2]).not.toBe(fillStyles[1]);
+    expect(strokeStyles[2]).toBeUndefined();
+  });
 });

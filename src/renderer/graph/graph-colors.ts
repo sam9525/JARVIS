@@ -30,3 +30,38 @@ export function brighten(hex: string, t: number): string {
     (up((v >> 16) & 255) << 16) | (up((v >> 8) & 255) << 8) | up(v & 255);
   return `#${rgb.toString(16).padStart(6, "0")}`;
 }
+
+/**
+ * Blast radius. A TypeScript constant rather than a CSS token: nothing in
+ * this file or workspace-color.ts reads a CSS variable, so the graph could
+ * not see one. Violet ~270°, which clears both reserved hue bands — cyan
+ * 172-202 (read ring, hover, accent) and amber 10-40 (modified).
+ */
+export const RADIUS_COLOR = "#c084fc";
+
+// how far each tier blends back toward the node's own colour: depth 0, 1, 2+
+const RADIUS_MIX = [0, 0.3, 0.6];
+
+const rgb = (hex: string): [number, number, number] | null => {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return null;
+  const v = parseInt(m[1], 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+};
+
+/**
+ * The radius tier for one node: full violet at the target, blending toward
+ * that node's own colour each hop out, so the radius reads as distance rather
+ * than as three unrelated colours. Always #rrggbb — brighten only matches six
+ * hex digits, so an hsl() here would silently stop heat working.
+ */
+export function radiusColor(depth: number, base: string): string {
+  const t = RADIUS_MIX[Math.min(Math.max(depth, 0), RADIUS_MIX.length - 1)];
+  if (t <= 0) return RADIUS_COLOR;
+  const a = rgb(RADIUS_COLOR);
+  const b = rgb(base);
+  if (!a || !b) return RADIUS_COLOR; // an unparseable base leaves the violet flat
+  const mix = (i: number) => Math.round(a[i] + (b[i] - a[i]) * t);
+  const out = (mix(0) << 16) | (mix(1) << 8) | mix(2);
+  return `#${out.toString(16).padStart(6, "0")}`;
+}

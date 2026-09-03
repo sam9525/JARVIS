@@ -191,4 +191,30 @@ describe("Graph3D component", () => {
     const node = { id: "physics/b", domain: "physics" };
     expect((Graph3D(props) as any).props.nodeColor(node)).toBe(hueToHex(207));
   });
+
+  it("colours impact nodes with tier colours, overridden by modified", async () => {
+    const { default: Graph3D } =
+      await import("../../src/renderer/graph/Graph3D");
+    const { RADIUS_COLOR, COLORS } =
+      await import("../../src/renderer/graph/graph-colors");
+
+    const props = makeProps(sampleGraph) as any;
+    props.stateRef.current.impacted = new Map([
+      ["physics/a", 0],
+      ["physics/b", 1],
+    ]);
+    const element = Graph3D(props) as any;
+
+    const nodeA = { id: "physics/a", domain: "physics" };
+    const nodeB = { id: "physics/b", domain: "physics" };
+    expect(element.props.nodeColor(nodeA)).toBe(RADIUS_COLOR);
+    expect(element.props.nodeColor(nodeB)).not.toBe(RADIUS_COLOR);
+
+    // modified takes precedence over impact
+    props.stateRef.current.nodes = new Map([
+      ["physics/a", { kind: "modified" }],
+    ]);
+    const elementMod = Graph3D(props) as any;
+    expect(elementMod.props.nodeColor(nodeA)).toBe(COLORS.modified);
+  });
 });
