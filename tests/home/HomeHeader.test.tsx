@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it, expect } from "vitest";
 import HomeHeader from "../../src/renderer/home/HomeHeader";
 import type { WorkspaceStatus } from "../../src/shared/types";
@@ -53,5 +55,19 @@ describe("HomeHeader", () => {
     // the bar floats over Ring/Fleet: it must not eat their drag gestures
     expect(tree.props.className).toContain("pointer-events-none");
     expect(tree.props.className).toContain("[&_button]:pointer-events-auto");
+  });
+});
+
+describe("enterClass", () => {
+  it("adds nothing when absent", () => {
+    const html = renderToStaticMarkup(<HomeHeader statuses={[]} />);
+    expect(html).not.toContain("boot-in");
+  });
+
+  it("merges the class into the header root", () => {
+    const html = renderToStaticMarkup(
+      <HomeHeader statuses={[]} enterClass="boot-in" />,
+    );
+    expect(html).toContain("boot-in");
   });
 });

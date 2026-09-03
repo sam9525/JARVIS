@@ -235,3 +235,35 @@ describe("Panel", () => {
     expect(el.props.onPointerDown).toBeUndefined();
   });
 });
+
+describe("enterClass", () => {
+  const render = (enterClass?: string) =>
+    renderToStaticMarkup(
+      <Panel
+        id="terminal"
+        title="SESSION"
+        state={STATE}
+        focused={true}
+        enterClass={enterClass}
+        onChange={() => {}}
+        onFocus={() => {}}
+      >
+        <div />
+      </Panel>,
+    );
+
+  it("adds nothing when absent", () => {
+    expect(render(undefined)).not.toContain("boot-in");
+  });
+
+  it("merges the class into the panel root", () => {
+    const html = render("boot-in");
+    expect(html).toContain("boot-in");
+    // still the panel root, not a wrapper — the inline left/top must stay on
+    // the same element that carries the class
+    expect(html).toContain('data-testid="panel-terminal"');
+    expect(html.indexOf("boot-in")).toBeLessThan(
+      html.indexOf('data-testid="panel-terminal"') + 400,
+    );
+  });
+});

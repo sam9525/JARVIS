@@ -43,6 +43,13 @@ type PanelProps = {
    * opens from the left, so it folds back the other way.
    */
   foldTo?: "left" | "right";
+  /**
+   * An entrance animation class merged into the root. A prop rather than a
+   * wrapper: a wrapper carrying a transform becomes the containing block for
+   * this absolutely-positioned root, so the inline left/top would resolve
+   * against the wrapper until the transform cleared, then jump.
+   */
+  enterClass?: string;
   onChange(next: PanelState): void;
   onFocus(): void;
   onClose?(): void;
@@ -60,6 +67,7 @@ export default function Panel({
   hidden,
   compactWidth,
   foldTo = "right",
+  enterClass,
   onChange,
   onFocus,
   onClose,
@@ -106,7 +114,9 @@ export default function Panel({
     <div
       ref={ref}
       data-testid={`panel-${id}`}
-      className={"absolute " + panelClass(focused)}
+      className={
+        "absolute " + panelClass(focused) + (enterClass ? " " + enterClass : "")
+      }
       style={{
         left: state.x + dx,
         top: state.y,
