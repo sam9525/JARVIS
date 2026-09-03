@@ -61,7 +61,7 @@ describe("install.mjs", () => {
     ]);
     expect(settings.hooks.PostToolUse).toEqual([
       {
-        matcher: "Read|Grep|Glob|Edit|Write",
+        matcher: "Read|Grep|Glob|Edit|Write|AskUserQuestion",
         hooks: [{ type: "command", command: COMMAND }],
       },
     ]);
@@ -113,7 +113,7 @@ describe("install.mjs", () => {
     ]);
     expect(settings.hooks.PostToolUse).toEqual([
       {
-        matcher: "Read|Grep|Glob|Edit|Write",
+        matcher: "Read|Grep|Glob|Edit|Write|AskUserQuestion",
         hooks: [{ type: "command", command: COMMAND }],
       },
     ]);

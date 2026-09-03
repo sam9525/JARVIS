@@ -1,0 +1,26 @@
+{
+  "session_id": "s1",
+  "cwd": "D:\\vault",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_use_id": "tu_1",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "How should the panel know the question is answered?",
+        "header": "Close signal",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Widen PostToolUse",
+            "description": "The picked answer arrives as a real event."
+          },
+          {
+            "label": "Close on click only",
+            "description": "No hook change, but a stale panel can linger."
+          }
+        ]
+      }
+    ]
+  }
+}

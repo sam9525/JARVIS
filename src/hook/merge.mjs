@@ -3,8 +3,9 @@
 // Pre at "*" does ship every Write's content and every Task's prompt; that
 // cost is accepted because the call line needs Bash and Task, and the
 // listener is localhost-only. Post stays narrow because its payloads are
-// unbounded tool OUTPUT, which nothing in the UI reads.
-const POST_MATCHER = "Read|Grep|Glob|Edit|Write";
+// AskUserQuestion is the one exception to the narrowness above: its response
+// is the selection the user made, a handful of strings, not tool output.
+const POST_MATCHER = "Read|Grep|Glob|Edit|Write|AskUserQuestion";
 const PRE_MATCHER = "*";
 const EVENTS = [
   "PreToolUse",
