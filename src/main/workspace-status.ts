@@ -36,7 +36,7 @@ export interface StatusStore {
   countTool(e: ToolEvent): boolean;
   markDelegated(workspaceId: string, by: string, now: number): boolean;
   ptyLaunched(workspaceId: string, now: number): boolean;
-  ptyExited(workspaceId: string, now: number): boolean;
+  ptyExited(workspaceId: string, now: number, exitCode: number): boolean;
   sweep(now: number): boolean;
   snapshot(): WorkspaceStatus[];
 }
@@ -96,7 +96,7 @@ export function createStatusStore(): StatusStore {
       // and must not blank the last message. Work announces itself first:
       // UserPromptSubmit, then tools.
       const sessionChanged =
-        ev.sessionId !== e.sessionId && ev.kind === "running";
+        ev.sessionId !== e.sessionId && ev.kind === "working";
       // an entry that has never seen a session adopts whichever id speaks
       // first, so that session's own later events don't read as a takeover
       if (sessionChanged || !e.sessionId) e.sessionId = ev.sessionId;
@@ -178,14 +178,18 @@ export function createStatusStore(): StatusStore {
       return !wasOwned;
     },
 
-    ptyExited(id, now) {
+    // A clean exit is what closing a terminal looks like, so it reads as no
+    // session. A non-zero exit is a different fact and gets its own word —
+    // and keeps the message, because what Claude last said still matters
+    // when the session dies.
+    ptyExited(id, now, exitCode) {
       const e = entries.get(id);
       if (!e) return false;
       const wasOwned = e.ptyOwned;
       e.ptyOwned = false;
       if (e.kind === "none") return wasOwned;
       e.ptyAlive = false;
-      e.kind = "none";
+      e.kind = exitCode === 0 ? "none" : "crashed";
       e.call = "";
       e.since = now; // types.ts documents since as the last KIND change
       return true;
@@ -198,7 +202,7 @@ export function createStatusStore(): StatusStore {
       for (const [id, e] of entries) {
         // demote only; staleness must never invent "waiting"
         if (
-          e.kind === "running" &&
+          e.kind === "working" &&
           e.ptyAlive &&
           now - e.lastEventAt >= STALE_MS
         ) {

@@ -424,7 +424,7 @@ app.whenReady().then(async () => {
       onData: (id, data) => send("pty-data", id, data),
       onExit: (id, code) => {
         send("pty-exit", id, code);
-        pushStatus(status.ptyExited(id, Date.now()));
+        pushStatus(status.ptyExited(id, Date.now(), code));
       },
     },
   );
