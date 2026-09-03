@@ -17,6 +17,17 @@ export interface HighlightState {
   // matches out means no reader of that map needs an expiry check.
   matched: Set<string>;
   matchAt: number; // 0 = no active match batch
+  /**
+   * Blast radius: node id → hop count, 0 being the target. Deliberately not
+   * in `nodes`, which holds read/modified — permanent for the session and
+   * mutually exclusive. A file can be read, modified and in the radius at
+   * once, and all three should be legible.
+   *
+   * No timestamp and no timer: a search is a step on the way to something
+   * else, but a blast radius is a conclusion you read while deciding what to
+   * do. Replaced wholesale by the next Impact event, cleared by a reset.
+   */
+  impacted: Map<string, number>;
   // deliberate touches (Read/Edit/Write) per node this session. Reads and edits
   // only: a broad Grep matching 40 files would flatten the map in one event.
   heat: Map<string, number>;
@@ -35,6 +46,7 @@ export function emptyState(): HighlightState {
     pulseAt: 0,
     matched: new Set(),
     matchAt: 0,
+    impacted: new Map(),
     heat: new Map(),
     rev: 0,
   };
@@ -47,6 +59,7 @@ export function resetHighlights(state: HighlightState): void {
   state.pulseAt = 0;
   state.matched.clear();
   state.matchAt = 0;
+  state.impacted.clear();
   state.heat.clear();
   state.rev++;
 }
@@ -95,18 +108,40 @@ export function applyEvent(
     state.matched = new Set(e.nodeIds);
     state.matchAt = now;
     state.rev++;
+  } else if (e.phase === "post" && e.tool === "Impact" && e.nodeIds.length) {
+    // wholesale replacement: a radius is the answer to one question, and the
+    // previous question's answer is not part of it
+    state.impacted = new Map(
+      e.nodeIds.map((id, i) => [id, e.depths?.[i] ?? 1]),
+    );
+    state.rev++;
   }
 }
 
-export type NodeDisplay = "modified" | "ring" | null;
+export type NodeDisplay = "modified" | "impact" | "ring" | null;
 
+/**
+ * Precedence, strongest first: modified, then impacted, then read. Impact
+ * outranks read because "this breaks if you ship" is more urgent than "Claude
+ * opened this", and loses to modified because a file already changed is past
+ * the warning.
+ */
 export function nodeDisplay(
   state: HighlightState,
   nodeId: string,
 ): NodeDisplay {
   const h = state.nodes.get(nodeId);
-  if (!h) return null;
-  return h.kind === "modified" ? "modified" : "ring";
+  if (h?.kind === "modified") return "modified";
+  if (state.impacted?.has(nodeId)) return "impact";
+  return h ? "ring" : null;
+}
+
+/** Hop count for the radius tiers; null when the node is off the radius. */
+export function impactDepth(
+  state: HighlightState,
+  nodeId: string,
+): number | null {
+  return state.impacted?.get(nodeId) ?? null;
 }
 
 export function pulseProgress(
