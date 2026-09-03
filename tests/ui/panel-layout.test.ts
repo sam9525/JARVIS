@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ASK_Z,
   BEZEL_INSET,
   MIN_H,
   MIN_W,
+  SETTINGS_Z,
   SNAP_PX,
   TITLE_BAR_H,
   TOP_INSET,
@@ -463,5 +465,26 @@ describe("the reserved top line", () => {
 
   it("snaps the top edge to it, not to the bezel inset", () => {
     expect(snapToEdges(at(100, TOP_INSET + SNAP_PX - 1), VP).y).toBe(TOP_INSET);
+  });
+});
+
+describe("the ask panel's geometry", () => {
+  it("centres a fixed 560x420 box", () => {
+    const p = defaultPanel("ask", { width: 1600, height: 1000 });
+    expect(p.w).toBe(560);
+    expect(p.h).toBe(420);
+    expect(p.x).toBe(Math.round((1600 - 560) / 2));
+    expect(p.y).toBe(Math.round((1000 - 420) / 2));
+  });
+
+  it("outranks settings", () => {
+    expect(ASK_Z).toBeGreaterThan(SETTINGS_Z);
+  });
+
+  it("keeps its width when the window resizes", () => {
+    const from = { width: 1600, height: 1000 };
+    const to = { width: 2400, height: 1000 };
+    const out = rescaleAll({ ask: defaultPanel("ask", from) }, from, to);
+    expect(out.ask!.w).toBe(560);
   });
 });

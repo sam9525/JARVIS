@@ -106,7 +106,7 @@ export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
 
-export type PanelId = "terminal" | "preview" | "settings" | "mouth";
+export type PanelId = "terminal" | "preview" | "settings" | "mouth" | "ask";
 export type LayoutId = "home" | "workspace";
 
 /**
