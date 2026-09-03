@@ -27,6 +27,7 @@ import { version as appVersion } from "../../package.json";
 import VoiceWave from "./voice/VoiceWave";
 import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
+import { useBootStage } from "./ui/boot-stage";
 import {
   SETTINGS_Z,
   defaultPanel,
@@ -249,6 +250,16 @@ export default function App() {
     onWorkspacesChanged: setWorkspaces,
   });
   const { graph, graphLoading, layoutEpoch, cardGraphs, indexing } = graphs;
+
+  // Reading order: chrome, then the rail, then the graph, then the terminal.
+  // Stage 3's signal is a constant — nothing needs to load for the terminal
+  // panel, it is last because it should be last.
+  const stage = useBootStage([
+    settingsReady, // 0 → header + bezel
+    workspaces.length > 0, // 1 → rail
+    cardGraphs.size > 0, // 2 → graph slot
+    true, // 3 → terminal / inbox
+  ]);
 
   // event log per workspace, feeding the replay scrubber. logRev exists only to
   // re-render the bar as events arrive — the log itself stays in a ref so an
@@ -818,126 +829,128 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-abyss">
-      <GraphSlot>
-        {({ width, height }) =>
-          showHome ? (
-            <>
-              {homeView === "fleet" ? (
-                <FleetGraph
-                  workspaces={fleet}
-                  mainColors={settings.mainColors}
-                  graphs={cardGraphs}
-                  view={view}
-                  dimensions={settings.dimensions}
-                  layoutEpoch={graphs.fleetEpoch}
-                  width={width}
-                  height={height}
-                  actionsRef={handActionsRef}
-                  onOpen={(ws) => {
-                    setShowHome(false);
-                    openWorkspace(ws);
-                  }}
-                />
-              ) : homeView === "ring" ? (
-                <Ring
-                  workspaces={fleet}
-                  mainColors={settings.mainColors}
-                  statuses={statuses}
-                  graphs={cardGraphs}
-                  getStore={storeFor}
-                  groups={settings.groups}
-                  view={settings.views["3d"]}
-                  filters={{
-                    sectionFilter: settings.sectionFilter,
-                    showTags: settings.showTags,
-                    showOrphans: settings.showOrphans,
-                  }}
-                  width={width}
-                  height={height}
-                  indexing={indexing}
-                  layoutEpoch={graphs.fleetEpoch}
-                  actionsRef={handActionsRef}
-                  onIndex={graphs.indexProject}
-                  onOpen={(ws) => {
-                    setShowHome(false);
-                    openWorkspace(ws);
-                  }}
-                />
-              ) : (
-                <MissionControl
-                  workspaces={fleet}
-                  mainColors={settings.mainColors}
-                  statuses={statuses}
-                  graphs={cardGraphs}
-                  getStore={storeFor}
-                  groups={settings.groups}
-                  view={settings.views["2d"]}
-                  filters={{
-                    sectionFilter: settings.sectionFilter,
-                    showTags: settings.showTags,
-                    showOrphans: settings.showOrphans,
-                  }}
-                  now={cardNow}
-                  indexing={indexing}
-                  onIndex={graphs.indexProject}
-                  onSelect={(ws) => {
-                    setShowHome(false);
-                    openWorkspace(ws);
-                  }}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              {!settingsReady ? null : settings.dimensions === "3d" ? (
-                <Graph3D
-                  graph={visible}
-                  domains={domains}
-                  baseHue={activeHue}
-                  groups={groupsFor(settings, active?.id)}
-                  display={view.display}
-                  forces={view.forces}
-                  stateRef={stateRef}
-                  onNodeClick={setPreviewNode}
-                  focusNode={previewNode}
-                  layoutEpoch={layoutEpoch}
-                  rotationPaused={previewNode !== null}
-                  handleRef={graph3dHandle}
-                  width={width}
-                  height={height}
-                />
-              ) : (
-                <Graph
-                  graph={visible}
-                  domains={domains}
-                  baseHue={activeHue}
-                  groups={groupsFor(settings, active?.id)}
-                  display={view.display}
-                  forces={view.forces}
-                  stateRef={stateRef}
-                  onNodeClick={setPreviewNode}
-                  focusNode={previewNode}
-                  layoutEpoch={layoutEpoch}
-                  handleRef={graphHandle}
-                  width={width}
-                  height={height}
-                />
-              )}
-              {active?.kind === "code" &&
-                !graphLoading &&
-                graph.nodes.length === 0 && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center">
-                    <EmptyGraph
-                      state={indexing[active.id]?.state ?? "idle"}
-                      error={indexing[active.id]?.error}
-                      onIndex={() => graphs.indexProject(active.id)}
-                    />
-                  </div>
+      <div className={"absolute inset-0" + (stage >= 2 ? " boot-fade" : "")}>
+        <GraphSlot>
+          {({ width, height }) =>
+            showHome ? (
+              <>
+                {homeView === "fleet" ? (
+                  <FleetGraph
+                    workspaces={fleet}
+                    mainColors={settings.mainColors}
+                    graphs={cardGraphs}
+                    view={view}
+                    dimensions={settings.dimensions}
+                    layoutEpoch={graphs.fleetEpoch}
+                    width={width}
+                    height={height}
+                    actionsRef={handActionsRef}
+                    onOpen={(ws) => {
+                      setShowHome(false);
+                      openWorkspace(ws);
+                    }}
+                  />
+                ) : homeView === "ring" ? (
+                  <Ring
+                    workspaces={fleet}
+                    mainColors={settings.mainColors}
+                    statuses={statuses}
+                    graphs={cardGraphs}
+                    getStore={storeFor}
+                    groups={settings.groups}
+                    view={settings.views["3d"]}
+                    filters={{
+                      sectionFilter: settings.sectionFilter,
+                      showTags: settings.showTags,
+                      showOrphans: settings.showOrphans,
+                    }}
+                    width={width}
+                    height={height}
+                    indexing={indexing}
+                    layoutEpoch={graphs.fleetEpoch}
+                    actionsRef={handActionsRef}
+                    onIndex={graphs.indexProject}
+                    onOpen={(ws) => {
+                      setShowHome(false);
+                      openWorkspace(ws);
+                    }}
+                  />
+                ) : (
+                  <MissionControl
+                    workspaces={fleet}
+                    mainColors={settings.mainColors}
+                    statuses={statuses}
+                    graphs={cardGraphs}
+                    getStore={storeFor}
+                    groups={settings.groups}
+                    view={settings.views["2d"]}
+                    filters={{
+                      sectionFilter: settings.sectionFilter,
+                      showTags: settings.showTags,
+                      showOrphans: settings.showOrphans,
+                    }}
+                    now={cardNow}
+                    indexing={indexing}
+                    onIndex={graphs.indexProject}
+                    onSelect={(ws) => {
+                      setShowHome(false);
+                      openWorkspace(ws);
+                    }}
+                  />
                 )}
-            </>
-          )
-        }
-      </GraphSlot>
+              </>
+            ) : (
+              <>
+                {!settingsReady ? null : settings.dimensions === "3d" ? (
+                  <Graph3D
+                    graph={visible}
+                    domains={domains}
+                    baseHue={activeHue}
+                    groups={groupsFor(settings, active?.id)}
+                    display={view.display}
+                    forces={view.forces}
+                    stateRef={stateRef}
+                    onNodeClick={setPreviewNode}
+                    focusNode={previewNode}
+                    layoutEpoch={layoutEpoch}
+                    rotationPaused={previewNode !== null}
+                    handleRef={graph3dHandle}
+                    width={width}
+                    height={height}
+                  />
+                ) : (
+                  <Graph
+                    graph={visible}
+                    domains={domains}
+                    baseHue={activeHue}
+                    groups={groupsFor(settings, active?.id)}
+                    display={view.display}
+                    forces={view.forces}
+                    stateRef={stateRef}
+                    onNodeClick={setPreviewNode}
+                    focusNode={previewNode}
+                    layoutEpoch={layoutEpoch}
+                    handleRef={graphHandle}
+                    width={width}
+                    height={height}
+                  />
+                )}
+                {active?.kind === "code" &&
+                  !graphLoading &&
+                  graph.nodes.length === 0 && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center">
+                      <EmptyGraph
+                        state={indexing[active.id]?.state ?? "idle"}
+                        error={indexing[active.id]?.error}
+                        onIndex={() => graphs.indexProject(active.id)}
+                      />
+                    </div>
+                  )}
+              </>
+            )
+          }
+        </GraphSlot>
+      </div>
       {/* The wrapper spans the full window height but the rail's own column
           is mostly empty below the pips — without this the left 56px of a
           full-bleed graph would be a dead strip. The buttons re-enable
@@ -948,6 +961,7 @@ export default function App() {
           activeId={active?.id ?? null}
           statuses={statuses}
           homeActive={showHome}
+          stagger={stage >= 1}
           onAddProject={addProject}
           onHome={() => setShowHome(true)}
           onSelect={(ws) => {
@@ -957,12 +971,15 @@ export default function App() {
         />
       </div>
       {showHome ? (
-        <HomeHeader statuses={fleetStatuses}>
+        <HomeHeader
+          statuses={fleetStatuses}
+          enterClass={stage >= 0 ? "boot-in" : undefined}
+        >
           {homeViewToggle}
           {graphButtons}
         </HomeHeader>
       ) : (
-        <div className={TOP_ROW}>
+        <div className={TOP_ROW + (stage >= 0 ? " boot-in" : "")}>
           {active?.kind === "code" && (
             <Segmented
               options={GRAPH_LEVEL_OPTIONS}
@@ -975,36 +992,38 @@ export default function App() {
           {graphButtons}
         </div>
       )}
-      <Bezel
-        title={`JARVIS · V${appVersion}`}
-        telemetry={telemetry}
-        footRight={footRight}
-        footLeft={
-          // bottom-anchored column: the slot sets only `bottom`, so the head
-          // and wave stack upward and never cover the replay scrubber. The
-          // wave is pointer-transparent; the scrubber under it is not.
-          <div className="flex flex-col items-start gap-2">
-            {micOn ? (
-              <VoiceWave
-                headModel={settings.headModel}
-                colour={settings.headColor}
-                mouth={mouthOn(settings)}
-                mouthRegion={settings.headMouths?.[headKey(settings)]}
-                onRig={setRigKind}
-                onHeadError={setHeadError}
-                onColoured={setHeadColoured}
-              />
-            ) : null}
-            {showHome ? null : (
-              <Timeline
-                log={(active && logsRef.current.get(active.id)) || []}
-                index={replayIndex}
-                onScrub={onScrub}
-              />
-            )}
-          </div>
-        }
-      />
+      <div className={stage >= 0 ? "boot-fade" : undefined}>
+        <Bezel
+          title={`JARVIS · V${appVersion}`}
+          telemetry={telemetry}
+          footRight={footRight}
+          footLeft={
+            // bottom-anchored column: the slot sets only `bottom`, so the head
+            // and wave stack upward and never cover the replay scrubber. The
+            // wave is pointer-transparent; the scrubber under it is not.
+            <div className="flex flex-col items-start gap-2">
+              {micOn ? (
+                <VoiceWave
+                  headModel={settings.headModel}
+                  colour={settings.headColor}
+                  mouth={mouthOn(settings)}
+                  mouthRegion={settings.headMouths?.[headKey(settings)]}
+                  onRig={setRigKind}
+                  onHeadError={setHeadError}
+                  onColoured={setHeadColoured}
+                />
+              ) : null}
+              {showHome ? null : (
+                <Timeline
+                  log={(active && logsRef.current.get(active.id)) || []}
+                  index={replayIndex}
+                  onScrub={onScrub}
+                />
+              )}
+            </div>
+          }
+        />
+      </div>
       {!showHome && previewNode && active && (
         <Panel
           id="preview"
@@ -1043,6 +1062,7 @@ export default function App() {
             state={panelState("terminal")}
             focused={focusedPanel === "terminal"}
             hidden={deckCleared}
+            enterClass={stage >= 3 ? "boot-in" : undefined}
             onChange={(next) => setPanel("terminal", next)}
             onFocus={() => focusPanel("terminal")}
           >

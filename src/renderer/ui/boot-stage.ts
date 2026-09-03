@@ -53,4 +53,3 @@ export function useBootStage(signals: boolean[]): number {
 
   return stage;
 }
-
