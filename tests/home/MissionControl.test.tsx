@@ -6,6 +6,7 @@ import { vi, describe, it, expect } from "vitest";
 // shallow renderer below never descends into it anyway.
 vi.mock("../../src/renderer/graph/MiniGraph", () => ({ default: () => null }));
 
+import { renderToStaticMarkup } from "react-dom/server";
 import MissionControl from "../../src/renderer/home/MissionControl";
 import { emptyState } from "../../src/renderer/session/highlight-store";
 import { defaultSettings } from "../../src/shared/types";
@@ -136,14 +137,14 @@ describe("MissionControl", () => {
           statuses: [
             status({
               workspaceId: "w2",
-              kind: "waiting",
+              kind: "blocked",
               call: "Bash(npm test)",
             }),
           ],
         }) as any)}
       />,
     );
-    expect(screen.byTestId("status-w2").text).toContain("waiting on you");
+    expect(screen.byTestId("status-w2").text).toContain("needs approval");
     expect(screen.byTestId("call-w2").text).toBe("Bash(npm test)");
   });
 
@@ -171,8 +172,8 @@ describe("MissionControl", () => {
       <MissionControl
         {...(props({
           statuses: [
-            status({ workspaceId: "w1", kind: "running" }),
-            status({ workspaceId: "w2", kind: "waiting" }),
+            status({ workspaceId: "w1", kind: "working" }),
+            status({ workspaceId: "w2", kind: "blocked" }),
           ],
         }) as any)}
       />,
@@ -342,7 +343,7 @@ describe("MissionControl", () => {
           statuses: [
             status({
               workspaceId: "w2",
-              kind: "running",
+              kind: "working",
               delegatedBy: "JARVIS",
             }),
           ],
@@ -359,7 +360,7 @@ describe("MissionControl", () => {
     render(
       <MissionControl
         {...(props({
-          statuses: [status({ workspaceId: "w1", kind: "running", call })],
+          statuses: [status({ workspaceId: "w1", kind: "working", call })],
         }) as any)}
       />,
     );
@@ -373,5 +374,32 @@ describe("MissionControl", () => {
       />,
     );
     expect(screen.byTestId("call-w1").props.title).toBeUndefined();
+  });
+});
+
+describe("six status kinds on a card", () => {
+  const renderCard = (s: WorkspaceStatus) =>
+    renderToStaticMarkup(
+      <MissionControl
+        {...(props({ workspaces: [workspaces[0]], statuses: [s] }) as any)}
+      />,
+    );
+
+  const labelOf = (kind: WorkspaceStatus["kind"]) =>
+    renderCard(status({ workspaceId: "w1", kind }));
+
+  it("labels each kind", () => {
+    expect(labelOf("working")).toContain("working");
+    expect(labelOf("asking")).toContain("asking you");
+    expect(labelOf("blocked")).toContain("needs approval");
+    expect(labelOf("crashed")).toContain("crashed");
+    expect(labelOf("none")).toContain("no session");
+  });
+
+  it("borders a card warm when it wants you and alarm when it died", () => {
+    expect(labelOf("asking")).toContain("border-warm");
+    expect(labelOf("blocked")).toContain("border-warm");
+    expect(labelOf("crashed")).toContain("border-alarm");
+    expect(labelOf("idle")).toContain("border-edge");
   });
 });

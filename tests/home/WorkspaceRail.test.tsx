@@ -145,8 +145,8 @@ describe("WorkspaceRail badges", () => {
         workspaces={workspaces}
         activeId="w1"
         statuses={[
-          status({ workspaceId: "w1", kind: "running" }),
-          status({ workspaceId: "w2", kind: "waiting" }),
+          status({ workspaceId: "w1", kind: "working" }),
+          status({ workspaceId: "w2", kind: "blocked" }),
         ]}
         homeActive={false}
         onHome={() => {}}
@@ -196,7 +196,7 @@ describe("WorkspaceRail badges", () => {
         statuses={[
           status({
             workspaceId: "w2",
-            kind: "waiting",
+            kind: "blocked",
             call: "Bash(npm test)",
           }),
         ]}
@@ -207,7 +207,7 @@ describe("WorkspaceRail badges", () => {
       />,
     );
     expect(
-      screen.getByTitle(/waiting on you — Bash\(npm test\)/i),
+      screen.getByTitle(/needs approval — Bash\(npm test\)/i),
     ).toBeTruthy();
   });
 
@@ -360,7 +360,7 @@ describe("WorkspaceRail source groups", () => {
     const statuses = [
       {
         workspaceId: WS.id,
-        kind: "running" as const,
+        kind: "working" as const,
         call: "",
         since: 0,
         reads: 0,
@@ -432,4 +432,3 @@ describe("boot stagger", () => {
     expect(html.split("boot-in").length - 1).toBe(8);
   });
 });
-

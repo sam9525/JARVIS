@@ -112,12 +112,12 @@ describe("Inbox", () => {
     );
   });
 
-  it("previews the call line for a running row", () => {
+  it("previews the call line for a working row", () => {
     render(
       <Inbox
         workspaces={workspaces}
         statuses={[
-          status({ workspaceId: "w1", kind: "running", call: 'Grep("x")' }),
+          status({ workspaceId: "w1", kind: "working", call: 'Grep("x")' }),
         ]}
         activeId={null}
         onSelect={() => {}}
@@ -151,11 +151,11 @@ describe("Inbox", () => {
         statuses={[
           status({
             workspaceId: "w1",
-            kind: "running",
+            kind: "working",
             call: "Bash(npm test)",
             delegatedBy: "JARVIS",
           }),
-          status({ workspaceId: "w2", kind: "running", call: "Read(a.ts)" }),
+          status({ workspaceId: "w2", kind: "working", call: "Read(a.ts)" }),
         ]}
         activeId={null}
         onSelect={() => {}}
@@ -206,7 +206,7 @@ describe("Inbox", () => {
     );
   });
 
-  it("keeps the main agent's running call line on one line", () => {
+  it("keeps the main agent's working call line on one line", () => {
     const fleet: Workspace[] = [
       {
         id: "self",
@@ -222,7 +222,7 @@ describe("Inbox", () => {
         statuses={[
           status({
             workspaceId: "self",
-            kind: "running",
+            kind: "working",
             call: "Bash(npm test)",
           }),
         ]}

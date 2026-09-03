@@ -30,9 +30,12 @@ export default function HomeHeader({
 
 function summary(statuses: WorkspaceStatus[]): string {
   const n = (k: StatusKind) => statuses.filter((s) => s.kind === k).length;
+  // stopped-and-wants-you first: that is what the header exists to surface
   const parts = [
-    n("waiting") && `${n("waiting")} waiting`,
-    n("running") && `${n("running")} running`,
+    n("asking") && `${n("asking")} asking`,
+    n("blocked") && `${n("blocked")} blocked`,
+    n("working") && `${n("working")} working`,
+    n("crashed") && `${n("crashed")} crashed`,
     n("idle") && `${n("idle")} idle`,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "no active sessions";

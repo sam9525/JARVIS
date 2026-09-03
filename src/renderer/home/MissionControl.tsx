@@ -18,23 +18,29 @@ const CARD_W = 220;
 const CARD_H = 150;
 
 const LABEL: Record<StatusKind, string> = {
-  waiting: "waiting on you",
-  running: "running",
+  working: "working",
+  asking: "asking you",
+  blocked: "needs approval",
   idle: "idle",
+  crashed: "crashed",
   none: "no session",
 };
 
 export const DOT: Record<StatusKind, string> = {
-  waiting: "bg-warm",
-  running: "bg-accent",
+  working: "bg-accent",
+  asking: "bg-warm hud-glow-warm",
+  blocked: "bg-warm",
   idle: "bg-ink-dim",
+  crashed: "bg-alarm",
   none: "border border-ink-dim",
 };
 
 const TEXT: Record<StatusKind, string> = {
-  waiting: "text-warm",
-  running: "text-accent",
+  working: "text-accent",
+  asking: "text-warm",
+  blocked: "text-warm",
   idle: "text-ink-dim",
+  crashed: "text-alarm",
   none: "text-ink-dim",
 };
 
@@ -110,7 +116,11 @@ export default function MissionControl({
               style={{ width: CARD_W + 26 }}
               className={
                 "flex cursor-pointer flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:border-accent " +
-                (kind === "waiting" ? "border-warm" : "border-edge")
+                (kind === "asking" || kind === "blocked"
+                  ? "border-warm"
+                  : kind === "crashed"
+                    ? "border-alarm"
+                    : "border-edge")
               }
             >
               <div className="flex items-center justify-between gap-2">

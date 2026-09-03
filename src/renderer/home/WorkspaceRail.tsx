@@ -19,19 +19,23 @@ type WorkspaceRailProps = {
   stagger?: boolean;
 };
 
-// "waiting" is the only state that earns attention — it pulses and takes the
-// one warm color on screen. Everything else is ambient.
+// The two stopped states earn attention and take the one warm colour on
+// screen; crashed takes the only red. Everything else is ambient.
 const BADGE: Record<StatusKind, string | null> = {
-  waiting: "bg-warm animate-pulse",
-  running: "bg-accent",
+  working: "bg-accent",
+  asking: "bg-warm animate-pulse",
+  blocked: "bg-warm animate-pulse",
   idle: "bg-ink-dim",
+  crashed: "bg-alarm",
   none: null, // no session — nothing to say
 };
 
 const LABEL: Record<StatusKind, string> = {
-  waiting: "waiting on you",
-  running: "running",
+  working: "working",
+  asking: "asking you",
+  blocked: "needs approval",
   idle: "idle",
+  crashed: "crashed",
   none: "no session",
 };
 
