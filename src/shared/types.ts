@@ -12,7 +12,13 @@ export interface ToolEvent {
   ts: number;
 }
 
-export type StatusKind = "waiting" | "running" | "idle" | "none";
+export type StatusKind =
+  | "working" // a turn is in progress
+  | "asking" // AskUserQuestion is open — pick an option
+  | "blocked" // a permission prompt is open — allow or deny
+  | "idle" // at the prompt, nothing pending
+  | "crashed" // the PTY exited non-zero
+  | "none"; // no session
 
 // what the rail badge and the mission-control cards read
 export interface WorkspaceStatus {
@@ -31,7 +37,8 @@ export interface WorkspaceStatus {
 export interface StatusEvent {
   workspaceId: string;
   sessionId: string;
-  kind: "waiting" | "running" | "idle";
+  // "none" is never a hook outcome, only a PTY one; "crashed" likewise
+  kind: "working" | "asking" | "blocked" | "idle";
   call: string;
   message?: string; // Stop only: the last thing Claude said, for the inbox
   ts: number;
