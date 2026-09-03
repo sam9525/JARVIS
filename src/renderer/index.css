@@ -11,6 +11,7 @@
   --color-ink: #f0f7fa;
   --color-ink-muted: #b0d2de;
   --color-ink-dim: #5a7a8a;
+  --color-alarm: #ef4444; /* the crashed status, and nothing else */
   --font-hud: Bahnschrift, "DIN Condensed", Oswald, sans-serif;
 }
 

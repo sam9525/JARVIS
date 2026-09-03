@@ -29,9 +29,10 @@ describe("hud vocabulary", () => {
     expect(panelClass(true)).not.toBe(panelClass(false));
   });
 
-  it("only the waiting pip takes the warm colour", () => {
-    expect(pipClass("waiting", false)).toContain("warm");
-    expect(pipClass("running", false)).not.toContain("warm");
+  it("only the asking and blocked pips take the warm colour", () => {
+    expect(pipClass("blocked", false)).toContain("warm");
+    expect(pipClass("asking", false)).toContain("warm");
+    expect(pipClass("working", false)).not.toContain("warm");
     expect(pipClass("idle", false)).not.toContain("warm");
   });
 
@@ -67,9 +68,40 @@ describe("hud vocabulary", () => {
     expect(BTN_IDLE).toContain("text-ink-dim");
   });
 
-  it("an active pip outranks even the warm waiting state", () => {
-    expect(pipClass("waiting", true)).toContain("accent");
-    expect(pipClass("waiting", true)).not.toContain("warm");
-    expect(pipClass("waiting", false)).toContain("warm");
+  it("an active pip outranks even the warm blocked state", () => {
+    expect(pipClass("blocked", true)).toContain("accent");
+    expect(pipClass("blocked", true)).not.toContain("warm");
+    expect(pipClass("blocked", false)).toContain("warm");
   });
 });
+
+describe("pipClass over six kinds", () => {
+  it("breathes for every live-but-stopped state", () => {
+    expect(pipClass("working", false)).toContain("hud-breathe");
+    expect(pipClass("asking", false)).toContain("hud-breathe");
+    expect(pipClass("blocked", false)).toContain("hud-breathe");
+  });
+
+  it("does not breathe for a dead or quiet session", () => {
+    expect(pipClass("idle", false)).not.toContain("hud-breathe");
+    expect(pipClass("crashed", false)).not.toContain("hud-breathe");
+    expect(pipClass("none", false)).not.toContain("hud-breathe");
+  });
+
+  it("gives asking the warm glow and blocked the plain warm border", () => {
+    expect(pipClass("asking", false)).toContain("hud-glow-warm");
+    expect(pipClass("blocked", false)).not.toContain("hud-glow-warm");
+    expect(pipClass("blocked", false)).toContain("border-warm");
+  });
+
+  it("gives crashed the alarm colour", () => {
+    expect(pipClass("crashed", false)).toContain("border-alarm");
+    expect(pipClass("crashed", false)).toContain("text-alarm");
+  });
+
+  it("lets active outrank every status", () => {
+    expect(pipClass("crashed", true)).toContain("border-accent");
+    expect(pipClass("asking", true)).toContain("border-accent");
+  });
+});
+

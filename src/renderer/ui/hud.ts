@@ -66,12 +66,19 @@ export function panelClass(focused: boolean): string {
  * an idle workspace you are inside must still read as the current one.
  */
 export function pipClass(kind: StatusKind, active: boolean): string {
-  const live = kind === "waiting" || kind === "running" ? " hud-breathe" : "";
+  // breathing means a session is live and something is pending — a crashed
+  // one is neither
+  const live =
+    kind === "working" || kind === "asking" || kind === "blocked"
+      ? " hud-breathe"
+      : "";
   if (active) return PIP + " border-accent text-accent hud-glow-accent" + live;
-  if (kind === "waiting")
+  // asking and blocked are the same amber; the glow is what separates them
+  if (kind === "asking")
     return PIP + " border-warm text-warm hud-glow-warm" + live;
-  if (kind === "running")
-    return PIP + " border-accent/60 text-accent/80" + live;
+  if (kind === "blocked") return PIP + " border-warm text-warm" + live;
+  if (kind === "working") return PIP + " border-accent/60 text-accent/80" + live;
+  if (kind === "crashed") return PIP + " border-alarm text-alarm";
   return (
     PIP + " border-edge text-ink-dim hover:border-accent hover:text-accent"
   );
