@@ -10,6 +10,8 @@ import Graph3D from "./graph/Graph3D";
 import GraphSlot from "./graph/GraphSlot";
 import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
+import AskPanel from "./ui/AskPanel";
+import type { AskPrompt } from "../main/ask-mapper";
 import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
@@ -29,6 +31,7 @@ import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
 import { useBootStage } from "./ui/boot-stage";
 import {
+  ASK_Z,
   SETTINGS_Z,
   defaultPanel,
   grabTarget,
@@ -141,6 +144,10 @@ export default function App() {
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
+  // the open question per workspace. Not a queue: the panel shows the active
+  // workspace's question, and another workspace asking shows up as its rail
+  // pip going amber.
+  const [asks, setAsks] = useState<Map<string, AskPrompt>>(new Map());
 
   const [focusedPanel, setFocusedPanel] = useState<PanelId>("terminal");
   const [deckCleared, setDeckCleared] = useState(false);
@@ -334,6 +341,15 @@ export default function App() {
       .finally(() => setSettingsReady(true)); // defaults still render on failure
     offs.push(
       window.jarvis.onToolEvent((e) => {
+        // a new turn started, so whatever the question was, it is over. This
+        // is also the backstop for a session still running the old matcher.
+        if (e.tool === "Prompt")
+          setAsks((prev) => {
+            if (!prev.has(e.workspaceId)) return prev;
+            const next = new Map(prev);
+            next.delete(e.workspaceId);
+            return next;
+          });
         const fresh = appendEvent(logsRef.current, e);
         applyEvent(storeFor(e.workspaceId), e, performance.now());
         if (e.workspaceId === activeIdRef.current) {
@@ -344,6 +360,16 @@ export default function App() {
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
+    offs.push(
+      window.jarvis.onAsk?.((p) => {
+        setAsks((prev) => {
+          const next = new Map(prev);
+          if (p === null) next.clear();
+          else next.set(p.workspaceId, p);
+          return next;
+        });
+      }) ?? (() => undefined),
+    );
     return () => {
       cancelled = true;
       for (const off of offs) off();
@@ -541,6 +567,22 @@ export default function App() {
     spokenRef.current = say;
     void speak(say);
   }, [statuses, micOn, orchestrator, voice.capturing]);
+  // A fixed template over the question's own words — not a summary, and not
+  // composed text: every word that carries meaning came out of the payload.
+  // Only the current question, and only for the session we listen to.
+  useEffect(() => {
+    if (!micOn) return;
+    const ws = workspaces.find((w) => w.isSelf) ?? workspaces[0];
+    const prompt = ws ? asks.get(ws.id) : undefined;
+    if (!ws || !prompt) return;
+    const q = prompt.questions[0];
+    const line = `${ws.name} asks: ${q.question}. Options: ${q.options
+      .map((o) => o.label)
+      .join(", ")}.`.slice(0, 500);
+    if (spokenRef.current === line) return;
+    spokenRef.current = line;
+    void speak(line);
+  }, [asks, micOn, workspaces]);
   // A long message keeps reading after voice is switched off without this —
   // the mouth must go quiet on the same transition that closes the ear.
   useEffect(() => {
@@ -1105,6 +1147,47 @@ export default function App() {
           />
         </Panel>
       )}
+
+      {(() => {
+        const ws = showHome ? orchestrator : active;
+        const prompt = ws ? asks.get(ws.id) : undefined;
+        if (!ws || !prompt) return null;
+        return (
+          <Panel
+            id="ask"
+            title="QUESTION"
+            badge={<span className="text-[10px] text-ink-dim">{ws.name}</span>}
+            state={{ ...panelState("ask"), z: ASK_Z }}
+            focused={focusedPanel === "ask"}
+            hidden={deckCleared}
+            onChange={(next) => setPanel("ask", next)}
+            onFocus={() => focusPanel("ask")}
+            // closes the app's copy only — Claude Code is still waiting, and
+            // the terminal still shows the picker
+            onClose={() =>
+              setAsks((prev) => {
+                const next = new Map(prev);
+                next.delete(ws.id);
+                return next;
+              })
+            }
+          >
+            <AskPanel
+              prompt={prompt}
+              workspaceName={ws.name}
+              onAnswer={(i) => {
+                // down-arrow i times: the first option starts selected, and
+                // arrows are the navigation any picker accepts
+                void window.jarvis.ptyInput(ws.id, "\x1b[B".repeat(i));
+                // a SEPARATE write, 80 ms later — never merge these two
+                setTimeout(() => {
+                  void window.jarvis.ptyInput(ws.id, "\r");
+                }, 80);
+              }}
+            />
+          </Panel>
+        );
+      })()}
 
       {showMouthPicker && (
         <Panel
