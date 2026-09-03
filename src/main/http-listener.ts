@@ -1,6 +1,7 @@
 import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
 import { mapStatusEvent } from "./status-mapper";
+import { mapAskEvent, type AskPrompt } from "./ask-mapper";
 import type { SendResult } from "./orchestrate";
 import type { StatusEvent, ToolEvent, Workspace } from "../shared/types";
 
@@ -47,6 +48,9 @@ export function startListener(
   onStatus: (e: StatusEvent) => void,
   getWorkspaces: () => Workspace[],
   orchestrator: OrchestratorLike,
+  // optional so existing callers and tests keep compiling; a build without a
+  // renderer simply drops questions on the floor
+  onAsk?: (p: AskPrompt | null) => void,
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -89,6 +93,15 @@ export function startListener(
           if (s) onStatus(s);
         } catch {
           /* status mapping failed — highlights already went out */
+        }
+        // three independent mappers, three try blocks: one rejecting must
+        // never take another's output with it
+        try {
+          const a = mapAskEvent(raw, ws);
+          // undefined = not about questions; null = the question is over
+          if (a !== undefined) onAsk?.(a);
+        } catch {
+          /* ask mapping failed — highlights and status already went out */
         }
       });
       return;

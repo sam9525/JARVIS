@@ -38,6 +38,7 @@ import {
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
 import { importHead, listHeads, readHead } from "./head-models";
+import type { AskPrompt } from "./ask-mapper";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
@@ -104,6 +105,10 @@ app.whenReady().then(async () => {
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
+  // the open question per workspace. Deliberately not in the status store:
+  // WorkspaceStatus is persisted to the inbox file, and a question's full
+  // text and options do not belong on disk.
+  const asks = new Map<string, AskPrompt>();
   const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
     sourceById(ws.sourceId)?.load(ws) ??
     Promise.resolve({ nodes: [], edges: [] });
@@ -438,6 +443,17 @@ app.whenReady().then(async () => {
     (s) => pushStatus(status.applyStatus(s)),
     () => workspaces,
     orchestrator,
+    (p) => {
+      if (p === null) {
+        // a clear carries no workspace id of its own — the renderer clears by
+        // the id it is holding, so send the whole map's removal explicitly
+        for (const id of [...asks.keys()]) asks.delete(id);
+        send("ask", null);
+        return;
+      }
+      asks.set(p.workspaceId, p);
+      send("ask", p);
+    },
   );
 
   const forwardPath = path.join(app.getAppPath(), "src", "hook", "forward.mjs");

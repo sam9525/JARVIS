@@ -6,6 +6,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
+import type { AskPrompt } from "./ask-mapper";
 import type { TtsOption } from "./tts";
 
 // Every subscription hands back its own disposer. Without one, a second mount
@@ -32,6 +33,8 @@ const api = {
     subscribe<[ToolEvent]>("tool-event", cb),
   onStatus: (cb: (s: WorkspaceStatus[]) => void) =>
     subscribe<[WorkspaceStatus[]]>("status", cb),
+  onAsk: (cb: (p: AskPrompt | null) => void) =>
+    subscribe<[AskPrompt | null]>("ask", cb),
   // jarvis_say → main → here. The renderer owns playback, so both mouths and
   // the dedupe against the turn-end message live in one place.
   onSay: (cb: (text: string) => void) => subscribe<[string]>("tts-say", cb),

@@ -461,3 +461,69 @@ describe("orchestrate routes added in v0.4.1", () => {
     });
   });
 });
+
+describe("the ask channel", () => {
+  it("pushes a prompt on PreToolUse and null on PostToolUse", async () => {
+    const seen: Array<unknown> = [];
+    const server = startListener(
+      0,
+      () => {
+        /* no-op */
+      },
+      () => {
+        /* no-op */
+      },
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => seen.push(p),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const port = (server.address() as { port: number }).port;
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PreToolUse",
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [{ question: "Which?", header: "H", options: [] }],
+      },
+    });
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: {},
+    });
+    server.close();
+    expect(seen).toHaveLength(2);
+    expect((seen[0] as { questions: unknown[] }).questions).toHaveLength(1);
+    expect(seen[1]).toBeNull();
+  });
+
+  it("never calls onAsk for an unrelated event", async () => {
+    const seen: Array<unknown> = [];
+    const server = startListener(
+      0,
+      () => {
+        /* no-op */
+      },
+      () => {
+        /* no-op */
+      },
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => seen.push(p),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const port = (server.address() as { port: number }).port;
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "done",
+    });
+    server.close();
+    expect(seen).toHaveLength(0);
+  });
+});
