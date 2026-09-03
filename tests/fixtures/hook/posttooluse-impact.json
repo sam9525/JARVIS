@@ -1,0 +1,15 @@
+{
+  "session_id": "s1",
+  "cwd": "D:\\vault",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__gitnexus__impact",
+  "tool_input": { "target": "applyEvent", "direction": "upstream" },
+  "tool_response": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"target\":{\"id\":\"Function:src/renderer/session/highlight-store.ts:applyEvent\",\"name\":\"applyEvent\",\"type\":\"Function\",\"filePath\":\"src/renderer/session/highlight-store.ts\"},\"direction\":\"upstream\",\"impactedCount\":3,\"risk\":\"LOW\",\"byDepth\":{\"1\":[{\"depth\":1,\"name\":\"App\",\"filePath\":\"src/renderer/App.tsx\",\"relationType\":\"CALLS\",\"confidence\":0.85},{\"depth\":1,\"name\":\"foldTo\",\"filePath\":\"src/renderer/session/replay.ts\",\"relationType\":\"CALLS\",\"confidence\":0.85}],\"2\":[{\"depth\":2,\"name\":\"onScrub\",\"filePath\":\"src/renderer/App.tsx\",\"relationType\":\"CALLS\",\"confidence\":0.85}]}}"
+      }
+    ]
+  }
+}

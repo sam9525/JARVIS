@@ -127,7 +127,7 @@ describe("mergeHooks", () => {
     expect(out.hooks.PreToolUse[0].matcher).toBe("*");
     // a widened PostToolUse would ship every Bash command's full output
     expect(out.hooks.PostToolUse[0].matcher).toBe(
-      "Read|Grep|Glob|Edit|Write|AskUserQuestion",
+      "Read|Grep|Glob|Edit|Write|AskUserQuestion|mcp__gitnexus__impact",
     );
   });
 

@@ -3,9 +3,11 @@
 // Pre at "*" does ship every Write's content and every Task's prompt; that
 // cost is accepted because the call line needs Bash and Task, and the
 // listener is localhost-only. Post stays narrow because its payloads are
-// AskUserQuestion is the one exception to the narrowness above: its response
-// is the selection the user made, a handful of strings, not tool output.
-const POST_MATCHER = "Read|Grep|Glob|Edit|Write|AskUserQuestion";
+// AskUserQuestion and the gitnexus impact tool are the two exceptions to the
+// narrowness above: their responses are a selection and a symbol list, not
+// unbounded tool output.
+const POST_MATCHER =
+  "Read|Grep|Glob|Edit|Write|AskUserQuestion|mcp__gitnexus__impact";
 const PRE_MATCHER = "*";
 const EVENTS = [
   "PreToolUse",
