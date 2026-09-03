@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 // The entrance stagger's clock. Pure part first: the hook below is only a
 // timer around it, so every ordering rule stays testable without a DOM.
 
@@ -19,3 +21,36 @@ export function nextStage(stage: number, signals: boolean[]): number {
   while (n + 1 < signals.length && signals[n + 1]) n++;
   return n;
 }
+
+/**
+ * Opens stage n when `signals[n]` is true, or when FALLBACK_MS has elapsed
+ * waiting for it, whichever comes first. Stages are separated by STEP_MS so
+ * two signals arriving in one tick still read as a sequence, not a flash.
+ *
+ * `signals` is a fresh array every render, so it is never an effect dep — the
+ * deps are the three scalars derived from it.
+ */
+export function useBootStage(signals: boolean[]): number {
+  const [stage, setStage] = useState(-1);
+  // read inside the timer, so a signal that turns true while a stage is
+  // waiting still opens every stage it has earned
+  const latest = useRef(signals);
+  latest.current = signals;
+
+  const done = stage >= signals.length - 1;
+  const ready = !done && signals[stage + 1] === true;
+
+  useEffect(() => {
+    if (done) return;
+    const t = setTimeout(
+      // always at least one more stage: that is the fallback. More when the
+      // signals below it are already true.
+      () => setStage((s) => Math.max(s + 1, nextStage(s, latest.current))),
+      ready ? STEP_MS : FALLBACK_MS,
+    );
+    return () => clearTimeout(t);
+  }, [stage, ready, done]);
+
+  return stage;
+}
+
