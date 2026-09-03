@@ -393,3 +393,43 @@ describe("WorkspaceRail source groups", () => {
     expect(idle).not.toContain("hud-breathe");
   });
 });
+
+describe("boot stagger", () => {
+  const render = (stagger?: boolean) =>
+    renderToStaticMarkup(
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId={null}
+        statuses={[]}
+        homeActive={false}
+        onHome={() => {}}
+        onSelect={() => {}}
+        onAddProject={() => {}}
+        stagger={stagger}
+      />,
+    );
+
+  it("adds no class and no delay when stagger is absent", () => {
+    const html = render(undefined);
+    expect(html).not.toContain("boot-in");
+    expect(html).not.toContain("animation-delay");
+  });
+
+  it("counts the delay across the whole flattened column", () => {
+    const html = render(true);
+    // home button = index 0
+    expect(html).toContain("animation-delay:0ms");
+    // three workspaces in three source groups, each preceded by a caption:
+    // 0 home, 1 caption, 2 vault, 3 caption, 4 gitnexus, 5 caption,
+    // 6 unknown, 7 add — the caption shares the delay of the button after it
+    expect(html).toContain("animation-delay:120ms");
+    expect(html).toContain("animation-delay:420ms");
+  });
+
+  it("gives every staggered element the boot-in class", () => {
+    const html = render(true);
+    // 1 home + 3 captions + 3 workspaces + 1 add
+    expect(html.split("boot-in").length - 1).toBe(8);
+  });
+});
+
