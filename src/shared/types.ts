@@ -1,4 +1,11 @@
-export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write" | "Prompt";
+export type ToolName =
+  | "Read"
+  | "Grep"
+  | "Glob"
+  | "Edit"
+  | "Write"
+  | "Prompt"
+  | "Impact";
 
 export interface ToolEvent {
   sessionId: string;
@@ -9,6 +16,13 @@ export interface ToolEvent {
   // extension. v1 emits 0 or 1 entries; stays an array for multi-file matches.
   nodeIds: string[];
   pattern?: string; // Grep/Glob only
+  /**
+   * Impact only: hop count per entry of nodeIds, same length and same order.
+   * A parallel array rather than an array of objects, because nodeIds is
+   * consumed by countTool and by replay and changing its element type would
+   * touch both for no gain.
+   */
+  depths?: number[];
   ts: number;
 }
 
