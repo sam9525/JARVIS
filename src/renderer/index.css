@@ -197,7 +197,9 @@
   @media (prefers-reduced-motion: reduce) {
     .hud-sweep,
     .hud-breathe,
-    .hud-tickrail {
+    .hud-tickrail,
+    .boot-in,
+    .boot-fade {
       animation: none;
     }
     .hud-sweep {
@@ -377,6 +379,31 @@
   }
   .ring-tile-in {
     animation: ring-tile-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /* Entrance stagger (boot sequence). Same shape as ring-tile-in above:
+     `from`-only with fill-mode `backwards`, so the animation never writes the
+     element's resting state and removing it removes only the entrance. */
+  @keyframes boot-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  .boot-in {
+    animation: boot-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /* Opacity only, for an element whose measured box must not move: a
+     transform makes getBoundingClientRect report the transformed rect, and
+     GraphSlot measures its own root every frame it changes. */
+  @keyframes boot-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  .boot-fade {
+    animation: boot-fade 0.32s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
   /* syntax-highlighted code preview (Shiki dark-plus). Shiki sets its own
