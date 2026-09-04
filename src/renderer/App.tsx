@@ -13,7 +13,7 @@ import GraphSettingsPanel from "./ui/GraphSettingsPanel";
 import AskPanel from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
 import MouthPicker from "./voice/MouthPicker";
-import WorkspaceRail from "./home/WorkspaceRail";
+import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
 import TerminalPanel from "./terminal/TerminalPanel";
@@ -29,7 +29,7 @@ import { version as appVersion } from "../../package.json";
 import VoiceWave from "./voice/VoiceWave";
 import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
-import { useBootStage } from "./ui/boot-stage";
+import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
   ASK_Z,
   SETTINGS_Z,
@@ -256,17 +256,14 @@ export default function App() {
     showHome,
     onWorkspacesChanged: setWorkspaces,
   });
-  const { graph, graphLoading, layoutEpoch, cardGraphs, indexing } = graphs;
-
-  // Reading order: chrome, then the rail, then the graph, then the terminal.
-  // Stage 3's signal is a constant — nothing needs to load for the terminal
-  // panel, it is last because it should be last.
-  const stage = useBootStage([
-    settingsReady, // 0 → header + bezel
-    workspaces.length > 0, // 1 → rail
-    cardGraphs.size > 0, // 2 → graph slot
-    true, // 3 → terminal / inbox
-  ]);
+  const {
+    graph,
+    graphLoading,
+    layoutEpoch,
+    cardGraphs,
+    cardsLoaded,
+    indexing,
+  } = graphs;
 
   // event log per workspace, feeding the replay scrubber. logRev exists only to
   // re-render the bar as events arrive — the log itself stays in a ref so an
@@ -455,6 +452,51 @@ export default function App() {
   const fleetStatuses = useMemo(
     () => statuses.filter((s) => fleet.some((w) => w.id === s.workspaceId)),
     [statuses, fleet],
+  );
+
+  // Reading order: chrome, then the rail, then the graph, then the terminal.
+  // Stage 3's signal is a constant — nothing needs to load for the terminal
+  // panel, it is last because it should be last.
+  //
+  // Stage 2 waits for the card pass to *settle*, not for a graph to exist: a
+  // scan that comes back empty is an answer, and gating on `cardGraphs.size`
+  // instead made the 1200ms fallback the normal path for every slow index —
+  // the slot then faded in over nothing and the real graph arrived after it,
+  // unanimated.
+  //
+  // The holds are how long each stage's own entrance runs, so nothing starts
+  // over something still moving. Only the cards view staggers inside the slot;
+  // the ring and fleet views are a single fade.
+  // Stage 0 also waits for a frame that actually reached the screen. Settings
+  // resolve within a few ms of mount, so the entrance used to start while the
+  // renderer was still evaluating its startup work — xterm, the PTY, the first
+  // graph fetches — and a compositor animation that never gets a first frame is
+  // an animation nobody sees. Two rAFs is the wait: the callbacks queue behind
+  // whatever is blocking the main thread, so the second one lands after it.
+  const [painted, setPainted] = useState(false);
+  useEffect(() => {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setPainted(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+
+  const stage = useBootStage(
+    [
+      settingsReady && painted, // 0 → header + bezel
+      workspaces.length > 0, // 1 → rail
+      cardsLoaded, // 2 → graph slot
+      true, // 3 → terminal / inbox
+    ],
+    [
+      ENTER_MS,
+      runMs(railSeats(fleet)),
+      runMs(showHome && homeView === "cards" ? fleet.length : 1),
+    ],
   );
 
   const hands = useHandControl({
@@ -871,7 +913,11 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-abyss">
-      <div className={"absolute inset-0" + (stage >= 2 ? " boot-fade" : "")}>
+      <div
+        className={
+          "absolute inset-0" + (stage >= 2 ? " boot-fade" : " boot-hold")
+        }
+      >
         <GraphSlot>
           {({ width, height }) =>
             showHome ? (
@@ -932,6 +978,7 @@ export default function App() {
                       showOrphans: settings.showOrphans,
                     }}
                     now={cardNow}
+                    stagger={stage >= 2}
                     indexing={indexing}
                     onIndex={graphs.indexProject}
                     onSelect={(ws) => {
@@ -1015,13 +1062,13 @@ export default function App() {
       {showHome ? (
         <HomeHeader
           statuses={fleetStatuses}
-          enterClass={stage >= 0 ? "boot-in" : undefined}
+          enterClass={stage >= 0 ? "boot-in" : "boot-hold"}
         >
           {homeViewToggle}
           {graphButtons}
         </HomeHeader>
       ) : (
-        <div className={TOP_ROW + (stage >= 0 ? " boot-in" : "")}>
+        <div className={TOP_ROW + (stage >= 0 ? " boot-in" : " boot-hold")}>
           {active?.kind === "code" && (
             <Segmented
               options={GRAPH_LEVEL_OPTIONS}
@@ -1034,8 +1081,9 @@ export default function App() {
           {graphButtons}
         </div>
       )}
-      <div className={stage >= 0 ? "boot-fade" : undefined}>
+      <div className={stage >= 0 ? "boot-fade" : "boot-hold"}>
         <Bezel
+          enterClass={stage >= 0 ? "boot-frame" : undefined}
           title={`JARVIS · V${appVersion}`}
           telemetry={telemetry}
           footRight={footRight}
@@ -1053,6 +1101,7 @@ export default function App() {
                   onRig={setRigKind}
                   onHeadError={setHeadError}
                   onColoured={setHeadColoured}
+                  visible={stage >= 0}
                 />
               ) : null}
               {showHome ? null : (
@@ -1104,7 +1153,7 @@ export default function App() {
             state={panelState("terminal")}
             focused={focusedPanel === "terminal"}
             hidden={deckCleared}
-            enterClass={stage >= 3 ? "boot-in" : undefined}
+            enterClass={stage >= 3 ? "boot-in" : "boot-hold"}
             onChange={(next) => setPanel("terminal", next)}
             onFocus={() => focusPanel("terminal")}
           >
@@ -1113,40 +1162,43 @@ export default function App() {
               live={statuses.some((s) => s.workspaceId === ws.id && s.live)}
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
+              visible={stage >= 3}
             />
           </Panel>
         );
       })()}
 
-      {showSettings && (
-        <Panel
-          id="settings"
-          title="GRAPH SETTINGS"
-          state={{ ...panelState("settings"), z: SETTINGS_Z }}
-          focused={focusedPanel === "settings"}
-          hidden={deckCleared}
-          onChange={(next) => setPanel("settings", next)}
-          onFocus={() => focusPanel("settings")}
-          onClose={() => setShowSettings(false)}
-        >
-          <GraphSettingsPanel
-            settings={settings}
-            activeId={active?.id ?? null}
-            search={search}
-            onSearchChange={setSearch}
-            onSettingsChange={updateSettings}
-            onHandControl={setHandControl}
-            onVoiceControl={setVoiceControl}
-            onResetHighlights={() => resetHighlights(stateRef.current)}
-            showSections={active?.kind !== "code"}
-            rigKind={rigKind}
-            mouthOn={mouthOn(settings)}
-            headError={headError}
-            headColoured={headColoured}
-            onPickMouth={() => setShowMouthPicker(true)}
-          />
-        </Panel>
-      )}
+      {/* rendered whether or not it is open: the ⚙ closes this panel from
+          outside its title bar, and a panel React has already unmounted has no
+          exit left to play. `open` runs it, then Panel drops to null itself. */}
+      <Panel
+        id="settings"
+        title="GRAPH SETTINGS"
+        open={showSettings}
+        state={{ ...panelState("settings"), z: SETTINGS_Z }}
+        focused={focusedPanel === "settings"}
+        hidden={deckCleared}
+        onChange={(next) => setPanel("settings", next)}
+        onFocus={() => focusPanel("settings")}
+        onClose={() => setShowSettings(false)}
+      >
+        <GraphSettingsPanel
+          settings={settings}
+          activeId={active?.id ?? null}
+          search={search}
+          onSearchChange={setSearch}
+          onSettingsChange={updateSettings}
+          onHandControl={setHandControl}
+          onVoiceControl={setVoiceControl}
+          onResetHighlights={() => resetHighlights(stateRef.current)}
+          showSections={active?.kind !== "code"}
+          rigKind={rigKind}
+          mouthOn={mouthOn(settings)}
+          headError={headError}
+          headColoured={headColoured}
+          onPickMouth={() => setShowMouthPicker(true)}
+        />
+      </Panel>
 
       {(() => {
         const ws = showHome ? orchestrator : active;

@@ -12,6 +12,7 @@ import type { GraphFilters } from "../graph/graph-filter";
 import MiniGraph from "../graph/MiniGraph";
 import { hueOfWorkspace } from "../graph/workspace-color";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
+import { LIST_STEP_MS } from "../ui/boot-stage";
 import { relativeTime } from "./relative-time";
 
 const CARD_W = 220;
@@ -58,6 +59,8 @@ type MissionControlProps = {
   // keyed by workspace id; absent means idle
   indexing: Record<string, { state: IndexState; error?: string }>;
   onIndex: (workspaceId: string) => void;
+  /** Play the entrance run across the cards. App passes `stage >= 2`. */
+  stagger?: boolean;
 };
 
 // Every workspace at a glance. Presentation only — the status array arrives
@@ -75,8 +78,19 @@ export default function MissionControl({
   onSelect,
   indexing,
   onIndex,
+  stagger,
 }: MissionControlProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
+  // same shape as the rail's run: held closed until the stage opens, then one
+  // card every LIST_STEP_MS. The delay counts across the whole wrapped grid,
+  // so the run reads left-to-right down the rows rather than per row.
+  const enter = (index: number) =>
+    stagger
+      ? {
+          className: " boot-in",
+          style: { animationDelay: `${index * LIST_STEP_MS}ms` },
+        }
+      : { className: " boot-hold", style: undefined };
 
   return (
     // pt clears the App-level HomeHeader and pl the WorkspaceRail — both float
@@ -84,7 +98,8 @@ export default function MissionControl({
     // would otherwise sit underneath them.
     <div className="h-full overflow-y-auto pl-[72px] pr-5 pt-12 pb-5">
       <div className="flex flex-wrap gap-3.5">
-        {workspaces.map((ws) => {
+        {workspaces.map((ws, i) => {
+          const e = enter(i);
           const st = byId.get(ws.id);
           const kind: StatusKind = st?.kind ?? "none";
           const g = graphs.get(ws.id);
@@ -113,14 +128,15 @@ export default function MissionControl({
                   onSelect(ws);
                 }
               }}
-              style={{ width: CARD_W + 26 }}
+              style={{ width: CARD_W + 26, ...e.style }}
               className={
                 "flex cursor-pointer flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:border-accent " +
                 (kind === "asking" || kind === "blocked"
                   ? "border-warm"
                   : kind === "crashed"
                     ? "border-alarm"
-                    : "border-edge")
+                    : "border-edge") +
+                e.className
               }
             >
               <div className="flex items-center justify-between gap-2">

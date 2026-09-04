@@ -3,7 +3,9 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import WorkspaceRail from "../../src/renderer/home/WorkspaceRail";
+import WorkspaceRail, {
+  railSeats,
+} from "../../src/renderer/home/WorkspaceRail";
 import type { Workspace, WorkspaceStatus } from "../../src/shared/types";
 
 const WS = {
@@ -409,8 +411,9 @@ describe("boot stagger", () => {
       />,
     );
 
-  it("adds no class and no delay when stagger is absent", () => {
+  it("holds the column closed when stagger is absent", () => {
     const html = render(undefined);
+    expect(html).toContain("boot-hold");
     expect(html).not.toContain("boot-in");
     expect(html).not.toContain("animation-delay");
   });
@@ -430,5 +433,17 @@ describe("boot stagger", () => {
     const html = render(true);
     // 1 home + 3 captions + 3 workspaces + 1 add
     expect(html.split("boot-in").length - 1).toBe(8);
+  });
+
+  // the boot sequence holds the graph slot for runMs(railSeats), so this
+  // number has to stay one past the highest delay the column actually renders
+  it("counts one seat past the last delay the column renders", () => {
+    const seats = railSeats(workspaces);
+    expect(seats).toBe(8); // ⌂ + 3 captions + 3 workspaces + ＋
+    expect(render(true)).toContain(`animation-delay:${(seats - 1) * 60}ms`);
+  });
+
+  it("counts the two bracket buttons when there are no workspaces", () => {
+    expect(railSeats([])).toBe(2);
   });
 });

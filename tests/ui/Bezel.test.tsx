@@ -26,6 +26,35 @@ describe("Bezel", () => {
     expect(html).toContain("hud-c4");
   });
 
+  it("puts the entrance on the frame alone, not on a readout", () => {
+    // a transform on the wrapper would scale the scrubber and the voice head,
+    // so only the corner frame carries the lock-on
+    const el = Bezel({
+      ...PROPS,
+      enterClass: "boot-frame",
+    }) as React.ReactElement;
+    const layers = React.Children.toArray(el.props.children) as any[];
+    const cls = (n: any) => String(n?.props?.className ?? "");
+    const framed = layers.filter((n) => cls(n).includes("boot-frame"));
+    expect(framed).toHaveLength(1);
+    expect(cls(framed[0])).toContain("hud-frame");
+  });
+
+  it("writes the readouts in alongside the frame", () => {
+    // a bare opacity fade on 11px dim type is not something you can see happen
+    const html = renderToStaticMarkup(
+      <Bezel {...PROPS} enterClass="boot-frame" />,
+    );
+    // title, telemetry, tick rail, footRight
+    expect(html.split("boot-slide").length - 1).toBe(4);
+  });
+
+  it("carries no entrance class when none is given", () => {
+    const html = renderToStaticMarkup(<Bezel {...PROPS} />);
+    expect(html).not.toContain("boot-frame");
+    expect(html).not.toContain("boot-slide");
+  });
+
   it("makes every chrome layer pointer-transparent except footLeft", () => {
     // asserting the string appears *somewhere* proves nothing — the vignette
     // alone would satisfy it while four labels silently block the graph

@@ -12,5 +12,12 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "jsx": "react-jsx"
-  }
+  },
+  "include": [
+    "src",
+    "tests",
+    "forge.env.d.ts",
+    "forge.config.ts",
+    "vite.*.config.ts"
+  ]
 }

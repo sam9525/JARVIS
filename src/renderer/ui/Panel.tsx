@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PanelId, PanelState } from "../../shared/types";
 import { CAPBAR, FRAME, LBL_CY, panelClass } from "./hud";
 import {
@@ -9,6 +9,11 @@ import {
   type ResizeEdge,
 } from "./panel-layout";
 import { usePanelDrag, viewport } from "./use-panel-drag";
+
+/** .panel-out's duration in index.css — the two have to agree */
+export const PANEL_OUT_MS = 220;
+/** .panel-fold's transition duration in index.css — likewise */
+export const FOLD_MS = 220;
 
 // Every border is a resize handle. The strips are invisible and sit outside the
 // body's rounded corners, so the only visible affordance stays the SE grip.
@@ -29,6 +34,13 @@ type PanelProps = {
   state: PanelState;
   focused: boolean;
   hidden?: boolean;
+  /**
+   * Whether the owner wants this panel on screen. Omitted means yes — a panel
+   * the owner mounts and unmounts itself. Pass it (and render the Panel
+   * unconditionally) when a control outside the title bar closes the panel, so
+   * the exit has something left to play on.
+   */
+  open?: boolean;
   /**
    * Collapse to this width, keeping the body, instead of to the title bar.
    * Home's terminal uses it to shrink to an inbox strip — the fleet's state is
@@ -65,6 +77,7 @@ export default function Panel({
   state,
   focused,
   hidden,
+  open,
   compactWidth,
   foldTo = "right",
   enterClass,
@@ -73,6 +86,76 @@ export default function Panel({
   onClose,
   children,
 }: PanelProps) {
+  // Every way out plays the same exit, and the panel stays on screen while it
+  // runs: ✕ hands the unmount to the owner at the end, and `hidden` (the deck)
+  // or `open === false` (the ⚙ toggling its own panel shut) drop to null here.
+  // `gone` is what ends those two — the prop that closed them stays set, so
+  // there is nothing else to say the exit is over.
+  //
+  // `open` is why the owner renders this unconditionally rather than behind a
+  // `&&`: a panel React has already unmounted has no exit left to play.
+  //
+  // A timer rather than `animationend`: that event never fires if the animation
+  // is interrupted or switched off, and a panel that missed its own close stays
+  // on screen for good. The cost is this number agreeing with .panel-out in
+  // index.css, which is the same trade ENTER_MS already makes.
+  const [closing, setClosing] = useState(false);
+  const [gone, setGone] = useState(open === false);
+  const leaving = closing || !!hidden || open === false;
+  // The owner passes `onClose` as an inline arrow, so it is a new identity on
+  // every one of its renders. Read through a ref instead of depending on it: as
+  // a dep it would clear and re-arm the exit timer each render, and an owner
+  // that re-renders faster than PANEL_OUT_MS would never let it fire.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!leaving) {
+      setGone(false); // it came back: this panel may enter again
+      return;
+    }
+    if (gone) return; // the exit already ran; `open === false` keeps `leaving` up
+    const t = setTimeout(() => {
+      // `closing` is what says ✕ started this rather than the owner, and it has
+      // to be dropped here: an instance the owner keeps mounted — the settings
+      // panel — would otherwise hold `leaving` true for good and never reopen.
+      if (closing) {
+        setClosing(false);
+        onCloseRef.current?.();
+      }
+      setGone(true);
+    }, PANEL_OUT_MS);
+    return () => clearTimeout(t);
+  }, [leaving, closing, gone]);
+
+  // Folding animates the box; a drag or a resize must not, or it lags the
+  // pointer by the transition's whole duration. So the transition is armed for
+  // the fold alone, and only for as long as the fold takes.
+  //
+  // Armed during render, not in an effect. An effect runs after the commit that
+  // already changed the height, so the class would land a frame late — with the
+  // property at its new value and nothing left to transition, which is a fold
+  // that snaps. Comparing against a state copy of the last value is React's own
+  // way to derive state from props mid-render: the re-render happens before the
+  // browser sees either change, so the class and the new geometry land together.
+  //
+  // `foldSeq` counts folds rather than tracking a boolean, so a second fold
+  // started inside the first one's window restarts the timer. On `[folding]`
+  // alone the dep never changed, and the first timer stripped the class partway
+  // through the second fold — which then snapped.
+  const [folding, setFolding] = useState(false);
+  const [foldSeq, setFoldSeq] = useState(0);
+  const [wasCollapsed, setWasCollapsed] = useState(state.collapsed);
+  if (wasCollapsed !== state.collapsed) {
+    setWasCollapsed(state.collapsed);
+    setFolding(true);
+    setFoldSeq((n) => n + 1);
+  }
+  useEffect(() => {
+    if (!folding) return;
+    const t = setTimeout(() => setFolding(false), FOLD_MS);
+    return () => clearTimeout(t);
+  }, [folding, foldSeq]);
+
   const compact = state.collapsed && compactWidth !== undefined;
   const width = compact ? compactWidth : state.collapsed ? undefined : state.w;
   // A minimized panel shrink-wraps to its title bar, so it is the only thing
@@ -108,14 +191,20 @@ export default function Panel({
       : onChange,
   });
   // clear-the-deck: unmounting is deliberate — a hidden terminal keeps its
-  // xterm instance in the module-level map either way, so nothing is lost
-  if (hidden) return null;
+  // xterm instance in the module-level map either way, so nothing is lost. It
+  // waits for the exit first; `gone` is set PANEL_OUT_MS after the prop went up.
+  if (gone) return null;
   return (
     <div
       ref={ref}
       data-testid={`panel-${id}`}
+      // a panel with no boot stage of its own just enters when it opens
       className={
-        "absolute " + panelClass(focused) + (enterClass ? " " + enterClass : "")
+        "absolute " +
+        panelClass(focused) +
+        " " +
+        (leaving ? "panel-out" : (enterClass ?? "panel-in")) +
+        (folding ? " panel-fold" : "")
       }
       style={{
         left: state.x + dx,
@@ -159,7 +248,7 @@ export default function Panel({
               title="Close"
               className="cursor-pointer text-[10px] text-ink-dim hover:text-accent"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={onClose}
+              onClick={() => setClosing(true)}
             >
               ✕
             </button>

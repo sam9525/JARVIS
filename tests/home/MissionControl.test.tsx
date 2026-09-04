@@ -403,3 +403,20 @@ describe("six status kinds on a card", () => {
     expect(labelOf("idle")).toContain("border-edge");
   });
 });
+
+describe("boot stagger", () => {
+  const html = (stagger?: boolean) =>
+    renderToStaticMarkup(<MissionControl {...(props({ stagger }) as any)} />);
+
+  it("holds the cards closed when stagger is absent", () => {
+    expect(html(undefined)).toContain("boot-hold");
+    expect(html(undefined)).not.toContain("boot-in");
+  });
+
+  it("gives every card the boot-in class and its own delay", () => {
+    const out = html(true);
+    expect(out.split("boot-in").length - 1).toBe(2); // one per workspace
+    expect(out).toContain("animation-delay:0ms");
+    expect(out).toContain("animation-delay:60ms");
+  });
+});

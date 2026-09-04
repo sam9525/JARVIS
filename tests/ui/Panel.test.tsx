@@ -178,8 +178,12 @@ describe("Panel", () => {
     expect(right.props.style.left).toBe(state.x + state.w - 200);
   });
 
-  it("renders nothing when the deck is cleared", () => {
-    expect(Panel({ ...base, hidden: true })).toBeNull();
+  it("plays the exit when the deck is cleared", () => {
+    // the node is dropped PANEL_OUT_MS later; this suite's fake useState never
+    // advances, so tests/ui/Panel.close.test.tsx covers the drop itself
+    const el = Panel({ ...base, hidden: true }) as any;
+    expect(el).not.toBeNull();
+    expect(String(el.props.className)).toContain("panel-out");
   });
 
   it("collapses through onChange when the caret is clicked", () => {

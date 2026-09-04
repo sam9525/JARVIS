@@ -113,6 +113,7 @@ export default function TerminalPanel({
   live,
   inbox,
   inboxOnly,
+  visible,
 }: {
   workspace: Workspace;
   // main spawns the main agent's pty at boot, so this panel never saw that
@@ -124,6 +125,11 @@ export default function TerminalPanel({
   inbox?: { workspaces: Workspace[]; statuses: WorkspaceStatus[] };
   // the collapsed home panel: the fleet's state stays, the session goes away
   inboxOnly?: boolean;
+  // Whether the panel around this is on screen yet. The boot sequence holds it
+  // closed with `visibility: hidden`, and nothing inside a hidden subtree can
+  // take focus — so the focus call waits for this rather than firing at mount
+  // into a no-op and never running again. Absent means visible.
+  visible?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -224,11 +230,18 @@ export default function TerminalPanel({
       window.jarvis.ptyResize(workspace.id, e.term.cols, e.term.rows);
     };
     refit();
-    e.term.focus();
     const observer = new ResizeObserver(refit);
     observer.observe(host);
     return () => observer.disconnect();
   }, [workspace.id]);
+
+  // Separate from the mount effect above, and keyed on visibility: the boot
+  // sequence holds this panel behind `visibility: hidden` until its stage, and
+  // a focus call inside a hidden subtree is a silent no-op.
+  useEffect(() => {
+    if (visible === false) return;
+    entryFor(workspace.id).term.focus();
+  }, [workspace.id, visible]);
 
   const launch = (dangerous = false) => {
     const e = entryFor(workspace.id);

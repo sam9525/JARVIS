@@ -45,6 +45,11 @@ export function useWorkspaceGraphs({
   const [layoutEpoch, setLayoutEpoch] = useState(0);
   const [fleetEpoch, setFleetEpoch] = useState(0); // ↻ re-fits the fleet graph
   const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
+  // the first card pass has finished — every workspace loaded or failed. The
+  // boot entrance gates the graph slot on this rather than on `cardGraphs.size`,
+  // so a fleet whose scans all come back empty still opens the slot (and the
+  // "index this project" panel inside it) instead of waiting out the fallback.
+  const [cardsLoaded, setCardsLoaded] = useState(false);
   // per-workspace indexing state, shared by the cards and the graph slot so
   // the two can never disagree about what a project is doing
   const [indexing, setIndexing] = useState<
@@ -113,7 +118,9 @@ export function useWorkspaceGraphs({
           console.error("card graph failed for", ws.id, err);
         }
       }),
-    );
+    ).then(() => {
+      if (!cancelled) setCardsLoaded(true);
+    });
     return () => {
       cancelled = true;
     };
@@ -227,6 +234,7 @@ export function useWorkspaceGraphs({
     layoutEpoch,
     fleetEpoch,
     cardGraphs,
+    cardsLoaded,
     indexing,
     applyWatchedGraph,
     refresh,

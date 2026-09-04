@@ -6,6 +6,7 @@ import type {
   StatusKind,
 } from "../../shared/types";
 import { BTN, BTN_IDLE, LBL_DIM, pipClass } from "../ui/hud";
+import { LIST_STEP_MS } from "../ui/boot-stage";
 
 type WorkspaceRailProps = {
   workspaces: Workspace[];
@@ -39,8 +40,18 @@ const LABEL: Record<StatusKind, string> = {
   none: "no session",
 };
 
-// gap between two rail buttons entering; the whole column, not per group
-const RAIL_STEP_MS = 60;
+/**
+ * How many entrance slots the column has, so the boot sequence can hold the
+ * next stage until this run finishes. The ⌂ and ＋ buttons bracket the list,
+ * and each source caption takes a slot of its own — it shares the delay of the
+ * button below it, but the run still steps past it. Slot 1 is skipped: the
+ * first group's `++seat` steps over it, which leaves one 60ms hole between the
+ * ⌂ and the first caption and is why this counts slots rather than elements.
+ */
+export function railSeats(workspaces: Workspace[]): number {
+  const sources = new Set(workspaces.map((ws) => ws.sourceId));
+  return 2 + sources.size + workspaces.length;
+}
 
 function groupBySource(workspaces: Workspace[]): Array<[string, Workspace[]]> {
   const groups = new Map<string, Workspace[]>();
@@ -72,9 +83,11 @@ export default function WorkspaceRail({
     stagger
       ? {
           className: " boot-in",
-          style: { animationDelay: `${index * RAIL_STEP_MS}ms` },
+          style: { animationDelay: `${index * LIST_STEP_MS}ms` },
         }
-      : { className: "", style: undefined };
+      : // held closed, not just unanimated: the ⌂ button paints from the first
+        // frame, so leaving it visible means it blinks out when `boot-in` lands
+        { className: " boot-hold", style: undefined };
 
   return (
     <div className="flex w-14 flex-none flex-col items-center gap-3 pt-[88px]">

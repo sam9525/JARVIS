@@ -87,8 +87,16 @@ export default function VoiceWave({
   onRig,
   onHeadError,
   onColoured,
+  visible,
 }: {
   headModel?: string;
+  /**
+   * Whether the bezel around this is open yet. The entrance waits for it: this
+   * sits inside the bezel's `boot-hold`, and on a slow boot the whole 480ms
+   * would elapse behind `visibility: hidden` and the head would just appear.
+   * Absent means visible — the mid-session 🎤 mounts straight onto the screen.
+   */
+  visible?: boolean;
   colour?: boolean;
   mouth?: boolean;
   mouthRegion?: MouthRegion;
@@ -509,7 +517,13 @@ export default function VoiceWave({
   return (
     <div
       data-testid="voice-wave"
-      className="pointer-events-none flex w-max flex-col gap-1"
+      // Head and wave enter as one instrument — splitting them would run past
+      // the 480 ms hold stage 0 gives the bezel. The class lands when the bezel
+      // opens rather than at mount, so the run is never spent behind its hold.
+      className={
+        (visible === false ? "" : "boot-in ") +
+        "pointer-events-none flex w-max flex-col gap-1"
+      }
     >
       {/* The keys are what make this a swap rather than a reuse. Both branches
           are a <canvas> in the same slot, so React would keep the same DOM node
