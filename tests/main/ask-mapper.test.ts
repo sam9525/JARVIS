@@ -31,7 +31,7 @@ describe("mapAskEvent", () => {
     expect(out!.sessionId).toBe("s1");
   });
 
-  it("returns null for the matching PostToolUse — the answer landed", () => {
+  it("clears only its own workspace on the matching PostToolUse", () => {
     const out = mapAskEvent(
       {
         ...base,
@@ -41,7 +41,10 @@ describe("mapAskEvent", () => {
       },
       workspaces,
     );
-    expect(out).toBeNull();
+    expect(out).not.toBeUndefined();
+    expect(out!.questions).toHaveLength(0);
+    expect(out!.workspaceId).toBe(workspaces[0].id);
+    expect(out!.sessionId).toBe("s1");
   });
 
   it("returns undefined for every unrelated event", () => {

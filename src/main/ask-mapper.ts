@@ -61,19 +61,27 @@ function toQuestions(v: unknown): AskQuestion[] {
  * Third, independent mapper: same raw payload as mapHookEvent and
  * mapStatusEvent, a third question — "what is this workspace asking".
  *
- * Three return values, because two would conflate two different answers:
- * `undefined` means this event is not about questions and nothing should
- * change; `null` means the question is over and the panel should close.
+ * Two return values: `undefined` means this event is not about questions and
+ * nothing should change; a prompt with no questions means *this* workspace's
+ * question is over. The clear carries a workspace id like every other prompt
+ * does, because a fleet can hold several open questions at once and answering
+ * one must not close the rest.
  */
 export function mapAskEvent(
   raw: RawHookEvent,
   workspaces: Workspace[],
-): AskPrompt | null | undefined {
+): AskPrompt | undefined {
   if (raw.tool_name !== "AskUserQuestion") return undefined;
   if (!raw.session_id || !raw.cwd) return undefined;
   const ws = resolveWorkspace(workspaces, raw.cwd);
   if (!ws) return undefined;
-  if (raw.hook_event_name === "PostToolUse") return null;
+  if (raw.hook_event_name === "PostToolUse")
+    return {
+      workspaceId: ws.id,
+      sessionId: raw.session_id,
+      questions: [],
+      ts: Date.now(),
+    };
   if (raw.hook_event_name !== "PreToolUse") return undefined;
   const questions = toQuestions((raw.tool_input ?? {}).questions);
   // an empty panel is worse than no panel

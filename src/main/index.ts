@@ -444,14 +444,10 @@ app.whenReady().then(async () => {
     () => workspaces,
     orchestrator,
     (p) => {
-      if (p === null) {
-        // a clear carries no workspace id of its own — the renderer clears by
-        // the id it is holding, so send the whole map's removal explicitly
-        for (const id of [...asks.keys()]) asks.delete(id);
-        send("ask", null);
-        return;
-      }
-      asks.set(p.workspaceId, p);
+      // no questions means that one workspace's question is over — several can
+      // be open across the fleet, so only its own key goes
+      if (p.questions.length === 0) asks.delete(p.workspaceId);
+      else asks.set(p.workspaceId, p);
       send("ask", p);
     },
   );

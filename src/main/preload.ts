@@ -33,8 +33,7 @@ const api = {
     subscribe<[ToolEvent]>("tool-event", cb),
   onStatus: (cb: (s: WorkspaceStatus[]) => void) =>
     subscribe<[WorkspaceStatus[]]>("status", cb),
-  onAsk: (cb: (p: AskPrompt | null) => void) =>
-    subscribe<[AskPrompt | null]>("ask", cb),
+  onAsk: (cb: (p: AskPrompt) => void) => subscribe<[AskPrompt]>("ask", cb),
   // jarvis_say → main → here. The renderer owns playback, so both mouths and
   // the dedupe against the turn-end message live in one place.
   onSay: (cb: (text: string) => void) => subscribe<[string]>("tts-say", cb),

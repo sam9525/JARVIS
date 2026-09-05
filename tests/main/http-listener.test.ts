@@ -463,7 +463,7 @@ describe("orchestrate routes added in v0.4.1", () => {
 });
 
 describe("the ask channel", () => {
-  it("pushes a prompt on PreToolUse and null on PostToolUse", async () => {
+  it("pushes a prompt on PreToolUse and an empty one on PostToolUse", async () => {
     const seen: Array<unknown> = [];
     const server = startListener(
       0,
@@ -498,7 +498,11 @@ describe("the ask channel", () => {
     server.close();
     expect(seen).toHaveLength(2);
     expect((seen[0] as { questions: unknown[] }).questions).toHaveLength(1);
-    expect(seen[1]).toBeNull();
+    // the clear names its own workspace, so answering one question in a fleet
+    // cannot close another workspace's open panel
+    const clear = seen[1] as { questions: unknown[]; workspaceId: string };
+    expect(clear.questions).toHaveLength(0);
+    expect(clear.workspaceId).toBe(workspaces[0].id);
   });
 
   it("never calls onAsk for an unrelated event", async () => {

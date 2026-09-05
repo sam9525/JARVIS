@@ -361,7 +361,7 @@ export default function App() {
       window.jarvis.onAsk?.((p) => {
         setAsks((prev) => {
           const next = new Map(prev);
-          if (p === null) next.clear();
+          if (p.questions.length === 0) next.delete(p.workspaceId);
           else next.set(p.workspaceId, p);
           return next;
         });

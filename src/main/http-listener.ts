@@ -50,7 +50,7 @@ export function startListener(
   orchestrator: OrchestratorLike,
   // optional so existing callers and tests keep compiling; a build without a
   // renderer simply drops questions on the floor
-  onAsk?: (p: AskPrompt | null) => void,
+  onAsk?: (p: AskPrompt) => void,
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -98,7 +98,7 @@ export function startListener(
         // never take another's output with it
         try {
           const a = mapAskEvent(raw, ws);
-          // undefined = not about questions; null = the question is over
+          // undefined = not about questions; no questions = that one is over
           if (a !== undefined) onAsk?.(a);
         } catch {
           /* ask mapping failed — highlights and status already went out */
