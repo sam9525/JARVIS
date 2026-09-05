@@ -60,9 +60,9 @@ describe("extractImpact", () => {
   it("returns an empty array for junk, and never throws", () => {
     expect(extractImpact(null)).toEqual([]);
     expect(extractImpact("not json")).toEqual([]);
-    expect(extractImpact({ content: [{ type: "text", text: "{oops" }] })).toEqual(
-      [],
-    );
+    expect(
+      extractImpact({ content: [{ type: "text", text: "{oops" }] }),
+    ).toEqual([]);
     expect(extractImpact(42)).toEqual([]);
   });
 });

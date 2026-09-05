@@ -77,7 +77,8 @@ export function pipClass(kind: StatusKind, active: boolean): string {
   if (kind === "asking")
     return PIP + " border-warm text-warm hud-glow-warm" + live;
   if (kind === "blocked") return PIP + " border-warm text-warm" + live;
-  if (kind === "working") return PIP + " border-accent/60 text-accent/80" + live;
+  if (kind === "working")
+    return PIP + " border-accent/60 text-accent/80" + live;
   if (kind === "crashed") return PIP + " border-alarm text-alarm";
   return (
     PIP + " border-edge text-ink-dim hover:border-accent hover:text-accent"

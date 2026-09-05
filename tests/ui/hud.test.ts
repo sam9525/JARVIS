@@ -104,4 +104,3 @@ describe("pipClass over six kinds", () => {
     expect(pipClass("asking", true)).toContain("border-accent");
   });
 });
-

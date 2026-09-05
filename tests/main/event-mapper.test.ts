@@ -483,4 +483,3 @@ describe("Impact", () => {
     ).toBeNull();
   });
 });
-

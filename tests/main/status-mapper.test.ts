@@ -266,9 +266,9 @@ describe("six status kinds", () => {
   });
 
   it("maps a permission prompt to blocked, not waiting", () => {
-    expect(mapStatusEvent(fixture("notification-permission"), workspaces)?.kind).toBe(
-      "blocked",
-    );
+    expect(
+      mapStatusEvent(fixture("notification-permission"), workspaces)?.kind,
+    ).toBe("blocked");
   });
 
   it("maps AskUserQuestion to asking, not working", () => {
@@ -319,4 +319,3 @@ describe("six status kinds", () => {
     expect(out?.call).toBe("AskUserQuestion");
   });
 });
-
