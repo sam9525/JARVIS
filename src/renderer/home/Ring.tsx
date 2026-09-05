@@ -363,7 +363,7 @@ export default function Ring({
               (dragging
                 ? "transition-opacity "
                 : "transition-[transform,opacity] duration-300 ease-out ") +
-              (kind === "waiting"
+              (kind === "asking" || kind === "blocked"
                 ? "border-warm"
                 : t.centered
                   ? "border-accent"

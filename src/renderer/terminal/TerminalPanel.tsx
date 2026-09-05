@@ -18,17 +18,22 @@ type Status =
 
 type Entry = { term: Terminal; fit: FitAddon; el: HTMLDivElement };
 
-// same state colors the rail badges and inbox dots use — amber is "waiting"
+// same state colors the rail badges and inbox dots use — amber is waiting on
+// you (asking or blocked), red is a session that died
 const PILL: Record<StatusKind, string> = {
-  waiting: "border-warm/30 bg-warm/10 text-warm",
-  running: "border-accent/30 bg-accent/10 text-accent",
+  working: "border-accent/30 bg-accent/10 text-accent",
+  asking: "border-warm/30 bg-warm/10 text-warm",
+  blocked: "border-warm/30 bg-warm/10 text-warm",
   idle: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
+  crashed: "border-alarm/30 bg-alarm/10 text-alarm",
   none: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
 };
 const PILL_LABEL: Record<StatusKind, string> = {
-  waiting: "waiting on you",
-  running: "running",
+  working: "working",
+  asking: "asking you",
+  blocked: "waiting on you",
   idle: "idle",
+  crashed: "crashed",
   none: "idle",
 };
 /**
@@ -64,9 +69,11 @@ const MODELS = [
 ];
 
 const BAR: Record<StatusKind, string> = {
-  waiting: "from-warm",
-  running: "from-accent",
+  working: "from-accent",
+  asking: "from-warm",
+  blocked: "from-warm",
   idle: "from-ink-dim",
+  crashed: "from-alarm",
   none: "from-ink-dim",
 };
 

@@ -847,8 +847,9 @@ export default function App() {
 
   const telemetry = showHome
     ? `COMMAND CENTER · ${fleet.length} WORKSPACES · ` +
-      `${fleetStatuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
-      `${fleetStatuses.filter((s) => s.kind === "running").length} RUNNING`
+      `${fleetStatuses.filter((s) => s.kind === "asking").length} ASKING · ` +
+      `${fleetStatuses.filter((s) => s.kind === "blocked").length} BLOCKED · ` +
+      `${fleetStatuses.filter((s) => s.kind === "working").length} WORKING`
     : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
       `EDGES ${graph.edges.length} · ` +
       `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;
