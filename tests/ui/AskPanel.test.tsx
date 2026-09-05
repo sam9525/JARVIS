@@ -15,7 +15,7 @@ vi.mock("react", async () => {
   };
 });
 
-import AskPanel from "../../src/renderer/ui/AskPanel";
+import AskPanel, { answerKeys } from "../../src/renderer/ui/AskPanel";
 import type { AskPrompt } from "../../src/main/ask-mapper";
 
 // depth-first, source order
@@ -62,7 +62,15 @@ describe("AskPanel", () => {
     expect(html.toLowerCase()).toContain("terminal");
   });
 
-  it("reports the clicked option index", () => {
+  it("homes the cursor before stepping down to the option", () => {
+    // one up per option, then one down per step — the whole contract with the
+    // TUI, and the only bytes this app ever puts into a live picker
+    expect(answerKeys(0, 3)).toBe("\x1b[A\x1b[A\x1b[A");
+    expect(answerKeys(2, 3)).toBe("\x1b[A\x1b[A\x1b[A\x1b[B\x1b[B");
+    expect(answerKeys(0, 0)).toBe("");
+  });
+
+  it("reports the clicked option's keystrokes", () => {
     const onAnswer = vi.fn();
     const tree = (
       <AskPanel prompt={prompt()} workspaceName="jarvis" onAnswer={onAnswer} />
@@ -72,7 +80,7 @@ describe("AskPanel", () => {
     );
     expect(rows).toHaveLength(2);
     rows[1].props.onClick();
-    expect(onAnswer).toHaveBeenCalledWith(1);
+    expect(onAnswer).toHaveBeenCalledWith(answerKeys(1, 2));
   });
 
   it("gives a multi-select question no click target", () => {

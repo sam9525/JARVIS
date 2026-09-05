@@ -5,9 +5,20 @@ import { LBL_DIM } from "./hud";
 type AskPanelProps = {
   prompt: AskPrompt;
   workspaceName: string;
-  /** 0-based option index of the question currently on screen */
-  onAnswer: (index: number) => void;
+  /** the keystrokes that move the TUI's cursor onto the clicked option */
+  onAnswer: (keys: string) => void;
 };
+
+/**
+ * Up to the top, then down to the option. The ups are what make the sequence
+ * safe: the panel cannot see where the TUI's cursor sits, and a picker the
+ * user already arrowed around in is not on option 0. A list that clamps at
+ * the top lands on it; a list that wraps returns to where it was, which is
+ * the position the downs alone would have assumed anyway.
+ */
+export function answerKeys(index: number, options: number): string {
+  return "\x1b[A".repeat(options) + "\x1b[B".repeat(index);
+}
 
 // Claude Code appends this itself, and it needs typed prose rather than a
 // keystroke — so its presence makes the whole question read-only.
@@ -35,7 +46,7 @@ export default function AskPanel({
     q.options.some((o) => o.label.trim().toLowerCase() === OTHER);
 
   const answer = (i: number) => {
-    onAnswer(i);
+    onAnswer(answerKeys(i, q.options.length));
     setSent(true);
     if (index < prompt.questions.length - 1) {
       setIndex(index + 1);

@@ -148,6 +148,10 @@ export default function App() {
   // workspace's question, and another workspace asking shows up as its rail
   // pip going amber.
   const [asks, setAsks] = useState<Map<string, AskPrompt>>(new Map());
+  // An answer is two writes 80 ms apart and the panel moves to the next
+  // question at once, so a second click would otherwise put its arrows in
+  // front of the first answer's Enter. Every answer queues behind the last.
+  const askWriteRef = useRef(Promise.resolve());
 
   const [focusedPanel, setFocusedPanel] = useState<PanelId>("terminal");
   const [deckCleared, setDeckCleared] = useState(false);
@@ -1228,14 +1232,16 @@ export default function App() {
             <AskPanel
               prompt={prompt}
               workspaceName={ws.name}
-              onAnswer={(i) => {
-                // down-arrow i times: the first option starts selected, and
-                // arrows are the navigation any picker accepts
-                void window.jarvis.ptyInput(ws.id, "\x1b[B".repeat(i));
-                // a SEPARATE write, 80 ms later — never merge these two
-                setTimeout(() => {
-                  void window.jarvis.ptyInput(ws.id, "\r");
-                }, 80);
+              onAnswer={(keys) => {
+                askWriteRef.current = askWriteRef.current
+                  .then(async (): Promise<void> => {
+                    await window.jarvis.ptyInput(ws.id, keys);
+                    // a SEPARATE write, 80 ms later — never merge these two
+                    await new Promise((r) => setTimeout(r, 80));
+                    await window.jarvis.ptyInput(ws.id, "\r");
+                  })
+                  // a failed write must not strand every answer behind it
+                  .catch((): void => undefined);
               }}
             />
           </Panel>
