@@ -9,7 +9,7 @@ import type { VaultGraph } from "../../src/shared/types";
 function star(nodeCount: number): VaultGraph {
   const nodes = Array.from({ length: nodeCount }, (_, i) => ({
     id: `n${i}`,
-    type: "file" as const,
+    type: "note" as const,
   }));
   return {
     nodes,

@@ -18,7 +18,7 @@ const ws = (id: string, kind: Workspace["kind"]): Workspace => ({
 });
 
 const graphOf = (...ids: string[]): VaultGraph => ({
-  nodes: ids.map((id) => ({ id, type: "file" as const })),
+  nodes: ids.map((id) => ({ id, type: "note" as const })),
   edges: [],
 });
 
@@ -155,7 +155,7 @@ describe("useWorkspaceGraphs", () => {
     const big = {
       nodes: Array.from({ length: 700 }, (_, i) => ({
         id: `s${i}`,
-        type: "file" as const,
+        type: "note" as const,
       })),
       edges: [],
     };

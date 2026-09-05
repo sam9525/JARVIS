@@ -72,7 +72,10 @@ const WS: Workspace = {
   sourceId: "gitnexus",
 };
 
-const ptyLaunch = vi.fn(async () => ({ ok: true, hooksOk: true }));
+const ptyLaunch = vi.fn(async (..._a: unknown[]) => ({
+  ok: true,
+  hooksOk: true,
+}));
 
 beforeEach(() => {
   states = [];

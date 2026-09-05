@@ -53,7 +53,7 @@ const base = {
 
 describe("Panel", () => {
   it("positions itself from its state", () => {
-    const el = Panel(base) as React.ReactElement;
+    const el = Panel(base) as React.ReactElement<any>;
     expect(el.props.style).toMatchObject({
       left: 100,
       top: 80,
@@ -99,7 +99,7 @@ describe("Panel", () => {
     expect(renderToStaticMarkup(<Panel {...base} />)).toContain(
       "panel-grip-terminal",
     );
-    const el = Panel({ ...base, state }) as React.ReactElement;
+    const el = Panel({ ...base, state }) as React.ReactElement<any>;
     expect(el.props.style.height).toBe(TITLE_BAR_H);
   });
 
@@ -109,7 +109,7 @@ describe("Panel", () => {
       ...base,
       state,
       compactWidth: 200,
-    }) as React.ReactElement;
+    }) as React.ReactElement<any>;
     expect(el.props.style.width).toBe(200);
     // narrows from the left: the right edge stays where it was
     expect(el.props.style.left).toBe(STATE.x + STATE.w - 200);
@@ -139,7 +139,7 @@ describe("Panel", () => {
       state,
       compactWidth: 200,
       onChange,
-    }) as React.ReactElement;
+    }) as React.ReactElement<any>;
     const bar = walk(el).find(
       (n: any) =>
         n.props?.onPointerDown && n.props.className?.includes?.("cursor-move"),
@@ -166,7 +166,7 @@ describe("Panel", () => {
       ...base,
       state,
       foldTo: "left",
-    }) as React.ReactElement;
+    }) as React.ReactElement<any>;
     // no translation: the fold keeps the origin and shrinks to the right
     expect(left.props.style.left).toBe(state.x);
     // the default folds the other way, holding the expanded box's right edge
@@ -174,7 +174,7 @@ describe("Panel", () => {
       ...base,
       state,
       compactWidth: 200,
-    }) as React.ReactElement;
+    }) as React.ReactElement<any>;
     expect(right.props.style.left).toBe(state.x + state.w - 200);
   });
 
@@ -226,7 +226,7 @@ describe("Panel", () => {
 
   it("raises itself on a pointer down anywhere in the panel", () => {
     const onFocus = vi.fn();
-    const el = Panel({ ...base, onFocus }) as React.ReactElement;
+    const el = Panel({ ...base, onFocus }) as React.ReactElement<any>;
     el.props.onPointerDownCapture({ stopPropagation: vi.fn() });
     expect(onFocus).toHaveBeenCalled();
   });
@@ -234,7 +234,7 @@ describe("Panel", () => {
   // the title bar and the resize handles stopPropagation to claim the drag, so
   // a bubbling focus handler would raise on a body press but not on the grip
   it("raises on the capture phase, so a title-bar drag raises too", () => {
-    const el = Panel({ ...base, onFocus: vi.fn() }) as React.ReactElement;
+    const el = Panel({ ...base, onFocus: vi.fn() }) as React.ReactElement<any>;
     expect(el.props.onPointerDownCapture).toBeDefined();
     expect(el.props.onPointerDown).toBeUndefined();
   });

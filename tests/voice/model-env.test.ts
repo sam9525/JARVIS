@@ -57,7 +57,7 @@ describe("configureModelEnv", () => {
   it("names the wasm file, not a directory prefix", () => {
     const env = browserEnv();
     configureModelEnv(env);
-    const paths = env.backends.onnx.wasm.wasmPaths;
+    const paths = env.backends.onnx.wasm!.wasmPaths;
     expect(typeof paths).toBe("object");
     expect((paths as { wasm: string }).wasm).toMatch(/\.wasm$/);
   });
@@ -68,12 +68,12 @@ describe("configureModelEnv", () => {
   it("leaves ORT on the calling thread, which is already a worker", () => {
     const env = browserEnv();
     configureModelEnv(env);
-    expect(env.backends.onnx.wasm.proxy).toBe(false);
+    expect(env.backends.onnx.wasm!.proxy).toBe(false);
   });
 
   it("asks for no .mjs, which is what Vite would refuse to serve", () => {
     const env = browserEnv();
     configureModelEnv(env);
-    expect(env.backends.onnx.wasm.wasmPaths).not.toHaveProperty("mjs");
+    expect(env.backends.onnx.wasm!.wasmPaths).not.toHaveProperty("mjs");
   });
 });

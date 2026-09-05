@@ -36,7 +36,7 @@ import {
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const ptyInput = vi.fn(() => Promise.resolve(true));
+const ptyInput = vi.fn((_id: string, _data: string) => Promise.resolve(true));
 
 function Host({
   micOn,

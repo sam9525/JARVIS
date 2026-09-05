@@ -68,7 +68,12 @@ describe("resolveRig", () => {
   });
 
   it("uses a detected region when the model has no rig", () => {
-    const rig = resolveRig(scene([]), model(), null, { c: [0, 0, 0], r: 10 });
+    const rig = resolveRig(scene([]), model(), null, {
+      c: [0, 0, 0],
+      w: 10,
+      h: 10,
+      d: 10,
+    });
     expect(rig.kind).toBe("detected");
   });
 
@@ -76,8 +81,8 @@ describe("resolveRig", () => {
     const rig = resolveRig(
       scene([morphMesh(["jawOpen"])]),
       model(),
-      { c: [0, 0, 0], r: 10 },
-      { c: [0, 0, 0], r: 10 },
+      { c: [0, 0, 0], w: 10, h: 10, d: 10 },
+      { c: [0, 0, 0], w: 10, h: 10, d: 10 },
     );
     expect(rig.kind).toBe("manual");
   });
@@ -92,7 +97,12 @@ describe("resolveRig", () => {
 
   it("moves the pose for a region tier and returns it at zero", () => {
     const m = model();
-    const rig = resolveRig(scene([]), m, { c: [0, 0, 0], r: 10 }, null);
+    const rig = resolveRig(
+      scene([]),
+      m,
+      { c: [0, 0, 0], w: 10, h: 10, d: 10 },
+      null,
+    );
     rig.apply(1);
     expect([...m.pose]).not.toEqual([...m.verts]);
     rig.apply(0);

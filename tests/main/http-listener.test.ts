@@ -282,6 +282,8 @@ describe("orchestrate routes", () => {
           throw new Error("snapshot exploded");
         },
         send: () => ({ ok: true as const }),
+        watch: () => Promise.resolve(null),
+        say: () => ({ ok: true as const }),
       },
     );
     await new Promise((r) => server.once("listening", r));

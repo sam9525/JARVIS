@@ -14,6 +14,7 @@ const ws = (id: string): Workspace => ({
   name: id,
   rootPath: `D:\\proj\\${id}`,
   kind: "code",
+  sourceId: "gitnexus",
 });
 
 function fakePty() {

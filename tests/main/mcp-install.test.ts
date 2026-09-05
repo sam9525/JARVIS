@@ -14,6 +14,7 @@ async function tmpSelf(): Promise<Workspace> {
     name: "JARVIS",
     rootPath: root,
     kind: "code",
+    sourceId: "gitnexus",
     isSelf: true,
   };
 }
@@ -25,6 +26,7 @@ async function tmpDelegate(): Promise<Workspace> {
     name: "AeroGraph",
     rootPath: root,
     kind: "code",
+    sourceId: "gitnexus",
   };
 }
 
@@ -78,7 +80,12 @@ describe("ensureMcp", () => {
       fs.access(path.join(ws.rootPath, ".mcp.json")),
     ).rejects.toThrow();
 
-    const vault: Workspace = { ...ws, name: "Obsidian-valut", kind: "vault" };
+    const vault: Workspace = {
+      ...ws,
+      name: "Obsidian-valut",
+      kind: "vault",
+      sourceId: "vault",
+    };
     expect(await ensureMcp(vault, MCP_PATH)).toBe(true);
     await expect(
       fs.access(path.join(ws.rootPath, ".mcp.json")),

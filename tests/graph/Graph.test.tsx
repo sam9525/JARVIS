@@ -78,7 +78,17 @@ describe("Graph component", () => {
       graph,
       domains: ["physics"],
       groups: [],
-      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      display: {
+        textFadeThreshold: 10,
+        nodeSize: 2,
+        linkThickness: 3,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+        haloOpacity: 0.55,
+        focusZoom: 6.8,
+      },
       forces: {
         centerStrength: 1,
         repelStrength: 30,
@@ -89,6 +99,10 @@ describe("Graph component", () => {
       onNodeClick: () => {
         return;
       },
+      focusNode: null,
+      layoutEpoch: 0,
+      width: 800,
+      height: 600,
     });
 
     // Check that we got a valid React element
@@ -127,7 +141,17 @@ describe("Graph component", () => {
       graph,
       domains: ["physics"],
       groups: [],
-      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      display: {
+        textFadeThreshold: 10,
+        nodeSize: 2,
+        linkThickness: 3,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+        haloOpacity: 0.55,
+        focusZoom: 6.8,
+      },
       forces: {
         centerStrength: 1,
         repelStrength: 30,
@@ -171,7 +195,17 @@ describe("Graph component", () => {
       graph,
       domains: ["physics"],
       groups: [],
-      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      display: {
+        textFadeThreshold: 10,
+        nodeSize: 2,
+        linkThickness: 3,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+        haloOpacity: 0.55,
+        focusZoom: 6.8,
+      },
       forces: {
         centerStrength: 1,
         repelStrength: 30,
@@ -231,7 +265,17 @@ describe("Graph component", () => {
       graph,
       domains: ["physics"],
       groups: [],
-      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      display: {
+        textFadeThreshold: 10,
+        nodeSize: 2,
+        linkThickness: 3,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+        haloOpacity: 0.55,
+        focusZoom: 6.8,
+      },
       forces: {
         centerStrength: 1,
         repelStrength: 30,
@@ -286,7 +330,7 @@ describe("Graph component", () => {
         {
           id: "Function:src/main.ts:start",
           file: "src/main.ts",
-          type: "symbol",
+          type: "note",
           domain: "src/main.ts",
         },
       ],
@@ -310,7 +354,17 @@ describe("Graph component", () => {
       graph,
       domains: ["src/main.ts"],
       groups: [],
-      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      display: {
+        textFadeThreshold: 10,
+        nodeSize: 2,
+        linkThickness: 3,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+        haloOpacity: 0.55,
+        focusZoom: 6.8,
+      },
       forces: {
         centerStrength: 1,
         repelStrength: 30,
@@ -378,7 +432,17 @@ describe("Graph component", () => {
       graph,
       domains: ["physics"],
       groups: [],
-      display: { textFadeThreshold: 10, nodeSize: 2, linkThickness: 3 },
+      display: {
+        textFadeThreshold: 10,
+        nodeSize: 2,
+        linkThickness: 3,
+        nodeOpacity: 0.5,
+        linkOpacity: 0.25,
+        haloPad: 1.1,
+        haloBase: 10,
+        haloOpacity: 0.55,
+        focusZoom: 6.8,
+      },
       forces: {
         centerStrength: 1,
         repelStrength: 30,

@@ -32,7 +32,7 @@ describe("Bezel", () => {
     const el = Bezel({
       ...PROPS,
       enterClass: "boot-frame",
-    }) as React.ReactElement;
+    }) as React.ReactElement<any>;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
     const framed = layers.filter((n) => cls(n).includes("boot-frame"));
@@ -58,7 +58,7 @@ describe("Bezel", () => {
   it("makes every chrome layer pointer-transparent except footLeft", () => {
     // asserting the string appears *somewhere* proves nothing — the vignette
     // alone would satisfy it while four labels silently block the graph
-    const el = Bezel(PROPS) as React.ReactElement;
+    const el = Bezel(PROPS) as React.ReactElement<any>;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
     const foot = layers.find((n) => cls(n).includes("z-[16]"));
@@ -88,7 +88,7 @@ describe("Bezel", () => {
   });
 
   it("gives the foot-left wrapper real extents so Timeline can fill it (C1)", () => {
-    const el = Bezel(PROPS) as React.ReactElement;
+    const el = Bezel(PROPS) as React.ReactElement<any>;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
     const foot = layers.find((n) => cls(n).includes("z-[16]"));
@@ -102,7 +102,7 @@ describe("Bezel", () => {
   it("keeps the scrubber clear of the read/edit telemetry", () => {
     // the scrubber's fill is near-opaque and sits at z16 against footRight's
     // z10 — spanning the full width would hide the counts outright
-    const el = Bezel(PROPS) as React.ReactElement;
+    const el = Bezel(PROPS) as React.ReactElement<any>;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
     const foot = layers.find((n) => cls(n).includes("z-[16]"));
@@ -114,7 +114,7 @@ describe("Bezel", () => {
   });
 
   it("puts the scanline below the panel band, not above it (I6)", () => {
-    const el = Bezel(PROPS) as React.ReactElement;
+    const el = Bezel(PROPS) as React.ReactElement<any>;
     const layers = React.Children.toArray(el.props.children) as any[];
     const cls = (n: any) => String(n?.props?.className ?? "");
     const scan = layers.find((n) => cls(n).includes("hud-scan"));

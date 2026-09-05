@@ -35,9 +35,21 @@ const loneGraph: VaultGraph = {
 };
 
 const workspaces: Workspace[] = [
-  { id: "vlt", name: "vault", rootPath: "", kind: "vault" },
-  { id: "aero", name: "aerograph", rootPath: "", kind: "code" },
-  { id: "lone", name: "lonesome", rootPath: "", kind: "code" },
+  { id: "vlt", name: "vault", rootPath: "", kind: "vault", sourceId: "vault" },
+  {
+    id: "aero",
+    name: "aerograph",
+    rootPath: "",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
+  {
+    id: "lone",
+    name: "lonesome",
+    rootPath: "",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
 ];
 const graphs = new Map<string, VaultGraph>([
   ["vlt", vaultGraph],
@@ -74,8 +86,20 @@ describe("buildFleetGraph", () => {
   it("does not spoke a project to a note that merely contains its name as a substring", () => {
     const f = buildFleetGraph(
       [
-        { id: "vlt", name: "vault", rootPath: "", kind: "vault" },
-        { id: "app", name: "app", rootPath: "", kind: "code" },
+        {
+          id: "vlt",
+          name: "vault",
+          rootPath: "",
+          kind: "vault",
+          sourceId: "vault",
+        },
+        {
+          id: "app",
+          name: "app",
+          rootPath: "",
+          kind: "code",
+          sourceId: "gitnexus",
+        },
       ],
       new Map<string, VaultGraph>([
         ["vlt", { nodes: [{ id: "mapping", type: "note" }], edges: [] }],
@@ -102,7 +126,15 @@ describe("buildFleetGraph", () => {
       edges: [],
     };
     const f = buildFleetGraph(
-      [{ id: "big", name: "big", rootPath: "", kind: "code" }],
+      [
+        {
+          id: "big",
+          name: "big",
+          rootPath: "",
+          kind: "code",
+          sourceId: "gitnexus",
+        },
+      ],
       new Map([["big", big]]),
     );
     const projNodes = f.nodes.filter((n) => n.id.startsWith("big::"));
@@ -111,8 +143,13 @@ describe("buildFleetGraph", () => {
 });
 
 describe("fleetDomains", () => {
-  const ws = (id: string, name: string): Workspace =>
-    ({ id, name, kind: "code", root: `/${id}` }) as Workspace;
+  const ws = (id: string, name: string): Workspace => ({
+    id,
+    name,
+    kind: "code",
+    rootPath: `/${id}`,
+    sourceId: "gitnexus",
+  });
 
   it("holds a slot for a workspace whose graph has not loaded", () => {
     const all = [ws("a", "AeroGraph"), ws("b", "Pokemon")];

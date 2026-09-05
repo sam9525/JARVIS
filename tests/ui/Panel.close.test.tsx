@@ -13,7 +13,14 @@ import type { PanelState } from "../../src/shared/types";
 // runs the real runtime.
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const STATE: PanelState = { x: 100, y: 80, w: 320, h: 400, z: 20 };
+const STATE: PanelState = {
+  x: 100,
+  y: 80,
+  w: 320,
+  h: 400,
+  z: 20,
+  collapsed: false,
+};
 
 let root: Root;
 let container: HTMLDivElement;

@@ -73,7 +73,6 @@ describe("resolveSourceId", () => {
   it("treats a throwing detect as a miss instead of failing the boot", async () => {
     const broken: GraphSource = {
       id: "broken",
-      label: "Broken",
       detect: () => Promise.reject(new Error("probe exploded")),
       load: () => Promise.resolve({ nodes: [], edges: [] }),
     };

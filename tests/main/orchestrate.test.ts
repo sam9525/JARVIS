@@ -12,21 +12,35 @@ const workspaces: Workspace[] = [
     name: "JARVIS",
     rootPath: "D:\\jarvis",
     kind: "code",
+    sourceId: "gitnexus",
     isSelf: true,
   },
-  { id: "d:/aero", name: "AeroGraph", rootPath: "D:\\aero", kind: "code" },
-  { id: "d:/fin", name: "FinPulse", rootPath: "D:\\fin", kind: "code" },
+  {
+    id: "d:/aero",
+    name: "AeroGraph",
+    rootPath: "D:\\aero",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
+  {
+    id: "d:/fin",
+    name: "FinPulse",
+    rootPath: "D:\\fin",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
   {
     id: "d:/vault",
     name: "Obsidian-vault",
     rootPath: "D:\\vault",
     kind: "vault",
+    sourceId: "vault",
   },
 ];
 
 const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
   workspaceId: "d:/aero",
-  kind: "running",
+  kind: "working",
   call: "Edit(vite.config.ts)",
   since: 0,
   reads: 0,
@@ -77,7 +91,7 @@ describe("orchestrate.list", () => {
       statuses: [
         status({
           workspaceId: "d:/aero",
-          kind: "running",
+          kind: "working",
           call: "Edit(vite.config.ts)",
           message: "hi",
           delegatedBy: "JARVIS",
@@ -90,7 +104,7 @@ describe("orchestrate.list", () => {
     expect(out[1]).toEqual({
       name: "AeroGraph",
       kind: "code",
-      status: "running",
+      status: "working",
       call: "Edit(vite.config.ts)",
       message: "hi",
       live: true,
