@@ -68,7 +68,7 @@ export default function Graph({
   const fitPadding = thumbnail ? 4 : 40;
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
-  const fgRef = useRef<ForceGraphMethods>();
+  const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
 
   useEffect(() => {
@@ -130,10 +130,14 @@ export default function Graph({
   // otherwise every slider tick would re-bind data and restart the simulation.
   const { data, neighbors, nodeById } = useMemo(() => {
     const m = graphMetrics(graph);
-    const nodes = graph.nodes.map((n) => ({
-      ...n,
-      r: m.radius.get(n.id) ?? 4,
-    }));
+    // & NodeObj because force-graph writes x/y onto these objects once the
+    // simulation runs — they are ours before that and its after
+    const nodes = graph.nodes.map(
+      (n): (typeof graph.nodes)[number] & NodeObj => ({
+        ...n,
+        r: m.radius.get(n.id) ?? 4,
+      }),
+    );
     return {
       data: {
         nodes,

@@ -115,7 +115,7 @@ export function useGroupHalos(
       clearInterval(tick);
       for (const s of sprites) {
         scene.remove(s);
-        s.material.map.dispose();
+        s.material.map?.dispose();
         s.material.dispose();
       }
     };

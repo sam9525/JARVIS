@@ -107,7 +107,7 @@ function wireAnalyser(audio: HTMLAudioElement): void {
  * returns whether it is live. False means draw a flat line, which covers both
  * silence and the local mouth: speechSynthesis writes straight to the output
  * device, and no Web Audio node can see it. */
-export function readWave(out: Uint8Array): boolean {
+export function readWave(out: Uint8Array<ArrayBuffer>): boolean {
   if (!analyser || !cloudSounding()) return false;
   analyser.getByteTimeDomainData(out);
   return true;
@@ -118,7 +118,7 @@ export function readWave(out: Uint8Array): boolean {
 export async function speak(text: string): Promise<void> {
   stopSpeaking();
   const myGeneration = generation; // captured after the bump above, so this call isn't its own stale call
-  let bytes: Uint8Array | null = null;
+  let bytes: Uint8Array<ArrayBuffer> | null = null;
   try {
     bytes = (await window.jarvis?.ttsSpeak?.(text)) ?? null;
   } catch {

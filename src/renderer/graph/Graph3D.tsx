@@ -114,7 +114,7 @@ export default function Graph3D({
   lite = false,
   handleRef,
 }: GraphProps) {
-  const fgRef = useRef<ForceGraphMethods>();
+  const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
   // node id → its label sprite, so the visibility sweep can toggle them.
   // Entries for removed nodes go stale but are never visited (sweep iterates
@@ -123,7 +123,9 @@ export default function Graph3D({
   const nodeAdornments = useRef(new Map<string, NodeAdornment>());
   const pausedRef = useRef(rotationPaused);
   pausedRef.current = rotationPaused;
-  const rotationCtl = useRef<{ stop: () => void; arm: () => void }>();
+  const rotationCtl = useRef<{ stop: () => void; arm: () => void } | undefined>(
+    undefined,
+  );
 
   // palm-orbit flywheel: throw, coast, stop. Runs its own rAF only while
   // spinning — controls.update() rides react-force-graph's internal loop,
@@ -368,7 +370,7 @@ export default function Graph3D({
 
   // read-order arrows live in a component-owned group, rebuilt by the
   // highlight interval — never part of graphData
-  const trailGroup = useRef<Group>();
+  const trailGroup = useRef<Group | undefined>(undefined);
   useEffect(() => {
     const scene = fgRef.current?.scene();
     if (!scene) return;

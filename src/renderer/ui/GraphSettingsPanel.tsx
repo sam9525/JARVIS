@@ -205,7 +205,11 @@ export default function GraphSettingsPanel({
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="mb-2.5 flex items-center justify-between gap-1.5">
-        <Segmented options={PAGE_OPTIONS} value={page} onChange={setPage} />
+        <Segmented<Page>
+          options={PAGE_OPTIONS}
+          value={page}
+          onChange={setPage}
+        />
         <button
           className="cursor-pointer text-sm text-ink-dim hover:text-accent"
           title="Restore defaults"

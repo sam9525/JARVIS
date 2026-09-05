@@ -865,7 +865,7 @@ export default function App() {
     : `READS ${activeStatus?.reads ?? 0} · EDITS ${activeStatus?.edits ?? 0}`;
 
   const homeViewToggle = (
-    <Segmented
+    <Segmented<HomeView>
       options={HOME_VIEW_OPTIONS}
       value={homeView}
       onChange={setHomeView}
@@ -1075,7 +1075,7 @@ export default function App() {
       ) : (
         <div className={TOP_ROW + (stage >= 0 ? " boot-in" : " boot-hold")}>
           {active?.kind === "code" && (
-            <Segmented
+            <Segmented<CodeGraphLevel>
               options={GRAPH_LEVEL_OPTIONS}
               value={settings.codeGraphLevel}
               onChange={(codeGraphLevel: CodeGraphLevel) =>

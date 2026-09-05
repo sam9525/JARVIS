@@ -150,7 +150,8 @@ app.whenReady().then(async () => {
     "stale-reindex-command",
     async (_e, id: string): Promise<string | null> => {
       const ws = workspaces.find((w) => w.id === id);
-      const src = ws && sourceById(ws.sourceId);
+      if (!ws) return null;
+      const src = sourceById(ws.sourceId);
       if (!src?.stale || !src.reindexCommand) return null;
       return (await src.stale(ws.rootPath)) ? src.reindexCommand : null;
     },

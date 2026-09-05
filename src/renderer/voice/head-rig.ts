@@ -85,7 +85,10 @@ function findMorph(root: RigObject): { mesh: RigObject; slot: number } | null {
     }
     return false;
   });
-  return hit && { mesh: hit.mesh, slot: hit.slot };
+  // read back through its own type: `hit` is only ever written inside the walk
+  // callback, which control-flow analysis cannot see, so it still reads as null
+  const found = hit as { mesh: RigObject; slot: number } | null;
+  return found && { mesh: found.mesh, slot: found.slot };
 }
 
 function findJaw(root: RigObject): RigObject | null {

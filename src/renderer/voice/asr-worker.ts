@@ -40,7 +40,8 @@ const device = "wasm" as const;
 const load = async () => {
   asr = await pipeline("automatic-speech-recognition", WHISPER_MODEL, {
     device,
-    dtype: WHISPER_DTYPE,
+    // the shared .mjs is plain JS, so its string values widen past the union
+    dtype: WHISPER_DTYPE as Record<string, "q4">,
   });
   return device;
 };

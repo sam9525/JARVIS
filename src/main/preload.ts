@@ -67,7 +67,7 @@ const api = {
     ipcRenderer.send("pty-resize", workspaceId, cols, rows);
   },
   // the key never crosses this bridge — main reads it from .env
-  ttsSpeak: (text: string): Promise<Uint8Array | null> =>
+  ttsSpeak: (text: string): Promise<Uint8Array<ArrayBuffer> | null> =>
     ipcRenderer.invoke("tts-speak", text),
   ttsVoices: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-voices"),
   // head models: names in, bytes out — the renderer never sees a disk path

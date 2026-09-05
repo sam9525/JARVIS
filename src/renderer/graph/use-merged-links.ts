@@ -73,10 +73,13 @@ export function useMergedLinks(
   material: LineMaterial,
   nodeSize: number,
 ): () => void {
-  const merged = useRef<{
-    buf: Float32Array;
-    posBuffer: { needsUpdate: boolean }; // the geometry's backing buffer
-  }>();
+  const merged = useRef<
+    | {
+        buf: Float32Array;
+        posBuffer: { needsUpdate: boolean }; // the geometry's backing buffer
+      }
+    | undefined
+  >(undefined);
 
   const writePositions = useCallback(() => {
     const m = merged.current;
