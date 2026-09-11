@@ -25,6 +25,7 @@ import type { Workspace } from "../../src/shared/types";
 
 const workspaces: Workspace[] = buildWorkspaces("D:\\vault", [
   { name: "proj", path: "D:\\proj" },
+  { name: "jarvis", path: "D:\\data\\Program\\JARVIS" },
 ]);
 const base = { session_id: "s1", cwd: "D:\\vault" };
 
@@ -101,7 +102,7 @@ describe("callSignature", () => {
 });
 
 describe("mapStatusEvent", () => {
-  it("a permission notification is 'waiting'", () => {
+  it("a permission notification is 'blocked'", () => {
     const e = mapStatusEvent(
       {
         ...base,
@@ -110,7 +111,7 @@ describe("mapStatusEvent", () => {
       },
       workspaces,
     );
-    expect(e).toMatchObject({ kind: "waiting", workspaceId: workspaces[0].id });
+    expect(e).toMatchObject({ kind: "blocked", workspaceId: workspaces[0].id });
   });
 
   it("an idle notification is 'idle'", () => {
@@ -130,15 +131,15 @@ describe("mapStatusEvent", () => {
     expect(e?.kind).toBe("idle");
   });
 
-  it("UserPromptSubmit is 'running' with no call yet", () => {
+  it("UserPromptSubmit is 'working' with no call yet", () => {
     const e = mapStatusEvent(
       { ...base, hook_event_name: "UserPromptSubmit" },
       workspaces,
     );
-    expect(e).toMatchObject({ kind: "running", call: "" });
+    expect(e).toMatchObject({ kind: "working", call: "" });
   });
 
-  it("PreToolUse is 'running' and carries the call signature", () => {
+  it("PreToolUse is 'working' and carries the call signature", () => {
     const e = mapStatusEvent(
       {
         ...base,
@@ -148,7 +149,7 @@ describe("mapStatusEvent", () => {
       },
       workspaces,
     );
-    expect(e).toMatchObject({ kind: "running", call: "Bash(npm test)" });
+    expect(e).toMatchObject({ kind: "working", call: "Bash(npm test)" });
   });
 
   it("routes by cwd to the right workspace", () => {
@@ -208,12 +209,12 @@ describe("mapStatusEvent", () => {
     expect(mapStatusEvent(raw, ws)?.kind).toBe("idle");
   });
 
-  it("maps the captured permission notification to 'waiting'", () => {
+  it("maps the captured permission notification to 'blocked'", () => {
     const raw = fixture("notification-permission");
     const ws = buildWorkspaces("D:\\vault", [
       { name: "jarvis", path: raw.cwd as string },
     ]);
-    expect(mapStatusEvent(raw, ws)?.kind).toBe("waiting");
+    expect(mapStatusEvent(raw, ws)?.kind).toBe("blocked");
   });
 
   it("maps the captured Bash PreToolUse to a Bash call line", () => {
@@ -222,7 +223,7 @@ describe("mapStatusEvent", () => {
       { name: "jarvis", path: raw.cwd as string },
     ]);
     const e = mapStatusEvent(raw, ws);
-    expect(e?.kind).toBe("running");
+    expect(e?.kind).toBe("working");
     expect(e?.call.startsWith("Bash(")).toBe(true);
   });
 
@@ -246,5 +247,75 @@ describe("mapStatusEvent", () => {
     expect(mapStatusEvent(raw, ws)?.message).toBe(
       "Hey! What are we working on?",
     );
+  });
+});
+
+describe("six status kinds", () => {
+  it("maps a tool call to working, not running", () => {
+    expect(
+      mapStatusEvent(
+        {
+          ...base,
+          hook_event_name: "PreToolUse",
+          tool_name: "Read",
+          tool_input: { file_path: "D:\\vault\\a.md" },
+        },
+        workspaces,
+      )?.kind,
+    ).toBe("working");
+  });
+
+  it("maps a permission prompt to blocked, not waiting", () => {
+    expect(
+      mapStatusEvent(fixture("notification-permission"), workspaces)?.kind,
+    ).toBe("blocked");
+  });
+
+  it("maps AskUserQuestion to asking, not working", () => {
+    const out = mapStatusEvent(
+      {
+        ...base,
+        hook_event_name: "PreToolUse",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            { question: "Which one?", header: "Close signal", options: [] },
+          ],
+        },
+      },
+      workspaces,
+    );
+    expect(out?.kind).toBe("asking");
+  });
+
+  it("carries the question header as the call line", () => {
+    const out = mapStatusEvent(
+      {
+        ...base,
+        hook_event_name: "PreToolUse",
+        tool_name: "AskUserQuestion",
+        tool_input: {
+          questions: [
+            { question: "Which one?", header: "Close signal", options: [] },
+          ],
+        },
+      },
+      workspaces,
+    );
+    expect(out?.call).toBe("Close signal");
+  });
+
+  it("falls back to the tool name when the header is missing", () => {
+    const out = mapStatusEvent(
+      {
+        ...base,
+        hook_event_name: "PreToolUse",
+        tool_name: "AskUserQuestion",
+        tool_input: { questions: [{ question: "Which one?", options: [] }] },
+      },
+      workspaces,
+    );
+    expect(out?.kind).toBe("asking");
+    expect(out?.call).toBe("AskUserQuestion");
   });
 });

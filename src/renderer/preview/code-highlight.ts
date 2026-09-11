@@ -50,6 +50,13 @@ export function langForPath(path: string): string | null {
   return EXT_TO_LANG[ext] ?? null;
 }
 
+// Which of the two preview renderers a file takes. Markdown is a document
+// wherever it lives: a README or a spec inside a code repo goes to the note
+// renderer, or the highlighter prints its "##" as literal source.
+export function previewsAsCode(codeWorkspace: boolean, path: string): boolean {
+  return codeWorkspace && langForPath(path) !== "markdown";
+}
+
 // lazy singleton — created on first code preview, reused for the whole session.
 // Grammars load on first use of a language, not all upfront.
 let highlighterPromise: Promise<Highlighter> | null = null;

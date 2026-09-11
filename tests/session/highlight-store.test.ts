@@ -5,6 +5,7 @@ import {
   expireMatches,
   heatOf,
   hlKey,
+  impactDepth,
   matchProgress,
   nodeDisplay,
   pulseProgress,
@@ -300,6 +301,101 @@ describe("highlight-store", () => {
       expect(hlKey({ file: "src/a.ts" })).toBe("src/a.ts");
       expect(hlKey({ id: "notes/idea" })).toBe("notes/idea");
       expect(hlKey({ id: 42 })).toBe("42");
+    });
+  });
+
+  describe("blast radius", () => {
+    const impact = (
+      nodeIds: string[],
+      depths: number[],
+      sessionId = "s1",
+    ): ToolEvent => ({
+      sessionId,
+      workspaceId: "w1",
+      phase: "post",
+      tool: "Impact",
+      nodeIds,
+      depths,
+      ts: 0,
+    });
+
+    it("fills impacted with each node's depth", () => {
+      const s = emptyState();
+      applyEvent(s, impact(["a.ts", "b.ts"], [0, 1]), 1000);
+      expect(s.impacted.get("a.ts")).toBe(0);
+      expect(s.impacted.get("b.ts")).toBe(1);
+    });
+
+    it("replaces the previous radius wholesale", () => {
+      const s = emptyState();
+      applyEvent(s, impact(["a.ts"], [0]), 1000);
+      applyEvent(s, impact(["c.ts"], [0]), 2000);
+      expect(s.impacted.has("a.ts")).toBe(false);
+      expect(s.impacted.get("c.ts")).toBe(0);
+    });
+
+    it("is cleared by a new prompt", () => {
+      const s = emptyState();
+      applyEvent(s, impact(["a.ts"], [0]), 1000);
+      applyEvent(
+        s,
+        {
+          sessionId: "s1",
+          workspaceId: "w1",
+          phase: "pre",
+          tool: "Prompt",
+          nodeIds: [],
+          ts: 0,
+        },
+        2000,
+      );
+      expect(s.impacted.size).toBe(0);
+    });
+
+    it("ranks modified above impacted, and impacted above read", () => {
+      const s = emptyState();
+      applyEvent(
+        s,
+        {
+          sessionId: "s1",
+          workspaceId: "w1",
+          phase: "pre",
+          tool: "Read",
+          nodeIds: ["r.ts"],
+          ts: 0,
+        },
+        1000,
+      );
+      applyEvent(
+        s,
+        {
+          sessionId: "s1",
+          workspaceId: "w1",
+          phase: "post",
+          tool: "Write",
+          nodeIds: ["m.ts"],
+          ts: 0,
+        },
+        1000,
+      );
+      applyEvent(s, impact(["r.ts", "m.ts"], [1, 1]), 2000);
+      expect(nodeDisplay(s, "m.ts")).toBe("modified");
+      expect(nodeDisplay(s, "r.ts")).toBe("impact");
+    });
+
+    it("reports the depth for the tier, and null off the radius", () => {
+      const s = emptyState();
+      applyEvent(s, impact(["a.ts", "b.ts"], [0, 2]), 1000);
+      expect(impactDepth(s, "a.ts")).toBe(0);
+      expect(impactDepth(s, "b.ts")).toBe(2);
+      expect(impactDepth(s, "z.ts")).toBeNull();
+    });
+
+    it("does not count an impact as a read or an edit", () => {
+      const s = emptyState();
+      applyEvent(s, impact(["a.ts"], [0]), 1000);
+      expect(s.heat.get("a.ts")).toBeUndefined();
+      expect(s.nodes.has("a.ts")).toBe(false);
     });
   });
 });

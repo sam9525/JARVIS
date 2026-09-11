@@ -133,15 +133,15 @@ function asRecord(u: unknown): Record<string, unknown> {
 }
 
 // shallow per-group merge: unknown/bad values keep their defaults
-function mergeFiniteNumbers(
-  target: Record<string, number>,
-  src: unknown,
-): void {
+// `object` rather than Record<string, number>: the callers pass named settings
+// interfaces, which have no index signature to match one with
+function mergeFiniteNumbers(target: object, src: unknown): void {
   if (typeof src !== "object" || src === null) return;
   const o = src as Record<string, unknown>;
-  for (const k of Object.keys(target)) {
+  const t = target as Record<string, number>;
+  for (const k of Object.keys(t)) {
     const v = o[k];
-    if (typeof v === "number" && Number.isFinite(v)) target[k] = v;
+    if (typeof v === "number" && Number.isFinite(v)) t[k] = v;
   }
 }
 

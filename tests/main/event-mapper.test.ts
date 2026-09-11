@@ -438,3 +438,48 @@ describe("multi-workspace routing", () => {
     expect(prompt?.tool).toBe("Prompt");
   });
 });
+
+describe("Impact", () => {
+  const codeWorkspaces = buildWorkspaces("D:\\vault", [
+    { name: "proj", path: "D:\\proj" },
+  ]);
+
+  const event = (byDepth: Record<string, Array<{ filePath: string }>>) =>
+    mapHookEvent(
+      {
+        session_id: "s1",
+        cwd: "D:\\proj",
+        hook_event_name: "PostToolUse",
+        tool_name: "mcp__gitnexus__impact",
+        tool_input: { target: "applyEvent", direction: "upstream" },
+        tool_response: {
+          target: { filePath: "src/a.ts" },
+          byDepth,
+        },
+      },
+      codeWorkspaces,
+    );
+
+  it("emits nodeIds with a parallel depths array", () => {
+    const e = event({ "1": [{ filePath: "src/b.ts" }] });
+    expect(e?.tool).toBe("Impact");
+    expect(e?.phase).toBe("post");
+    expect(e?.nodeIds).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(e?.depths).toEqual([0, 1]);
+  });
+
+  it("returns null when nothing resolves inside the workspace", () => {
+    expect(
+      mapHookEvent(
+        {
+          session_id: "s1",
+          cwd: "D:\\proj",
+          hook_event_name: "PostToolUse",
+          tool_name: "mcp__gitnexus__impact",
+          tool_response: { byDepth: {} },
+        },
+        codeWorkspaces,
+      ),
+    ).toBeNull();
+  });
+});

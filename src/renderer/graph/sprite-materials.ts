@@ -69,9 +69,9 @@ export function useSpriteMaterials(
   lite: boolean,
   nodeOpacity: number,
 ): SpriteMaterials {
-  const glowTexture = useRef<CanvasTexture>();
+  const glowTexture = useRef<CanvasTexture | undefined>(undefined);
   const glowMats = useRef(new Map<string, SpriteMaterial>());
-  const ringTexture = useRef<CanvasTexture>();
+  const ringTexture = useRef<CanvasTexture | undefined>(undefined);
   const ringMats = useRef(new Map<string, SpriteMaterial>());
   // through a ref so materials created after a slider change match the ones
   // the display effect already re-tinted

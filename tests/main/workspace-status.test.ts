@@ -9,7 +9,7 @@ import type { StatusEvent, ToolEvent } from "../../src/shared/types";
 const ev = (over: Partial<StatusEvent>): StatusEvent => ({
   workspaceId: "w1",
   sessionId: "s1",
-  kind: "running",
+  kind: "working",
   call: "",
   ts: 1000,
   ...over,
@@ -35,29 +35,29 @@ describe("status store", () => {
 
   it("records kind, call, and since from a status event", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running", call: "Bash(npm test)", ts: 5000 }));
+    s.applyStatus(ev({ kind: "working", call: "Bash(npm test)", ts: 5000 }));
     expect(s.snapshot()[0]).toMatchObject({
       workspaceId: "w1",
-      kind: "running",
+      kind: "working",
       call: "Bash(npm test)",
       since: 5000,
     });
   });
 
-  it("running → waiting → idle", () => {
+  it("working → blocked → idle", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running" }));
-    expect(kindOf(s)).toBe("running");
-    s.applyStatus(ev({ kind: "waiting", ts: 2000 }));
-    expect(kindOf(s)).toBe("waiting");
+    s.applyStatus(ev({ kind: "working" }));
+    expect(kindOf(s)).toBe("working");
+    s.applyStatus(ev({ kind: "blocked", ts: 2000 }));
+    expect(kindOf(s)).toBe("blocked");
     s.applyStatus(ev({ kind: "idle", ts: 3000 }));
     expect(kindOf(s)).toBe("idle");
   });
 
-  it("a waiting workspace keeps the call line that caused the prompt", () => {
+  it("a blocked workspace keeps the call line that caused the prompt", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running", call: "Bash(npm test)" }));
-    s.applyStatus(ev({ kind: "waiting", call: "", ts: 2000 }));
+    s.applyStatus(ev({ kind: "working", call: "Bash(npm test)" }));
+    s.applyStatus(ev({ kind: "blocked", call: "", ts: 2000 }));
     // the permission notification carries no call of its own — the pending
     // PreToolUse call is what the user needs to see
     expect(s.snapshot()[0].call).toBe("Bash(npm test)");
@@ -65,13 +65,13 @@ describe("status store", () => {
 
   it("reports whether anything actually changed", () => {
     const s = createStatusStore();
-    expect(s.applyStatus(ev({ kind: "running", call: "Read(a.ts)" }))).toBe(
+    expect(s.applyStatus(ev({ kind: "working", call: "Read(a.ts)" }))).toBe(
       true,
     );
-    expect(s.applyStatus(ev({ kind: "running", call: "Read(a.ts)" }))).toBe(
+    expect(s.applyStatus(ev({ kind: "working", call: "Read(a.ts)" }))).toBe(
       false,
     );
-    expect(s.applyStatus(ev({ kind: "running", call: "Read(b.ts)" }))).toBe(
+    expect(s.applyStatus(ev({ kind: "working", call: "Read(b.ts)" }))).toBe(
       true,
     );
   });
@@ -80,24 +80,24 @@ describe("status store", () => {
     const s = createStatusStore();
     expect(
       s.applyStatus(
-        ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" }),
+        ev({ sessionId: "s1", kind: "working", call: "Read(a.ts)" }),
       ),
     ).toBe(true);
     expect(
       s.applyStatus(
-        ev({ sessionId: "s1", kind: "running", call: "Read(a.ts)" }),
+        ev({ sessionId: "s1", kind: "working", call: "Read(a.ts)" }),
       ),
     ).toBe(false);
     expect(
       s.applyStatus(
-        ev({ sessionId: "s2", kind: "running", call: "Read(a.ts)" }),
+        ev({ sessionId: "s2", kind: "working", call: "Read(a.ts)" }),
       ),
     ).toBe(true);
   });
 
   it("counts distinct read and edited files", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running" }));
+    s.applyStatus(ev({ kind: "working" }));
     s.countTool(tool({ nodeIds: ["a"] }));
     s.countTool(tool({ nodeIds: ["a"] })); // same file again — still 1
     s.countTool(tool({ nodeIds: ["b"] }));
@@ -107,7 +107,7 @@ describe("status store", () => {
 
   it("a Grep match batch does not inflate the read count", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running" }));
+    s.applyStatus(ev({ kind: "working" }));
     s.countTool(
       tool({ phase: "post", tool: "Grep", nodeIds: ["x", "y", "z"] }),
     );
@@ -116,7 +116,7 @@ describe("status store", () => {
 
   it("counts reset on a new prompt and on a new session", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running" }));
+    s.applyStatus(ev({ kind: "working" }));
     s.countTool(tool({ nodeIds: ["a"] }));
     s.countTool(tool({ tool: "Prompt", nodeIds: [] }));
     expect(s.snapshot()[0].reads).toBe(0);
@@ -126,31 +126,31 @@ describe("status store", () => {
     expect(s.snapshot()[0].reads).toBe(1);
   });
 
-  it("staleness demotes running to idle once past STALE_MS", () => {
+  it("staleness demotes working to idle once past STALE_MS", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 0);
-    s.applyStatus(ev({ kind: "running", ts: 1000 }));
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
     expect(s.sweep(1000 + STALE_MS - 1)).toBe(false);
-    expect(kindOf(s)).toBe("running");
+    expect(kindOf(s)).toBe("working");
     expect(s.sweep(1000 + STALE_MS)).toBe(true);
     expect(kindOf(s)).toBe("idle");
     expect(s.sweep(1000 + STALE_MS * 3)).toBe(false); // already demoted
   });
 
-  it("staleness never touches waiting — that is the state the user acts on", () => {
+  it("staleness never touches blocked — that is the state the user acts on", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 0);
-    s.applyStatus(ev({ kind: "waiting", ts: 1000 }));
+    s.applyStatus(ev({ kind: "blocked", ts: 1000 }));
     expect(s.sweep(1000 + STALE_MS * 10)).toBe(false);
-    expect(kindOf(s)).toBe("waiting");
+    expect(kindOf(s)).toBe("blocked");
   });
 
   it("a launched pty with no events yet is idle; exit forces none", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 500);
     expect(kindOf(s)).toBe("idle");
-    s.applyStatus(ev({ kind: "running", ts: 600 }));
-    expect(s.ptyExited("w1", 700)).toBe(true);
+    s.applyStatus(ev({ kind: "working", ts: 600 }));
+    expect(s.ptyExited("w1", 700, 0)).toBe(true);
     expect(kindOf(s)).toBe("none");
   });
 
@@ -159,7 +159,7 @@ describe("status store", () => {
   // does not exist and leave the user a terminal nothing can type into
   it("keeps live to our own pty — a hook event alone never sets it", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running", ts: 100 }));
+    s.applyStatus(ev({ kind: "working", ts: 100 }));
     expect(s.snapshot()[0].live).toBe(false);
     s.countTool(tool({ nodeIds: ["a"] }));
     expect(s.snapshot()[0].live).toBe(false);
@@ -175,24 +175,24 @@ describe("status store", () => {
     expect(s.ptyLaunched("w1", 100)).toBe(true); // idle already — only live moved
     expect(s.snapshot()[0].live).toBe(true);
     expect(s.ptyLaunched("w1", 200)).toBe(false); // already live
-    s.ptyExited("w1", 300);
+    s.ptyExited("w1", 300, 0);
     expect(s.snapshot()[0].live).toBe(false);
   });
 
   it("a status event for a dead pty revives it — the user relaunched", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 0);
-    s.ptyExited("w1", 500);
-    s.applyStatus(ev({ kind: "running", ts: 900 }));
-    expect(kindOf(s)).toBe("running");
+    s.ptyExited("w1", 500, 0);
+    s.applyStatus(ev({ kind: "working", ts: 900 }));
+    expect(kindOf(s)).toBe("working");
   });
 
   it("keeps workspaces independent", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ workspaceId: "w1", kind: "waiting" }));
-    s.applyStatus(ev({ workspaceId: "w2", kind: "running" }));
-    expect(kindOf(s, "w1")).toBe("waiting");
-    expect(kindOf(s, "w2")).toBe("running");
+    s.applyStatus(ev({ workspaceId: "w1", kind: "blocked" }));
+    s.applyStatus(ev({ workspaceId: "w2", kind: "working" }));
+    expect(kindOf(s, "w1")).toBe("blocked");
+    expect(kindOf(s, "w2")).toBe("working");
   });
 
   it("stamps since on every kind change, exit included", () => {
@@ -200,19 +200,19 @@ describe("status store", () => {
     s.ptyLaunched("w1", 100);
     expect(s.snapshot()[0].since).toBe(100); // none -> idle
 
-    s.applyStatus(ev({ kind: "running", ts: 200 }));
-    expect(s.snapshot()[0].since).toBe(200); // idle -> running
+    s.applyStatus(ev({ kind: "working", ts: 200 }));
+    expect(s.snapshot()[0].since).toBe(200); // idle -> working
 
-    s.ptyExited("w1", 300);
+    s.ptyExited("w1", 300, 0);
     expect(kindOf(s)).toBe("none");
-    expect(s.snapshot()[0].since).toBe(300); // running -> none
+    expect(s.snapshot()[0].since).toBe(300); // working -> none
   });
 
   it("stores the message from a status event and clears it on session change", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "idle", message: "done!" }));
     expect(s.snapshot()[0].message).toBe("done!");
-    s.applyStatus(ev({ kind: "running", sessionId: "s2", ts: 2000 }));
+    s.applyStatus(ev({ kind: "working", sessionId: "s2", ts: 2000 }));
     expect(s.snapshot()[0].message).toBe("");
   });
 
@@ -226,14 +226,14 @@ describe("status store", () => {
     expect(s.snapshot()[0].message).toBe("done!");
 
     // ...and the next real prompt in that session still clears it
-    s.applyStatus(ev({ kind: "running", sessionId: "other", ts: 62000 }));
+    s.applyStatus(ev({ kind: "working", sessionId: "other", ts: 62000 }));
     expect(s.snapshot()[0].message).toBe("");
   });
 
-  it("keeps the last message across a running event that carries none", () => {
+  it("keeps the last message across a working event that carries none", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "idle", message: "answer me" }));
-    s.applyStatus(ev({ kind: "running", ts: 2000 }));
+    s.applyStatus(ev({ kind: "working", ts: 2000 }));
     expect(s.snapshot()[0].message).toBe("answer me");
   });
 
@@ -247,7 +247,7 @@ describe("status store", () => {
 
   it("markDelegated surfaces the delegator in the snapshot", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running" }));
+    s.applyStatus(ev({ kind: "working" }));
     expect(s.markDelegated("w1", "JARVIS", 2000)).toBe(true);
     expect(s.markDelegated("w1", "JARVIS", 2100)).toBe(false); // no change
     expect(s.snapshot()[0].delegatedBy).toBe("JARVIS");
@@ -255,18 +255,18 @@ describe("status store", () => {
 
   it("delegatedBy survives status updates within the same session", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running" }));
+    s.applyStatus(ev({ kind: "working" }));
     s.markDelegated("w1", "JARVIS", 2000);
-    s.applyStatus(ev({ kind: "waiting", ts: 3000 }));
+    s.applyStatus(ev({ kind: "blocked", ts: 3000 }));
     s.applyStatus(ev({ kind: "idle", ts: 4000, message: "done" }));
     expect(s.snapshot()[0].delegatedBy).toBe("JARVIS");
   });
 
   it("delegatedBy clears when a new session starts", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "running" }));
+    s.applyStatus(ev({ kind: "working" }));
     s.markDelegated("w1", "JARVIS", 2000);
-    s.applyStatus(ev({ sessionId: "s2", kind: "running", ts: 5000 }));
+    s.applyStatus(ev({ sessionId: "s2", kind: "working", ts: 5000 }));
     expect(s.snapshot()[0].delegatedBy).toBe("");
   });
 });
@@ -296,9 +296,9 @@ describe("status store restore", () => {
   it("a live session overwrites what was restored", () => {
     const s = createStatusStore();
     s.restore([{ workspaceId: "w1", message: "stale", since: 1 }]);
-    s.applyStatus(ev({ kind: "running", call: "Bash(ls)", ts: 9000 }));
+    s.applyStatus(ev({ kind: "working", call: "Bash(ls)", ts: 9000 }));
     expect(s.snapshot()[0]).toMatchObject({
-      kind: "running",
+      kind: "working",
       call: "Bash(ls)",
       message: "", // a new session id clears the restored message
     });
@@ -310,7 +310,7 @@ describe("status store expiry", () => {
   const dead = () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "idle", message: "done", ts: 1000 }));
-    s.ptyExited("w1", 1000);
+    s.ptyExited("w1", 1000, 0);
     return s;
   };
 
@@ -375,14 +375,70 @@ describe("status store expiry", () => {
     const s = dead();
     s.sweep(1000 + EXPIRE_MS);
     s.applyStatus(
-      ev({ kind: "running", call: "Read(a.ts)", ts: 2000 + EXPIRE_MS }),
+      ev({ kind: "working", call: "Read(a.ts)", ts: 2000 + EXPIRE_MS }),
     );
     expect(s.snapshot()[0]).toMatchObject({
       workspaceId: "w1",
-      kind: "running",
+      kind: "working",
       call: "Read(a.ts)",
       message: "", // forgetting, not tombstoning — the row is brand new
       reads: 0,
     });
+  });
+});
+
+describe("crashed", () => {
+  it("reports a clean exit as none", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 1000);
+    s.ptyExited("w1", 2000, 0);
+    const row = s.snapshot().find((r) => r.workspaceId === "w1");
+    expect(row?.kind).toBe("none");
+  });
+
+  it("reports a non-zero exit as crashed", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 1000);
+    s.ptyExited("w1", 2000, 1);
+    const row = s.snapshot().find((r) => r.workspaceId === "w1");
+    expect(row?.kind).toBe("crashed");
+  });
+
+  it("keeps the last message through a crash", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 1000);
+    s.applyStatus({
+      workspaceId: "w1",
+      sessionId: "s1",
+      kind: "working",
+      call: "",
+      ts: 1100,
+    });
+    s.applyStatus({
+      workspaceId: "w1",
+      sessionId: "s1",
+      kind: "idle",
+      call: "",
+      message: "done",
+      ts: 1200,
+    });
+    s.ptyExited("w1", 2000, 137);
+    const row = s.snapshot().find((r) => r.workspaceId === "w1");
+    expect(row?.kind).toBe("crashed");
+    expect(row?.message).toBe("done");
+  });
+
+  it("never promotes a stale working session to asking", () => {
+    const s = createStatusStore();
+    s.applyStatus({
+      workspaceId: "w1",
+      sessionId: "s1",
+      kind: "working",
+      call: "Read(a.md)",
+      ts: 1000,
+    });
+    s.sweep(1000 + STALE_MS);
+    const row = s.snapshot().find((r) => r.workspaceId === "w1");
+    expect(row?.kind).toBe("idle");
   });
 });

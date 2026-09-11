@@ -42,6 +42,16 @@ export function callSignature(
   return cut.length <= CALL_MAX ? cut : `${cut.slice(0, CALL_MAX - 1)}…`;
 }
 
+// The question's own short chip label — what AskUserQuestion provides for
+// exactly this purpose. No questions, or no header, and the bare tool name is
+// more honest than a guessed subject.
+function askHeader(input: Record<string, unknown>): string {
+  const qs = input.questions;
+  if (!Array.isArray(qs) || qs.length === 0) return "AskUserQuestion";
+  const h = (qs[0] as Record<string, unknown> | undefined)?.header;
+  return typeof h === "string" && h ? h : "AskUserQuestion";
+}
+
 // Second, independent mapper: same raw payload as mapHookEvent, different
 // question. This one asks "what is this workspace doing", not "which nodes
 // light up". Neither knows about the other.
@@ -62,7 +72,7 @@ export function mapStatusEvent(
     case "Notification": {
       const t = raw.notification_type;
       if (t === "permission_prompt")
-        return { ...common, kind: "waiting", call: "" };
+        return { ...common, kind: "blocked", call: "" };
       if (t === "idle_prompt") return { ...common, kind: "idle", call: "" };
       return null; // auth, elicitation, agent-view events are not our business
     }
@@ -77,11 +87,19 @@ export function mapStatusEvent(
             : undefined,
       };
     case "UserPromptSubmit":
-      return { ...common, kind: "running", call: "" };
+      return { ...common, kind: "working", call: "" };
     case "PreToolUse":
+      // asking is ordered before the generic branch: it is the one tool call
+      // whose meaning is "stopped", not "working"
+      if (raw.tool_name === "AskUserQuestion")
+        return {
+          ...common,
+          kind: "asking",
+          call: askHeader(raw.tool_input ?? {}),
+        };
       return {
         ...common,
-        kind: "running",
+        kind: "working",
         call: callSignature(String(raw.tool_name ?? ""), raw.tool_input ?? {}),
       };
     default:

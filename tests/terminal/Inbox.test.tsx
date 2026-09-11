@@ -5,9 +5,27 @@ import Inbox from "../../src/renderer/terminal/Inbox";
 import type { Workspace, WorkspaceStatus } from "../../src/shared/types";
 
 const workspaces: Workspace[] = [
-  { id: "w1", name: "web-app", rootPath: "D:\\web", kind: "code" },
-  { id: "w2", name: "api", rootPath: "D:\\api", kind: "code" },
-  { id: "w3", name: "vault", rootPath: "D:\\vault", kind: "vault" },
+  {
+    id: "w1",
+    name: "web-app",
+    rootPath: "D:\\web",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
+  {
+    id: "w2",
+    name: "api",
+    rootPath: "D:\\api",
+    kind: "code",
+    sourceId: "gitnexus",
+  },
+  {
+    id: "w3",
+    name: "vault",
+    rootPath: "D:\\vault",
+    kind: "vault",
+    sourceId: "vault",
+  },
 ];
 
 const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
@@ -112,12 +130,12 @@ describe("Inbox", () => {
     );
   });
 
-  it("previews the call line for a running row", () => {
+  it("previews the call line for a working row", () => {
     render(
       <Inbox
         workspaces={workspaces}
         statuses={[
-          status({ workspaceId: "w1", kind: "running", call: 'Grep("x")' }),
+          status({ workspaceId: "w1", kind: "working", call: 'Grep("x")' }),
         ]}
         activeId={null}
         onSelect={() => {}}
@@ -141,7 +159,8 @@ describe("Inbox", () => {
       />,
     );
     screen.getByTestId("inbox-row-w1").props.onClick();
-    expect(picked?.id).toBe("w1");
+    // through its own type: TS cannot see the assignment inside onSelect
+    expect((picked as Workspace | null)?.id).toBe("w1");
   });
 
   it("labels a delegated turn and omits the label otherwise", () => {
@@ -151,11 +170,11 @@ describe("Inbox", () => {
         statuses={[
           status({
             workspaceId: "w1",
-            kind: "running",
+            kind: "working",
             call: "Bash(npm test)",
             delegatedBy: "JARVIS",
           }),
-          status({ workspaceId: "w2", kind: "running", call: "Read(a.ts)" }),
+          status({ workspaceId: "w2", kind: "working", call: "Read(a.ts)" }),
         ]}
         activeId={null}
         onSelect={() => {}}
@@ -175,9 +194,16 @@ describe("Inbox", () => {
         name: "JARVIS",
         rootPath: "D:\\main",
         kind: "vault",
+        sourceId: "vault",
         isSelf: true,
       },
-      { id: "w1", name: "web-app", rootPath: "D:\\web", kind: "code" },
+      {
+        id: "w1",
+        name: "web-app",
+        rootPath: "D:\\web",
+        kind: "code",
+        sourceId: "gitnexus",
+      },
     ];
     render(
       <Inbox
@@ -206,13 +232,14 @@ describe("Inbox", () => {
     );
   });
 
-  it("keeps the main agent's running call line on one line", () => {
+  it("keeps the main agent's working call line on one line", () => {
     const fleet: Workspace[] = [
       {
         id: "self",
         name: "JARVIS",
         rootPath: "D:\\main",
         kind: "vault",
+        sourceId: "vault",
         isSelf: true,
       },
     ];
@@ -222,7 +249,7 @@ describe("Inbox", () => {
         statuses={[
           status({
             workspaceId: "self",
-            kind: "running",
+            kind: "working",
             call: "Bash(npm test)",
           }),
         ]}

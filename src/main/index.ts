@@ -38,6 +38,7 @@ import {
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
 import { importHead, listHeads, readHead } from "./head-models";
+import type { AskPrompt } from "./ask-mapper";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
@@ -92,18 +93,19 @@ app.whenReady().then(async () => {
   // spoken voice off the repo — and what makes the repo an ordinary delegate
   // jarvis_send can target.
   //
-  // It is dev-only, like the terminals and hooks it is built from: forward.mjs
-  // and mcp.mjs are resolved out of app.getAppPath(), which is an asar archive
-  // in a packaged build and holds neither file. Without the workspace there is
-  // no isSelf at all, so a packaged build pins home's terminal to the vault and
-  // speaks for nobody — the same inert shape it had before v0.4.2.
-  const mainAgent = app.isPackaged
-    ? null
-    : mainAgentWorkspace(path.join(app.getPath("userData"), "main-agent"));
-  const workspaces = mainAgent ? withMainAgent(loaded, mainAgent) : loaded;
+  // Its folder is under userData and the hooks it is built from ship as
+  // extraResource, so it exists in a packaged build too.
+  const mainAgent = mainAgentWorkspace(
+    path.join(app.getPath("userData"), "main-agent"),
+  );
+  const workspaces = withMainAgent(loaded, mainAgent);
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
+  // the open question per workspace. Deliberately not in the status store:
+  // WorkspaceStatus is persisted to the inbox file, and a question's full
+  // text and options do not belong on disk.
+  const asks = new Map<string, AskPrompt>();
   const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
     sourceById(ws.sourceId)?.load(ws) ??
     Promise.resolve({ nodes: [], edges: [] });
@@ -145,7 +147,8 @@ app.whenReady().then(async () => {
     "stale-reindex-command",
     async (_e, id: string): Promise<string | null> => {
       const ws = workspaces.find((w) => w.id === id);
-      const src = ws && sourceById(ws.sourceId);
+      if (!ws) return null;
+      const src = sourceById(ws.sourceId);
       if (!src?.stale || !src.reindexCommand) return null;
       return (await src.stale(ws.rootPath)) ? src.reindexCommand : null;
     },
@@ -363,11 +366,10 @@ app.whenReady().then(async () => {
     },
     // Same two-write shape as jarvis_send: Claude Code's TUI reads one
     // arriving chunk as a paste, so a trailing CR would land as a newline in
-    // the composer instead of submitting. No main agent (packaged) or no
-    // session yet means write returns false and the finish just waits in the
-    // queue for whenever one starts.
+    // the composer instead of submitting. No session yet means write returns
+    // false and the finish just waits in the queue for whenever one starts.
     nudgeMain: () => {
-      if (!mainAgent || !ptyManager.write(mainAgent.id, FINISH_NUDGE)) return;
+      if (!ptyManager.write(mainAgent.id, FINISH_NUDGE)) return;
       setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
     },
   });
@@ -424,7 +426,7 @@ app.whenReady().then(async () => {
       onData: (id, data) => send("pty-data", id, data),
       onExit: (id, code) => {
         send("pty-exit", id, code);
-        pushStatus(status.ptyExited(id, Date.now()));
+        pushStatus(status.ptyExited(id, Date.now(), code));
       },
     },
   );
@@ -438,10 +440,23 @@ app.whenReady().then(async () => {
     (s) => pushStatus(status.applyStatus(s)),
     () => workspaces,
     orchestrator,
+    (p) => {
+      // no questions means that one workspace's question is over — several can
+      // be open across the fleet, so only its own key goes
+      if (p.questions.length === 0) asks.delete(p.workspaceId);
+      else asks.set(p.workspaceId, p);
+      send("ask", p);
+    },
   );
 
-  const forwardPath = path.join(app.getAppPath(), "src", "hook", "forward.mjs");
-  const mcpPath = path.join(app.getAppPath(), "src", "hook", "mcp.mjs");
+  // Claude Code spawns both of these as its own child processes, so they must
+  // be real files on disk. extraResource drops src/hook beside the asar as
+  // resources/hook; in dev it is still in the source tree.
+  const hookDir = app.isPackaged
+    ? path.join(process.resourcesPath, "hook")
+    : path.join(app.getAppPath(), "src", "hook");
+  const forwardPath = path.join(hookDir, "forward.mjs");
+  const mcpPath = path.join(hookDir, "mcp.mjs");
   ipcMain.handle(
     "pty-launch",
     async (
@@ -477,21 +492,19 @@ app.whenReady().then(async () => {
   // The main agent owns the fleet watch and the voice, so it has to be running
   // before any delegate can finish. It is the only session boot starts; project
   // terminals still launch by hand.
-  if (mainAgent) {
-    try {
-      await ensureMainAgent(mainAgent.rootPath);
-      await ensureHooks(mainAgent.rootPath, forwardPath);
-      await ensureMcp(mainAgent, mcpPath);
-      // placeholder geometry — the terminal panel resizes the pty the moment
-      // it attaches, so this size never reaches the screen
-      ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
-      pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
-    } catch (err) {
-      // no claude on PATH, node-pty failed to load, or the folder could not be
-      // created. There is no terminal open yet to print into, so the console is
-      // the only place to say it.
-      console.error("[jarvis] main agent failed to launch:", err);
-    }
+  try {
+    await ensureMainAgent(mainAgent.rootPath);
+    await ensureHooks(mainAgent.rootPath, forwardPath);
+    await ensureMcp(mainAgent, mcpPath);
+    // placeholder geometry — the terminal panel resizes the pty the moment it
+    // attaches, so this size never reaches the screen
+    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
+    pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
+  } catch (err) {
+    // no claude on PATH, node-pty failed to load, or the folder could not be
+    // created. There is no terminal open yet to print into, so the console is
+    // the only place to say it.
+    console.error("[jarvis] main agent failed to launch:", err);
   }
 
   app.on("before-quit", () => ptyManager.killAll());

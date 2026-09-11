@@ -11,6 +11,7 @@
   --color-ink: #f0f7fa;
   --color-ink-muted: #b0d2de;
   --color-ink-dim: #5a7a8a;
+  --color-alarm: #ef4444; /* the crashed status, and nothing else */
   --font-hud: Bahnschrift, "DIN Condensed", Oswald, sans-serif;
 }
 
@@ -197,8 +198,23 @@
   @media (prefers-reduced-motion: reduce) {
     .hud-sweep,
     .hud-breathe,
-    .hud-tickrail {
+    .hud-tickrail,
+    .boot-in,
+    .boot-fade,
+    .boot-frame,
+    .boot-slide,
+    .panel-in {
       animation: none;
+    }
+    /* the close is on a timer, so cutting the animation is safe here — the
+       panel still leaves on schedule, it just leaves without moving */
+    .panel-out {
+      animation: none;
+      opacity: 0;
+    }
+    .panel-fold,
+    .segmented-fill {
+      transition: none;
     }
     .hud-sweep {
       opacity: 0;
@@ -377,6 +393,126 @@
   }
   .ring-tile-in {
     animation: ring-tile-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /* Entrance stagger (boot sequence). Same shape as ring-tile-in above:
+     `from`-only with fill-mode `backwards`, so the animation never writes the
+     element's resting state and removing it removes only the entrance.
+
+     0.48s on an easeOutCubic, not the 0.32s expo the idle motion uses: expo is
+     ~90% resolved in its first quarter, which on a 6px lift is a jump you
+     cannot see happen. The duration is ENTER_MS in ui/boot-stage.ts — the two
+     have to agree, or a stage opens over a run still in flight. */
+  @keyframes boot-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+  .boot-in {
+    animation: boot-in 0.48s cubic-bezier(0.33, 1, 0.68, 1) backwards;
+  }
+
+  /* Opacity only, for an element whose measured box must not move: a
+     transform makes getBoundingClientRect report the transformed rect, and
+     GraphSlot measures its own root every frame it changes. */
+  @keyframes boot-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  .boot-fade {
+    animation: boot-fade 0.48s cubic-bezier(0.33, 1, 0.68, 1) backwards;
+  }
+
+  /* The corner frame deploys rather than fading: it starts inside its resting
+     inset and expands out to it, so the four brackets travel across real
+     screen. It has to start *smaller* — the frame spans the window, so
+     scaling it up puts the corners off-screen where the motion is clipped and
+     all that is left to see is the fade. */
+  @keyframes boot-frame {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+  .boot-frame {
+    animation: boot-frame 0.48s cubic-bezier(0.33, 1, 0.68, 1) backwards;
+  }
+
+  /* Panels open and close. Quicker than the boot chrome — a panel is a
+     response to a click, not a title sequence. `panel-out` needs `forwards`:
+     it has to hold its last frame for the whole PANEL_OUT_MS before Panel
+     drops the node. */
+  @keyframes panel-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.97);
+    }
+  }
+  /* 0.38s, longer than the exit: opening mounts the panel's whole body, and a
+     heavy one — the settings form — can eat a short animation's frames before
+     the compositor ever gets to run it */
+  .panel-in {
+    animation: panel-in 0.38s cubic-bezier(0.33, 1, 0.68, 1) backwards;
+  }
+  @keyframes panel-out {
+    to {
+      opacity: 0;
+      transform: translateY(14px) scale(0.97);
+    }
+  }
+  .panel-out {
+    animation: panel-out 0.22s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  }
+
+  /* Folding and unfolding. A transition, not a keyframe: the box travels
+     between two geometries React already computes, and there is nothing to
+     hand-write. Armed by Panel only while a fold is in flight — left on, it
+     would make every drag and resize lag the pointer by 0.22s.
+
+     `left` is in the list because a right-docked panel holds its far edge as
+     it folds, so the box slides as well as shrinks. `width` and `height` only
+     travel when both ends are lengths: a fold that shrink-wraps ends at `auto`,
+     which no transition can interpolate, so that axis snaps while the other
+     two travel. */
+  .panel-fold {
+    transition:
+      left 0.22s cubic-bezier(0.33, 1, 0.68, 1),
+      width 0.22s cubic-bezier(0.33, 1, 0.68, 1),
+      height 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  /* The segmented control's fill travels between options. Its own class rather
+     than a transition utility, so the reduced-motion block below can name it. */
+  .segmented-fill {
+    transition:
+      left 0.2s ease-out,
+      width 0.2s ease-out;
+  }
+
+  /* The bezel's readouts write in from the left edge they hang off, so the
+     title and telemetry arrive after the frame rather than with it. They only
+     rode the wrapper's opacity before, and a bare fade on 11px dim type is not
+     something you can see happen. */
+  @keyframes boot-slide {
+    from {
+      opacity: 0;
+      transform: translateX(-14px);
+    }
+  }
+  .boot-slide {
+    animation: boot-slide 0.48s cubic-bezier(0.33, 1, 0.68, 1) backwards;
+  }
+
+  /* Held closed until its stage opens. Both entrances above are `backwards`,
+     which applies their `from` frame the moment the class lands — so a section
+     already painted at full opacity would blink out and rise again. The hold
+     is what the entrance enters *from*. `visibility` rather than `opacity`:
+     it keeps the layout box (GraphSlot measures its own root) while taking the
+     section out of hit-testing, so an invisible panel can't catch a click. */
+  .boot-hold {
+    visibility: hidden;
   }
 
   /* syntax-highlighted code preview (Shiki dark-plus). Shiki sets its own

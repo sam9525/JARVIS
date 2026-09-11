@@ -170,6 +170,15 @@ describe("VoiceWave", () => {
     expect(wave.className.split(/\s+/)).toContain("pointer-events-none");
   });
 
+  it("enters on mount, so the 🎤 mid-session reads the same as the boot", () => {
+    silent();
+    act(() => root.render(<VoiceWave />));
+    const wave = container.querySelector(
+      '[data-testid="voice-wave"]',
+    ) as HTMLElement;
+    expect(wave.className.split(/\s+/)).toContain("boot-in");
+  });
+
   it("mounts the WebGL canvas in colour mode and the 2D one otherwise", () => {
     silent();
     act(() => root.render(<VoiceWave colour />));

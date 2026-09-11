@@ -18,7 +18,7 @@ const ws = (id: string, kind: Workspace["kind"]): Workspace => ({
 });
 
 const graphOf = (...ids: string[]): VaultGraph => ({
-  nodes: ids.map((id) => ({ id, type: "file" as const })),
+  nodes: ids.map((id) => ({ id, type: "note" as const })),
   edges: [],
 });
 
@@ -155,7 +155,7 @@ describe("useWorkspaceGraphs", () => {
     const big = {
       nodes: Array.from({ length: 700 }, (_, i) => ({
         id: `s${i}`,
-        type: "file" as const,
+        type: "note" as const,
       })),
       edges: [],
     };
@@ -310,5 +310,40 @@ describe("useWorkspaceGraphs", () => {
     });
     await settle();
     expect(h.result.cardGraphs.size).toBe(0);
+  });
+
+  // the boot entrance gates its graph stage on this, so "every scan failed"
+  // has to settle the same as "every scan landed" — otherwise the slot waits
+  // out the fallback and fades in over nothing
+  it("reports the card pass settled once every workspace has landed", async () => {
+    let release!: (g: VaultGraph) => void;
+    jarvis.getGraph.mockReturnValue(
+      new Promise<VaultGraph>((res) => {
+        release = res;
+      }),
+    );
+    const h = renderHook(
+      useWorkspaceGraphs,
+      params({ showHome: true, workspaces: [ws("v", "vault")] }),
+    );
+    await settle();
+    expect(h.result.cardsLoaded).toBe(false);
+    await act(async () => {
+      release(graphOf("late"));
+    });
+    await settle();
+    expect(h.result.cardsLoaded).toBe(true);
+  });
+
+  it("settles the card pass even when every scan fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    jarvis.getGraph.mockRejectedValue(new Error("no index"));
+    const h = renderHook(
+      useWorkspaceGraphs,
+      params({ showHome: true, workspaces: [ws("v", "vault")] }),
+    );
+    await settle();
+    expect(h.result.cardGraphs.size).toBe(0);
+    expect(h.result.cardsLoaded).toBe(true);
   });
 });

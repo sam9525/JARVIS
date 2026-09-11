@@ -6,6 +6,7 @@ import {
   expireMatches,
   heatOf,
   hlKey,
+  impactDepth,
   matchProgress,
   nodeDisplay,
   pulseProgress,
@@ -13,7 +14,7 @@ import {
 } from "../session/highlight-store";
 import { colorFor, groupColor } from "./domain-colors";
 import { displayRadius, graphMetrics } from "./graph-metrics";
-import { brighten, COLORS } from "./graph-colors";
+import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { nodeLabelText } from "./node-label";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
@@ -67,7 +68,7 @@ export default function Graph({
   const fitPadding = thumbnail ? 4 : 40;
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
-  const fgRef = useRef<ForceGraphMethods>();
+  const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
 
   useEffect(() => {
@@ -129,10 +130,14 @@ export default function Graph({
   // otherwise every slider tick would re-bind data and restart the simulation.
   const { data, neighbors, nodeById } = useMemo(() => {
     const m = graphMetrics(graph);
-    const nodes = graph.nodes.map((n) => ({
-      ...n,
-      r: m.radius.get(n.id) ?? 4,
-    }));
+    // & NodeObj because force-graph writes x/y onto these objects once the
+    // simulation runs — they are ours before that and its after
+    const nodes = graph.nodes.map(
+      (n): (typeof graph.nodes)[number] & NodeObj => ({
+        ...n,
+        r: m.radius.get(n.id) ?? 4,
+      }),
+    );
     return {
       data: {
         nodes,
@@ -229,15 +234,25 @@ export default function Graph({
         // modified wins, then group color, then domain palette; reads keep
         // their base color and get a ring instead. heat brightens whichever won.
         ctx.fillStyle = brighten(
-          d === "modified" ? COLORS.modified : (groupColor(id, groups) ?? base),
+          d === "modified"
+            ? COLORS.modified
+            : d === "impact"
+              ? radiusColor(
+                  impactDepth(stateRef.current, hk) ?? 1,
+                  groupColor(id, groups) ?? base,
+                )
+              : (groupColor(id, groups) ?? base),
           t,
         );
         ctx.fill();
 
-        if (d === "ring") {
+        if (
+          d === "ring" ||
+          (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1)
+        ) {
           ctx.beginPath();
           ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
-          ctx.strokeStyle = COLORS.ring;
+          ctx.strokeStyle = d === "impact" ? RADIUS_COLOR : COLORS.ring;
           ctx.lineWidth = 1.5 / globalScale;
           ctx.stroke();
         }

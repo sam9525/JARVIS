@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it, expect } from "vitest";
 import HomeHeader from "../../src/renderer/home/HomeHeader";
 import type { WorkspaceStatus } from "../../src/shared/types";
@@ -38,10 +40,10 @@ describe("HomeHeader", () => {
     expect(summaryOf([])).toBe("no active sessions");
     expect(
       summaryOf([
-        status({ workspaceId: "w1", kind: "waiting" }),
-        status({ workspaceId: "w2", kind: "running" }),
+        status({ workspaceId: "w1", kind: "blocked" }),
+        status({ workspaceId: "w2", kind: "working" }),
       ]),
-    ).toBe("1 waiting · 1 running");
+    ).toBe("1 blocked · 1 working");
   });
 
   it("carries the controls the App hands it, over every home view", () => {
@@ -53,5 +55,51 @@ describe("HomeHeader", () => {
     // the bar floats over Ring/Fleet: it must not eat their drag gestures
     expect(tree.props.className).toContain("pointer-events-none");
     expect(tree.props.className).toContain("[&_button]:pointer-events-auto");
+  });
+});
+
+describe("enterClass", () => {
+  it("adds nothing when absent", () => {
+    const html = renderToStaticMarkup(<HomeHeader statuses={[]} />);
+    expect(html).not.toContain("boot-in");
+  });
+
+  it("merges the class into the header root", () => {
+    const html = renderToStaticMarkup(
+      <HomeHeader statuses={[]} enterClass="boot-in" />,
+    );
+    expect(html).toContain("boot-in");
+  });
+});
+
+describe("summary over six kinds", () => {
+  const st = (kind: WorkspaceStatus["kind"], id: string): WorkspaceStatus => ({
+    workspaceId: id,
+    kind,
+    call: "",
+    since: 0,
+    reads: 0,
+    edits: 0,
+  });
+
+  it("counts the two stopped states separately", () => {
+    const html = renderToStaticMarkup(
+      <HomeHeader statuses={[st("asking", "a"), st("blocked", "b")]} />,
+    );
+    expect(html).toContain("1 asking");
+    expect(html).toContain("1 blocked");
+  });
+
+  it("counts working and crashed", () => {
+    const html = renderToStaticMarkup(
+      <HomeHeader statuses={[st("working", "a"), st("crashed", "b")]} />,
+    );
+    expect(html).toContain("1 working");
+    expect(html).toContain("1 crashed");
+  });
+
+  it("says so when nothing is running", () => {
+    const html = renderToStaticMarkup(<HomeHeader statuses={[]} />);
+    expect(html).toContain("no active sessions");
   });
 });

@@ -26,10 +26,11 @@ export function configureModelEnv(env: ModelEnv): void {
   // model from disk — seconds, not milliseconds
   env.useBrowserCache = false;
   env.localModelPath = "/voice/models";
-  env.backends.onnx.wasm.wasmPaths = { wasm: ORT_WASM_URL };
+  const wasm = env.backends.onnx.wasm!; // always present in the browser build
+  wasm.wasmPaths = { wasm: ORT_WASM_URL };
   // ORT runs the model on whatever thread calls it, and that thread is already
   // a worker of our own. Its proxy would nest a second worker inside this one
   // and copy every tensor across the extra hop, buying nothing: the window is
   // off this thread either way.
-  env.backends.onnx.wasm.proxy = false;
+  wasm.proxy = false;
 }

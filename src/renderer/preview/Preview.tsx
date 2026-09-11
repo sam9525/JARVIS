@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderNote } from "./markdown";
-import { highlightCode } from "./code-highlight";
+import { highlightCode, previewsAsCode } from "./code-highlight";
 import type { Workspace } from "../../shared/types";
 
 type PreviewProps = {
@@ -20,7 +20,7 @@ export default function Preview({
 }: PreviewProps) {
   const [html, setHtml] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
-  const isCode = workspace.kind === "code";
+  const isCode = previewsAsCode(workspace.kind === "code", nodeId);
 
   useEffect(() => {
     let stale = false;
@@ -30,7 +30,7 @@ export default function Preview({
       let rendered: string;
       if (md === null) {
         rendered = "<em>file not found</em>";
-      } else if (workspace.kind === "code") {
+      } else if (previewsAsCode(workspace.kind === "code", nodeId)) {
         rendered = await highlightCode(md, nodeId);
       } else {
         rendered = await renderNote(md, {

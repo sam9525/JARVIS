@@ -6,9 +6,11 @@ import type {
 } from "../../shared/types";
 
 const DOT: Record<StatusKind, string> = {
-  waiting: "bg-warm",
-  running: "bg-accent",
+  working: "bg-accent",
+  asking: "bg-warm hud-glow-warm",
+  blocked: "bg-warm",
   idle: "bg-ink-dim",
+  crashed: "bg-alarm",
   none: "bg-ink-dim",
 };
 

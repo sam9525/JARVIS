@@ -2,6 +2,7 @@ import path from "node:path";
 import type { ToolEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 import { extractPaths } from "./response-paths";
+import { extractImpact } from "./impact-paths";
 
 export interface RawHookEvent {
   session_id?: string;
@@ -94,6 +95,22 @@ export function mapHookEvent(
     const nodeId = toNode(ws, raw.cwd, input.file_path);
     return nodeId
       ? { ...common, phase, tool: raw.tool_name, nodeIds: [nodeId] }
+      : null;
+  }
+  if (phase === "post" && raw.tool_name === "mcp__gitnexus__impact") {
+    const nodeIds: string[] = [];
+    const depths: number[] = [];
+    const seen = new Set<string>();
+    // already ascending by depth, so the workspace filter cannot reorder it
+    for (const hit of extractImpact(raw.tool_response)) {
+      const nodeId = toNode(ws, raw.cwd, hit.path);
+      if (!nodeId || seen.has(nodeId)) continue;
+      seen.add(nodeId);
+      nodeIds.push(nodeId);
+      depths.push(hit.depth);
+    }
+    return nodeIds.length
+      ? { ...common, phase, tool: "Impact", nodeIds, depths }
       : null;
   }
   return null;

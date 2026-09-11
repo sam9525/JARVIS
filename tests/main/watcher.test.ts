@@ -16,7 +16,7 @@ describe("watchVault", () => {
 
       const graphs: VaultGraph[] = [];
       const watcher = watchVault(dir, (g) => graphs.push(g));
-      await new Promise((r) => watcher.once("ready", r));
+      await new Promise<void>((r) => watcher.once("ready", () => r()));
 
       await fs.writeFile(
         path.join(dir, "physics", "raw", "b.md"),

@@ -3,7 +3,9 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import WorkspaceRail from "../../src/renderer/home/WorkspaceRail";
+import WorkspaceRail, {
+  railSeats,
+} from "../../src/renderer/home/WorkspaceRail";
 import type { Workspace, WorkspaceStatus } from "../../src/shared/types";
 
 const WS = {
@@ -145,8 +147,8 @@ describe("WorkspaceRail badges", () => {
         workspaces={workspaces}
         activeId="w1"
         statuses={[
-          status({ workspaceId: "w1", kind: "running" }),
-          status({ workspaceId: "w2", kind: "waiting" }),
+          status({ workspaceId: "w1", kind: "working" }),
+          status({ workspaceId: "w2", kind: "blocked" }),
         ]}
         homeActive={false}
         onHome={() => {}}
@@ -196,7 +198,7 @@ describe("WorkspaceRail badges", () => {
         statuses={[
           status({
             workspaceId: "w2",
-            kind: "waiting",
+            kind: "blocked",
             call: "Bash(npm test)",
           }),
         ]}
@@ -207,7 +209,7 @@ describe("WorkspaceRail badges", () => {
       />,
     );
     expect(
-      screen.getByTitle(/waiting on you — Bash\(npm test\)/i),
+      screen.getByTitle(/needs approval — Bash\(npm test\)/i),
     ).toBeTruthy();
   });
 
@@ -360,7 +362,7 @@ describe("WorkspaceRail source groups", () => {
     const statuses = [
       {
         workspaceId: WS.id,
-        kind: "running" as const,
+        kind: "working" as const,
         call: "",
         since: 0,
         reads: 0,
@@ -391,5 +393,57 @@ describe("WorkspaceRail source groups", () => {
     );
     expect(live).toContain("hud-breathe");
     expect(idle).not.toContain("hud-breathe");
+  });
+});
+
+describe("boot stagger", () => {
+  const render = (stagger?: boolean) =>
+    renderToStaticMarkup(
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId={null}
+        statuses={[]}
+        homeActive={false}
+        onHome={() => {}}
+        onSelect={() => {}}
+        onAddProject={() => {}}
+        stagger={stagger}
+      />,
+    );
+
+  it("holds the column closed when stagger is absent", () => {
+    const html = render(undefined);
+    expect(html).toContain("boot-hold");
+    expect(html).not.toContain("boot-in");
+    expect(html).not.toContain("animation-delay");
+  });
+
+  it("counts the delay across the whole flattened column", () => {
+    const html = render(true);
+    // home button = index 0
+    expect(html).toContain("animation-delay:0ms");
+    // three workspaces in three source groups, each preceded by a caption:
+    // 0 home, 1 caption, 2 vault, 3 caption, 4 gitnexus, 5 caption,
+    // 6 unknown, 7 add — the caption shares the delay of the button after it
+    expect(html).toContain("animation-delay:120ms");
+    expect(html).toContain("animation-delay:420ms");
+  });
+
+  it("gives every staggered element the boot-in class", () => {
+    const html = render(true);
+    // 1 home + 3 captions + 3 workspaces + 1 add
+    expect(html.split("boot-in").length - 1).toBe(8);
+  });
+
+  // the boot sequence holds the graph slot for runMs(railSeats), so this
+  // number has to stay one past the highest delay the column actually renders
+  it("counts one seat past the last delay the column renders", () => {
+    const seats = railSeats(workspaces);
+    expect(seats).toBe(8); // ⌂ + 3 captions + 3 workspaces + ＋
+    expect(render(true)).toContain(`animation-delay:${(seats - 1) * 60}ms`);
+  });
+
+  it("counts the two bracket buttons when there are no workspaces", () => {
+    expect(railSeats([])).toBe(2);
   });
 });

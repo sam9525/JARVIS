@@ -26,6 +26,16 @@ export const Z_BASE = 20;
  * hit-test time, which is why a stored z can never demote it.
  */
 export const SETTINGS_Z = Z_BASE + 10;
+/**
+ * A pending question outranks the settings panel, and for the same reason
+ * settings outranks the raise band: read at render time, so a stored z can
+ * never demote it. You cannot configure your way out of being asked.
+ */
+export const ASK_Z = SETTINGS_Z + 10;
+
+/** the ask panel is a fixed box; a question reads the same at any window size */
+const ASK_W = 560;
+const ASK_H = 420;
 
 export type Viewport = { width: number; height: number };
 
@@ -46,7 +56,7 @@ const WIDTH: Record<"terminal" | "preview", number> = {
  * behind it and leaves these alone: rescaleAll skips their width too, which is
  * what keeps a maximize from stretching them.
  */
-const FIXED_W: Partial<Record<PanelId, number>> = { settings: 250 };
+const FIXED_W: Partial<Record<PanelId, number>> = { settings: 250, ask: ASK_W };
 /** the picker is a fixed 520px canvas, so its panel is sized in pixels too */
 const MOUTH_W = 720;
 
@@ -57,6 +67,18 @@ const MOUTH_W = 720;
  * a laptop as on a 4K monitor instead of drifting toward one corner.
  */
 export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
+  if (id === "ask")
+    return clampToViewport(
+      {
+        x: Math.round((vp.width - ASK_W) / 2),
+        y: Math.round((vp.height - ASK_H) / 2),
+        w: ASK_W,
+        h: ASK_H,
+        collapsed: false,
+        z: ASK_Z,
+      },
+      vp,
+    );
   const w =
     id === "mouth"
       ? MOUTH_W

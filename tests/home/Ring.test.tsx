@@ -139,7 +139,7 @@ describe("Ring", () => {
     render(
       <Ring
         {...(props({
-          statuses: [status({ workspaceId: "w1", kind: "running", call })],
+          statuses: [status({ workspaceId: "w1", kind: "working", call })],
         }) as any)}
       />,
     );
@@ -179,7 +179,7 @@ describe("Ring", () => {
     const sectioned: VaultGraph = {
       nodes: [
         { id: "a", type: "note", section: "wiki" },
-        { id: "b", type: "note", section: "journal" },
+        { id: "b", type: "note", section: "raw" },
       ],
       edges: [],
     };

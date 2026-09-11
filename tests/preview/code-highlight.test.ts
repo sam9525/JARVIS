@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   langForPath,
   highlightCode,
+  previewsAsCode,
 } from "../../src/renderer/preview/code-highlight";
 
 let mockShouldThrow = false;
@@ -137,4 +138,21 @@ describe("highlightCode", () => {
 afterEach(() => {
   mockShouldThrow = false;
   mockCreateShouldThrow = false;
+});
+
+describe("previewsAsCode", () => {
+  it("keeps source files in a code workspace on the highlighter", () => {
+    expect(previewsAsCode(true, "src/main/main.ts")).toBe(true);
+    expect(previewsAsCode(true, "Makefile")).toBe(true);
+  });
+
+  it("routes markdown in a code workspace to the note renderer", () => {
+    expect(previewsAsCode(true, "docs/spec.md")).toBe(false);
+    expect(previewsAsCode(true, "README.MD")).toBe(false);
+  });
+
+  it("never sends a vault note to the highlighter", () => {
+    expect(previewsAsCode(false, "notes/idea")).toBe(false);
+    expect(previewsAsCode(false, "a.ts")).toBe(false);
+  });
 });

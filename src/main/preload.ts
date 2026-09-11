@@ -6,6 +6,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
+import type { AskPrompt } from "./ask-mapper";
 import type { TtsOption } from "./tts";
 
 // Every subscription hands back its own disposer. Without one, a second mount
@@ -32,6 +33,7 @@ const api = {
     subscribe<[ToolEvent]>("tool-event", cb),
   onStatus: (cb: (s: WorkspaceStatus[]) => void) =>
     subscribe<[WorkspaceStatus[]]>("status", cb),
+  onAsk: (cb: (p: AskPrompt) => void) => subscribe<[AskPrompt]>("ask", cb),
   // jarvis_say → main → here. The renderer owns playback, so both mouths and
   // the dedupe against the turn-end message live in one place.
   onSay: (cb: (text: string) => void) => subscribe<[string]>("tts-say", cb),
@@ -65,7 +67,7 @@ const api = {
     ipcRenderer.send("pty-resize", workspaceId, cols, rows);
   },
   // the key never crosses this bridge — main reads it from .env
-  ttsSpeak: (text: string): Promise<Uint8Array | null> =>
+  ttsSpeak: (text: string): Promise<Uint8Array<ArrayBuffer> | null> =>
     ipcRenderer.invoke("tts-speak", text),
   ttsVoices: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-voices"),
   // head models: names in, bytes out — the renderer never sees a disk path

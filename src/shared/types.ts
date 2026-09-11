@@ -1,4 +1,5 @@
-export type ToolName = "Read" | "Grep" | "Glob" | "Edit" | "Write" | "Prompt";
+export type ToolName =
+  "Read" | "Grep" | "Glob" | "Edit" | "Write" | "Prompt" | "Impact";
 
 export interface ToolEvent {
   sessionId: string;
@@ -9,10 +10,23 @@ export interface ToolEvent {
   // extension. v1 emits 0 or 1 entries; stays an array for multi-file matches.
   nodeIds: string[];
   pattern?: string; // Grep/Glob only
+  /**
+   * Impact only: hop count per entry of nodeIds, same length and same order.
+   * A parallel array rather than an array of objects, because nodeIds is
+   * consumed by countTool and by replay and changing its element type would
+   * touch both for no gain.
+   */
+  depths?: number[];
   ts: number;
 }
 
-export type StatusKind = "waiting" | "running" | "idle" | "none";
+export type StatusKind =
+  | "working" // a turn is in progress
+  | "asking" // AskUserQuestion is open — pick an option
+  | "blocked" // a permission prompt is open — allow or deny
+  | "idle" // at the prompt, nothing pending
+  | "crashed" // the PTY exited non-zero
+  | "none"; // no session
 
 // what the rail badge and the mission-control cards read
 export interface WorkspaceStatus {
@@ -31,7 +45,8 @@ export interface WorkspaceStatus {
 export interface StatusEvent {
   workspaceId: string;
   sessionId: string;
-  kind: "waiting" | "running" | "idle";
+  // "none" is never a hook outcome, only a PTY one; "crashed" likewise
+  kind: "working" | "asking" | "blocked" | "idle";
   call: string;
   message?: string; // Stop only: the last thing Claude said, for the inbox
   ts: number;
@@ -99,7 +114,7 @@ export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
 
-export type PanelId = "terminal" | "preview" | "settings" | "mouth";
+export type PanelId = "terminal" | "preview" | "settings" | "mouth" | "ask";
 export type LayoutId = "home" | "workspace";
 
 /**

@@ -10,8 +10,10 @@ import Graph3D from "./graph/Graph3D";
 import GraphSlot from "./graph/GraphSlot";
 import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
+import AskPanel from "./ui/AskPanel";
+import type { AskPrompt } from "../main/ask-mapper";
 import MouthPicker from "./voice/MouthPicker";
-import WorkspaceRail from "./home/WorkspaceRail";
+import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
 import TerminalPanel from "./terminal/TerminalPanel";
@@ -27,7 +29,9 @@ import { version as appVersion } from "../../package.json";
 import VoiceWave from "./voice/VoiceWave";
 import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
+import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
+  ASK_Z,
   SETTINGS_Z,
   defaultPanel,
   grabTarget,
@@ -140,6 +144,14 @@ export default function App() {
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
+  // the open question per workspace. Not a queue: the panel shows the active
+  // workspace's question, and another workspace asking shows up as its rail
+  // pip going amber.
+  const [asks, setAsks] = useState<Map<string, AskPrompt>>(new Map());
+  // An answer is two writes 80 ms apart and the panel moves to the next
+  // question at once, so a second click would otherwise put its arrows in
+  // front of the first answer's Enter. Every answer queues behind the last.
+  const askWriteRef = useRef(Promise.resolve());
 
   const [focusedPanel, setFocusedPanel] = useState<PanelId>("terminal");
   const [deckCleared, setDeckCleared] = useState(false);
@@ -248,7 +260,14 @@ export default function App() {
     showHome,
     onWorkspacesChanged: setWorkspaces,
   });
-  const { graph, graphLoading, layoutEpoch, cardGraphs, indexing } = graphs;
+  const {
+    graph,
+    graphLoading,
+    layoutEpoch,
+    cardGraphs,
+    cardsLoaded,
+    indexing,
+  } = graphs;
 
   // event log per workspace, feeding the replay scrubber. logRev exists only to
   // re-render the bar as events arrive — the log itself stays in a ref so an
@@ -323,6 +342,15 @@ export default function App() {
       .finally(() => setSettingsReady(true)); // defaults still render on failure
     offs.push(
       window.jarvis.onToolEvent((e) => {
+        // a new turn started, so whatever the question was, it is over. This
+        // is also the backstop for a session still running the old matcher.
+        if (e.tool === "Prompt")
+          setAsks((prev) => {
+            if (!prev.has(e.workspaceId)) return prev;
+            const next = new Map(prev);
+            next.delete(e.workspaceId);
+            return next;
+          });
         const fresh = appendEvent(logsRef.current, e);
         applyEvent(storeFor(e.workspaceId), e, performance.now());
         if (e.workspaceId === activeIdRef.current) {
@@ -333,6 +361,16 @@ export default function App() {
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
+    offs.push(
+      window.jarvis.onAsk?.((p) => {
+        setAsks((prev) => {
+          const next = new Map(prev);
+          if (p.questions.length === 0) next.delete(p.workspaceId);
+          else next.set(p.workspaceId, p);
+          return next;
+        });
+      }) ?? (() => undefined),
+    );
     return () => {
       cancelled = true;
       for (const off of offs) off();
@@ -418,6 +456,51 @@ export default function App() {
   const fleetStatuses = useMemo(
     () => statuses.filter((s) => fleet.some((w) => w.id === s.workspaceId)),
     [statuses, fleet],
+  );
+
+  // Reading order: chrome, then the rail, then the graph, then the terminal.
+  // Stage 3's signal is a constant — nothing needs to load for the terminal
+  // panel, it is last because it should be last.
+  //
+  // Stage 2 waits for the card pass to *settle*, not for a graph to exist: a
+  // scan that comes back empty is an answer, and gating on `cardGraphs.size`
+  // instead made the 1200ms fallback the normal path for every slow index —
+  // the slot then faded in over nothing and the real graph arrived after it,
+  // unanimated.
+  //
+  // The holds are how long each stage's own entrance runs, so nothing starts
+  // over something still moving. Only the cards view staggers inside the slot;
+  // the ring and fleet views are a single fade.
+  // Stage 0 also waits for a frame that actually reached the screen. Settings
+  // resolve within a few ms of mount, so the entrance used to start while the
+  // renderer was still evaluating its startup work — xterm, the PTY, the first
+  // graph fetches — and a compositor animation that never gets a first frame is
+  // an animation nobody sees. Two rAFs is the wait: the callbacks queue behind
+  // whatever is blocking the main thread, so the second one lands after it.
+  const [painted, setPainted] = useState(false);
+  useEffect(() => {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setPainted(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+
+  const stage = useBootStage(
+    [
+      settingsReady && painted, // 0 → header + bezel
+      workspaces.length > 0, // 1 → rail
+      cardsLoaded, // 2 → graph slot
+      true, // 3 → terminal / inbox
+    ],
+    [
+      ENTER_MS,
+      runMs(railSeats(fleet)),
+      runMs(showHome && homeView === "cards" ? fleet.length : 1),
+    ],
   );
 
   const hands = useHandControl({
@@ -530,6 +613,22 @@ export default function App() {
     spokenRef.current = say;
     void speak(say);
   }, [statuses, micOn, orchestrator, voice.capturing]);
+  // A fixed template over the question's own words — not a summary, and not
+  // composed text: every word that carries meaning came out of the payload.
+  // Only the current question, and only for the session we listen to.
+  useEffect(() => {
+    if (!micOn) return;
+    const ws = workspaces.find((w) => w.isSelf) ?? workspaces[0];
+    const prompt = ws ? asks.get(ws.id) : undefined;
+    if (!ws || !prompt) return;
+    const q = prompt.questions[0];
+    const line = `${ws.name} asks: ${q.question}. Options: ${q.options
+      .map((o) => o.label)
+      .join(", ")}.`.slice(0, 500);
+    if (spokenRef.current === line) return;
+    spokenRef.current = line;
+    void speak(line);
+  }, [asks, micOn, workspaces]);
   // A long message keeps reading after voice is switched off without this —
   // the mouth must go quiet on the same transition that closes the ear.
   useEffect(() => {
@@ -752,8 +851,9 @@ export default function App() {
 
   const telemetry = showHome
     ? `COMMAND CENTER · ${fleet.length} WORKSPACES · ` +
-      `${fleetStatuses.filter((s) => s.kind === "waiting").length} WAITING · ` +
-      `${fleetStatuses.filter((s) => s.kind === "running").length} RUNNING`
+      `${fleetStatuses.filter((s) => s.kind === "asking").length} ASKING · ` +
+      `${fleetStatuses.filter((s) => s.kind === "blocked").length} BLOCKED · ` +
+      `${fleetStatuses.filter((s) => s.kind === "working").length} WORKING`
     : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
       `EDGES ${graph.edges.length} · ` +
       `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;
@@ -765,7 +865,7 @@ export default function App() {
     : `READS ${activeStatus?.reads ?? 0} · EDITS ${activeStatus?.edits ?? 0}`;
 
   const homeViewToggle = (
-    <Segmented
+    <Segmented<HomeView>
       options={HOME_VIEW_OPTIONS}
       value={homeView}
       onChange={setHomeView}
@@ -818,126 +918,133 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-abyss">
-      <GraphSlot>
-        {({ width, height }) =>
-          showHome ? (
-            <>
-              {homeView === "fleet" ? (
-                <FleetGraph
-                  workspaces={fleet}
-                  mainColors={settings.mainColors}
-                  graphs={cardGraphs}
-                  view={view}
-                  dimensions={settings.dimensions}
-                  layoutEpoch={graphs.fleetEpoch}
-                  width={width}
-                  height={height}
-                  actionsRef={handActionsRef}
-                  onOpen={(ws) => {
-                    setShowHome(false);
-                    openWorkspace(ws);
-                  }}
-                />
-              ) : homeView === "ring" ? (
-                <Ring
-                  workspaces={fleet}
-                  mainColors={settings.mainColors}
-                  statuses={statuses}
-                  graphs={cardGraphs}
-                  getStore={storeFor}
-                  groups={settings.groups}
-                  view={settings.views["3d"]}
-                  filters={{
-                    sectionFilter: settings.sectionFilter,
-                    showTags: settings.showTags,
-                    showOrphans: settings.showOrphans,
-                  }}
-                  width={width}
-                  height={height}
-                  indexing={indexing}
-                  layoutEpoch={graphs.fleetEpoch}
-                  actionsRef={handActionsRef}
-                  onIndex={graphs.indexProject}
-                  onOpen={(ws) => {
-                    setShowHome(false);
-                    openWorkspace(ws);
-                  }}
-                />
-              ) : (
-                <MissionControl
-                  workspaces={fleet}
-                  mainColors={settings.mainColors}
-                  statuses={statuses}
-                  graphs={cardGraphs}
-                  getStore={storeFor}
-                  groups={settings.groups}
-                  view={settings.views["2d"]}
-                  filters={{
-                    sectionFilter: settings.sectionFilter,
-                    showTags: settings.showTags,
-                    showOrphans: settings.showOrphans,
-                  }}
-                  now={cardNow}
-                  indexing={indexing}
-                  onIndex={graphs.indexProject}
-                  onSelect={(ws) => {
-                    setShowHome(false);
-                    openWorkspace(ws);
-                  }}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              {!settingsReady ? null : settings.dimensions === "3d" ? (
-                <Graph3D
-                  graph={visible}
-                  domains={domains}
-                  baseHue={activeHue}
-                  groups={groupsFor(settings, active?.id)}
-                  display={view.display}
-                  forces={view.forces}
-                  stateRef={stateRef}
-                  onNodeClick={setPreviewNode}
-                  focusNode={previewNode}
-                  layoutEpoch={layoutEpoch}
-                  rotationPaused={previewNode !== null}
-                  handleRef={graph3dHandle}
-                  width={width}
-                  height={height}
-                />
-              ) : (
-                <Graph
-                  graph={visible}
-                  domains={domains}
-                  baseHue={activeHue}
-                  groups={groupsFor(settings, active?.id)}
-                  display={view.display}
-                  forces={view.forces}
-                  stateRef={stateRef}
-                  onNodeClick={setPreviewNode}
-                  focusNode={previewNode}
-                  layoutEpoch={layoutEpoch}
-                  handleRef={graphHandle}
-                  width={width}
-                  height={height}
-                />
-              )}
-              {active?.kind === "code" &&
-                !graphLoading &&
-                graph.nodes.length === 0 && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center">
-                    <EmptyGraph
-                      state={indexing[active.id]?.state ?? "idle"}
-                      error={indexing[active.id]?.error}
-                      onIndex={() => graphs.indexProject(active.id)}
-                    />
-                  </div>
-                )}
-            </>
-          )
+      <div
+        className={
+          "absolute inset-0" + (stage >= 2 ? " boot-fade" : " boot-hold")
         }
-      </GraphSlot>
+      >
+        <GraphSlot>
+          {({ width, height }) =>
+            showHome ? (
+              <>
+                {homeView === "fleet" ? (
+                  <FleetGraph
+                    workspaces={fleet}
+                    mainColors={settings.mainColors}
+                    graphs={cardGraphs}
+                    view={view}
+                    dimensions={settings.dimensions}
+                    layoutEpoch={graphs.fleetEpoch}
+                    width={width}
+                    height={height}
+                    actionsRef={handActionsRef}
+                    onOpen={(ws) => {
+                      setShowHome(false);
+                      openWorkspace(ws);
+                    }}
+                  />
+                ) : homeView === "ring" ? (
+                  <Ring
+                    workspaces={fleet}
+                    mainColors={settings.mainColors}
+                    statuses={statuses}
+                    graphs={cardGraphs}
+                    getStore={storeFor}
+                    groups={settings.groups}
+                    view={settings.views["3d"]}
+                    filters={{
+                      sectionFilter: settings.sectionFilter,
+                      showTags: settings.showTags,
+                      showOrphans: settings.showOrphans,
+                    }}
+                    width={width}
+                    height={height}
+                    indexing={indexing}
+                    layoutEpoch={graphs.fleetEpoch}
+                    actionsRef={handActionsRef}
+                    onIndex={graphs.indexProject}
+                    onOpen={(ws) => {
+                      setShowHome(false);
+                      openWorkspace(ws);
+                    }}
+                  />
+                ) : (
+                  <MissionControl
+                    workspaces={fleet}
+                    mainColors={settings.mainColors}
+                    statuses={statuses}
+                    graphs={cardGraphs}
+                    getStore={storeFor}
+                    groups={settings.groups}
+                    view={settings.views["2d"]}
+                    filters={{
+                      sectionFilter: settings.sectionFilter,
+                      showTags: settings.showTags,
+                      showOrphans: settings.showOrphans,
+                    }}
+                    now={cardNow}
+                    stagger={stage >= 2}
+                    indexing={indexing}
+                    onIndex={graphs.indexProject}
+                    onSelect={(ws) => {
+                      setShowHome(false);
+                      openWorkspace(ws);
+                    }}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                {!settingsReady ? null : settings.dimensions === "3d" ? (
+                  <Graph3D
+                    graph={visible}
+                    domains={domains}
+                    baseHue={activeHue}
+                    groups={groupsFor(settings, active?.id)}
+                    display={view.display}
+                    forces={view.forces}
+                    stateRef={stateRef}
+                    onNodeClick={setPreviewNode}
+                    focusNode={previewNode}
+                    layoutEpoch={layoutEpoch}
+                    rotationPaused={previewNode !== null}
+                    handleRef={graph3dHandle}
+                    width={width}
+                    height={height}
+                  />
+                ) : (
+                  <Graph
+                    graph={visible}
+                    domains={domains}
+                    baseHue={activeHue}
+                    groups={groupsFor(settings, active?.id)}
+                    display={view.display}
+                    forces={view.forces}
+                    stateRef={stateRef}
+                    onNodeClick={setPreviewNode}
+                    focusNode={previewNode}
+                    layoutEpoch={layoutEpoch}
+                    handleRef={graphHandle}
+                    width={width}
+                    height={height}
+                  />
+                )}
+                {active?.kind === "code" &&
+                  !graphLoading &&
+                  graph.nodes.length === 0 && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center">
+                      <EmptyGraph
+                        state={indexing[active.id]?.state ?? "idle"}
+                        error={indexing[active.id]?.error}
+                        onIndex={() => graphs.indexProject(active.id)}
+                      />
+                    </div>
+                  )}
+              </>
+            )
+          }
+        </GraphSlot>
+      </div>
       {/* The wrapper spans the full window height but the rail's own column
           is mostly empty below the pips — without this the left 56px of a
           full-bleed graph would be a dead strip. The buttons re-enable
@@ -948,6 +1055,7 @@ export default function App() {
           activeId={active?.id ?? null}
           statuses={statuses}
           homeActive={showHome}
+          stagger={stage >= 1}
           onAddProject={addProject}
           onHome={() => setShowHome(true)}
           onSelect={(ws) => {
@@ -957,14 +1065,17 @@ export default function App() {
         />
       </div>
       {showHome ? (
-        <HomeHeader statuses={fleetStatuses}>
+        <HomeHeader
+          statuses={fleetStatuses}
+          enterClass={stage >= 0 ? "boot-in" : "boot-hold"}
+        >
           {homeViewToggle}
           {graphButtons}
         </HomeHeader>
       ) : (
-        <div className={TOP_ROW}>
+        <div className={TOP_ROW + (stage >= 0 ? " boot-in" : " boot-hold")}>
           {active?.kind === "code" && (
-            <Segmented
+            <Segmented<CodeGraphLevel>
               options={GRAPH_LEVEL_OPTIONS}
               value={settings.codeGraphLevel}
               onChange={(codeGraphLevel: CodeGraphLevel) =>
@@ -975,36 +1086,40 @@ export default function App() {
           {graphButtons}
         </div>
       )}
-      <Bezel
-        title={`JARVIS · V${appVersion}`}
-        telemetry={telemetry}
-        footRight={footRight}
-        footLeft={
-          // bottom-anchored column: the slot sets only `bottom`, so the head
-          // and wave stack upward and never cover the replay scrubber. The
-          // wave is pointer-transparent; the scrubber under it is not.
-          <div className="flex flex-col items-start gap-2">
-            {micOn ? (
-              <VoiceWave
-                headModel={settings.headModel}
-                colour={settings.headColor}
-                mouth={mouthOn(settings)}
-                mouthRegion={settings.headMouths?.[headKey(settings)]}
-                onRig={setRigKind}
-                onHeadError={setHeadError}
-                onColoured={setHeadColoured}
-              />
-            ) : null}
-            {showHome ? null : (
-              <Timeline
-                log={(active && logsRef.current.get(active.id)) || []}
-                index={replayIndex}
-                onScrub={onScrub}
-              />
-            )}
-          </div>
-        }
-      />
+      <div className={stage >= 0 ? "boot-fade" : "boot-hold"}>
+        <Bezel
+          enterClass={stage >= 0 ? "boot-frame" : undefined}
+          title={`JARVIS · V${appVersion}`}
+          telemetry={telemetry}
+          footRight={footRight}
+          footLeft={
+            // bottom-anchored column: the slot sets only `bottom`, so the head
+            // and wave stack upward and never cover the replay scrubber. The
+            // wave is pointer-transparent; the scrubber under it is not.
+            <div className="flex flex-col items-start gap-2">
+              {micOn ? (
+                <VoiceWave
+                  headModel={settings.headModel}
+                  colour={settings.headColor}
+                  mouth={mouthOn(settings)}
+                  mouthRegion={settings.headMouths?.[headKey(settings)]}
+                  onRig={setRigKind}
+                  onHeadError={setHeadError}
+                  onColoured={setHeadColoured}
+                  visible={stage >= 0}
+                />
+              ) : null}
+              {showHome ? null : (
+                <Timeline
+                  log={(active && logsRef.current.get(active.id)) || []}
+                  index={replayIndex}
+                  onScrub={onScrub}
+                />
+              )}
+            </div>
+          }
+        />
+      </div>
       {!showHome && previewNode && active && (
         <Panel
           id="preview"
@@ -1043,6 +1158,7 @@ export default function App() {
             state={panelState("terminal")}
             focused={focusedPanel === "terminal"}
             hidden={deckCleared}
+            enterClass={stage >= 3 ? "boot-in" : "boot-hold"}
             onChange={(next) => setPanel("terminal", next)}
             onFocus={() => focusPanel("terminal")}
           >
@@ -1051,40 +1167,86 @@ export default function App() {
               live={statuses.some((s) => s.workspaceId === ws.id && s.live)}
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
+              visible={stage >= 3}
             />
           </Panel>
         );
       })()}
 
-      {showSettings && (
-        <Panel
-          id="settings"
-          title="GRAPH SETTINGS"
-          state={{ ...panelState("settings"), z: SETTINGS_Z }}
-          focused={focusedPanel === "settings"}
-          hidden={deckCleared}
-          onChange={(next) => setPanel("settings", next)}
-          onFocus={() => focusPanel("settings")}
-          onClose={() => setShowSettings(false)}
-        >
-          <GraphSettingsPanel
-            settings={settings}
-            activeId={active?.id ?? null}
-            search={search}
-            onSearchChange={setSearch}
-            onSettingsChange={updateSettings}
-            onHandControl={setHandControl}
-            onVoiceControl={setVoiceControl}
-            onResetHighlights={() => resetHighlights(stateRef.current)}
-            showSections={active?.kind !== "code"}
-            rigKind={rigKind}
-            mouthOn={mouthOn(settings)}
-            headError={headError}
-            headColoured={headColoured}
-            onPickMouth={() => setShowMouthPicker(true)}
-          />
-        </Panel>
-      )}
+      {/* rendered whether or not it is open: the ⚙ closes this panel from
+          outside its title bar, and a panel React has already unmounted has no
+          exit left to play. `open` runs it, then Panel drops to null itself. */}
+      <Panel
+        id="settings"
+        title="GRAPH SETTINGS"
+        open={showSettings}
+        state={{ ...panelState("settings"), z: SETTINGS_Z }}
+        focused={focusedPanel === "settings"}
+        hidden={deckCleared}
+        onChange={(next) => setPanel("settings", next)}
+        onFocus={() => focusPanel("settings")}
+        onClose={() => setShowSettings(false)}
+      >
+        <GraphSettingsPanel
+          settings={settings}
+          activeId={active?.id ?? null}
+          search={search}
+          onSearchChange={setSearch}
+          onSettingsChange={updateSettings}
+          onHandControl={setHandControl}
+          onVoiceControl={setVoiceControl}
+          onResetHighlights={() => resetHighlights(stateRef.current)}
+          showSections={active?.kind !== "code"}
+          rigKind={rigKind}
+          mouthOn={mouthOn(settings)}
+          headError={headError}
+          headColoured={headColoured}
+          onPickMouth={() => setShowMouthPicker(true)}
+        />
+      </Panel>
+
+      {(() => {
+        const ws = showHome ? orchestrator : active;
+        const prompt = ws ? asks.get(ws.id) : undefined;
+        if (!ws || !prompt) return null;
+        return (
+          <Panel
+            id="ask"
+            title="QUESTION"
+            badge={<span className="text-[10px] text-ink-dim">{ws.name}</span>}
+            state={{ ...panelState("ask"), z: ASK_Z }}
+            focused={focusedPanel === "ask"}
+            hidden={deckCleared}
+            onChange={(next) => setPanel("ask", next)}
+            onFocus={() => focusPanel("ask")}
+            // closes the app's copy only — Claude Code is still waiting, and
+            // the terminal still shows the picker
+            onClose={() =>
+              setAsks((prev) => {
+                const next = new Map(prev);
+                next.delete(ws.id);
+                return next;
+              })
+            }
+          >
+            <AskPanel
+              prompt={prompt}
+              workspaceName={ws.name}
+              onAnswer={(keys) => {
+                askWriteRef.current = askWriteRef.current
+                  .then(async (): Promise<void> => {
+                    await window.jarvis.ptyInput(ws.id, keys);
+                    // a SEPARATE write, 80 ms later — never merge these two
+                    await new Promise((r) => setTimeout(r, 80));
+                    await window.jarvis.ptyInput(ws.id, "\r");
+                  })
+                  // a failed write must not strand every answer behind it
+                  .catch((): void => undefined);
+              }}
+            />
+          </Panel>
+        );
+      })()}
 
       {showMouthPicker && (
         <Panel

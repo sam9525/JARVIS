@@ -20,7 +20,7 @@ describe("preview-opener", () => {
   afterEach(() => vi.useRealTimers());
 
   it("opens the LAST read file once reads go quiet", () => {
-    const opened: string[] = [];
+    const opened: (string | null)[] = [];
     const onEvent = createPreviewOpener((id) => opened.push(id));
     onEvent(ev({ nodeIds: ["a"] }));
     vi.advanceTimersByTime(PREVIEW_QUIET_MS - 500);
@@ -42,7 +42,7 @@ describe("preview-opener", () => {
   });
 
   it("other tool events neither schedule nor cancel", () => {
-    const opened: string[] = [];
+    const opened: (string | null)[] = [];
     const onEvent = createPreviewOpener((id) => opened.push(id));
     onEvent(ev({ nodeIds: ["a"] }));
     onEvent(ev({ tool: "Grep", pattern: "x" }));

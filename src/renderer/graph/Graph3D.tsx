@@ -6,13 +6,14 @@ import {
   expireMatches,
   heatOf,
   hlKey,
+  impactDepth,
   matchProgress,
   nodeDisplay,
   type HighlightState,
 } from "../session/highlight-store";
 import { baseNodeColor } from "./domain-colors";
 import { displayRadius, graphMetrics, sphereRadius } from "./graph-metrics";
-import { brighten, COLORS } from "./graph-colors";
+import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import { useSpriteMaterials } from "./sprite-materials";
@@ -113,7 +114,7 @@ export default function Graph3D({
   lite = false,
   handleRef,
 }: GraphProps) {
-  const fgRef = useRef<ForceGraphMethods>();
+  const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
   // node id → its label sprite, so the visibility sweep can toggle them.
   // Entries for removed nodes go stale but are never visited (sweep iterates
@@ -122,7 +123,9 @@ export default function Graph3D({
   const nodeAdornments = useRef(new Map<string, NodeAdornment>());
   const pausedRef = useRef(rotationPaused);
   pausedRef.current = rotationPaused;
-  const rotationCtl = useRef<{ stop: () => void; arm: () => void }>();
+  const rotationCtl = useRef<{ stop: () => void; arm: () => void } | undefined>(
+    undefined,
+  );
 
   // palm-orbit flywheel: throw, coast, stop. Runs its own rAF only while
   // spinning — controls.update() rides react-force-graph's internal loop,
@@ -367,7 +370,7 @@ export default function Graph3D({
 
   // read-order arrows live in a component-owned group, rebuilt by the
   // highlight interval — never part of graphData
-  const trailGroup = useRef<Group>();
+  const trailGroup = useRef<Group | undefined>(undefined);
   useEffect(() => {
     const scene = fgRef.current?.scene();
     if (!scene) return;
@@ -483,8 +486,21 @@ export default function Graph3D({
       const hk = hlKey(node as { id: string | number; file?: string });
       const t = heatOf(stateRef.current, hk);
       // modified recolors the sphere; a read gets a ring sprite (Task 3)
-      if (nodeDisplay(stateRef.current, hk) === "modified")
-        return brighten(COLORS.modified, t);
+      const d = nodeDisplay(stateRef.current, hk);
+      if (d === "modified") return brighten(COLORS.modified, t);
+      if (d === "impact")
+        return brighten(
+          radiusColor(
+            impactDepth(stateRef.current, hk) ?? 1,
+            baseNodeColor(
+              { id, type: node.type, domain: node.domain },
+              domains,
+              groups,
+              baseHue,
+            ),
+          ),
+          t,
+        );
       return brighten(
         baseNodeColor(
           { id, type: node.type, domain: node.domain },
@@ -508,10 +524,17 @@ export default function Graph3D({
         heatOf(stateRef.current, hk),
       );
       const sphereR = sphereRadius(r);
+      const d = nodeDisplay(stateRef.current, hk);
       item.glow.scale.setScalar(sphereR * 4);
       item.glow.material = materials.glow(displayColor(node));
       item.readRing.scale.setScalar(sphereR * 3);
-      item.readRing.visible = nodeDisplay(stateRef.current, hk) === "ring";
+      item.readRing.material = materials.ring(
+        d === "impact" ? RADIUS_COLOR : COLORS.ring,
+      );
+      // a shallow impact keeps a ring too, in the radius colour
+      item.readRing.visible =
+        d === "ring" ||
+        (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1);
       item.matchRing.scale.setScalar(sphereR * 3.3);
       item.matchRing.visible =
         matchProgress(stateRef.current, now) !== null &&

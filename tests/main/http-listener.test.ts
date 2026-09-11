@@ -282,6 +282,8 @@ describe("orchestrate routes", () => {
           throw new Error("snapshot exploded");
         },
         send: () => ({ ok: true as const }),
+        watch: () => Promise.resolve(null),
+        say: () => ({ ok: true as const }),
       },
     );
     await new Promise((r) => server.once("listening", r));
@@ -459,5 +461,75 @@ describe("orchestrate routes added in v0.4.1", () => {
       expect(spy.mock.calls[0][0]).toBeUndefined();
       s.close();
     });
+  });
+});
+
+describe("the ask channel", () => {
+  it("pushes a prompt on PreToolUse and an empty one on PostToolUse", async () => {
+    const seen: Array<unknown> = [];
+    const server = startListener(
+      0,
+      () => {
+        /* no-op */
+      },
+      () => {
+        /* no-op */
+      },
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => seen.push(p),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const port = (server.address() as { port: number }).port;
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PreToolUse",
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [{ question: "Which?", header: "H", options: [] }],
+      },
+    });
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: {},
+    });
+    server.close();
+    expect(seen).toHaveLength(2);
+    expect((seen[0] as { questions: unknown[] }).questions).toHaveLength(1);
+    // the clear names its own workspace, so answering one question in a fleet
+    // cannot close another workspace's open panel
+    const clear = seen[1] as { questions: unknown[]; workspaceId: string };
+    expect(clear.questions).toHaveLength(0);
+    expect(clear.workspaceId).toBe(workspaces[0].id);
+  });
+
+  it("never calls onAsk for an unrelated event", async () => {
+    const seen: Array<unknown> = [];
+    const server = startListener(
+      0,
+      () => {
+        /* no-op */
+      },
+      () => {
+        /* no-op */
+      },
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => seen.push(p),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const port = (server.address() as { port: number }).port;
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "done",
+    });
+    server.close();
+    expect(seen).toHaveLength(0);
   });
 });
