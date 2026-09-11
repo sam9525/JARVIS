@@ -7,9 +7,30 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
 
+// Dependencies Vite leaves external, so the packager must copy them whole.
+const KEEP_DEPS = ["/node_modules/node-pty"];
+
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    // node-pty loads pty.node and spawns OpenConsole.exe / winpty-agent.exe by
+    // real path — neither works from inside an archive.
+    asar: { unpack: "**/node_modules/node-pty/**" },
+    // Claude Code spawns the hook forwarder and the MCP server itself, so they
+    // have to be real files beside the asar rather than entries inside it.
+    extraResource: ["src/hook"],
+    // Left unset, the Vite plugin ignores everything outside `.vite`, which
+    // drops node-pty — the one dependency Vite leaves external and so the one
+    // that must ship as a real package. An ancestor of a kept path stays
+    // walkable, or the copy never descends far enough to reach it.
+    ignore: (file: string) => {
+      if (!file) return false;
+      if (file.startsWith("/.vite")) return false;
+      if (file.endsWith(".pdb")) return true; // 53 MB of debug symbols
+      return !KEEP_DEPS.some(
+        (d) =>
+          file === d || file.startsWith(`${d}/`) || d.startsWith(`${file}/`),
+      );
+    },
   },
   // node-pty (the only native dep) is N-API with shipped prebuilds — rebuild
   // nothing; node-gyp would need a Windows SDK this machine doesn't have.
