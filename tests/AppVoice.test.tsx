@@ -339,3 +339,64 @@ describe("App: voice restored-message race", () => {
     expect(speakSpy).toHaveBeenCalledWith("build is green");
   });
 });
+
+describe("App: a long message is spoken by its headline", () => {
+  it("speaks the first paragraph once and does not repeat it", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+
+    const brief = "Three projects moved.\n\nJARVIS: shipped 0.4.4.";
+    const push = async (message: string) => {
+      await act(async () => {
+        statusListener!([
+          {
+            workspaceId: ORCHESTRATOR.id,
+            kind: "idle",
+            call: "",
+            message,
+            since: Date.now(),
+            reads: 0,
+            edits: 0,
+          },
+        ]);
+      });
+      await flush();
+    };
+
+    await push(""); // spends the mic-on swallow on an empty row
+    await push(brief);
+    expect(speakSpy).toHaveBeenCalledWith("Three projects moved.");
+    expect(speakSpy).toHaveBeenCalledTimes(1);
+
+    await push(brief); // the same status pushed again must stay silent
+    expect(speakSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not speak a restored long message, and swallows it by headline", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    const brief = "Three projects moved.\n\nJARVIS: shipped 0.4.4.";
+    await act(async () => {
+      statusListener!([
+        {
+          workspaceId: ORCHESTRATOR.id,
+          kind: "idle",
+          call: "",
+          message: brief,
+          since: Date.now(),
+          reads: 0,
+          edits: 0,
+        },
+      ]);
+    });
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+    expect(speakSpy).not.toHaveBeenCalled();
+  });
+});

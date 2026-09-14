@@ -77,7 +77,7 @@ import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import { useVoiceControl } from "./voice/use-voice-control";
-import { nextUtterance, speak, stopSpeaking } from "./voice/speak";
+import { headline, nextUtterance, speak, stopSpeaking } from "./voice/speak";
 import VoiceToggle from "./voice/VoiceToggle";
 import type { Graph3DHandle } from "./graph/Graph3D";
 import type { GraphHandle } from "./graph/Graph";
@@ -604,7 +604,9 @@ export default function App() {
       // install (no jarvis-inbox.json to restore) and eats the first real
       // reply of the session — the one you most need to hear.
       if (!status) return; // no row yet; nothing has been restored or missed
-      spokenRef.current = status.message?.trim() ?? "";
+      // the headline, because that is the half nextUtterance compares — the
+      // whole message would never match and the restored reply would be spoken
+      spokenRef.current = headline(status.message ?? "");
       swallowNextRef.current = false;
       return;
     }
