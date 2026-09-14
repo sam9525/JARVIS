@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import {
   AGENT_GUIDE,
+  BRIEF_AFTER_HOUR,
   FINISH_NUDGE,
+  SETTLE_DEADLINE_MS,
+  SETTLE_MS,
+  dailyBriefNudge,
   ensureMainAgent,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
@@ -174,5 +178,48 @@ describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
   it("holds the guide and the nudge to the same fewest-words brief", () => {
     expect(AGENT_GUIDE).toContain("as few words as possible");
     expect(AGENT_GUIDE).toContain("Someone is listening, not reading");
+  });
+});
+
+describe("dailyBriefNudge", () => {
+  const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
+
+  it("carries the note's path and nothing else about the work", () => {
+    expect(dailyBriefNudge(note)).toContain(note);
+    // a location, not a description: swap the path and the rest is identical
+    const a = dailyBriefNudge("A").replace("A", "");
+    const b = dailyBriefNudge("B").replace("B", "");
+    expect(a).toBe(b);
+  });
+
+  it("fits on one line, since it is typed into a TUI composer", () => {
+    expect(dailyBriefNudge(note)).not.toContain("\n");
+  });
+
+  it("asks for the headline shape the voice reads aloud", () => {
+    expect(dailyBriefNudge(note)).toContain("blank line");
+    expect(dailyBriefNudge(note)).toContain("read aloud");
+  });
+
+  it("asks the agent to report a note that is not yesterday's", () => {
+    expect(dailyBriefNudge(note)).toContain("date");
+  });
+
+  it("keeps the turn to one file, with no send and no watch", () => {
+    const text = dailyBriefNudge(note);
+    expect(text).not.toContain("jarvis_send");
+    expect(text).not.toContain("jarvis_watch");
+  });
+});
+
+describe("briefing constants", () => {
+  it("holds the briefing until the morning", () => {
+    expect(BRIEF_AFTER_HOUR).toBe(7);
+  });
+
+  it("waits a second of silence, and gives up after a minute", () => {
+    expect(SETTLE_MS).toBe(1000);
+    expect(SETTLE_DEADLINE_MS).toBe(60_000);
+    expect(SETTLE_DEADLINE_MS).toBeGreaterThan(SETTLE_MS);
   });
 });
