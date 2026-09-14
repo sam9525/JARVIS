@@ -36,10 +36,14 @@ export const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
 export function claudeCommand(
   dangerous = false,
   model?: string,
+  continueSession = false,
 ): { file: string; args: string[] } {
   const flags = dangerous ? ["--dangerously-skip-permissions"] : [];
   if (model && (CLAUDE_MODELS as readonly string[]).includes(model))
     flags.push("--model", model);
+  // resumes the newest conversation in this cwd; the caller checks a
+  // transcript exists first, so a fresh folder never asks for one
+  if (continueSession) flags.push("--continue");
   return process.platform === "win32"
     ? { file: "cmd.exe", args: ["/c", "claude", ...flags] }
     : { file: "claude", args: flags };
@@ -54,9 +58,10 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
       rows: number,
       dangerous = false,
       model?: string,
+      continueSession = false,
     ): void {
       if (ptys.has(ws.id)) return; // one live session per workspace
-      const { file, args } = claudeCommand(dangerous, model);
+      const { file, args } = claudeCommand(dangerous, model, continueSession);
       const p = spawnFn(file, args, {
         cwd: ws.rootPath,
         cols,
