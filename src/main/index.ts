@@ -29,8 +29,12 @@ import { ensureMcp } from "./mcp-install";
 import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import {
+  BRIEF_AFTER_HOUR,
   FINISH_NUDGE,
   MAIN_AGENT_MODEL,
+  SETTLE_DEADLINE_MS,
+  SETTLE_MS,
+  dailyBriefNudge,
   ensureMainAgent,
   mainAgentWorkspace,
   withMainAgent,
@@ -38,7 +42,14 @@ import {
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
 import { importHead, listHeads, readHead } from "./head-models";
-import { readBriefing, writeBriefing } from "./briefing";
+import {
+  hasTranscript,
+  newestNote,
+  readBriefing,
+  todayLocal,
+  transcriptDir,
+  writeBriefing,
+} from "./briefing";
 import type { AskPrompt } from "./ask-mapper";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
@@ -444,10 +455,28 @@ app.whenReady().then(async () => {
     }
     return ptySpawn;
   };
+  // The briefing waits for the main agent's TUI to stop painting. Text
+  // written before raw mode is dropped, and --continue loads a transcript
+  // first — every chunk pushes the timer out, and SETTLE_MS of silence means
+  // the prompt is ready.
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  let onMainSettled: (() => void) | null = null;
+  const bumpSettle = (id: string) => {
+    if (!onMainSettled || id !== mainAgent.id) return;
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      const fire = onMainSettled;
+      onMainSettled = null;
+      fire?.();
+    }, SETTLE_MS);
+  };
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
-      onData: (id, data) => send("pty-data", id, data),
+      onData: (id, data) => {
+        send("pty-data", id, data);
+        bumpSettle(id);
+      },
       onExit: (id, code) => {
         send("pty-exit", id, code);
         pushStatus(status.ptyExited(id, Date.now(), code));
@@ -520,10 +549,47 @@ app.whenReady().then(async () => {
     await ensureMainAgent(mainAgent.rootPath);
     await ensureHooks(mainAgent.rootPath, forwardPath);
     await ensureMcp(mainAgent, mcpPath);
+    // a fresh install has no conversation to continue, and no history to brief
+    const resume = await hasTranscript(
+      transcriptDir(os.homedir(), mainAgent.rootPath),
+    );
     // placeholder geometry — the terminal panel resizes the pty the moment it
     // attaches, so this size never reaches the screen
-    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
+    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
+
+    const briefing = await readBriefing(userData);
+    const note = briefing.notesDir ? await newestNote(briefing.notesDir) : null;
+    // lastBriefed is the briefing's own record, not a transcript mtime: an
+    // mtime gate is cancelled by any overnight write, and the morning
+    // briefing would silently never fire.
+    const due =
+      note !== null &&
+      resume &&
+      briefing.lastBriefed !== todayLocal() &&
+      new Date().getHours() >= BRIEF_AFTER_HOUR;
+    if (due && note) {
+      onMainSettled = () => {
+        // same two-write shape as every other nudge: one arriving chunk is a
+        // paste, so a trailing CR would land as a newline in the composer
+        if (!ptyManager.write(mainAgent.id, dailyBriefNudge(note))) return;
+        setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+        // re-read: the folder may have been picked since boot, and the date is
+        // written when the nudge is typed — a failed turn costs that day's
+        // briefing, which is cheaper than a nudge that retries into a live
+        // session
+        void readBriefing(userData)
+          .then((b) =>
+            writeBriefing(userData, { ...b, lastBriefed: todayLocal() }),
+          )
+          .catch(console.error);
+      };
+      // a session already busy at boot skips the day rather than typing over it
+      setTimeout(() => {
+        onMainSettled = null;
+        if (settleTimer) clearTimeout(settleTimer);
+      }, SETTLE_DEADLINE_MS);
+    }
   } catch (err) {
     // no claude on PATH, node-pty failed to load, or the folder could not be
     // created. There is no terminal open yet to print into, so the console is
