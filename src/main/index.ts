@@ -38,6 +38,7 @@ import {
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
 import { importHead, listHeads, readHead } from "./head-models";
+import { readBriefing, writeBriefing } from "./briefing";
 import type { AskPrompt } from "./ask-mapper";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
@@ -249,6 +250,29 @@ app.whenReady().then(async () => {
       console.error("head model import failed:", err);
       return { error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  // The daily briefing's notes folder. The app knows nothing about vaults or
+  // a memory/raw layout: it reads the newest *.md in whatever folder this
+  // names, and null is the off switch.
+  ipcMain.handle(
+    "get-notes-dir",
+    async () => (await readBriefing(userData)).notesDir,
+  );
+  ipcMain.handle("pick-notes-dir", async () => {
+    const picked = dialog.showOpenDialogSync({
+      title: "Choose the daily-notes folder",
+      properties: ["openDirectory"],
+    });
+    const current = await readBriefing(userData);
+    if (!picked?.length) return current.notesDir; // cancelled
+    await writeBriefing(userData, { ...current, notesDir: picked[0] });
+    return picked[0];
+  });
+  ipcMain.handle("clear-notes-dir", async () => {
+    const current = await readBriefing(userData);
+    await writeBriefing(userData, { ...current, notesDir: null });
+    return null;
   });
 
   const tts = createTts({ fetch: globalThis.fetch });

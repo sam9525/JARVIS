@@ -84,6 +84,9 @@ beforeEach(() => {
     ttsVoices: () => Promise.resolve([]),
     ttsModels: () => Promise.resolve([]),
     listHeadModels: () => Promise.resolve([]),
+    getNotesDir: () => Promise.resolve(null),
+    pickNotesDir: () => Promise.resolve(null),
+    clearNotesDir: () => Promise.resolve(null),
   };
   container = document.createElement("div");
   document.body.appendChild(container);
