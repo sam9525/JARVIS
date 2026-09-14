@@ -1,5 +1,15 @@
 import type { WorkspaceStatus } from "../../shared/types";
 
+/** The spoken half of a message: everything before the first blank line.
+ * A five-project briefing read aloud in full is a minute of speech that
+ * cannot be skipped, and the cloud mouth bills per character. The inbox and
+ * the cards still render `message` whole. */
+export const headline = (text: string): string =>
+  text
+    .trim()
+    .split(/\n\s*\n/, 1)[0]
+    .trim();
+
 // The app never parses terminal output, so `message` — the hook-derived text
 // workspace-status already pushes — is the only thing there is to read aloud.
 // Only the orchestrator's row reaches here; the caller picks it.
@@ -9,8 +19,10 @@ export function nextUtterance(
   capturing: boolean,
 ): string | null {
   if (capturing) return null; // never talk over an open dictation
-  const message = status?.message?.trim() ?? "";
-  if (!message || message === spoken.trim()) return null;
+  // the headline on both sides: comparing a whole message against the
+  // headline already stored would never match, and would speak it forever
+  const message = headline(status?.message ?? "");
+  if (!message || message === headline(spoken)) return null;
   return message;
 }
 

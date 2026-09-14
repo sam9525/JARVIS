@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   DEAF_TAIL_MS,
+  headline,
   isSounding,
   isSpeaking,
   nextUtterance,
@@ -53,6 +54,24 @@ describe("nextUtterance", () => {
     expect(nextUtterance(status("Jarvis, build is green"), "", false)).toBe(
       "Jarvis, build is green",
     );
+  });
+
+  it("speaks only the headline of a multi-paragraph message", () => {
+    expect(
+      nextUtterance(status("Headline.\n\nProject one moved."), "", false),
+    ).toBe("Headline.");
+  });
+
+  // returning a headline while comparing whole messages would speak the same
+  // line forever: App writes what it spoke back into spokenRef
+  it("does not repeat a headline it already spoke", () => {
+    expect(
+      nextUtterance(
+        status("Headline.\n\nProject one moved."),
+        "Headline.",
+        false,
+      ),
+    ).toBe(null);
   });
 });
 
@@ -442,5 +461,29 @@ describe("mouthOpen — the jaw curve", () => {
     spike[7] = 255; // a plosive edge, full scale for one sample
     // a peak reading calls this as wide open as the sustained sound below
     expect(mouthOpen(spike)).toBeLessThan(mouthOpen(wave(1)) * 0.6);
+  });
+});
+
+describe("headline", () => {
+  it("returns a one-paragraph message whole", () => {
+    expect(headline("build is green")).toBe("build is green");
+  });
+
+  it("returns the first paragraph of a multi-paragraph message", () => {
+    expect(
+      headline("Three projects moved.\n\nJARVIS: shipped.\n\nVault: idle."),
+    ).toBe("Three projects moved.");
+  });
+
+  it("treats a blank line holding spaces as a break", () => {
+    expect(headline("Headline.\n   \nBody.")).toBe("Headline.");
+  });
+
+  it("keeps a single newline inside one paragraph", () => {
+    expect(headline("one\ntwo")).toBe("one\ntwo");
+  });
+
+  it("is empty for an empty message", () => {
+    expect(headline("  \n ")).toBe("");
   });
 });
