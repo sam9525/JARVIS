@@ -52,8 +52,9 @@ describe("edge.speak", () => {
   });
 
   it("is null on an empty stream, so silence never reaches the renderer", async () => {
-    const { Client } = fakeClient({ stream: () => Readable.from([]) });
+    const { Client, made } = fakeClient({ stream: () => Readable.from([]) });
     expect(await createEdgeTts({ Client }).speak("hi")).toBe(null);
+    expect(made[0].close).toHaveBeenCalledTimes(1);
   });
 
   it("is null and closes when setMetadata throws", async () => {
