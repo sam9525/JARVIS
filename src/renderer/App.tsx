@@ -77,7 +77,7 @@ import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import { useVoiceControl } from "./voice/use-voice-control";
-import { headline, nextUtterance, speak, stopSpeaking } from "./voice/speak";
+import { nextUtterance, speak, stopSpeaking, type Spoken } from "./voice/speak";
 import VoiceToggle from "./voice/VoiceToggle";
 import type { Graph3DHandle } from "./graph/Graph3D";
 import type { GraphHandle } from "./graph/Graph";
@@ -575,9 +575,9 @@ export default function App() {
     setHeadColoured(null);
   }, [micOn, settings.headModel]);
 
-  // The mouth. Only the orchestrator's row is read, and only once per message
+  // The mouth. Only the orchestrator's row is read, and only once per turn
   // — spokenRef is a ref because speaking must not itself cause a render.
-  const spokenRef = useRef("");
+  const spokenRef = useRef<Spoken>({ text: "", at: null });
   // A restored session (jarvis-inbox.json carries a last message) or a
   // manual mic-on mid-session both find a message already sitting in
   // `statuses` — without this, the false→true edge reads it aloud as if it
@@ -604,16 +604,24 @@ export default function App() {
       // install (no jarvis-inbox.json to restore) and eats the first real
       // reply of the session — the one you most need to hear.
       if (!status) return; // no row yet; nothing has been restored or missed
-      // the headline, because that is the half nextUtterance compares — the
-      // whole message would never match and the restored reply would be spoken
-      spokenRef.current = headline(status.message ?? "");
+      spokenRef.current = {
+        text: status.message ?? "",
+        at: status.messageAt ?? null,
+      };
       swallowNextRef.current = false;
       return;
     }
     const say = nextUtterance(status, spokenRef.current, voice.capturing);
-    if (!say) return;
-    spokenRef.current = say;
-    void speak(say);
+    // A turn is covered once it has been looked at, spoken or not: the
+    // turn-end copy of a jarvis_say line is skipped, and the next turn's
+    // identical reply must not be read as that same copy again.
+    if (!voice.capturing && status?.message) {
+      spokenRef.current = {
+        text: status.message,
+        at: status.messageAt ?? null,
+      };
+    }
+    if (say) void speak(say);
   }, [statuses, micOn, orchestrator, voice.capturing]);
   // A fixed template over the question's own words — not a summary, and not
   // composed text: every word that carries meaning came out of the payload.
@@ -627,8 +635,8 @@ export default function App() {
     const line = `${ws.name} asks: ${q.question}. Options: ${q.options
       .map((o) => o.label)
       .join(", ")}.`.slice(0, 500);
-    if (spokenRef.current === line) return;
-    spokenRef.current = line;
+    if (spokenRef.current.text === line) return;
+    spokenRef.current = { ...spokenRef.current, text: line };
     void speak(line);
   }, [asks, micOn, workspaces]);
   // A long message keeps reading after voice is switched off without this —
@@ -641,15 +649,14 @@ export default function App() {
   // subscription time.
   const micOnRef = useRef(micOn);
   micOnRef.current = micOn;
-  // jarvis_say speaks now, and writes the same text into spokenRef so the
-  // agent's identical turn-end message is skipped by nextUtterance's existing
-  // equality check — one thought is never said twice. spokenRef is written
-  // even while muted: the dedupe must still catch the turn-end echo once
-  // voice comes back on.
+  // jarvis_say speaks now, and writes the same text into spokenRef with no
+  // turn, so the agent's identical turn-end message is skipped — one thought
+  // is never said twice. spokenRef is written even while muted: the dedupe
+  // must still catch the turn-end echo once voice comes back on.
   useEffect(
     () =>
       window.jarvis.onSay((text) => {
-        spokenRef.current = text.trim();
+        spokenRef.current = { text: text.trim(), at: null };
         if (micOnRef.current) void speak(text);
       }),
     [],

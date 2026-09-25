@@ -237,6 +237,20 @@ describe("status store", () => {
     expect(s.snapshot()[0].message).toBe("answer me");
   });
 
+  // "all good" twice is two answers, not one: the stamp is what lets the
+  // mouth tell a repeated reply from the same reply pushed again
+  it("stamps messageAt with each Stop, even when the text repeats", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", message: "all good", ts: 1000 }));
+    expect(s.snapshot()[0].messageAt).toBe(1000);
+    s.applyStatus(ev({ kind: "working", ts: 2000 }));
+    expect(s.snapshot()[0].messageAt).toBe(1000);
+    expect(
+      s.applyStatus(ev({ kind: "idle", message: "all good", ts: 3000 })),
+    ).toBe(true);
+    expect(s.snapshot()[0].messageAt).toBe(3000);
+  });
+
   it("a changed message alone counts as a change", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "idle", message: "a" }));
@@ -279,6 +293,7 @@ describe("status store restore", () => {
       workspaceId: "w1",
       kind: "idle",
       message: "answer me",
+      messageAt: 4000,
       since: 4000,
       reads: 0,
       edits: 0,

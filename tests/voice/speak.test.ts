@@ -15,63 +15,97 @@ import {
 } from "../../src/renderer/voice/speak";
 import type { WorkspaceStatus } from "../../src/shared/types";
 
-const status = (message: string): WorkspaceStatus =>
-  ({ workspaceId: "w1", kind: "idle", message }) as WorkspaceStatus;
+const status = (message: string, messageAt = 1): WorkspaceStatus =>
+  ({ workspaceId: "w1", kind: "idle", message, messageAt }) as WorkspaceStatus;
+// what the mouth last covered: `at` is that turn's messageAt, null for a
+// jarvis_say line whose turn has not ended yet
+const said = (text: string, at: number | null = 1) => ({ text, at });
+const nothing = said("", null);
 
 describe("nextUtterance", () => {
   it("is null with no status row", () => {
-    expect(nextUtterance(undefined, "", false)).toBe(null);
+    expect(nextUtterance(undefined, nothing, false)).toBe(null);
   });
 
   it("is null when the message is empty", () => {
-    expect(nextUtterance(status("   "), "", false)).toBe(null);
+    expect(nextUtterance(status("   "), nothing, false)).toBe(null);
   });
 
   it("returns a new message", () => {
-    expect(nextUtterance(status("build is green"), "", false)).toBe(
+    expect(nextUtterance(status("build is green"), nothing, false)).toBe(
       "build is green",
     );
   });
 
-  it("never repeats the message it already spoke", () => {
+  it("never repeats the turn it already spoke", () => {
     expect(
-      nextUtterance(status("build is green"), "build is green", false),
+      nextUtterance(status("build is green"), said("build is green"), false),
     ).toBe(null);
   });
 
   it("stays silent while capturing, so it never talks over you", () => {
-    expect(nextUtterance(status("build is green"), "", true)).toBe(null);
+    expect(nextUtterance(status("build is green"), nothing, true)).toBe(null);
   });
 
-  it("trims, so a trailing newline does not defeat the repeat check", () => {
-    expect(nextUtterance(status("done\n"), "done", false)).toBe(null);
+  it("trims, so a trailing newline does not defeat the jarvis_say check", () => {
+    expect(nextUtterance(status("done\n"), said("done", null), false)).toBe(
+      null,
+    );
   });
 
   // The mouth used to refuse any message containing the wake word. With a
   // workspace named JARVIS every summary names it, so that guard silenced the
   // commonest line there is. The ear goes deaf while the mouth talks instead.
   it("speaks a message containing the wake word", () => {
-    expect(nextUtterance(status("Jarvis, build is green"), "", false)).toBe(
-      "Jarvis, build is green",
-    );
+    expect(
+      nextUtterance(status("Jarvis, build is green"), nothing, false),
+    ).toBe("Jarvis, build is green");
   });
 
   it("speaks only the headline of a multi-paragraph message", () => {
     expect(
-      nextUtterance(status("Headline.\n\nProject one moved."), "", false),
+      nextUtterance(status("Headline.\n\nProject one moved."), nothing, false),
     ).toBe("Headline.");
   });
 
-  // returning a headline while comparing whole messages would speak the same
-  // line forever: App writes what it spoke back into spokenRef
-  it("does not repeat a headline it already spoke", () => {
+  // a jarvis_say line is stored whole, and the turn-end copy compared by its
+  // headline would never match it and be spoken a second time
+  it("compares a jarvis_say line by its headline", () => {
     expect(
       nextUtterance(
         status("Headline.\n\nProject one moved."),
-        "Headline.",
+        said("Headline.\n\nProject one moved.", null),
         false,
       ),
     ).toBe(null);
+  });
+
+  // the same words from a new turn are a new answer: a check on the text
+  // alone left every repeated reply unspoken
+  it("speaks an identical reply from a new turn", () => {
+    expect(
+      nextUtterance(status("all good", 2), said("all good", 1), false),
+    ).toBe("all good");
+  });
+
+  it("skips the turn-end copy of a jarvis_say line", () => {
+    expect(
+      nextUtterance(
+        status("build is green", 5),
+        said("build is green", null),
+        false,
+      ),
+    ).toBe(null);
+  });
+
+  it("speaks a different reply after a jarvis_say line", () => {
+    expect(
+      nextUtterance(
+        status("tests failed", 5),
+        said("build is green", null),
+        false,
+      ),
+    ).toBe("tests failed");
   });
 });
 

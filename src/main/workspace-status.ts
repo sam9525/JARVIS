@@ -17,6 +17,7 @@ interface Entry {
   kind: StatusKind;
   call: string;
   message: string;
+  messageAt: number;
   delegatedBy: string;
   since: number;
   lastEventAt: number;
@@ -51,6 +52,7 @@ export function createStatusStore(): StatusStore {
         kind: "none",
         call: "",
         message: "",
+        messageAt: 0,
         delegatedBy: "",
         since: now,
         lastEventAt: now,
@@ -83,6 +85,7 @@ export function createStatusStore(): StatusStore {
         const e = entry(raw.workspaceId, since);
         e.kind = "idle";
         e.message = raw.message;
+        e.messageAt = since;
         e.since = since;
       }
     },
@@ -111,15 +114,18 @@ export function createStatusStore(): StatusStore {
       // only Stop carries a message; keep the prior one otherwise so a running
       // turn still remembers the last thing Claude said
       const message = ev.message ?? e.message;
+      const messageAt = ev.message === undefined ? e.messageAt : ev.ts;
       const changed =
         sessionChanged ||
         e.kind !== ev.kind ||
         e.call !== call ||
-        e.message !== message;
+        e.message !== message ||
+        e.messageAt !== messageAt;
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
       e.call = call;
       e.message = message;
+      e.messageAt = messageAt;
       e.lastEventAt = ev.ts;
       e.ptyAlive = true; // events only arrive from a live session
       return changed;
@@ -234,6 +240,7 @@ export function createStatusStore(): StatusStore {
         kind: e.kind,
         call: e.call,
         message: e.message,
+        messageAt: e.messageAt,
         delegatedBy: e.delegatedBy,
         live: e.ptyOwned,
         since: e.since,
