@@ -41,6 +41,8 @@ import {
 } from "./main-agent";
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
+import { MsEdgeTTS } from "msedge-tts";
+import { createEdgeTts } from "./edge-tts";
 import { importHead, listHeads, readHead } from "./head-models";
 import {
   hasTranscript,
@@ -287,19 +289,23 @@ app.whenReady().then(async () => {
   });
 
   const tts = createTts({ fetch: globalThis.fetch });
+  const edge = createEdgeTts({ Client: MsEdgeTTS });
   ipcMain.handle("tts-speak", async (_e, text: string) => {
     const cfg = {
       apiKey: ttsKey(),
       voiceId: settings.ttsVoiceId ?? "",
       modelId: settings.ttsModelId ?? "eleven_multilingual_v2",
     };
-    const bytes = await tts.speak(cfg, String(text ?? ""));
+    const line = String(text ?? "");
+    const eleven = await tts.speak(cfg, line);
+    const bytes = eleven ?? (await edge.speak(line));
     // the renderer answers null by speaking through speechSynthesis, which
-    // sounds nothing like the chosen voice. Say which half was missing, or
-    // the fallback looks like the setting being ignored.
-    if (!bytes) {
+    // sounds nothing like the chosen voice. Say which half was missing and
+    // which tier answered instead, or the fallback looks like the setting
+    // being ignored.
+    if (!eleven) {
       console.warn(
-        `[tts] no audio — key:${cfg.apiKey ? "set" : "MISSING"} voice:${cfg.voiceId || "MISSING"} model:${cfg.modelId}`,
+        `[tts] elevenlabs no audio — key:${cfg.apiKey ? "set" : "MISSING"} voice:${cfg.voiceId || "MISSING"} model:${cfg.modelId} → ${bytes ? "edge" : "edge failed, OS voice"}`,
       );
     }
     return bytes;
