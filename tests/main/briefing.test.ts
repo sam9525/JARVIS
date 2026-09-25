@@ -31,6 +31,20 @@ describe("transcriptDir", () => {
       "C--Users-sam99-AppData-Roaming-jarvis-main-agent",
     );
   });
+
+  it("escapes spaces, dots and underscores too", () => {
+    const dir = transcriptDir(
+      "C:\\Users\\x",
+      "C:\\Users\\John.Smith\\my_app 2",
+    );
+    expect(path.basename(dir)).toBe("C--Users-John-Smith-my-app-2");
+  });
+
+  it("escapes a POSIX root's slashes", () => {
+    expect(
+      path.basename(transcriptDir("/home/x", "/home/x/.config/jarvis")),
+    ).toBe("-home-x--config-jarvis");
+  });
 });
 
 describe("hasTranscript", () => {

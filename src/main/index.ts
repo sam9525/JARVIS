@@ -524,8 +524,13 @@ app.whenReady().then(async () => {
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
       const mcpOk = await ensureMcp(ws, mcpPath);
+      // a relaunched main agent continues its conversation like the boot
+      // launch does — /clear is the only reset, and it is the user's
+      const resume =
+        ws.isSelf === true &&
+        (await hasTranscript(transcriptDir(os.homedir(), ws.rootPath)));
       try {
-        ptyManager.launch(ws, cols, rows, dangerous, model);
+        ptyManager.launch(ws, cols, rows, dangerous, model, resume);
         pushStatus(status.ptyLaunched(ws.id, Date.now()));
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
@@ -553,11 +558,9 @@ app.whenReady().then(async () => {
     const resume = await hasTranscript(
       transcriptDir(os.homedir(), mainAgent.rootPath),
     );
-    // placeholder geometry — the terminal panel resizes the pty the moment it
-    // attaches, so this size never reaches the screen
-    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
-    pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
-
+    // read before the launch: bumpSettle ignores output until onMainSettled
+    // is set, so a session that finished painting during these awaits would
+    // never start the settle timer
     const briefing = await readBriefing(userData);
     const note = briefing.notesDir ? await newestNote(briefing.notesDir) : null;
     // lastBriefed is the briefing's own record, not a transcript mtime: an
@@ -568,6 +571,10 @@ app.whenReady().then(async () => {
       resume &&
       briefing.lastBriefed !== todayLocal() &&
       new Date().getHours() >= BRIEF_AFTER_HOUR;
+    // placeholder geometry — the terminal panel resizes the pty the moment it
+    // attaches, so this size never reaches the screen
+    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
+    pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
     if (due && note) {
       onMainSettled = () => {
         // same two-write shape as every other nudge: one arriving chunk is a

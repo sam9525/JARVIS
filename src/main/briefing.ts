@@ -1,13 +1,14 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-/** Claude Code's per-cwd transcript folder. `:` and `\` both become `-`. */
+/** Claude Code's per-cwd transcript folder: every character that is not a
+ * letter or a digit becomes `-`. */
 export function transcriptDir(home: string, rootPath: string): string {
   return path.join(
     home,
     ".claude",
     "projects",
-    rootPath.replace(/[:\\]/g, "-"),
+    rootPath.replace(/[^a-zA-Z0-9]/g, "-"),
   );
 }
 
