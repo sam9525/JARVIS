@@ -24,11 +24,17 @@ const ttsVoices = vi.fn();
 const ttsModels = vi.fn();
 const listHeadModels = vi.fn();
 const pickHeadModel = vi.fn();
+const getNotesDir = vi.fn();
+const pickNotesDir = vi.fn();
+const clearNotesDir = vi.fn();
 (globalThis as any).window.jarvis = {
   ttsVoices,
   ttsModels,
   listHeadModels,
   pickHeadModel,
+  getNotesDir,
+  pickNotesDir,
+  clearNotesDir,
 };
 
 let root: Root;
@@ -38,6 +44,9 @@ beforeEach(() => {
   ttsModels.mockReset().mockResolvedValue([]);
   listHeadModels.mockReset().mockResolvedValue([]);
   pickHeadModel.mockReset().mockResolvedValue({});
+  getNotesDir.mockReset().mockResolvedValue(null);
+  pickNotesDir.mockReset().mockResolvedValue(null);
+  clearNotesDir.mockReset().mockResolvedValue(null);
   container = document.createElement("div");
   document.body.appendChild(container);
   act(() => {
@@ -210,8 +219,9 @@ describe("GraphSettingsPanel", () => {
     senses();
     await flush();
     // [header, hand control, voice control, microphone, no-devices hint,
-    //  head model, head upload, colour head, mouth moves, pick mouth, cloud voice]
-    expect(container.firstElementChild!.children).toHaveLength(11);
+    //  head model, head upload, daily notes, daily notes actions,
+    //  colour head, mouth moves, pick mouth, cloud voice]
+    expect(container.firstElementChild!.children).toHaveLength(13);
     expect(
       container.querySelector('[data-testid="voice-control-setting"]'),
     ).not.toBeNull();
@@ -583,5 +593,64 @@ describe("mouth moves", () => {
     ) as HTMLButtonElement;
     act(() => button.click());
     expect(picked).toBe(true);
+  });
+});
+
+const showSenses = () => {
+  const senses = [...container.querySelectorAll("button")].find(
+    (b) => b.textContent === "Senses",
+  ) as HTMLButtonElement;
+  act(() => senses.click());
+};
+
+const click = async (selector: string) => {
+  const el = container.querySelector(selector) as HTMLButtonElement;
+  await act(async () => {
+    el.click();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+};
+
+describe("daily briefing notes folder", () => {
+  it("reads 'Not set' when no folder has been chosen", async () => {
+    await mount({});
+    await flush();
+    showSenses();
+    expect(
+      container.querySelector('[data-testid="notes-dir-path"]')?.textContent,
+    ).toBe("Not set");
+  });
+
+  it("shows the stored folder", async () => {
+    getNotesDir.mockResolvedValue("D:\\Obsidian-valut\\memory\\raw");
+    await mount({});
+    await flush();
+    showSenses();
+    expect(
+      container.querySelector('[data-testid="notes-dir-path"]')?.textContent,
+    ).toBe("D:\\Obsidian-valut\\memory\\raw");
+  });
+
+  it("shows the folder the picker returns", async () => {
+    pickNotesDir.mockResolvedValue("D:\\notes");
+    await mount({});
+    await flush();
+    showSenses();
+    await click('[data-testid="notes-dir-choose"]');
+    expect(
+      container.querySelector('[data-testid="notes-dir-path"]')?.textContent,
+    ).toBe("D:\\notes");
+  });
+
+  it("goes back to 'Not set' when cleared", async () => {
+    getNotesDir.mockResolvedValue("D:\\notes");
+    await mount({});
+    await flush();
+    showSenses();
+    await click('[data-testid="notes-dir-clear"]');
+    expect(clearNotesDir).toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="notes-dir-path"]')?.textContent,
+    ).toBe("Not set");
   });
 });

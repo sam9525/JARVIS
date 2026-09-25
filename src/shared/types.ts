@@ -34,6 +34,7 @@ export interface WorkspaceStatus {
   kind: StatusKind;
   call: string; // compact "Tool(subject)"; "" when there is nothing to show
   message?: string; // idle: the last thing Claude said, for the inbox
+  messageAt?: number; // ms epoch of the Stop that set message — tells a repeated reply from the same reply pushed again
   delegatedBy?: string; // orchestrator that submitted the current turn; "" when the user did
   live?: boolean; // this app's own pty is attached right now — not a hand-run CLI
   since: number; // ms epoch of the last kind change — drives "40s ago"

@@ -78,6 +78,13 @@ const api = {
   // `{}` is a cancelled dialog; `error` is a refusal worth showing.
   pickHeadModel: (): Promise<{ name?: string; error?: string }> =>
     ipcRenderer.invoke("pick-head-model"),
+  // the daily briefing's notes folder: a path in, a path out — null is off
+  getNotesDir: (): Promise<string | null> =>
+    ipcRenderer.invoke("get-notes-dir"),
+  pickNotesDir: (): Promise<string | null> =>
+    ipcRenderer.invoke("pick-notes-dir"),
+  clearNotesDir: (): Promise<string | null> =>
+    ipcRenderer.invoke("clear-notes-dir"),
   ttsModels: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-models"),
   onPtyData: (cb: (workspaceId: string, data: string) => void) =>
     subscribe<[string, string]>("pty-data", cb),

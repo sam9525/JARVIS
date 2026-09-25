@@ -118,6 +118,10 @@ beforeEach(() => {
     },
     ttsVoices: () => Promise.resolve([]),
     ttsModels: () => Promise.resolve([]),
+    listHeadModels: () => Promise.resolve([]),
+    getNotesDir: () => Promise.resolve(null),
+    pickNotesDir: () => Promise.resolve(null),
+    clearNotesDir: () => Promise.resolve(null),
   };
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -223,7 +227,7 @@ describe("App: voice restored-message race", () => {
 
     expect(speakSpy).not.toHaveBeenCalled();
   });
-  const push = (message: string) =>
+  const push = (message: string, messageAt?: number) =>
     act(async () => {
       statusListener!([
         {
@@ -231,6 +235,7 @@ describe("App: voice restored-message race", () => {
           kind: "idle",
           call: "",
           message,
+          messageAt,
           since: Date.now(),
           reads: 0,
           edits: 0,
@@ -273,10 +278,35 @@ describe("App: voice restored-message race", () => {
     speakSpy.mockClear();
 
     // the same thought arriving as the orchestrator's own Stop message
-    await push("build is green");
+    await push("build is green", 1000);
+    await flush();
+    expect(speakSpy).not.toHaveBeenCalled();
+
+    // ...but the same words from the next turn are a new answer
+    await push("build is green", 2000);
+    await flush();
+    expect(speakSpy).toHaveBeenCalledWith("build is green");
+  });
+
+  // "audio check" twice gets "all good" twice; each turn is heard
+  it("speaks an identical reply once per turn", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+    await push(""); // spend the restore swallow
     await flush();
 
-    expect(speakSpy).not.toHaveBeenCalled();
+    await push("all good", 1000);
+    await flush();
+    await push("all good", 1000); // the same turn pushed again
+    await flush();
+    await push("all good", 2000);
+    await flush();
+
+    expect(speakSpy).toHaveBeenCalledTimes(2);
   });
 
   // an off switch that does not stay off is untrustworthy: jarvis_say must
@@ -333,5 +363,66 @@ describe("App: voice restored-message race", () => {
     await act(async () => sayListener?.("build is green"));
 
     expect(speakSpy).toHaveBeenCalledWith("build is green");
+  });
+});
+
+describe("App: a long message is spoken by its headline", () => {
+  it("speaks the first paragraph once and does not repeat it", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+
+    const brief = "Three projects moved.\n\nJARVIS: shipped 0.4.4.";
+    const push = async (message: string) => {
+      await act(async () => {
+        statusListener!([
+          {
+            workspaceId: ORCHESTRATOR.id,
+            kind: "idle",
+            call: "",
+            message,
+            since: Date.now(),
+            reads: 0,
+            edits: 0,
+          },
+        ]);
+      });
+      await flush();
+    };
+
+    await push(""); // spends the mic-on swallow on an empty row
+    await push(brief);
+    expect(speakSpy).toHaveBeenCalledWith("Three projects moved.");
+    expect(speakSpy).toHaveBeenCalledTimes(1);
+
+    await push(brief); // the same status pushed again must stay silent
+    expect(speakSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not speak a restored long message, and swallows it by headline", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    const brief = "Three projects moved.\n\nJARVIS: shipped 0.4.4.";
+    await act(async () => {
+      statusListener!([
+        {
+          workspaceId: ORCHESTRATOR.id,
+          kind: "idle",
+          call: "",
+          message: brief,
+          since: Date.now(),
+          reads: 0,
+          edits: 0,
+        },
+      ]);
+    });
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+    expect(speakSpy).not.toHaveBeenCalled();
   });
 });

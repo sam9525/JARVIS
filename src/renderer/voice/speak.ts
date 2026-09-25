@@ -1,17 +1,42 @@
 import type { WorkspaceStatus } from "../../shared/types";
 
+/** The spoken half of a message: everything before the first blank line.
+ * A five-project briefing read aloud in full is a minute of speech that
+ * cannot be skipped, and the cloud mouth bills per character. The inbox and
+ * the cards still render `message` whole. */
+export const headline = (text: string): string =>
+  text
+    .trim()
+    .split(/\n\s*\n/, 1)[0]
+    .trim();
+
+/** What the mouth last covered. `at` is the `messageAt` of the turn it
+ * covered, or null for a jarvis_say line whose turn has not ended yet. */
+export interface Spoken {
+  text: string;
+  at: number | null;
+}
+
 // The app never parses terminal output, so `message` — the hook-derived text
 // workspace-status already pushes — is the only thing there is to read aloud.
 // Only the orchestrator's row reaches here; the caller picks it.
+//
+// A turn is known by its stamp, not its words: the same reply twice is two
+// answers. A jarvis_say line has no turn yet, so its turn-end copy is known
+// by its words — headline on both sides, since the line is stored whole.
 export function nextUtterance(
   status: WorkspaceStatus | undefined,
-  spoken: string,
+  spoken: Spoken,
   capturing: boolean,
 ): string | null {
   if (capturing) return null; // never talk over an open dictation
-  const message = status?.message?.trim() ?? "";
-  if (!message || message === spoken.trim()) return null;
-  return message;
+  const message = headline(status?.message ?? "");
+  if (!message) return null;
+  const repeat =
+    spoken.at === null
+      ? message === headline(spoken.text)
+      : status?.messageAt === spoken.at;
+  return repeat ? null : message;
 }
 
 // Whichever mouth is talking, only one is. Module level because a new

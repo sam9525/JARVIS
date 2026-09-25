@@ -29,15 +29,29 @@ import { ensureMcp } from "./mcp-install";
 import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import {
+  BRIEF_AFTER_HOUR,
   FINISH_NUDGE,
   MAIN_AGENT_MODEL,
+  SETTLE_DEADLINE_MS,
+  SETTLE_MS,
+  dailyBriefNudge,
   ensureMainAgent,
   mainAgentWorkspace,
   withMainAgent,
 } from "./main-agent";
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { createTts } from "./tts";
+import { MsEdgeTTS } from "msedge-tts";
+import { createEdgeTts } from "./edge-tts";
 import { importHead, listHeads, readHead } from "./head-models";
+import {
+  hasTranscript,
+  newestNote,
+  readBriefing,
+  todayLocal,
+  transcriptDir,
+  writeBriefing,
+} from "./briefing";
 import type { AskPrompt } from "./ask-mapper";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
@@ -251,20 +265,47 @@ app.whenReady().then(async () => {
     }
   });
 
+  // The daily briefing's notes folder. The app knows nothing about vaults or
+  // a memory/raw layout: it reads the newest *.md in whatever folder this
+  // names, and null is the off switch.
+  ipcMain.handle(
+    "get-notes-dir",
+    async () => (await readBriefing(userData)).notesDir,
+  );
+  ipcMain.handle("pick-notes-dir", async () => {
+    const picked = dialog.showOpenDialogSync({
+      title: "Choose the daily-notes folder",
+      properties: ["openDirectory"],
+    });
+    const current = await readBriefing(userData);
+    if (!picked?.length) return current.notesDir; // cancelled
+    await writeBriefing(userData, { ...current, notesDir: picked[0] });
+    return picked[0];
+  });
+  ipcMain.handle("clear-notes-dir", async () => {
+    const current = await readBriefing(userData);
+    await writeBriefing(userData, { ...current, notesDir: null });
+    return null;
+  });
+
   const tts = createTts({ fetch: globalThis.fetch });
+  const edge = createEdgeTts({ Client: MsEdgeTTS });
   ipcMain.handle("tts-speak", async (_e, text: string) => {
     const cfg = {
       apiKey: ttsKey(),
       voiceId: settings.ttsVoiceId ?? "",
       modelId: settings.ttsModelId ?? "eleven_multilingual_v2",
     };
-    const bytes = await tts.speak(cfg, String(text ?? ""));
+    const line = String(text ?? "");
+    const eleven = await tts.speak(cfg, line);
+    const bytes = eleven ?? (await edge.speak(line));
     // the renderer answers null by speaking through speechSynthesis, which
-    // sounds nothing like the chosen voice. Say which half was missing, or
-    // the fallback looks like the setting being ignored.
-    if (!bytes) {
+    // sounds nothing like the chosen voice. Say which half was missing and
+    // which tier answered instead, or the fallback looks like the setting
+    // being ignored.
+    if (!eleven) {
       console.warn(
-        `[tts] no audio — key:${cfg.apiKey ? "set" : "MISSING"} voice:${cfg.voiceId || "MISSING"} model:${cfg.modelId}`,
+        `[tts] elevenlabs no audio — key:${cfg.apiKey ? "set" : "MISSING"} voice:${cfg.voiceId || "MISSING"} model:${cfg.modelId} → ${bytes ? "edge" : "edge failed, OS voice"}`,
       );
     }
     return bytes;
@@ -420,10 +461,28 @@ app.whenReady().then(async () => {
     }
     return ptySpawn;
   };
+  // The briefing waits for the main agent's TUI to stop painting. Text
+  // written before raw mode is dropped, and --continue loads a transcript
+  // first — every chunk pushes the timer out, and SETTLE_MS of silence means
+  // the prompt is ready.
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  let onMainSettled: (() => void) | null = null;
+  const bumpSettle = (id: string) => {
+    if (!onMainSettled || id !== mainAgent.id) return;
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      const fire = onMainSettled;
+      onMainSettled = null;
+      fire?.();
+    }, SETTLE_MS);
+  };
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
-      onData: (id, data) => send("pty-data", id, data),
+      onData: (id, data) => {
+        send("pty-data", id, data);
+        bumpSettle(id);
+      },
       onExit: (id, code) => {
         send("pty-exit", id, code);
         pushStatus(status.ptyExited(id, Date.now(), code));
@@ -471,8 +530,13 @@ app.whenReady().then(async () => {
       if (!ws) return { ok: false, hooksOk: false };
       const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
       const mcpOk = await ensureMcp(ws, mcpPath);
+      // a relaunched main agent continues its conversation like the boot
+      // launch does — /clear is the only reset, and it is the user's
+      const resume =
+        ws.isSelf === true &&
+        (await hasTranscript(transcriptDir(os.homedir(), ws.rootPath)));
       try {
-        ptyManager.launch(ws, cols, rows, dangerous, model);
+        ptyManager.launch(ws, cols, rows, dangerous, model, resume);
         pushStatus(status.ptyLaunched(ws.id, Date.now()));
       } catch (err) {
         // native load or spawn failure — the terminal reports it, app lives on
@@ -496,10 +560,49 @@ app.whenReady().then(async () => {
     await ensureMainAgent(mainAgent.rootPath);
     await ensureHooks(mainAgent.rootPath, forwardPath);
     await ensureMcp(mainAgent, mcpPath);
+    // a fresh install has no conversation to continue, and no history to brief
+    const resume = await hasTranscript(
+      transcriptDir(os.homedir(), mainAgent.rootPath),
+    );
+    // read before the launch: bumpSettle ignores output until onMainSettled
+    // is set, so a session that finished painting during these awaits would
+    // never start the settle timer
+    const briefing = await readBriefing(userData);
+    const note = briefing.notesDir ? await newestNote(briefing.notesDir) : null;
+    // lastBriefed is the briefing's own record, not a transcript mtime: an
+    // mtime gate is cancelled by any overnight write, and the morning
+    // briefing would silently never fire.
+    const due =
+      note !== null &&
+      resume &&
+      briefing.lastBriefed !== todayLocal() &&
+      new Date().getHours() >= BRIEF_AFTER_HOUR;
     // placeholder geometry — the terminal panel resizes the pty the moment it
     // attaches, so this size never reaches the screen
-    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL);
+    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
+    if (due && note) {
+      onMainSettled = () => {
+        // same two-write shape as every other nudge: one arriving chunk is a
+        // paste, so a trailing CR would land as a newline in the composer
+        if (!ptyManager.write(mainAgent.id, dailyBriefNudge(note))) return;
+        setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+        // re-read: the folder may have been picked since boot, and the date is
+        // written when the nudge is typed — a failed turn costs that day's
+        // briefing, which is cheaper than a nudge that retries into a live
+        // session
+        void readBriefing(userData)
+          .then((b) =>
+            writeBriefing(userData, { ...b, lastBriefed: todayLocal() }),
+          )
+          .catch(console.error);
+      };
+      // a session already busy at boot skips the day rather than typing over it
+      setTimeout(() => {
+        onMainSettled = null;
+        if (settleTimer) clearTimeout(settleTimer);
+      }, SETTLE_DEADLINE_MS);
+    }
   } catch (err) {
     // no claude on PATH, node-pty failed to load, or the folder could not be
     // created. There is no terminal open yet to print into, so the console is

@@ -140,6 +140,19 @@ describe("pty-manager", () => {
     spawned[0].emitExit(0);
     expect(mgr.has("a")).toBe(false);
   });
+
+  it("forwards the resume flag to the command line", () => {
+    const calls: string[][] = [];
+    const spawn: SpawnFn = (_file, args) => {
+      calls.push(args);
+      return fakePty();
+    };
+    const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
+    mgr.launch(ws("a"), 80, 24, false, "sonnet");
+    mgr.launch(ws("b"), 80, 24, false, "sonnet", true);
+    expect(calls[0]).not.toContain("--continue");
+    expect(calls[1]).toContain("--continue");
+  });
 });
 
 describe("claudeCommand model flag", () => {
@@ -163,5 +176,24 @@ describe("claudeCommand model flag", () => {
     const { args } = claudeCommand(true, "opus");
     expect(args).toContain("--dangerously-skip-permissions");
     expect(args.slice(-2)).toEqual(["--model", "opus"]);
+  });
+
+  it("passes --continue only when asked", () => {
+    expect(claudeCommand().args).not.toContain("--continue");
+    expect(claudeCommand(false, undefined, true).args).toContain("--continue");
+  });
+
+  it("keeps --continue alongside the model and the dangerous flag", () => {
+    const { args } = claudeCommand(true, "sonnet", true);
+    expect(args).toContain("--dangerously-skip-permissions");
+    expect(args).toContain("--continue");
+    expect(args).toContain("--model");
+    expect(args).toContain("sonnet");
+  });
+
+  it("still drops an unrecognised model when resuming", () => {
+    expect(claudeCommand(false, "; rm -rf /", true).args).not.toContain(
+      "--model",
+    );
   });
 });

@@ -48,6 +48,10 @@ const walk = (n: any): any[] =>
   jarvis: {
     ttsVoices: () => Promise.resolve([]),
     ttsModels: () => Promise.resolve([]),
+    listHeadModels: () => Promise.resolve([]),
+    getNotesDir: () => Promise.resolve(null),
+    pickNotesDir: () => Promise.resolve(null),
+    clearNotesDir: () => Promise.resolve(null),
   },
 };
 

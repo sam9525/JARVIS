@@ -202,6 +202,16 @@ export default function GraphSettingsPanel({
       setHead(picked.name);
     });
 
+  // Main owns jarvis-briefing.json, so this is the only way to know the
+  // folder. Absent means the daily briefing is off — there is no second flag.
+  const [notesDir, setNotesDir] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    void window.jarvis
+      .getNotesDir()
+      .then(setNotesDir)
+      .catch(() => setNotesDir(null));
+  }, []);
+
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="mb-2.5 flex items-center justify-between gap-1.5">
@@ -468,6 +478,39 @@ export default function GraphSettingsPanel({
               {uploadError ?? headError}
             </div>
           )}
+
+          <div className="flex items-center justify-between gap-2 border-t border-edge py-2 text-ink-muted">
+            Daily notes
+            <span
+              data-testid="notes-dir-path"
+              className="max-w-[60%] truncate text-right text-ink"
+              title={notesDir ?? "Not set"}
+            >
+              {notesDir ?? "Not set"}
+            </span>
+          </div>
+          <div className="mb-1 flex gap-1.5">
+            <button
+              data-testid="notes-dir-choose"
+              className="flex-1 cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
+              title="Folder the morning briefing reads its newest note from"
+              onClick={() =>
+                void window.jarvis.pickNotesDir().then(setNotesDir)
+              }
+            >
+              Choose
+            </button>
+            <button
+              data-testid="notes-dir-clear"
+              className="flex-1 cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
+              title="Turn the morning briefing off"
+              onClick={() =>
+                void window.jarvis.clearNotesDir().then(setNotesDir)
+              }
+            >
+              Clear
+            </button>
+          </div>
 
           <label className="flex items-center justify-between gap-2 py-2 text-ink-muted">
             Colour head

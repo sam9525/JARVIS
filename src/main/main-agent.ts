@@ -106,6 +106,39 @@ export const FINISH_NUDGE =
   "most. No preamble, no list, no file names, no markdown. Ignore every other " +
   "workspace and do not call jarvis_list.";
 
+/** The hour the daily briefing is allowed to start. A 03:00 restart is still
+ * last night, and no timer is armed — the briefing is skipped, and the next
+ * boot after this hour delivers it. */
+export const BRIEF_AFTER_HOUR = 7;
+
+/** Silence on the main agent's PTY that means its prompt has finished
+ * painting. A nudge written before that lands in the buffer ahead of raw mode
+ * and is dropped, or pasted into a half-built composer. */
+export const SETTLE_MS = 1000;
+
+/** How long the briefing waits for that silence. A session that never goes
+ * quiet skips the day rather than typing over live work. */
+export const SETTLE_DEADLINE_MS = 60_000;
+
+/** Typed into the main agent's session on the first launch of a day. Fixed
+ * text plus one absolute path: a location, not a description, so the app
+ * still composes nothing about the work.
+ *
+ * The headline clause overrides AGENT_GUIDE, which tells the agent its whole
+ * turn-end message is read aloud. The guide is written with `wx` and an
+ * existing install never sees a new one, so the override travels in the nudge.
+ */
+export const dailyBriefNudge = (notePath: string): string =>
+  "Daily briefing. Read this one file and nothing else: " +
+  notePath +
+  ". Its filename carries the date — if it is not yesterday's, say which day " +
+  "it is from in your first line. Then write one short paragraph per project " +
+  "the file mentions: what moved, in a line at most, then what is still open " +
+  "and what to carry on with. Say nothing about a project the file does not " +
+  "mention. Put a single-sentence headline on the first line, then a blank " +
+  "line, then the paragraphs — only that first line is read aloud, so this " +
+  "one reply may carry the rest as text. Read, answer, stop.";
+
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */
 export async function ensureMainAgent(rootPath: string): Promise<void> {
