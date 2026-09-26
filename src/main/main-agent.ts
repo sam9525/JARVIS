@@ -124,7 +124,7 @@ export const SETTLE_DEADLINE_MS = 60_000;
  * text plus one absolute path: a location, not a description, so the app
  * still composes nothing about the work.
  *
- * The headline clause overrides AGENT_GUIDE, which tells the agent its whole
+ * The spoken-summary clause overrides AGENT_GUIDE, which tells the agent its whole
  * turn-end message is read aloud. The guide is written with `wx` and an
  * existing install never sees a new one, so the override travels in the nudge.
  */
@@ -135,9 +135,12 @@ export const dailyBriefNudge = (notePath: string): string =>
   "it is from in your first line. Then write one short paragraph per project " +
   "the file mentions: what moved, in a line at most, then what is still open " +
   "and what to carry on with. Say nothing about a project the file does not " +
-  "mention. Put a single-sentence headline on the first line, then a blank " +
-  "line, then the paragraphs — only that first line is read aloud, so this " +
-  "one reply may carry the rest as text. Read, answer, stop.";
+  "mention. Before those paragraphs, open with a short spoken summary: two to " +
+  "four plain sentences that name each project's most important open point " +
+  "or next step, in as few words as possible. No preamble, no list, no file " +
+  "names, no markdown. Then a blank line, then the paragraphs — only that " +
+  "first paragraph is read aloud, so this one reply may carry the rest as " +
+  "text. Read, answer, stop.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */
