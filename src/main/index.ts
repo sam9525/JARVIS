@@ -53,6 +53,7 @@ import {
   writeBriefing,
 } from "./briefing";
 import type { AskPrompt } from "./ask-mapper";
+import { createTodoStore, parseTodos } from "./todos";
 import type { Settings, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
@@ -113,6 +114,20 @@ app.whenReady().then(async () => {
     path.join(app.getPath("userData"), "main-agent"),
   );
   const workspaces = withMainAgent(loaded, mainAgent);
+
+  // The agent writes TODO.md with its own tools; the panel writes it only
+  // through this store. Only ENOENT reads as empty — a locked or unreadable
+  // file must fail the op, or an add would overwrite the list with one line.
+  const todosPath = path.join(mainAgent.rootPath, "TODO.md");
+  const todoIO = {
+    read: () =>
+      fs.readFile(todosPath, "utf8").catch((err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") return "";
+        throw err;
+      }),
+    write: (file: string) => fs.writeFile(todosPath, file, "utf8"),
+  };
+  const todoStore = createTodoStore(todoIO, () => todayLocal());
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
@@ -498,7 +513,16 @@ app.whenReady().then(async () => {
     },
     (s) => pushStatus(status.applyStatus(s)),
     () => workspaces,
-    orchestrator,
+    {
+      ...orchestrator,
+      // opens the panel first: the answer is for the agent, the panel is for
+      // the person who asked. send() drops it quietly when no window exists.
+      todos: async () => {
+        send("show-todos", null);
+        const text = await todoIO.read();
+        return { path: todosPath, text, malformed: parseTodos(text).malformed };
+      },
+    },
     (p) => {
       // no questions means that one workspace's question is over — several can
       // be open across the fleet, so only its own key goes

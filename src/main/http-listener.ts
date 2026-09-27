@@ -16,6 +16,7 @@ const ORCHESTRATE = [
   "/orchestrate/send",
   "/orchestrate/watch",
   "/orchestrate/say",
+  "/orchestrate/todos",
 ];
 
 // Over the cap we destroy the socket, so "end" never fires and done() never runs.
@@ -40,6 +41,8 @@ export interface OrchestratorLike {
   send(target: string, prompt: string): SendResult;
   watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
+  /** Opens the to-do panel and answers the list file for the agent to edit. */
+  todos(): Promise<unknown>;
 }
 
 export function startListener(
@@ -156,6 +159,21 @@ export function startListener(
             req.on("close", () => ctl.abort());
             orchestrator
               .watch(secs, ctl.signal)
+              .then((out) => {
+                if (res.writableEnded || res.destroyed) return;
+                const json = JSON.stringify(out); // before writeHead
+                res.writeHead(200).end(json);
+              })
+              .catch(fail);
+          } catch (err) {
+            fail(err);
+          }
+          return;
+        }
+        if (route === "/orchestrate/todos") {
+          try {
+            orchestrator
+              .todos()
               .then((out) => {
                 if (res.writableEnded || res.destroyed) return;
                 const json = JSON.stringify(out); // before writeHead
