@@ -29,6 +29,8 @@ import { version as appVersion } from "../../package.json";
 import VoiceWave from "./voice/VoiceWave";
 import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
+import TodoPanel from "./todos/TodoPanel";
+import TodoToggle from "./todos/TodoToggle";
 import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
   ASK_Z,
@@ -66,6 +68,8 @@ import type {
   PanelMap,
   PanelState,
   Settings,
+  TodoList,
+  TodoOp,
   ToolEvent,
   VaultGraph,
   Workspace,
@@ -138,6 +142,11 @@ export default function App() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
+  const [showTodos, setShowTodos] = useState(false);
+  const [todoList, setTodoList] = useState<TodoList>({
+    todos: [],
+    malformed: [],
+  });
   const [showMouthPicker, setShowMouthPicker] = useState(false);
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
@@ -242,6 +251,40 @@ export default function App() {
       setPanels(raise({ ...panels, [id]: panelState(id) }, id));
     },
     [panels, setPanels],
+  );
+
+  // jarvis_todos arrives as a push, long after this effect ran; the ref keeps
+  // the raise working against the panels map of that moment, not of mount
+  const focusPanelRef = useRef(focusPanel);
+  focusPanelRef.current = focusPanel;
+  useEffect(() => {
+    window.jarvis.getTodos().then(setTodoList).catch(console.error);
+    const offList = window.jarvis.onTodos(setTodoList);
+    const offShow = window.jarvis.onShowTodos(() => {
+      setShowTodos(true);
+      focusPanelRef.current("todos");
+    });
+    return () => {
+      offList();
+      offShow();
+    };
+  }, []);
+
+  // a refused op means the panel was looking at an old file: reload it
+  const onTodoOp = useCallback((op: TodoOp) => {
+    const reload = () =>
+      window.jarvis.getTodos().then(setTodoList).catch(console.error);
+    window.jarvis
+      .todoOp(op)
+      .then((r) => {
+        if (!r.ok) void reload();
+      })
+      .catch(() => void reload());
+  }, []);
+
+  const todoProjects = useMemo(
+    () => workspaces.filter((w) => !w.isSelf).map((w) => w.name),
+    [workspaces],
   );
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
@@ -692,8 +735,17 @@ export default function App() {
     if (showSettings)
       live.settings = { ...panelState("settings"), z: SETTINGS_Z };
     if (showMouthPicker) live.mouth = panelState("mouth");
+    if (showTodos) live.todos = panelState("todos");
     return live;
-  }, [deckCleared, active, previewNode, showSettings, showMouthPicker, panels]);
+  }, [
+    deckCleared,
+    active,
+    previewNode,
+    showSettings,
+    showMouthPicker,
+    showTodos,
+    panels,
+  ]);
 
   const onHandDrag = useCallback(
     (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
@@ -898,6 +950,13 @@ export default function App() {
         capturing={voice.capturing}
         error={voice.error}
         onToggle={() => setVoiceControl(!micOn)}
+      />
+      <TodoToggle
+        open={showTodos}
+        onToggle={() => {
+          if (!showTodos) focusPanel("todos");
+          setShowTodos(!showTodos);
+        }}
       />
       <button
         className={BTN_IDLE + " text-[13px]"}
@@ -1212,6 +1271,22 @@ export default function App() {
           headColoured={headColoured}
           onPickMouth={() => setShowMouthPicker(true)}
         />
+      </Panel>
+
+      {/* rendered whether or not it is open, like settings: the ☑ and
+          jarvis_todos both open it from outside its title bar */}
+      <Panel
+        id="todos"
+        title="TO-DO"
+        open={showTodos}
+        state={panelState("todos")}
+        focused={focusedPanel === "todos"}
+        hidden={deckCleared}
+        onChange={(next) => setPanel("todos", next)}
+        onFocus={() => focusPanel("todos")}
+        onClose={() => setShowTodos(false)}
+      >
+        <TodoPanel list={todoList} projects={todoProjects} onOp={onTodoOp} />
       </Panel>
 
       {(() => {

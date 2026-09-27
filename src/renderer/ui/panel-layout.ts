@@ -56,7 +56,11 @@ const WIDTH: Record<"terminal" | "preview", number> = {
  * behind it and leaves these alone: rescaleAll skips their width too, which is
  * what keeps a maximize from stretching them.
  */
-const FIXED_W: Partial<Record<PanelId, number>> = { settings: 250, ask: ASK_W };
+const FIXED_W: Partial<Record<PanelId, number>> = {
+  settings: 250,
+  ask: ASK_W,
+  todos: 380,
+};
 /** the picker is a fixed 520px canvas, so its panel is sized in pixels too */
 const MOUTH_W = 720;
 
