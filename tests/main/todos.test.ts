@@ -90,7 +90,11 @@ describe("applyOp", () => {
   const file = "# Todo\n- [ ] a @JARVIS 2026-09-20\n- [ ] b 2026-09-21\n";
 
   it("add appends before the trailing newline and stamps today", () => {
-    const r = applyOp(file, { kind: "add", text: " c ", project: "JARVIS" }, TODAY);
+    const r = applyOp(
+      file,
+      { kind: "add", text: " c ", project: "JARVIS" },
+      TODAY,
+    );
     expect(r).toEqual({
       ok: true,
       file: file + "- [ ] c @JARVIS 2026-09-27\n",
@@ -98,17 +102,17 @@ describe("applyOp", () => {
   });
 
   it("add creates the first line of an empty file", () => {
-    expect(applyOp("", { kind: "add", text: "a", project: null }, TODAY)).toEqual(
-      { ok: true, file: "- [ ] a 2026-09-27\n" },
-    );
+    expect(
+      applyOp("", { kind: "add", text: "a", project: null }, TODAY),
+    ).toEqual({ ok: true, file: "- [ ] a 2026-09-27\n" });
   });
 
   it("add and edit collapse pasted newlines and refuse empty text", () => {
     const r = applyOp("", { kind: "add", text: "a\nb", project: null }, TODAY);
     expect(r.ok && r.file).toBe("- [ ] a b 2026-09-27\n");
-    expect(applyOp("", { kind: "add", text: "  ", project: null }, TODAY)).toEqual(
-      { ok: false, error: "empty task" },
-    );
+    expect(
+      applyOp("", { kind: "add", text: "  ", project: null }, TODAY),
+    ).toEqual({ ok: false, error: "empty task" });
   });
 
   it("toggle flips done and keeps project and date", () => {
@@ -132,12 +136,21 @@ describe("applyOp", () => {
       },
       TODAY,
     );
-    expect(r.ok && r.file.split("\n")[2]).toBe("- [ ] bee @AeroGraph 2026-09-21");
+    expect(r.ok && r.file.split("\n")[2]).toBe(
+      "- [ ] bee @AeroGraph 2026-09-21",
+    );
   });
 
   it("delete removes only that line", () => {
-    const r = applyOp(file, { kind: "delete", line: 2, raw: "- [ ] b 2026-09-21" }, TODAY);
-    expect(r).toEqual({ ok: true, file: "# Todo\n- [ ] a @JARVIS 2026-09-20\n" });
+    const r = applyOp(
+      file,
+      { kind: "delete", line: 2, raw: "- [ ] b 2026-09-21" },
+      TODAY,
+    );
+    expect(r).toEqual({
+      ok: true,
+      file: "# Todo\n- [ ] a @JARVIS 2026-09-20\n",
+    });
   });
 
   it("move takes the target's place, in both directions", () => {
@@ -176,9 +189,9 @@ describe("applyOp", () => {
   });
 
   it("refuses an op that points at a non-task line", () => {
-    expect(applyOp(file, { kind: "delete", line: 0, raw: "# Todo" }, TODAY)).toEqual(
-      { ok: false, error: "stale" },
-    );
+    expect(
+      applyOp(file, { kind: "delete", line: 0, raw: "# Todo" }, TODAY),
+    ).toEqual({ ok: false, error: "stale" });
   });
 
   it("keeps CRLF endings", () => {
@@ -215,7 +228,9 @@ describe("createTodoStore", () => {
   it("returns a refusal without writing", async () => {
     const io = memory("- [ ] a\n");
     const store = createTodoStore(io, () => TODAY);
-    expect(await store.apply({ kind: "delete", line: 0, raw: "- [ ] z" })).toEqual({
+    expect(
+      await store.apply({ kind: "delete", line: 0, raw: "- [ ] z" }),
+    ).toEqual({
       ok: false,
       error: "stale",
     });
@@ -226,7 +241,8 @@ describe("createTodoStore", () => {
     let wrote = false;
     const store = createTodoStore(
       {
-        read: () => Promise.reject(Object.assign(new Error("busy"), { code: "EBUSY" })),
+        read: () =>
+          Promise.reject(Object.assign(new Error("busy"), { code: "EBUSY" })),
         write: async () => {
           wrote = true;
         },

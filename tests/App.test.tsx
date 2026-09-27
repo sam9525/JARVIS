@@ -78,9 +78,8 @@ describe("App shell", () => {
 
   it("declares the ☑ toggle and the to-do panel once each", async () => {
     const { default: App } = await import("../src/renderer/App");
-    const { default: TodoToggle } = await import(
-      "../src/renderer/todos/TodoToggle"
-    );
+    const { default: TodoToggle } =
+      await import("../src/renderer/todos/TodoToggle");
     const nodes = walk((App as any)({}));
     expect(nodes.filter((n: any) => n.type === TodoToggle)).toHaveLength(1);
     expect(nodes.filter((n: any) => n.props?.id === "todos")).toHaveLength(1);

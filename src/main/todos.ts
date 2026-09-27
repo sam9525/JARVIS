@@ -13,8 +13,7 @@ const PROJECT = /\s@(\S+)$/;
 const LOOKS_LIKE_TASK = /^\s*[-*+]?\s*\[[ xX]?\]/;
 
 export type ApplyResult =
-  | { ok: true; file: string }
-  | { ok: false; error: string };
+  { ok: true; file: string } | { ok: false; error: string };
 
 export interface TodoIO {
   read(): Promise<string>;
@@ -69,7 +68,10 @@ export function formatLine(t: {
   created: string | null;
 }): string {
   return (
-    "- [" + (t.done ? "x" : " ") + "] " + t.text +
+    "- [" +
+    (t.done ? "x" : " ") +
+    "] " +
+    t.text +
     (t.project ? " @" + projectKey(t.project) : "") +
     (t.created ? " " + t.created : "")
   );
@@ -85,9 +87,15 @@ export function applyOp(file: string, op: TodoOp, today: string): ApplyResult {
   if (op.kind === "add") {
     const text = cleanText(op.text);
     if (!text) return { ok: false, error: "empty task" };
-    const row = formatLine({ done: false, text, project: op.project, created: today });
+    const row = formatLine({
+      done: false,
+      text,
+      project: op.project,
+      created: today,
+    });
     if (lines.length === 0) lines.push(row, "");
-    else if (lines[lines.length - 1] === "") lines.splice(lines.length - 1, 0, row);
+    else if (lines[lines.length - 1] === "")
+      lines.splice(lines.length - 1, 0, row);
     else lines.push(row);
     return done();
   }

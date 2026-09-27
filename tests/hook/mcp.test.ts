@@ -264,4 +264,3 @@ describe("mcp.mjs", () => {
     listener.close();
   });
 });
-

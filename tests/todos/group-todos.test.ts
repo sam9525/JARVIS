@@ -17,7 +17,9 @@ describe("groupTodos", () => {
       [todo(0, "JARVIS"), todo(1, null), todo(2, "jarvis")],
       ["JARVIS"],
     );
-    expect(groups.map((g) => [g.key, g.label, g.todos.map((t) => t.line)])).toEqual([
+    expect(
+      groups.map((g) => [g.key, g.label, g.todos.map((t) => t.line)]),
+    ).toEqual([
       ["jarvis", "JARVIS", [0, 2]],
       ["", PERSONAL, [1]],
     ]);
@@ -28,6 +30,8 @@ describe("groupTodos", () => {
   });
 
   it("keeps an unknown project under its own token", () => {
-    expect(groupTodos([todo(0, "OldName")], ["JARVIS"])[0].label).toBe("OldName");
+    expect(groupTodos([todo(0, "OldName")], ["JARVIS"])[0].label).toBe(
+      "OldName",
+    );
   });
 });

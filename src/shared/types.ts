@@ -116,12 +116,7 @@ export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
 
 export type PanelId =
-  | "terminal"
-  | "preview"
-  | "settings"
-  | "mouth"
-  | "ask"
-  | "todos";
+  "terminal" | "preview" | "settings" | "mouth" | "ask" | "todos";
 export type LayoutId = "home" | "workspace";
 
 /**
@@ -158,7 +153,7 @@ export interface PanelState {
 }
 
 export type PanelMap = Partial<Record<PanelId, PanelState>>;
- 
+
 /** One task line of TODO.md. `line` is its 0-based index in the file and
  *  `raw` its exact text: together they are how a panel op proves the line has
  *  not changed since the panel last saw it. */

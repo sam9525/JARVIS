@@ -55,12 +55,7 @@ import {
 import { watch } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, parseTodos } from "./todos";
-import type {
-  Settings,
-  TodoOp,
-  VaultGraph,
-  Workspace,
-} from "../shared/types";
+import type { Settings, TodoOp, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
 

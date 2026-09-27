@@ -41,7 +41,8 @@ const render = (onOp = vi.fn()) => {
   return onOp;
 };
 const $ = (sel: string) => container.querySelector(sel) as HTMLElement;
-const $$ = (sel: string) => [...container.querySelectorAll(sel)] as HTMLElement[];
+const $$ = (sel: string) =>
+  [...container.querySelectorAll(sel)] as HTMLElement[];
 const rows = () => $$('[data-testid="todo-row"]');
 const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) => {
   const proto =
@@ -97,7 +98,7 @@ describe("TodoPanel", () => {
 
   it("deletes a task", () => {
     const onOp = render();
-    act(() => ($$('[data-testid="todo-row"] [title="Delete"]')[1]).click());
+    act(() => $$('[data-testid="todo-row"] [title="Delete"]')[1].click());
     expect(onOp).toHaveBeenCalledWith({
       kind: "delete",
       line: 3,
@@ -107,7 +108,7 @@ describe("TodoPanel", () => {
 
   it("edits text and project in place; Enter saves, Esc cancels", () => {
     const onOp = render();
-    act(() => ($$('[data-testid="todo-row"] [title="Edit"]')[0]).click());
+    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[0].click());
     const editor = $('[data-testid="todo-editor"]');
     const input = editor.querySelector("input") as HTMLInputElement;
     const select = editor.querySelector("select") as HTMLSelectElement;
@@ -125,7 +126,7 @@ describe("TodoPanel", () => {
     });
     expect($('[data-testid="todo-editor"]')).toBeNull();
 
-    act(() => ($$('[data-testid="todo-row"] [title="Edit"]')[0]).click());
+    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[0].click());
     key($('[data-testid="todo-editor"] input'), "Escape");
     expect($('[data-testid="todo-editor"]')).toBeNull();
     expect(onOp).toHaveBeenCalledTimes(1);
@@ -143,7 +144,9 @@ describe("TodoPanel", () => {
     ]);
     setValue(input, "Buy milk");
     act(() => {
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
     });
     expect(onOp).toHaveBeenLastCalledWith({
       kind: "add",
@@ -154,7 +157,9 @@ describe("TodoPanel", () => {
     setValue(input, "Ship");
     setValue(select, "JARVIS");
     act(() => {
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
     });
     expect(onOp).toHaveBeenLastCalledWith({
       kind: "add",
@@ -176,7 +181,9 @@ describe("TodoPanel", () => {
   const drag = (from: HTMLElement, to: HTMLElement) =>
     act(() => {
       from.dispatchEvent(new Event("dragstart", { bubbles: true }));
-      to.dispatchEvent(new Event("dragover", { bubbles: true, cancelable: true }));
+      to.dispatchEvent(
+        new Event("dragover", { bubbles: true, cancelable: true }),
+      );
       to.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));
     });
 
@@ -195,7 +202,9 @@ describe("TodoPanel", () => {
 
   it("refuses a drop into another project", () => {
     const onOp = render();
-    const personal = rows().find((r) => r.textContent?.includes("Call the bank"))!;
+    const personal = rows().find((r) =>
+      r.textContent?.includes("Call the bank"),
+    )!;
     drag(rows()[0], personal);
     expect(onOp).not.toHaveBeenCalled();
   });

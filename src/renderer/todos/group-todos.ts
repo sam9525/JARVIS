@@ -10,7 +10,10 @@ export const PERSONAL = "Personal";
 
 // A token that names no workspace keeps its own header, so a renamed
 // project's tasks stay visible under the old name instead of vanishing.
-export function groupTodos(todos: Todo[], workspaceNames: string[]): TodoGroup[] {
+export function groupTodos(
+  todos: Todo[],
+  workspaceNames: string[],
+): TodoGroup[] {
   const names = new Map(
     workspaceNames.map((n) => [projectKey(n).toLowerCase(), n]),
   );

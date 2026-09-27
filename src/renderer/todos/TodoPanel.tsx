@@ -122,7 +122,8 @@ export default function TodoPanel({
           e.preventDefault();
           const from = dragged.current;
           dragged.current = null;
-          if (!from || from.group !== group || from.todo.line === t.line) return;
+          if (!from || from.group !== group || from.todo.line === t.line)
+            return;
           onOp({
             kind: "move",
             line: from.todo.line,
@@ -186,7 +187,9 @@ export default function TodoPanel({
         groupTodos(items, projects).map((g) => (
           <div key={g.key} data-testid="todo-group" className="pb-1">
             <div className="px-4 pt-1 text-[11px] text-ink-dim">{g.label}</div>
-            <ul className="pl-3">{g.todos.map((t) => row(t, `${id}:${g.key}`))}</ul>
+            <ul className="pl-3">
+              {g.todos.map((t) => row(t, `${id}:${g.key}`))}
+            </ul>
           </div>
         ))}
     </section>
@@ -198,8 +201,12 @@ export default function TodoPanel({
   return (
     <div className="flex h-full flex-col text-[12px]">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {section("open", "TO DO", open, openFolded, () => setOpenFolded((v) => !v))}
-        {section("done", "DONE", done, doneFolded, () => setDoneFolded((v) => !v))}
+        {section("open", "TO DO", open, openFolded, () =>
+          setOpenFolded((v) => !v),
+        )}
+        {section("done", "DONE", done, doneFolded, () =>
+          setDoneFolded((v) => !v),
+        )}
       </div>
       <form
         data-testid="todo-add"
