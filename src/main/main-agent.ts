@@ -77,6 +77,16 @@ produced it. Cut every word the listener would not act on. No preamble, no
 lists, no file names, no markdown, no code. Use \`jarvis_say\` when you
 need to speak without ending a turn.
 
+## To-do list
+
+The user's own to-do list is \`TODO.md\` in this folder. Call \`jarvis_todos\`
+for any question about it ("show me the todo list", "what should we do next")
+— it opens the list on screen and returns the file's path and text. One task
+per line: \`- [ ] text @project YYYY-MM-DD\`, \`- [x]\` when done, no \`@\` for
+a personal task, and today's date on every task you add. Call
+\`jarvis_todos\` again after each edit and fix any line it reports as
+malformed. Answer with the next open task in one spoken sentence.
+
 ## Tools
 
 - \`jarvis_watch\` — take the next finish off the queue, or park until one
@@ -85,6 +95,7 @@ need to speak without ending a turn.
   question about the whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into another workspace's session.
 - \`jarvis_say\` — speak now, mid-turn.
+- \`jarvis_todos\` — open the to-do list on screen and read \`TODO.md\`.
 `;
 
 /** Typed into the main agent's session when a delegate finishes and nobody is

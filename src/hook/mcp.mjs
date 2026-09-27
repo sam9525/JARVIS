@@ -68,6 +68,21 @@ const TOOLS = [
       required: ["text"],
     },
   },
+  {
+    name: "jarvis_todos",
+    description:
+      "Open the user's to-do list on screen and return its file as " +
+      "{ path, text, malformed }. Call this for any question about the list " +
+      '("show me the todo list", "what should we do next", "what\'s on my ' +
+      'list") and before adding or changing a task. Edit the file at the ' +
+      "returned path with Read and Edit. One task per line: " +
+      "'- [ ] text @project YYYY-MM-DD'; '- [x]' when done; no @ for a " +
+      "personal task; @project is a workspace name from jarvis_list with " +
+      "spaces written as hyphens. Write today's date on every task you add. " +
+      "Call this again after each write and fix every line listed in " +
+      "malformed. Then say the next open task in one spoken sentence.",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 async function post(path, body, timeoutMs = 1500) {
@@ -118,6 +133,10 @@ async function callTool(name, args) {
       return out?.ok
         ? textResult("spoken")
         : textResult(out?.error ?? "say failed", true);
+    }
+    if (name === "jarvis_todos") {
+      const out = await post("/orchestrate/todos", {});
+      return textResult(JSON.stringify(out, null, 2));
     }
     return textResult(`unknown tool: ${name}`, true);
   } catch {
