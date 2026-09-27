@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   Settings,
+  TodoList,
+  TodoOp,
+  TodoOpResult,
   ToolEvent,
   VaultGraph,
   Workspace,
@@ -37,6 +40,13 @@ const api = {
   // jarvis_say → main → here. The renderer owns playback, so both mouths and
   // the dedupe against the turn-end message live in one place.
   onSay: (cb: (text: string) => void) => subscribe<[string]>("tts-say", cb),
+  // TODO.md: read, one op at a time, a push on every write, and the agent's
+  // jarvis_todos asking the panel to open
+  getTodos: (): Promise<TodoList> => ipcRenderer.invoke("get-todos"),
+  todoOp: (op: TodoOp): Promise<TodoOpResult> =>
+    ipcRenderer.invoke("todo-op", op),
+  onTodos: (cb: (l: TodoList) => void) => subscribe<[TodoList]>("todos", cb),
+  onShowTodos: (cb: () => void) => subscribe<[]>("show-todos", cb),
   readNote: (workspaceId: string, nodeId: string): Promise<string | null> =>
     ipcRenderer.invoke("read-note", workspaceId, nodeId),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),

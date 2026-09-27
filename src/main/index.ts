@@ -52,9 +52,15 @@ import {
   transcriptDir,
   writeBriefing,
 } from "./briefing";
+import { watch } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, parseTodos } from "./todos";
-import type { Settings, VaultGraph, Workspace } from "../shared/types";
+import type {
+  Settings,
+  TodoOp,
+  VaultGraph,
+  Workspace,
+} from "../shared/types";
 
 if (started) app.quit();
 
@@ -376,6 +382,15 @@ app.whenReady().then(async () => {
     win.webContents.send(channel, payload, ...rest);
   };
 
+  ipcMain.handle("get-todos", () => todoStore.list());
+  ipcMain.handle("todo-op", async (_e, op: TodoOp) => {
+    const result = await todoStore.apply(op);
+    // push now rather than wait for the watcher, so the panel never shows the
+    // old row for a frame after its own click
+    if (result.ok) send("todos", await todoStore.list());
+    return result;
+  });
+
   const inboxPath = path.join(app.getPath("userData"), "jarvis-inbox.json");
   const status = createStatusStore();
   status.restore(
@@ -582,6 +597,18 @@ app.whenReady().then(async () => {
   // terminals still launch by hand.
   try {
     await ensureMainAgent(mainAgent.rootPath);
+    // The folder exists now. Watching the folder, not the file, sees TODO.md
+    // appear for the first time as well as every later write by either side.
+    watch(mainAgent.rootPath, { depth: 0, ignoreInitial: true }).on(
+      "all",
+      (_event, changed) => {
+        if (path.basename(changed) !== "TODO.md") return;
+        todoStore
+          .list()
+          .then((list) => send("todos", list))
+          .catch(console.error);
+      },
+    );
     await ensureHooks(mainAgent.rootPath, forwardPath);
     await ensureMcp(mainAgent, mcpPath);
     // a fresh install has no conversation to continue, and no history to brief

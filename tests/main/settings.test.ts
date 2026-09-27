@@ -359,6 +359,12 @@ describe("settings", () => {
     expect(s.panels.home).toEqual({});
   });
 
+  it("keeps the to-do panel's geometry", async () => {
+    const todos = { x: 5, y: 44, w: 380, h: 500, collapsed: false, z: 21 };
+    const f = await writeSettings({ panels: { home: { todos } } });
+    expect((await loadSettings(f)).panels.home.todos).toEqual(todos);
+  });
+
   it("round-trips the window the panels were measured in", async () => {
     const f = await writeSettings({
       panelViewport: { width: 1536, height: 864 },
