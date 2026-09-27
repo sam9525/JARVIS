@@ -115,6 +115,9 @@ export default function TodoPanel({
         data-testid="todo-row"
         draggable
         onDragStart={() => (dragged.current = { todo: t, group })}
+        onDragEnd={() => {
+          dragged.current = null;
+        }}
         onDragOver={(e) => {
           if (dragged.current?.group === group) e.preventDefault();
         }}

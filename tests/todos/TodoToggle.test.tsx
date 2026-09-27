@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
 import { act } from "react";
@@ -33,12 +33,14 @@ describe("TodoToggle", () => {
     expect(tokens()).toContain("border-edge");
     expect(tokens()).not.toContain("border-accent");
     expect(button().title).toBe("To-do list");
+    expect(button().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("lights while the panel is open", () => {
     render(<TodoToggle open onToggle={() => undefined} />);
     expect(tokens()).toContain("border-accent");
     expect(button().title).toBe("Close the to-do list");
+    expect(button().getAttribute("aria-expanded")).toBe("true");
   });
 
   it("calls onToggle on click", () => {

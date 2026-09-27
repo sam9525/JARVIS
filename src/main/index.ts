@@ -52,7 +52,7 @@ import {
   transcriptDir,
   writeBriefing,
 } from "./briefing";
-import { watch } from "chokidar";
+import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, parseTodos } from "./todos";
 import type { Settings, TodoOp, VaultGraph, Workspace } from "../shared/types";
@@ -590,11 +590,12 @@ app.whenReady().then(async () => {
   // The main agent owns the fleet watch and the voice, so it has to be running
   // before any delegate can finish. It is the only session boot starts; project
   // terminals still launch by hand.
+  let todosWatcher: FSWatcher | undefined;
   try {
     await ensureMainAgent(mainAgent.rootPath);
     // The folder exists now. Watching the folder, not the file, sees TODO.md
     // appear for the first time as well as every later write by either side.
-    watch(mainAgent.rootPath, { depth: 0, ignoreInitial: true }).on(
+    todosWatcher = watch(mainAgent.rootPath, { depth: 0, ignoreInitial: true }).on(
       "all",
       (_event, changed) => {
         if (path.basename(changed) !== "TODO.md") return;
@@ -656,7 +657,10 @@ app.whenReady().then(async () => {
     console.error("[jarvis] main agent failed to launch:", err);
   }
 
-  app.on("before-quit", () => ptyManager.killAll());
+  app.on("before-quit", () => {
+    ptyManager.killAll();
+    void todosWatcher?.close();
+  });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

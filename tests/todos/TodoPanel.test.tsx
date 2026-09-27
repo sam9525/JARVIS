@@ -208,4 +208,17 @@ describe("TodoPanel", () => {
     drag(rows()[0], personal);
     expect(onOp).not.toHaveBeenCalled();
   });
+
+  it("clears dragged state on dragend outside a drop target", () => {
+    const onOp = render();
+    const [first, second] = rows();
+    act(() => {
+      second.dispatchEvent(new Event("dragstart", { bubbles: true }));
+      second.dispatchEvent(new Event("dragend", { bubbles: true }));
+      first.dispatchEvent(
+        new Event("drop", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(onOp).not.toHaveBeenCalled();
+  });
 });

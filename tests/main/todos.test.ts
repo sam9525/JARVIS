@@ -113,6 +113,20 @@ describe("applyOp", () => {
     expect(
       applyOp("", { kind: "add", text: "  ", project: null }, TODAY),
     ).toEqual({ ok: false, error: "empty task" });
+
+    const edited = applyOp(
+      "- [ ] old\n",
+      { kind: "edit", line: 0, raw: "- [ ] old", text: "a\nb", project: null },
+      TODAY,
+    );
+    expect(edited.ok && edited.file).toBe("- [ ] a b\n");
+    expect(
+      applyOp(
+        "- [ ] old\n",
+        { kind: "edit", line: 0, raw: "- [ ] old", text: "  ", project: null },
+        TODAY,
+      ),
+    ).toEqual({ ok: false, error: "empty task" });
   });
 
   it("toggle flips done and keeps project and date", () => {
