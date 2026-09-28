@@ -104,6 +104,14 @@ describe("TodoPanel growth", () => {
     expect(fits).not.toHaveBeenCalled();
     expect(hidden).not.toHaveBeenCalled();
   });
+
+  it("asks nothing when only the owner's callback changes, so a resize holds", () => {
+    stub(200, 260);
+    mount(vi.fn());
+    const afterResize = vi.fn();
+    mount(afterResize);
+    expect(afterResize).not.toHaveBeenCalled();
+  });
 });
 
 describe("TodoPanel", () => {

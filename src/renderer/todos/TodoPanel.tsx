@@ -50,15 +50,21 @@ export default function TodoPanel({
   // the group key is what keeps a row inside its own project
   const dragged = useRef<{ todo: Todo; group: string } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  // the owner's callback changes with every panel resize; as an effect dep it
+  // would re-measure mid-drag and grow the panel back past the user's edge
+  const overflowRef = useRef(onOverflow);
+  overflowRef.current = onOverflow;
 
-  // grow-only: a shorter list leaves the panel at the height it has
+  // grow-only: a shorter list leaves the panel at the height it has, and only
+  // a change in the content grows it
   useLayoutEffect(() => {
     const el = scroller.current;
+    const grow = overflowRef.current;
     // a box that measures 0 is not laid out; growing it would never converge
-    if (!el || !onOverflow || el.clientHeight === 0) return;
+    if (!el || !grow || el.clientHeight === 0) return;
     const over = el.scrollHeight - el.clientHeight;
-    if (over > 0) onOverflow(over);
-  }, [list, openFolded, doneFolded, error, onOverflow]);
+    if (over > 0) grow(over);
+  }, [list, openFolded, doneFolded, error]);
 
   // the chip for a task: the workspace's spelling when the token names one,
   // the token itself when it names nothing
