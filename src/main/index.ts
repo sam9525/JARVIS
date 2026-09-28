@@ -374,7 +374,13 @@ app.whenReady().then(async () => {
     const result = await todoStore.apply(op);
     // push now rather than wait for the watcher, so the panel never shows the
     // old row for a frame after its own click
-    if (result.ok) send("todos", await todoStore.list());
+    // not awaited: the write already happened, so a failed re-read must not
+    // report the op as unsaved
+    if (result.ok)
+      todoStore
+        .list()
+        .then((list) => send("todos", list))
+        .catch(console.error);
     return result;
   });
 
@@ -590,6 +596,9 @@ app.whenReady().then(async () => {
     todosWatcher = watch(mainAgent.rootPath, {
       depth: 0,
       ignoreInitial: true,
+      // writeFile truncates before it writes; a read in that gap pushes an
+      // empty list and the panel flickers
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 25 },
     }).on("all", (_event, changed) => {
       if (path.basename(changed) !== "TODO.md") return;
       todoStore

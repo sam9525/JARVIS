@@ -99,8 +99,8 @@ export default function TodoComposer({
         // one task is one line of TODO.md: a pasted newline becomes a space
         onChange={(e) => setText(e.target.value.replace(/\s*\n\s*/g, " "))}
         onKeyDown={(e) => {
-          // the composer owns Enter and Esc; the app's own Esc must not
-          // clear the deck from inside a text field
+          // the composer owns Enter and Esc; an open preview's window-level
+          // Esc must not close it from inside a text field
           if (e.key === "Enter" && !e.nativeEvent.isComposing) {
             e.preventDefault();
             void submit();

@@ -264,19 +264,11 @@ export default function App() {
     [panels, setPanels],
   );
 
-  // jarvis_todos arrives as a push, long after this effect ran; the ref keeps
-  // the raise working against the panels map of that moment, not of mount
-  // an edit whose task left the file (or moved line) closes rather than
-  // saving over whichever task took its place
+  // an edit whose task left the file (or moved line) stays open with its
+  // draft; the store refuses the save as stale rather than overwrite the line
   const editTarget =
     compose.request.mode === "edit" ? compose.request.todo : null;
-  const composeShown =
-    showTodos &&
-    compose.open &&
-    (!editTarget ||
-      todoList.todos.some(
-        (t) => t.line === editTarget.line && t.raw === editTarget.raw,
-      ));
+  const composeShown = showTodos && compose.open;
   const openCompose = (request: ComposeRequest) => {
     setCompose((c) => ({ open: true, request, seq: c.seq + 1 }));
     setFocusedPanel("compose");
@@ -294,6 +286,8 @@ export default function App() {
     if (!showTodos) setCompose((c) => (c.open ? { ...c, open: false } : c));
   }, [showTodos]);
 
+  // jarvis_todos arrives as a push, long after this effect ran; the ref keeps
+  // the raise working against the panels map of that moment, not of mount
   const focusPanelRef = useRef(focusPanel);
   focusPanelRef.current = focusPanel;
   useEffect(() => {

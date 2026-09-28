@@ -263,4 +263,18 @@ describe("mcp.mjs", () => {
     expect(res.result.isError).toBeUndefined();
     listener.close();
   });
+
+  it("reports a todos failure as a tool error", async () => {
+    const listener = await fakeListener({ error: "EBUSY: TODO.md is locked" });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "jarvis_todos", arguments: {} },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("locked");
+    listener.close();
+  });
 });

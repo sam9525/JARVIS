@@ -136,7 +136,9 @@ async function callTool(name, args) {
     }
     if (name === "jarvis_todos") {
       const out = await post("/orchestrate/todos", {});
-      return textResult(JSON.stringify(out, null, 2));
+      return out?.error
+        ? textResult(String(out.error), true)
+        : textResult(JSON.stringify(out, null, 2));
     }
     return textResult(`unknown tool: ${name}`, true);
   } catch {
