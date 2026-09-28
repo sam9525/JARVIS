@@ -7,83 +7,76 @@ import {
   type TodoOpResult,
 } from "../../shared/types";
 import { groupTodos } from "./group-todos";
+import { taskAge, type AgeTier } from "./task-age";
+import TodoComposer, { type ComposerDraft } from "./TodoComposer";
 
 const NONE = "";
 const ICON_BTN =
   "cursor-pointer px-1 text-ink-dim opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent focus:opacity-100";
-const FIELD =
-  "rounded border border-edge bg-abyss px-1.5 py-0.5 text-[12px] text-ink outline-none focus:border-accent";
+const AGE_CLASS: Record<AgeTier, string> = {
+  fresh: "text-ink-muted",
+  week: "text-ink-dim",
+  stale: "text-ink-dim/60",
+};
 
-function ProjectSelect({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: string[];
-  onChange(value: string): void;
-}) {
-  return (
-    <select
-      aria-label="Project"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={FIELD}
-    >
-      <option value={NONE}>none</option>
-      {options.map((p) => (
-        <option key={p} value={p}>
-          {p}
-        </option>
-      ))}
-    </select>
-  );
-}
+type Composer = { mode: "add" } | { mode: "edit"; todo: Todo };
 
 export default function TodoPanel({
   list,
   projects,
+  colors = {},
   onOp,
+  onOpenProject,
   onOverflow,
 }: {
   list: TodoList;
   projects: string[];
+  /** workspace name → its identity colour; a group without one is Personal or a stale token */
+  colors?: Record<string, string>;
   onOp(op: TodoOp): Promise<TodoOpResult>;
+  onOpenProject?(name: string): void;
   /** the list is this many px taller than its box; the owner grows the panel */
   onOverflow?(px: number): void;
 }) {
   const [openFolded, setOpenFolded] = useState(false);
   const [doneFolded, setDoneFolded] = useState(true);
-  // the whole task, not its line: a row deleted above it shifts the line, and
-  // the editor must not reappear on whichever task moved into that slot
-  const [editing, setEditing] = useState<Todo | null>(null);
+  // an edit holds the whole task, not its line: a row deleted above it shifts
+  // the line, and the composer must not reopen on whichever task moved there
+  const [composer, setComposer] = useState<Composer | null>(null);
+  const [draft, setDraft] = useState<ComposerDraft>({
+    text: "",
+    project: NONE,
+  });
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ text: "", project: NONE });
-  const [newText, setNewText] = useState("");
-  const [newProject, setNewProject] = useState(NONE);
   // a ref, not dataTransfer: the drop only needs to know which row left, and
   // the group key is what keeps a row inside its own project
   const dragged = useRef<{ todo: Todo; group: string } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
-  // grow-only: a shorter list leaves the panel at the height it has
+  const editGone =
+    composer?.mode === "edit" &&
+    !list.todos.some(
+      (t) => t.line === composer.todo.line && t.raw === composer.todo.raw,
+    );
+  const active = editGone ? null : composer;
+
+  // grow-only: a shorter list leaves the panel at the height it has; an open
+  // composer takes half the box on purpose, so it is not overflow
   useLayoutEffect(() => {
     const el = scroller.current;
     // a box that measures 0 is not laid out; growing it would never converge
-    if (!el || !onOverflow || el.clientHeight === 0) return;
+    if (!el || !onOverflow || active || el.clientHeight === 0) return;
     const over = el.scrollHeight - el.clientHeight;
     if (over > 0) onOverflow(over);
-  }, [list, openFolded, doneFolded, error, editing, onOverflow]);
+  }, [list, openFolded, doneFolded, error, active, onOverflow]);
 
-  // the dropdown's value for a task: the workspace's spelling when the token
-  // names one, the token itself when it names nothing
+  // the chip for a task: the workspace's spelling when the token names one,
+  // the token itself when it names nothing
   const projectValue = (t: Todo): string => {
     if (!t.project) return NONE;
     const k = projectKey(t.project).toLowerCase();
     return projects.find((p) => projectKey(p).toLowerCase() === k) ?? t.project;
   };
-  const optionsWith = (extra: string) =>
-    extra && !projects.includes(extra) ? [...projects, extra] : projects;
 
   // a refused op keeps what was typed and says why
   const send = async (op: TodoOp): Promise<boolean> => {
@@ -92,49 +85,46 @@ export default function TodoPanel({
     return r.ok;
   };
 
-  const saveEdit = async (t: Todo) => {
-    if (!draft.text.trim()) return setEditing(null);
+  const openAdd = () => {
+    setComposer({ mode: "add" });
+    setDraft({ text: "", project: NONE });
+  };
+
+  const submit = async () => {
+    if (!active) return;
+    if (!draft.text.trim()) {
+      if (active.mode === "edit") setComposer(null);
+      return;
+    }
+    const project = draft.project || null;
+    if (active.mode === "add") {
+      // stays open for the next task, keeping the chosen project
+      if (await send({ kind: "add", text: draft.text, project }))
+        setDraft({ ...draft, text: "" });
+      return;
+    }
+    const t = active.todo;
     const ok = await send({
       kind: "edit",
       line: t.line,
       raw: t.raw,
       text: draft.text,
-      project: draft.project || null,
+      project,
     });
-    if (ok) setEditing(null);
+    if (ok) setComposer(null);
   };
 
-  const row = (t: Todo, group: string) =>
-    editing?.line === t.line && editing.raw === t.raw ? (
-      <li
-        key={t.line}
-        data-testid="todo-editor"
-        className="flex items-center gap-2 px-2 py-0.5"
-      >
-        <input
-          autoFocus
-          aria-label="Task text"
-          value={draft.text}
-          onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-          onKeyDown={(e) => {
-            // the panel owns Enter and Esc here; the app's own Esc must not
-            // clear the deck from inside a text field
-            if (e.key === "Enter" && !e.nativeEvent.isComposing)
-              void saveEdit(t);
-            if (e.key === "Escape") {
-              e.stopPropagation();
-              setEditing(null);
-            }
-          }}
-          className={`min-w-0 flex-1 ${FIELD}`}
-        />
-        <ProjectSelect
-          value={draft.project}
-          options={optionsWith(draft.project)}
-          onChange={(project) => setDraft({ ...draft, project })}
-        />
-      </li>
-    ) : (
+  // ponytail: read at render, so an open panel keeps yesterday's ages until
+  // the list or a fold next re-renders it
+  const now = new Date();
+
+  const row = (t: Todo, group: string) => {
+    const age = taskAge(t.created, now);
+    const editing =
+      active?.mode === "edit" &&
+      active.todo.line === t.line &&
+      active.todo.raw === t.raw;
+    return (
       <li
         key={t.line}
         data-testid="todo-row"
@@ -160,7 +150,7 @@ export default function TodoPanel({
             toRaw: t.raw,
           });
         }}
-        className="group flex items-center gap-2 px-2 py-0.5 hover:bg-edge/30"
+        className={`group flex items-center gap-2 px-2 py-0.5 ${editing ? "bg-accent/10" : "hover:bg-edge/30"}`}
       >
         <input
           type="checkbox"
@@ -172,18 +162,23 @@ export default function TodoPanel({
           className="cursor-pointer accent-cyan-400"
         />
         <span
-          className={`min-w-0 flex-1 truncate ${t.done ? "text-ink-dim line-through" : "text-ink"}`}
+          className={`min-w-0 flex-1 truncate ${t.done ? "text-ink-dim line-through" : age?.tier === "stale" ? "text-ink-muted" : "text-ink"}`}
         >
           {t.text}
         </span>
-        {t.created && (
-          <span className="shrink-0 text-[10px] text-ink-dim">{t.created}</span>
+        {age && (
+          <span
+            title={t.created ?? undefined}
+            className={`shrink-0 text-[10px] tabular-nums ${AGE_CLASS[age.tier]}`}
+          >
+            {age.label}
+          </span>
         )}
         <button
           title="Edit"
           className={ICON_BTN}
           onClick={() => {
-            setEditing(t);
+            setComposer({ mode: "edit", todo: t });
             setDraft({ text: t.text, project: projectValue(t) });
           }}
         >
@@ -200,6 +195,36 @@ export default function TodoPanel({
         </button>
       </li>
     );
+  };
+
+  const header = (label: string, count: number) => {
+    const color = colors[label];
+    return (
+      <div className="group/header flex items-center gap-1.5 px-4 pt-1 text-[11px] text-ink-muted">
+        <span
+          className={`h-3 w-[3px] shrink-0 ${color ? "" : "bg-ink-dim"}`}
+          style={
+            color
+              ? { background: color, boxShadow: `0 0 6px ${color}` }
+              : undefined
+          }
+        />
+        <span data-testid="todo-group-name">{label}</span>
+        <span className="rounded-full border border-edge px-1.5 text-[10px] tabular-nums">
+          {count}
+        </span>
+        {color && onOpenProject && (
+          <button
+            title={`Open ${label}`}
+            onClick={() => onOpenProject(label)}
+            className="ml-auto cursor-pointer pr-2 text-[10px] text-ink-dim opacity-0 transition-opacity group-hover/header:opacity-100 hover:text-accent focus:opacity-100"
+          >
+            open ↗
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const section = (
     id: "open" | "done",
@@ -218,7 +243,7 @@ export default function TodoPanel({
       {!folded &&
         groupTodos(items, projects).map((g) => (
           <div key={g.key} data-testid="todo-group" className="pb-1">
-            <div className="px-4 pt-1 text-[11px] text-ink-dim">{g.label}</div>
+            {header(g.label, g.todos.length)}
             <ul className="pl-3">
               {g.todos.map((t) => row(t, `${id}:${g.key}`))}
             </ul>
@@ -231,13 +256,35 @@ export default function TodoPanel({
   const done = list.todos.filter((t) => t.done);
 
   return (
-    <div className="flex h-full flex-col text-[12px]">
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-        {section("open", "TO DO", open, openFolded, () =>
-          setOpenFolded((v) => !v),
-        )}
-        {section("done", "DONE", done, doneFolded, () =>
-          setDoneFolded((v) => !v),
+    <div
+      className="flex h-full flex-col text-[12px]"
+      onKeyDown={(e) => {
+        // a ticked checkbox keeps focus, so only text fields swallow N
+        const typing = (e.target as HTMLElement).matches(
+          "textarea, input:not([type=checkbox])",
+        );
+        if (e.key !== "n" || active || typing) return;
+        e.preventDefault();
+        openAdd();
+      }}
+    >
+      <div className="relative min-h-0 flex-1">
+        <div ref={scroller} className="h-full overflow-y-auto">
+          {section("open", "TO DO", open, openFolded, () =>
+            setOpenFolded((v) => !v),
+          )}
+          {section("done", "DONE", done, doneFolded, () =>
+            setDoneFolded((v) => !v),
+          )}
+        </div>
+        {!active && (
+          <button
+            title="New task (N)"
+            onClick={openAdd}
+            className="absolute right-2.5 bottom-2.5 grid h-7 w-7 cursor-pointer place-items-center border border-accent bg-abyss text-[17px] leading-none text-accent shadow-[0_0_10px_rgba(34,211,238,0.35)] hover:bg-accent hover:text-abyss"
+          >
+            +
+          </button>
         )}
       </div>
       {error && (
@@ -249,40 +296,17 @@ export default function TodoPanel({
           {error}
         </div>
       )}
-      <form
-        data-testid="todo-add"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (!newText.trim()) return;
-          const ok = await send({
-            kind: "add",
-            text: newText,
-            project: newProject || null,
-          });
-          if (ok) setNewText("");
-        }}
-        className="flex items-center gap-2 border-t border-edge p-2"
-      >
-        <input
-          aria-label="New task"
-          placeholder="new task…"
-          value={newText}
-          onChange={(e) => setNewText(e.target.value)}
-          className={`min-w-0 flex-1 ${FIELD}`}
+      {active && (
+        <TodoComposer
+          mode={active.mode}
+          draft={draft}
+          projects={projects}
+          colors={colors}
+          onChange={setDraft}
+          onSubmit={() => void submit()}
+          onClose={() => setComposer(null)}
         />
-        <ProjectSelect
-          value={newProject}
-          options={projects}
-          onChange={setNewProject}
-        />
-        <button
-          type="submit"
-          title="Add task"
-          className="cursor-pointer rounded border border-edge px-2 text-accent hover:border-accent"
-        >
-          +
-        </button>
-      </form>
+      )}
     </div>
   );
 }

@@ -830,6 +830,18 @@ export default function App() {
     () => (active ? hueOfWorkspace(active, fleet, settings.mainColors) : 0),
     [active, fleet, settings.mainColors],
   );
+  // keyed by name, because a to-do's @token names a workspace, not its id
+  const todoColors = useMemo(
+    () =>
+      Object.fromEntries(
+        fleet.map((ws) => [
+          ws.name,
+          settings.mainColors?.[ws.id] ??
+            hueToHex(hueOfWorkspace(ws, fleet, settings.mainColors)),
+        ]),
+      ),
+    [fleet, settings.mainColors],
+  );
 
   // Seed a workspace's groups once, from its own top-level folders, as soon as
   // its graph exists — off `cardGraphs`, which fills for the whole fleet at
@@ -1301,7 +1313,14 @@ export default function App() {
         <TodoPanel
           list={todoList}
           projects={todoProjects}
+          colors={todoColors}
           onOp={onTodoOp}
+          onOpenProject={(name) => {
+            const ws = fleet.find((w) => w.name === name);
+            if (!ws) return;
+            setShowHome(false);
+            openWorkspace(ws);
+          }}
           onOverflow={growTodos}
         />
       </Panel>
