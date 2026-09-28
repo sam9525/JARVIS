@@ -26,6 +26,7 @@ import { isDirectory } from "./is-directory";
 import { runAnalyze } from "./graph-sources/gitnexus-source";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
+import { loginShellPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import {
@@ -72,6 +73,13 @@ try {
 } catch {
   /* no .env */
 }
+// Every terminal, hook and gitnexus call resolves its binary through PATH,
+// which a packaged app launched outside a shell does not have.
+if (app.isPackaged) {
+  const shellPath = loginShellPath();
+  if (shellPath) process.env.PATH = shellPath;
+}
+
 const ttsKey = () => process.env.ELEVENLABS_API_KEY ?? "";
 
 async function resolveRootPath(): Promise<string> {

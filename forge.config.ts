@@ -18,6 +18,12 @@ const config: ForgeConfig = {
     // Claude Code spawns the hook forwarder and the MCP server itself, so they
     // have to be real files beside the asar rather than entries inside it.
     extraResource: ["src/hook"],
+    // macOS refuses the microphone (voice) and the webcam (hand control) to
+    // an app whose Info.plist gives no reason for them.
+    extendInfo: {
+      NSMicrophoneUsageDescription: "JARVIS listens for voice commands.",
+      NSCameraUsageDescription: "JARVIS tracks your hands to steer the graph.",
+    },
     // Left unset, the Vite plugin ignores everything outside `.vite`, which
     // drops node-pty — the one dependency Vite leaves external and so the one
     // that must ship as a real package. An ancestor of a kept path stays
