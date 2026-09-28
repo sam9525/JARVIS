@@ -15,6 +15,8 @@ const config: ForgeConfig = {
     // node-pty loads pty.node and spawns OpenConsole.exe / winpty-agent.exe by
     // real path — neither works from inside an archive.
     asar: { unpack: "**/node_modules/node-pty/**" },
+    // No extension: the packager adds .ico on Windows and .icns on macOS.
+    icon: "assets/icon",
     // Claude Code spawns the hook forwarder and the MCP server itself, so they
     // have to be real files beside the asar rather than entries inside it.
     extraResource: ["src/hook"],
@@ -42,7 +44,7 @@ const config: ForgeConfig = {
   // nothing; node-gyp would need a Windows SDK this machine doesn't have.
   rebuildConfig: { onlyModules: [] },
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({ setupIcon: "assets/icon.ico" }),
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({}),
     new MakerDeb({}),
