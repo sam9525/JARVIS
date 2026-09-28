@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ASK_Z,
+  COMPOSE_W,
   BEZEL_INSET,
   MIN_H,
   MIN_W,
@@ -8,6 +9,7 @@ import {
   SNAP_PX,
   TITLE_BAR_H,
   TOP_INSET,
+  besideTodos,
   Z_BASE,
   clampAll,
   clampToViewport,
@@ -57,6 +59,13 @@ describe("defaultPanel", () => {
       expect(defaultPanel(id, VP).x + defaultPanel(id, VP).w).toBe(
         VP.width - BEZEL_INSET,
       );
+  });
+
+  it("opens the to-do panel centred at half the window height", () => {
+    const todos = defaultPanel("todos", VP);
+    expect(todos.h).toBe(Math.round(VP.height * 0.5));
+    expect(todos.x + todos.w / 2).toBeCloseTo(VP.width / 2, 0);
+    expect(todos.y + todos.h / 2).toBeCloseTo(VP.height / 2, 0);
   });
 
   it("opens the terminal folded, and nothing else", () => {
@@ -486,5 +495,23 @@ describe("the ask panel's geometry", () => {
     const to = { width: 2400, height: 1000 };
     const out = rescaleAll({ ask: defaultPanel("ask", from) }, from, to);
     expect(out.ask!.w).toBe(560);
+  });
+});
+
+describe("besideTodos", () => {
+  it("opens flush right of the list, top-aligned and as tall", () => {
+    const todos = at(600, 200, 380, 450, 25);
+    expect(besideTodos(todos, VP)).toEqual({
+      ...at(988, 200, COMPOSE_W, 450, 25),
+    });
+  });
+
+  it("flips to the left when the right edge has no room", () => {
+    const todos = at(1200, 200, 380, 450);
+    expect(besideTodos(todos, VP).x).toBe(1200 - 8 - COMPOSE_W);
+  });
+
+  it("stays tall enough for the chips beside a short list", () => {
+    expect(besideTodos(at(600, 200, 380, 150), VP).h).toBe(320);
   });
 });

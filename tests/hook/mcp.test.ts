@@ -185,7 +185,7 @@ describe("mcp.mjs", () => {
       id: 7,
       method: "tools/list",
     });
-    expect(alive.result.tools).toHaveLength(4);
+    expect(alive.result.tools).toHaveLength(5);
   });
 
   it("lists the two v0.4.1 tools", async () => {
@@ -236,5 +236,45 @@ describe("mcp.mjs", () => {
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("listening");
     server.close();
+  });
+
+  it("tools/call jarvis_todos POSTs to /orchestrate/todos and returns the file", async () => {
+    const listener = await fakeListener({
+      path: "C:\\data\\main-agent\\TODO.md",
+      text: "- [ ] a\n",
+      malformed: [],
+    });
+    const { request } = startMcp(listener.port);
+    const list = await request({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const tool = list.result.tools.find((t: any) => t.name === "jarvis_todos");
+    expect(tool.description).toContain("YYYY-MM-DD");
+    expect(tool.description).toContain("malformed");
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "jarvis_todos", arguments: {} },
+    });
+    expect(listener.hits[0].url).toBe("/orchestrate/todos");
+    expect(listener.hits[0].headers["x-jarvis"]).toBe("1");
+    expect(JSON.parse(res.result.content[0].text).path).toBe(
+      "C:\\data\\main-agent\\TODO.md",
+    );
+    expect(res.result.isError).toBeUndefined();
+    listener.close();
+  });
+
+  it("reports a todos failure as a tool error", async () => {
+    const listener = await fakeListener({ error: "EBUSY: TODO.md is locked" });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "jarvis_todos", arguments: {} },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("locked");
+    listener.close();
   });
 });

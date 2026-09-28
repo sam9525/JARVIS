@@ -115,7 +115,8 @@ export type Dimensions = "2d" | "3d";
 export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
 
-export type PanelId = "terminal" | "preview" | "settings" | "mouth" | "ask";
+export type PanelId =
+  "terminal" | "preview" | "settings" | "mouth" | "ask" | "todos" | "compose";
 export type LayoutId = "home" | "workspace";
 
 /**
@@ -152,6 +153,43 @@ export interface PanelState {
 }
 
 export type PanelMap = Partial<Record<PanelId, PanelState>>;
+
+/** One task line of TODO.md. `line` is its 0-based index in the file and
+ *  `raw` its exact text: together they are how a panel op proves the line has
+ *  not changed since the panel last saw it. */
+export interface Todo {
+  line: number;
+  raw: string;
+  done: boolean;
+  text: string;
+  project: string | null;
+  created: string | null;
+}
+
+export interface TodoList {
+  todos: Todo[];
+  /** Lines that start like a task but do not parse — reported to the agent. */
+  malformed: { line: number; raw: string }[];
+}
+
+export type TodoOp =
+  | { kind: "toggle"; line: number; raw: string }
+  | {
+      kind: "edit";
+      line: number;
+      raw: string;
+      text: string;
+      project: string | null;
+    }
+  | { kind: "delete"; line: number; raw: string }
+  | { kind: "add"; text: string; project: string | null }
+  | { kind: "move"; line: number; raw: string; toLine: number; toRaw: string };
+
+export type TodoOpResult = { ok: true } | { ok: false; error: string };
+
+/** A `@project` token cannot hold a space, and workspace names can. */
+export const projectKey = (name: string): string =>
+  name.trim().replace(/\s+/g, "-");
 
 export interface DisplaySettings {
   textFadeThreshold: number; // hide labels drawn smaller than this (screen px)

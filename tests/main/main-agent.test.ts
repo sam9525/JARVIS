@@ -100,6 +100,12 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("jarvis_say");
   });
 
+  it("tells a fresh agent where the to-do list lives and how to write it", () => {
+    expect(AGENT_GUIDE).toContain("jarvis_todos");
+    expect(AGENT_GUIDE).toContain("TODO.md");
+    expect(AGENT_GUIDE).toContain("YYYY-MM-DD");
+  });
+
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
@@ -196,9 +202,11 @@ describe("dailyBriefNudge", () => {
     expect(dailyBriefNudge(note)).not.toContain("\n");
   });
 
-  it("asks for the headline shape the voice reads aloud", () => {
-    expect(dailyBriefNudge(note)).toContain("blank line");
-    expect(dailyBriefNudge(note)).toContain("read aloud");
+  it("asks for a spoken summary paragraph ahead of the text", () => {
+    const text = dailyBriefNudge(note);
+    expect(text).toContain("spoken summary");
+    expect(text).toContain("blank line");
+    expect(text).toContain("first paragraph is read aloud");
   });
 
   it("asks the agent to report a note that is not yesterday's", () => {

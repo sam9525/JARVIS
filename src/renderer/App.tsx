@@ -29,10 +29,15 @@ import { version as appVersion } from "../../package.json";
 import VoiceWave from "./voice/VoiceWave";
 import type { RigKind } from "./voice/head-rig";
 import Panel from "./ui/Panel";
+import TodoPanel from "./todos/TodoPanel";
+import TodoComposer, { type ComposeRequest } from "./todos/TodoComposer";
+import TodoToggle from "./todos/TodoToggle";
 import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
   ASK_Z,
   SETTINGS_Z,
+  besideTodos,
+  clampToViewport,
   defaultPanel,
   grabTarget,
   movePanel,
@@ -66,6 +71,9 @@ import type {
   PanelMap,
   PanelState,
   Settings,
+  TodoList,
+  TodoOp,
+  TodoOpResult,
   ToolEvent,
   VaultGraph,
   Workspace,
@@ -138,6 +146,11 @@ export default function App() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [search, setSearch] = useState(""); // transient — cleared on restart
   const [showSettings, setShowSettings] = useState(false);
+  const [showTodos, setShowTodos] = useState(false);
+  const [todoList, setTodoList] = useState<TodoList>({
+    todos: [],
+    malformed: [],
+  });
   const [showMouthPicker, setShowMouthPicker] = useState(false);
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
@@ -154,6 +167,13 @@ export default function App() {
   const askWriteRef = useRef(Promise.resolve());
 
   const [focusedPanel, setFocusedPanel] = useState<PanelId>("terminal");
+  // `open` is kept apart from the request so the panel's exit still has a
+  // request to draw while it plays; `seq` remounts the composer per opening
+  const [compose, setCompose] = useState<{
+    open: boolean;
+    request: ComposeRequest;
+    seq: number;
+  }>({ open: false, request: { mode: "add" }, seq: 0 });
   const [deckCleared, setDeckCleared] = useState(false);
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
@@ -242,6 +262,72 @@ export default function App() {
       setPanels(raise({ ...panels, [id]: panelState(id) }, id));
     },
     [panels, setPanels],
+  );
+
+  // an edit whose task left the file (or moved line) stays open with its
+  // draft; the store refuses the save as stale rather than overwrite the line
+  const editTarget =
+    compose.request.mode === "edit" ? compose.request.todo : null;
+  const composeShown = showTodos && compose.open;
+  const openCompose = (request: ComposeRequest) => {
+    setCompose((c) => ({ open: true, request, seq: c.seq + 1 }));
+    setFocusedPanel("compose");
+    // placed beside the list only when it opens: a composer already out
+    // stays wherever it was moved to
+    const at = composeShown
+      ? panelState("compose")
+      : besideTodos(panelState("todos"), viewport);
+    setPanels(raise({ ...panels, compose: at }, "compose"));
+  };
+  const closeCompose = () => setCompose((c) => ({ ...c, open: false }));
+  // closing the list takes its composer with it, and reopening it does not
+  // bring an old draft back
+  useEffect(() => {
+    if (!showTodos) setCompose((c) => (c.open ? { ...c, open: false } : c));
+  }, [showTodos]);
+
+  // jarvis_todos arrives as a push, long after this effect ran; the ref keeps
+  // the raise working against the panels map of that moment, not of mount
+  const focusPanelRef = useRef(focusPanel);
+  focusPanelRef.current = focusPanel;
+  useEffect(() => {
+    window.jarvis.getTodos().then(setTodoList).catch(console.error);
+    const offList = window.jarvis.onTodos(setTodoList);
+    // the agent says the list is open, so a cleared deck must not hide it
+    const offShow = window.jarvis.onShowTodos(() => {
+      setDeckCleared(false);
+      setShowTodos(true);
+      focusPanelRef.current("todos");
+    });
+    return () => {
+      offList();
+      offShow();
+    };
+  }, []);
+
+  // a refused op means the panel was looking at an old file: reload it
+  const onTodoOp = useCallback(async (op: TodoOp): Promise<TodoOpResult> => {
+    const r = await window.jarvis
+      .todoOp(op)
+      .catch((e: unknown): TodoOpResult => ({ ok: false, error: String(e) }));
+    if (!r.ok) window.jarvis.getTodos().then(setTodoList).catch(console.error);
+    return r;
+  }, []);
+
+  const growTodos = useCallback(
+    (px: number) => {
+      const s = panels.todos ?? defaultPanel("todos", viewport);
+      const next = clampToViewport({ ...s, h: s.h + px }, viewport);
+      // at full height the list still overflows; writing an unchanged box
+      // would re-render, re-measure and write again forever
+      if (next.h !== s.h) setPanel("todos", next);
+    },
+    [panels, viewport, setPanel],
+  );
+
+  const todoProjects = useMemo(
+    () => workspaces.filter((w) => !w.isSelf).map((w) => w.name),
+    [workspaces],
   );
 
   // one highlight store per workspace; Graph reads stateRef.current per frame,
@@ -692,8 +778,19 @@ export default function App() {
     if (showSettings)
       live.settings = { ...panelState("settings"), z: SETTINGS_Z };
     if (showMouthPicker) live.mouth = panelState("mouth");
+    if (showTodos) live.todos = panelState("todos");
+    if (composeShown) live.compose = panelState("compose");
     return live;
-  }, [deckCleared, active, previewNode, showSettings, showMouthPicker, panels]);
+  }, [
+    deckCleared,
+    active,
+    previewNode,
+    showSettings,
+    showMouthPicker,
+    showTodos,
+    composeShown,
+    panels,
+  ]);
 
   const onHandDrag = useCallback(
     (dx: number, dy: number, fallback: (dx: number, dy: number) => void) => {
@@ -765,6 +862,18 @@ export default function App() {
   const activeHue = useMemo(
     () => (active ? hueOfWorkspace(active, fleet, settings.mainColors) : 0),
     [active, fleet, settings.mainColors],
+  );
+  // keyed by name, because a to-do's @token names a workspace, not its id
+  const todoColors = useMemo(
+    () =>
+      Object.fromEntries(
+        fleet.map((ws) => [
+          ws.name,
+          settings.mainColors?.[ws.id] ??
+            hueToHex(hueOfWorkspace(ws, fleet, settings.mainColors)),
+        ]),
+      ),
+    [fleet, settings.mainColors],
   );
 
   // Seed a workspace's groups once, from its own top-level folders, as soon as
@@ -898,6 +1007,13 @@ export default function App() {
         capturing={voice.capturing}
         error={voice.error}
         onToggle={() => setVoiceControl(!micOn)}
+      />
+      <TodoToggle
+        open={showTodos}
+        onToggle={() => {
+          if (!showTodos) focusPanel("todos");
+          setShowTodos(!showTodos);
+        }}
       />
       <button
         className={BTN_IDLE + " text-[13px]"}
@@ -1211,6 +1327,60 @@ export default function App() {
           headError={headError}
           headColoured={headColoured}
           onPickMouth={() => setShowMouthPicker(true)}
+        />
+      </Panel>
+
+      {/* rendered whether or not it is open, like settings: the ☑ and
+          jarvis_todos both open it from outside its title bar */}
+      <Panel
+        id="todos"
+        title="TO-DO"
+        open={showTodos}
+        state={panelState("todos")}
+        focused={focusedPanel === "todos"}
+        hidden={deckCleared}
+        onChange={(next) => setPanel("todos", next)}
+        onFocus={() => focusPanel("todos")}
+        onClose={() => setShowTodos(false)}
+      >
+        <TodoPanel
+          list={todoList}
+          projects={todoProjects}
+          colors={todoColors}
+          editing={composeShown ? editTarget : null}
+          onOp={onTodoOp}
+          onNew={() => openCompose({ mode: "add" })}
+          onEdit={(todo, project) =>
+            openCompose({ mode: "edit", todo, project })
+          }
+          onOpenProject={(name) => {
+            const ws = fleet.find((w) => w.name === name);
+            if (!ws) return;
+            setShowHome(false);
+            openWorkspace(ws);
+          }}
+          onOverflow={growTodos}
+        />
+      </Panel>
+
+      <Panel
+        id="compose"
+        title={compose.request.mode === "add" ? "NEW TASK" : "EDIT TASK"}
+        open={composeShown}
+        state={panelState("compose")}
+        focused={focusedPanel === "compose"}
+        hidden={deckCleared}
+        onChange={(next) => setPanel("compose", next)}
+        onFocus={() => focusPanel("compose")}
+        onClose={closeCompose}
+      >
+        <TodoComposer
+          key={compose.seq}
+          request={compose.request}
+          projects={todoProjects}
+          colors={todoColors}
+          onOp={onTodoOp}
+          onClose={closeCompose}
         />
       </Panel>
 

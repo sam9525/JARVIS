@@ -77,6 +77,16 @@ produced it. Cut every word the listener would not act on. No preamble, no
 lists, no file names, no markdown, no code. Use \`jarvis_say\` when you
 need to speak without ending a turn.
 
+## To-do list
+
+The user's own to-do list is \`TODO.md\` in this folder. Call \`jarvis_todos\`
+for any question about it ("show me the todo list", "what should we do next")
+— it opens the list on screen and returns the file's path and text. One task
+per line: \`- [ ] text @project YYYY-MM-DD\`, \`- [x]\` when done, no \`@\` for
+a personal task, and today's date on every task you add. Call
+\`jarvis_todos\` again after each edit and fix any line it reports as
+malformed. Answer with the next open task in one spoken sentence.
+
 ## Tools
 
 - \`jarvis_watch\` — take the next finish off the queue, or park until one
@@ -85,6 +95,7 @@ need to speak without ending a turn.
   question about the whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into another workspace's session.
 - \`jarvis_say\` — speak now, mid-turn.
+- \`jarvis_todos\` — open the to-do list on screen and read \`TODO.md\`.
 `;
 
 /** Typed into the main agent's session when a delegate finishes and nobody is
@@ -124,7 +135,7 @@ export const SETTLE_DEADLINE_MS = 60_000;
  * text plus one absolute path: a location, not a description, so the app
  * still composes nothing about the work.
  *
- * The headline clause overrides AGENT_GUIDE, which tells the agent its whole
+ * The spoken-summary clause overrides AGENT_GUIDE, which tells the agent its whole
  * turn-end message is read aloud. The guide is written with `wx` and an
  * existing install never sees a new one, so the override travels in the nudge.
  */
@@ -135,9 +146,12 @@ export const dailyBriefNudge = (notePath: string): string =>
   "it is from in your first line. Then write one short paragraph per project " +
   "the file mentions: what moved, in a line at most, then what is still open " +
   "and what to carry on with. Say nothing about a project the file does not " +
-  "mention. Put a single-sentence headline on the first line, then a blank " +
-  "line, then the paragraphs — only that first line is read aloud, so this " +
-  "one reply may carry the rest as text. Read, answer, stop.";
+  "mention. Before those paragraphs, open with a short spoken summary: two to " +
+  "four plain sentences that name each project's most important open point " +
+  "or next step, in as few words as possible. No preamble, no list, no file " +
+  "names, no markdown. Then a blank line, then the paragraphs — only that " +
+  "first paragraph is read aloud, so this one reply may carry the rest as " +
+  "text. Read, answer, stop.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */

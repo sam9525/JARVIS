@@ -52,6 +52,10 @@ const walk = (n: any): any[] =>
     getNotesDir: () => Promise.resolve(null),
     pickNotesDir: () => Promise.resolve(null),
     clearNotesDir: () => Promise.resolve(null),
+    getTodos: () => Promise.resolve({ todos: [], malformed: [] }),
+    todoOp: () => Promise.resolve({ ok: true }),
+    onTodos: () => () => undefined,
+    onShowTodos: () => () => undefined,
   },
 };
 
@@ -70,6 +74,15 @@ describe("App shell", () => {
       (n: any) => n.props?.title === "Refresh graph (F5)",
     );
     expect(refresh).toHaveLength(1);
+  });
+
+  it("declares the ☑ toggle and the to-do panel once each", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const { default: TodoToggle } =
+      await import("../src/renderer/todos/TodoToggle");
+    const nodes = walk((App as any)({}));
+    expect(nodes.filter((n: any) => n.type === TodoToggle)).toHaveLength(1);
+    expect(nodes.filter((n: any) => n.props?.id === "todos")).toHaveLength(1);
   });
 
   it("gives the graph the full window, not a flex remainder", async () => {

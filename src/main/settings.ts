@@ -163,6 +163,7 @@ const PANEL_IDS: readonly PanelId[] = [
   "preview",
   "settings",
   "mouth",
+  "todos",
 ];
 
 function readPanelMap(u: unknown): PanelMap {

@@ -122,6 +122,10 @@ beforeEach(() => {
     getNotesDir: () => Promise.resolve(null),
     pickNotesDir: () => Promise.resolve(null),
     clearNotesDir: () => Promise.resolve(null),
+    getTodos: () => Promise.resolve({ todos: [], malformed: [] }),
+    todoOp: () => Promise.resolve({ ok: true }),
+    onTodos: () => () => undefined,
+    onShowTodos: () => () => undefined,
   };
   container = document.createElement("div");
   document.body.appendChild(container);

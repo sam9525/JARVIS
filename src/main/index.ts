@@ -52,8 +52,10 @@ import {
   transcriptDir,
   writeBriefing,
 } from "./briefing";
+import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
-import type { Settings, VaultGraph, Workspace } from "../shared/types";
+import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
+import type { Settings, TodoOp, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
 
@@ -113,6 +115,12 @@ app.whenReady().then(async () => {
     path.join(app.getPath("userData"), "main-agent"),
   );
   const workspaces = withMainAgent(loaded, mainAgent);
+
+  // The agent writes TODO.md with its own tools; the panel writes it only
+  // through this store.
+  const todosPath = path.join(mainAgent.rootPath, "TODO.md");
+  const todoIO = fileTodoIO(todosPath);
+  const todoStore = createTodoStore(todoIO, () => todayLocal());
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
@@ -361,6 +369,21 @@ app.whenReady().then(async () => {
     win.webContents.send(channel, payload, ...rest);
   };
 
+  ipcMain.handle("get-todos", () => todoStore.list());
+  ipcMain.handle("todo-op", async (_e, op: TodoOp) => {
+    const result = await todoStore.apply(op);
+    // push now rather than wait for the watcher, so the panel never shows the
+    // old row for a frame after its own click
+    // not awaited: the write already happened, so a failed re-read must not
+    // report the op as unsaved
+    if (result.ok)
+      todoStore
+        .list()
+        .then((list) => send("todos", list))
+        .catch(console.error);
+    return result;
+  });
+
   const inboxPath = path.join(app.getPath("userData"), "jarvis-inbox.json");
   const status = createStatusStore();
   status.restore(
@@ -498,7 +521,16 @@ app.whenReady().then(async () => {
     },
     (s) => pushStatus(status.applyStatus(s)),
     () => workspaces,
-    orchestrator,
+    {
+      ...orchestrator,
+      // opens the panel first: the answer is for the agent, the panel is for
+      // the person who asked. send() drops it quietly when no window exists.
+      todos: async () => {
+        send("show-todos", null);
+        const text = await todoIO.read();
+        return { path: todosPath, text, malformed: parseTodos(text).malformed };
+      },
+    },
     (p) => {
       // no questions means that one workspace's question is over — several can
       // be open across the fleet, so only its own key goes
@@ -556,8 +588,24 @@ app.whenReady().then(async () => {
   // The main agent owns the fleet watch and the voice, so it has to be running
   // before any delegate can finish. It is the only session boot starts; project
   // terminals still launch by hand.
+  let todosWatcher: FSWatcher | undefined;
   try {
     await ensureMainAgent(mainAgent.rootPath);
+    // The folder exists now. Watching the folder, not the file, sees TODO.md
+    // appear for the first time as well as every later write by either side.
+    todosWatcher = watch(mainAgent.rootPath, {
+      depth: 0,
+      ignoreInitial: true,
+      // writeFile truncates before it writes; a read in that gap pushes an
+      // empty list and the panel flickers
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 25 },
+    }).on("all", (_event, changed) => {
+      if (path.basename(changed) !== "TODO.md") return;
+      todoStore
+        .list()
+        .then((list) => send("todos", list))
+        .catch(console.error);
+    });
     await ensureHooks(mainAgent.rootPath, forwardPath);
     await ensureMcp(mainAgent, mcpPath);
     // a fresh install has no conversation to continue, and no history to brief
@@ -610,7 +658,10 @@ app.whenReady().then(async () => {
     console.error("[jarvis] main agent failed to launch:", err);
   }
 
-  app.on("before-quit", () => ptyManager.killAll());
+  app.on("before-quit", () => {
+    ptyManager.killAll();
+    void todosWatcher?.close();
+  });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

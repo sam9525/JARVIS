@@ -29,6 +29,15 @@ function stubOrchestrator() {
       this.says.push(text);
       return { ok: true as const };
     },
+    todosCalls: { n: 0 },
+    todos() {
+      this.todosCalls.n++;
+      return Promise.resolve({
+        path: "C:\\data\\main-agent\\TODO.md",
+        text: "- [ ] a\n",
+        malformed: [],
+      });
+    },
   };
 }
 
@@ -284,6 +293,7 @@ describe("orchestrate routes", () => {
         send: () => ({ ok: true as const }),
         watch: () => Promise.resolve(null),
         say: () => ({ ok: true as const }),
+        todos: () => Promise.resolve(null),
       },
     );
     await new Promise((r) => server.once("listening", r));
@@ -381,6 +391,41 @@ describe("orchestrate routes added in v0.4.1", () => {
     }
     expect(s.orch.says).toEqual([]);
     expect(s.orch.watchCalls).toEqual([]);
+    s.close();
+  });
+
+  it("todos answers the orchestrator's path, text and malformed lines", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(s.port, "/orchestrate/todos", {});
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      path: "C:\\data\\main-agent\\TODO.md",
+      text: "- [ ] a\n",
+      malformed: [],
+    });
+    expect(s.orch.todosCalls.n).toBe(1);
+    s.close();
+  });
+
+  it("todos refuses a request without the x-jarvis header", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(s.port, "/orchestrate/todos", {}, {});
+    expect(res.status).toBe(403);
+    expect(s.orch.todosCalls.n).toBe(0);
+    s.close();
+  });
+
+  it("todos answers 500 when the orchestrator rejects", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    s.orch.todos = () => Promise.reject(new Error("EBUSY"));
+    const res = await call(s.port, "/orchestrate/todos", {});
+    expect(res.status).toBe(500);
     s.close();
   });
 

@@ -36,6 +36,12 @@ export const ASK_Z = SETTINGS_Z + 10;
 /** the ask panel is a fixed box; a question reads the same at any window size */
 const ASK_W = 560;
 const ASK_H = 420;
+const TODOS_W = 380;
+export const COMPOSE_W = 340;
+/** tall enough for the text box and a few rows of project chips */
+const COMPOSE_MIN_H = 320;
+/** the space between the to-do list and its composer */
+const BESIDE_GAP = 8;
 
 export type Viewport = { width: number; height: number };
 
@@ -56,14 +62,20 @@ const WIDTH: Record<"terminal" | "preview", number> = {
  * behind it and leaves these alone: rescaleAll skips their width too, which is
  * what keeps a maximize from stretching them.
  */
-const FIXED_W: Partial<Record<PanelId, number>> = { settings: 250, ask: ASK_W };
+const FIXED_W: Partial<Record<PanelId, number>> = {
+  settings: 250,
+  ask: ASK_W,
+  todos: TODOS_W,
+  compose: COMPOSE_W,
+};
 /** the picker is a fixed 520px canvas, so its panel is sized in pixels too */
 const MOUTH_W = 720;
 
 /**
  * Defaults, entirely proportional to the current window: every panel runs the
  * full height between the top line and the bezel, preview opens left of the
- * rail and the other two dock flush right. So the arrangement reads the same on
+ * rail and the other two dock flush right. Todos is the exception: a
+ * half-height box in the middle. So the arrangement reads the same on
  * a laptop as on a 4K monitor instead of drifting toward one corner.
  */
 export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
@@ -79,6 +91,21 @@ export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
       },
       vp,
     );
+  if (id === "todos") {
+    // half height, centred; TodoPanel grows it as the list outgrows it
+    const h = Math.round(vp.height * 0.5);
+    return clampToViewport(
+      {
+        x: Math.round((vp.width - TODOS_W) / 2),
+        y: Math.round((vp.height - h) / 2),
+        w: TODOS_W,
+        h,
+        collapsed: false,
+        z: Z_BASE,
+      },
+      vp,
+    );
+  }
   const w =
     id === "mouth"
       ? MOUTH_W
@@ -98,6 +125,26 @@ export function defaultPanel(id: PanelId, vp: Viewport): PanelState {
       // center's cards) is what you came for, and the fold leaves the strip
       collapsed: id === "terminal",
       z: Z_BASE,
+    },
+    vp,
+  );
+}
+
+/**
+ * The to-do composer opens flush right of the list, top-aligned and as tall
+ * as it, or flush left when the right has no room for it.
+ */
+export function besideTodos(todos: PanelState, vp: Viewport): PanelState {
+  const right = todos.x + todos.w + BESIDE_GAP;
+  const fits = right + COMPOSE_W <= vp.width - BEZEL_INSET;
+  return clampToViewport(
+    {
+      x: fits ? right : todos.x - BESIDE_GAP - COMPOSE_W,
+      y: todos.y,
+      w: COMPOSE_W,
+      h: Math.max(todos.h, COMPOSE_MIN_H),
+      collapsed: false,
+      z: todos.z,
     },
     vp,
   );
