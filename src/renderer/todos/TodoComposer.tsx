@@ -61,7 +61,7 @@ export default function TodoComposer({
   return (
     <div
       data-testid="todo-composer"
-      className="flex min-h-0 flex-1 flex-col gap-2 border-t border-accent/50 bg-gradient-to-b from-accent/5 to-transparent px-2.5 pt-2 pb-2.5"
+      className="composer-in flex min-h-0 flex-1 flex-col gap-2 overflow-hidden border-t border-accent/50 bg-gradient-to-b from-accent/5 to-transparent px-2.5 pt-2 pb-2.5"
     >
       <div className="flex items-center text-[11px] font-medium tracking-[0.16em] text-accent-soft">
         {mode === "add" ? "NEW TASK" : "EDIT TASK"}

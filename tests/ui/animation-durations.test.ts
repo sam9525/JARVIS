@@ -58,6 +58,7 @@ describe("animation durations", () => {
       "boot-slide",
       "panel-in",
       "panel-out",
+      "composer-in",
       "panel-fold",
       "segmented-fill",
     ])

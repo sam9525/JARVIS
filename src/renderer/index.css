@@ -203,7 +203,8 @@
     .boot-fade,
     .boot-frame,
     .boot-slide,
-    .panel-in {
+    .panel-in,
+    .composer-in {
       animation: none;
     }
     /* the close is on a timer, so cutting the animation is safe here — the
@@ -464,6 +465,20 @@
   }
   .panel-out {
     animation: panel-out 0.22s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  }
+
+  /* The to-do composer rises out of the panel's floor: it grows from nothing
+     to its half of the box while the list above gives the room back, so the
+     split reads as one motion. flex-grow from 0 works because its basis is 0 —
+     at grow 0 the box has no height at all. */
+  @keyframes composer-in {
+    from {
+      flex-grow: 0;
+      opacity: 0;
+    }
+  }
+  .composer-in {
+    animation: composer-in 0.3s cubic-bezier(0.33, 1, 0.68, 1) backwards;
   }
 
   /* Folding and unfolding. A transition, not a keyframe: the box travels
