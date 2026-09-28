@@ -8,7 +8,6 @@ import {
 } from "../../shared/types";
 import { groupTodos } from "./group-todos";
 import { taskAge, type AgeTier } from "./task-age";
-import TodoComposer, { type ComposerDraft } from "./TodoComposer";
 
 const NONE = "";
 const ICON_BTN =
@@ -19,13 +18,14 @@ const AGE_CLASS: Record<AgeTier, string> = {
   stale: "text-ink-dim/60",
 };
 
-type Composer = { mode: "add" } | { mode: "edit"; todo: Todo };
-
 export default function TodoPanel({
   list,
   projects,
   colors = {},
+  editing = null,
   onOp,
+  onNew,
+  onEdit,
   onOpenProject,
   onOverflow,
 }: {
@@ -33,42 +33,32 @@ export default function TodoPanel({
   projects: string[];
   /** workspace name → its identity colour; a group without one is Personal or a stale token */
   colors?: Record<string, string>;
+  /** the task the composer beside this panel is editing, lit so you can see which */
+  editing?: Todo | null;
   onOp(op: TodoOp): Promise<TodoOpResult>;
+  onNew(): void;
+  /** `project` is the chip to preselect: "" for Personal */
+  onEdit(todo: Todo, project: string): void;
   onOpenProject?(name: string): void;
   /** the list is this many px taller than its box; the owner grows the panel */
   onOverflow?(px: number): void;
 }) {
   const [openFolded, setOpenFolded] = useState(false);
   const [doneFolded, setDoneFolded] = useState(true);
-  // an edit holds the whole task, not its line: a row deleted above it shifts
-  // the line, and the composer must not reopen on whichever task moved there
-  const [composer, setComposer] = useState<Composer | null>(null);
-  const [draft, setDraft] = useState<ComposerDraft>({
-    text: "",
-    project: NONE,
-  });
   const [error, setError] = useState<string | null>(null);
   // a ref, not dataTransfer: the drop only needs to know which row left, and
   // the group key is what keeps a row inside its own project
   const dragged = useRef<{ todo: Todo; group: string } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
-  const editGone =
-    composer?.mode === "edit" &&
-    !list.todos.some(
-      (t) => t.line === composer.todo.line && t.raw === composer.todo.raw,
-    );
-  const active = editGone ? null : composer;
-
-  // grow-only: a shorter list leaves the panel at the height it has; an open
-  // composer takes half the box on purpose, so it is not overflow
+  // grow-only: a shorter list leaves the panel at the height it has
   useLayoutEffect(() => {
     const el = scroller.current;
     // a box that measures 0 is not laid out; growing it would never converge
-    if (!el || !onOverflow || active || el.clientHeight === 0) return;
+    if (!el || !onOverflow || el.clientHeight === 0) return;
     const over = el.scrollHeight - el.clientHeight;
     if (over > 0) onOverflow(over);
-  }, [list, openFolded, doneFolded, error, active, onOverflow]);
+  }, [list, openFolded, doneFolded, error, onOverflow]);
 
   // the chip for a task: the workspace's spelling when the token names one,
   // the token itself when it names nothing
@@ -78,40 +68,11 @@ export default function TodoPanel({
     return projects.find((p) => projectKey(p).toLowerCase() === k) ?? t.project;
   };
 
-  // a refused op keeps what was typed and says why
+  // a refused op says why
   const send = async (op: TodoOp): Promise<boolean> => {
     const r = await onOp(op);
     setError(r.ok ? null : `Not saved: ${r.error}`);
     return r.ok;
-  };
-
-  const openAdd = () => {
-    setComposer({ mode: "add" });
-    setDraft({ text: "", project: NONE });
-  };
-
-  const submit = async () => {
-    if (!active) return;
-    if (!draft.text.trim()) {
-      if (active.mode === "edit") setComposer(null);
-      return;
-    }
-    const project = draft.project || null;
-    if (active.mode === "add") {
-      // stays open for the next task, keeping the chosen project
-      if (await send({ kind: "add", text: draft.text, project }))
-        setDraft({ ...draft, text: "" });
-      return;
-    }
-    const t = active.todo;
-    const ok = await send({
-      kind: "edit",
-      line: t.line,
-      raw: t.raw,
-      text: draft.text,
-      project,
-    });
-    if (ok) setComposer(null);
   };
 
   // ponytail: read at render, so an open panel keeps yesterday's ages until
@@ -120,10 +81,7 @@ export default function TodoPanel({
 
   const row = (t: Todo, group: string) => {
     const age = taskAge(t.created, now);
-    const editing =
-      active?.mode === "edit" &&
-      active.todo.line === t.line &&
-      active.todo.raw === t.raw;
+    const lit = editing?.line === t.line && editing.raw === t.raw;
     return (
       <li
         key={t.line}
@@ -150,7 +108,7 @@ export default function TodoPanel({
             toRaw: t.raw,
           });
         }}
-        className={`group flex items-center gap-2 px-2 py-0.5 ${editing ? "bg-accent/10" : "hover:bg-edge/30"}`}
+        className={`group flex items-center gap-2 px-2 py-0.5 ${lit ? "bg-accent/10" : "hover:bg-edge/30"}`}
       >
         <input
           type="checkbox"
@@ -177,10 +135,7 @@ export default function TodoPanel({
         <button
           title="Edit"
           className={ICON_BTN}
-          onClick={() => {
-            setComposer({ mode: "edit", todo: t });
-            setDraft({ text: t.text, project: projectValue(t) });
-          }}
+          onClick={() => onEdit(t, projectValue(t))}
         >
           ✎
         </button>
@@ -263,9 +218,9 @@ export default function TodoPanel({
         const typing = (e.target as HTMLElement).matches(
           "textarea, input:not([type=checkbox])",
         );
-        if (e.key !== "n" || active || typing) return;
+        if (e.key !== "n" || typing) return;
         e.preventDefault();
-        openAdd();
+        onNew();
       }}
     >
       <div className="relative min-h-0 flex-1">
@@ -277,15 +232,13 @@ export default function TodoPanel({
             setDoneFolded((v) => !v),
           )}
         </div>
-        {!active && (
-          <button
-            title="New task (N)"
-            onClick={openAdd}
-            className="absolute right-2.5 bottom-2.5 grid h-7 w-7 cursor-pointer place-items-center border border-accent bg-abyss text-[17px] leading-none text-accent shadow-[0_0_10px_rgba(34,211,238,0.35)] hover:bg-accent hover:text-abyss"
-          >
-            +
-          </button>
-        )}
+        <button
+          title="New task (N)"
+          onClick={onNew}
+          className="absolute right-2.5 bottom-2.5 grid h-7 w-7 cursor-pointer place-items-center border border-accent bg-abyss text-[17px] leading-none text-accent shadow-[0_0_10px_rgba(34,211,238,0.35)] hover:bg-accent hover:text-abyss"
+        >
+          +
+        </button>
       </div>
       {error && (
         <div
@@ -295,17 +248,6 @@ export default function TodoPanel({
         >
           {error}
         </div>
-      )}
-      {active && (
-        <TodoComposer
-          mode={active.mode}
-          draft={draft}
-          projects={projects}
-          colors={colors}
-          onChange={setDraft}
-          onSubmit={() => void submit()}
-          onClose={() => setComposer(null)}
-        />
       )}
     </div>
   );

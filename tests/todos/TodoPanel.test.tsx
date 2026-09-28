@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import TodoPanel from "../../src/renderer/todos/TodoPanel";
-import type { TodoList } from "../../src/shared/types";
+import type { Todo, TodoList } from "../../src/shared/types";
 import { parseTodos } from "../../src/main/todos";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,10 +33,27 @@ const FILE =
 const list: TodoList = parseTodos(FILE);
 
 const ok = () => vi.fn().mockResolvedValue({ ok: true });
-const render = (onOp = ok(), todos: TodoList = list) => {
+const onNew = vi.fn();
+const onEdit = vi.fn();
+beforeEach(() => {
+  onNew.mockClear();
+  onEdit.mockClear();
+});
+const render = (
+  onOp = ok(),
+  todos: TodoList = list,
+  editing: Todo | null = null,
+) => {
   act(() =>
     root.render(
-      <TodoPanel list={todos} projects={["JARVIS", "AeroGraph"]} onOp={onOp} />,
+      <TodoPanel
+        list={todos}
+        projects={["JARVIS", "AeroGraph"]}
+        editing={editing}
+        onOp={onOp}
+        onNew={onNew}
+        onEdit={onEdit}
+      />,
     ),
   );
   return onOp;
@@ -45,23 +62,6 @@ const $ = (sel: string) => container.querySelector(sel) as HTMLElement;
 const $$ = (sel: string) =>
   [...container.querySelectorAll(sel)] as HTMLElement[];
 const rows = () => $$('[data-testid="todo-row"]');
-const setValue = (el: HTMLTextAreaElement, value: string) => {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype,
-    "value",
-  )!.set!;
-  act(() => {
-    setter.call(el, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-};
-const key = (el: HTMLElement, k: string, isComposing = false) =>
-  act(async () => {
-    el.dispatchEvent(
-      new KeyboardEvent("keydown", { key: k, bubbles: true, isComposing }),
-    );
-  });
-
 describe("TodoPanel growth", () => {
   // jsdom lays nothing out, so the box sizes are stubbed on the prototype
   const stub = (client: number, scroll: number) => {
@@ -80,6 +80,8 @@ describe("TodoPanel growth", () => {
           list={list}
           projects={[]}
           onOp={ok()}
+          onNew={onNew}
+          onEdit={onEdit}
           onOverflow={onOverflow}
         />,
       ),
@@ -129,6 +131,8 @@ describe("TodoPanel", () => {
           projects={["JARVIS", "AeroGraph"]}
           colors={{ JARVIS: "#8b7cf6" }}
           onOp={ok()}
+          onNew={onNew}
+          onEdit={onEdit}
           onOpenProject={onOpenProject}
         />,
       ),
@@ -174,151 +178,44 @@ describe("TodoPanel", () => {
     });
   });
 
-  const composer = () => $('[data-testid="todo-composer"]');
-  const textBox = () =>
-    composer().querySelector("textarea") as HTMLTextAreaElement;
-  const chip = (label: string) =>
-    [...composer().querySelectorAll("button[aria-pressed]")].find(
-      (b) => b.textContent === label,
-    ) as HTMLElement;
-  const pressed = () =>
-    composer().querySelector('button[aria-pressed="true"]')?.textContent;
-  const openAdd = () =>
-    act(() => ($('[title="New task (N)"]') as HTMLElement).click());
-
-  it("edits text and project in the composer; Enter saves, Esc cancels", async () => {
-    const onOp = render();
-    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[0].click());
-    expect(composer().textContent).toContain("EDIT TASK");
-    expect(textBox().value).toBe("Fix the ring snap");
-    expect(pressed()).toBe("JARVIS");
-    setValue(textBox(), "Fix the snap");
-    act(() => chip("AeroGraph").click());
-    await key(textBox(), "Enter");
-    expect(onOp).toHaveBeenCalledWith({
-      kind: "edit",
-      line: 1,
-      raw: "- [ ] Fix the ring snap @JARVIS 2026-09-27",
-      text: "Fix the snap",
-      project: "AeroGraph",
-    });
-    expect(composer()).toBeNull();
-
-    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[0].click());
-    await key(textBox(), "Escape");
-    expect(composer()).toBeNull();
-    expect(onOp).toHaveBeenCalledTimes(1);
-  });
-
-  it("opens the composer from the + button and from N, not from a text field", () => {
+  it("asks for the composer from the + button and from N", () => {
     render();
-    expect(composer()).toBeNull();
-    openAdd();
-    expect(composer().textContent).toContain("NEW TASK");
-    expect($('[title="New task (N)"]')).toBeNull();
-    act(() =>
-      (composer().querySelector('[title="Close"]') as HTMLElement).click(),
-    );
-    expect(composer()).toBeNull();
-
+    act(() => ($('[title="New task (N)"]') as HTMLElement).click());
+    expect(onNew).toHaveBeenCalledTimes(1);
     const checkbox = rows()[0].querySelector("input") as HTMLElement;
+    // a ticked checkbox keeps focus, and N must still work from there
     act(() => {
       checkbox.dispatchEvent(
         new KeyboardEvent("keydown", { key: "n", bubbles: true }),
       );
     });
-    expect(composer()).not.toBeNull();
+    expect(onNew).toHaveBeenCalledTimes(2);
   });
 
-  it("adds tasks with the chosen project and stays open for the next", async () => {
-    const onOp = render();
-    openAdd();
-    expect(
-      [...composer().querySelectorAll("button[aria-pressed]")].map(
-        (b) => b.textContent,
-      ),
-    ).toEqual(["Personal", "JARVIS", "AeroGraph"]);
-    expect(pressed()).toBe("Personal");
-    setValue(textBox(), "Buy milk");
-    await key(textBox(), "Enter");
-    expect(onOp).toHaveBeenLastCalledWith({
-      kind: "add",
-      text: "Buy milk",
-      project: null,
-    });
-    expect(textBox().value).toBe("");
-    setValue(textBox(), "Ship");
-    act(() => chip("JARVIS").click());
-    await act(async () =>
-      [...composer().querySelectorAll("button")]
-        .find((b) => b.textContent === "Add")
-        ?.click(),
-    );
-    expect(onOp).toHaveBeenLastCalledWith({
-      kind: "add",
-      text: "Ship",
-      project: "JARVIS",
-    });
-    expect(pressed()).toBe("JARVIS");
-  });
-
-  it("turns a pasted newline into a space, since a task is one line", () => {
+  it("asks for an edit with the task and its project's chip", () => {
     render();
-    openAdd();
-    setValue(textBox(), "Buy\n  milk");
-    expect(textBox().value).toBe("Buy milk");
+    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[0].click());
+    expect(onEdit).toHaveBeenCalledWith(list.todos[0], "JARVIS");
+    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[2].click()); // grouped: row 3 is Personal
+    expect(onEdit).toHaveBeenLastCalledWith(list.todos[1], "");
   });
 
-  it("writes nothing for an empty add", async () => {
-    const onOp = render();
-    openAdd();
-    await key(textBox(), "Enter");
-    expect(onOp).not.toHaveBeenCalled();
+  it("lights the row the composer is editing", () => {
+    render(ok(), list, list.todos[2]);
+    const lit = rows().filter((r) => r.className.includes("bg-accent/10"));
+    expect(lit.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Ship v0.5.1"),
+    ]);
   });
 
-  it("keeps the typed task and shows why when an add is refused", async () => {
-    const onOp = vi.fn().mockResolvedValue({ ok: false, error: "EBUSY" });
-    render(onOp);
-    openAdd();
-    setValue(textBox(), "Buy milk");
-    await key(textBox(), "Enter");
-    expect(textBox().value).toBe("Buy milk");
-    expect($('[data-testid="todo-error"]').textContent).toBe(
-      "Not saved: EBUSY",
-    );
-    onOp.mockResolvedValue({ ok: true });
-    await key(textBox(), "Enter");
-    expect($('[data-testid="todo-error"]')).toBeNull();
-  });
-
-  it("keeps the composer open when an edit is refused", async () => {
+  it("shows why a tick was refused", async () => {
     render(vi.fn().mockResolvedValue({ ok: false, error: "stale" }));
-    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[0].click());
-    await key(textBox(), "Enter");
-    expect(composer()).not.toBeNull();
-    expect($('[data-testid="todo-error"]').textContent).toContain("stale");
-  });
-
-  it("ignores Enter while an IME is composing", async () => {
-    const onOp = render();
-    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[0].click());
-    await key(textBox(), "Enter", true);
-    expect(onOp).not.toHaveBeenCalled();
-  });
-
-  it("closes the composer when a row above the edited one is deleted", () => {
-    render();
-    // edit "Call the bank" (line 2), then the file loses line 1
-    act(() => $$('[data-testid="todo-row"] [title="Edit"]')[2].click());
-    expect(textBox().value).toBe("Call the bank");
-    const shifted = parseTodos(
-      "# Todo\n" +
-        "- [ ] Call the bank 2026-09-26\n" +
-        "- [ ] Ship v0.5.1 @JARVIS 2026-09-25\n",
+    await act(async () =>
+      (rows()[0].querySelector("input") as HTMLElement).click(),
     );
-    render(ok(), shifted);
-    // "Ship v0.5.1" now sits on line 2; the composer must not edit it instead
-    expect(composer()).toBeNull();
+    expect($('[data-testid="todo-error"]').textContent).toBe(
+      "Not saved: stale",
+    );
   });
 
   const drag = (from: HTMLElement, to: HTMLElement) =>
