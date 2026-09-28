@@ -339,8 +339,15 @@ app.whenReady().then(async () => {
     width: Math.round(workAreaSize.width * 0.8),
     height: Math.round(workAreaSize.height * 0.85),
     backgroundColor: "#02060b",
+    // A packaged build carries the icon in its executable; `npm start` runs
+    // the stock Electron binary, which only shows ours when handed it here.
+    ...(app.isPackaged
+      ? {}
+      : { icon: path.join(app.getAppPath(), "assets", "icon.png") }),
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
+  if (!app.isPackaged && process.platform === "darwin")
+    app.dock?.setIcon(path.join(app.getAppPath(), "assets", "icon.png"));
 
   // preview links: window.open(http…) from the renderer lands here
   win.webContents.setWindowOpenHandler(({ url }) => {
