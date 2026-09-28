@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import {
   projectKey,
   type Todo,
@@ -18,6 +19,19 @@ export type ApplyResult =
 export interface TodoIO {
   read(): Promise<string>;
   write(file: string): Promise<void>;
+}
+
+// Only ENOENT reads as empty — a locked or unreadable file must fail the op,
+// or an add would overwrite the list with one line.
+export function fileTodoIO(todosPath: string): TodoIO {
+  return {
+    read: () =>
+      fs.readFile(todosPath, "utf8").catch((err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") return "";
+        throw err;
+      }),
+    write: (file) => fs.writeFile(todosPath, file, "utf8"),
+  };
 }
 
 // The date is stripped before the project, and only the last token of each:
@@ -44,7 +58,10 @@ export function parseLine(raw: string, line: number): Todo | null {
   return { line, raw, done: m[1] !== " ", text, project, created };
 }
 
+// A BOM would glue itself to the first line and hide that task. The panel's
+// next write drops it, which every editor still reads as UTF-8.
 function splitLines(file: string): { eol: string; lines: string[] } {
+  if (file.charCodeAt(0) === 0xfeff) file = file.slice(1);
   const eol = file.includes("\r\n") ? "\r\n" : "\n";
   return { eol, lines: file === "" ? [] : file.split(/\r?\n/) };
 }
@@ -80,6 +97,14 @@ export function formatLine(t: {
 // a pasted newline would split one task into two lines
 const cleanText = (text: string): string => text.replace(/\s+/g, " ").trim();
 
+const UNREADABLE = "text cannot end in @word or a date";
+
+// A trailing @word or date in the text would parse back as the project or
+// the created date, so the panel would write a task it then reads differently.
+function readsBack(row: string, text: string): boolean {
+  return parseLine(row, 0)?.text === text;
+}
+
 export function applyOp(file: string, op: TodoOp, today: string): ApplyResult {
   const { eol, lines } = splitLines(file);
   const done = (): ApplyResult => ({ ok: true, file: lines.join(eol) });
@@ -93,6 +118,7 @@ export function applyOp(file: string, op: TodoOp, today: string): ApplyResult {
       project: op.project,
       created: today,
     });
+    if (!readsBack(row, text)) return { ok: false, error: UNREADABLE };
     if (lines.length === 0) lines.push(row, "");
     else if (lines[lines.length - 1] === "")
       lines.splice(lines.length - 1, 0, row);
@@ -110,7 +136,9 @@ export function applyOp(file: string, op: TodoOp, today: string): ApplyResult {
   } else if (op.kind === "edit") {
     const text = cleanText(op.text);
     if (!text) return { ok: false, error: "empty task" };
-    lines[op.line] = formatLine({ ...current, text, project: op.project });
+    const row = formatLine({ ...current, text, project: op.project });
+    if (!readsBack(row, text)) return { ok: false, error: UNREADABLE };
+    lines[op.line] = row;
   } else {
     if (lines[op.toLine] !== op.toRaw) return { ok: false, error: "stale" };
     // remove, then insert at the target's old index: the row lands after the

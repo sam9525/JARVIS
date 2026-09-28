@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import { promises as fs } from "node:fs";
 import {
   applyOp,
   createTodoStore,
+  fileTodoIO,
   formatLine,
   parseLine,
   parseTodos,
@@ -127,6 +131,36 @@ describe("applyOp", () => {
         TODAY,
       ),
     ).toEqual({ ok: false, error: "empty task" });
+  });
+
+  it("add and edit refuse text that would read back as a project or date", () => {
+    const refused = { ok: false, error: "text cannot end in @word or a date" };
+    expect(
+      applyOp("", { kind: "add", text: "ping @alice", project: null }, TODAY),
+    ).toEqual(refused);
+    expect(
+      applyOp("", { kind: "add", text: "@home", project: null }, TODAY),
+    ).toEqual(refused);
+    expect(
+      applyOp(
+        "- [ ] old\n",
+        {
+          kind: "edit",
+          line: 0,
+          raw: "- [ ] old",
+          text: "renew passport 2026-12-01",
+          project: null,
+        },
+        TODAY,
+      ),
+    ).toEqual(refused);
+    // a project after the text keeps an @word inside the text
+    const r = applyOp(
+      "",
+      { kind: "add", text: "ping @alice", project: "JARVIS" },
+      TODAY,
+    );
+    expect(r.ok && r.file).toBe("- [ ] ping @alice @JARVIS 2026-09-27\n");
   });
 
   it("toggle flips done and keeps project and date", () => {
@@ -291,5 +325,36 @@ describe("createTodoStore", () => {
   it("list parses the current file", async () => {
     const store = createTodoStore(memory("- [ ] a\n"), () => TODAY);
     expect((await store.list()).todos).toHaveLength(1);
+  });
+});
+
+describe("BOM", () => {
+  it("reads the first task of a file saved with a byte order mark", () => {
+    const list = parseTodos(
+      String.fromCharCode(0xfeff) + "- [ ] a 2026-09-20\n",
+    );
+    expect(list.todos.map((t) => t.text)).toEqual(["a"]);
+    expect(list.malformed).toEqual([]);
+  });
+});
+
+describe("fileTodoIO", () => {
+  it("reads a missing file as empty, and reads back what it wrote", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todos-"));
+    const io = fileTodoIO(path.join(dir, "TODO.md"));
+    expect(await io.read()).toBe("");
+    await io.write("- [ ] a\n");
+    expect(await io.read()).toBe("- [ ] a\n");
+    await fs.rm(dir, { recursive: true });
+  });
+
+  it("throws any other read error, so an add cannot overwrite the list", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "todos-"));
+    // a directory named TODO.md: EISDIR, not ENOENT
+    await fs.mkdir(path.join(dir, "TODO.md"));
+    await expect(
+      fileTodoIO(path.join(dir, "TODO.md")).read(),
+    ).rejects.toThrow();
+    await fs.rm(dir, { recursive: true });
   });
 });

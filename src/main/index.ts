@@ -54,7 +54,7 @@ import {
 } from "./briefing";
 import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
-import { createTodoStore, parseTodos } from "./todos";
+import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import type { Settings, TodoOp, VaultGraph, Workspace } from "../shared/types";
 
 if (started) app.quit();
@@ -117,17 +117,9 @@ app.whenReady().then(async () => {
   const workspaces = withMainAgent(loaded, mainAgent);
 
   // The agent writes TODO.md with its own tools; the panel writes it only
-  // through this store. Only ENOENT reads as empty — a locked or unreadable
-  // file must fail the op, or an add would overwrite the list with one line.
+  // through this store.
   const todosPath = path.join(mainAgent.rootPath, "TODO.md");
-  const todoIO = {
-    read: () =>
-      fs.readFile(todosPath, "utf8").catch((err: NodeJS.ErrnoException) => {
-        if (err.code === "ENOENT") return "";
-        throw err;
-      }),
-    write: (file: string) => fs.writeFile(todosPath, file, "utf8"),
-  };
+  const todoIO = fileTodoIO(todosPath);
   const todoStore = createTodoStore(todoIO, () => todayLocal());
 
   // graphs load lazily per workspace and stay cached until rescan
@@ -595,16 +587,16 @@ app.whenReady().then(async () => {
     await ensureMainAgent(mainAgent.rootPath);
     // The folder exists now. Watching the folder, not the file, sees TODO.md
     // appear for the first time as well as every later write by either side.
-    todosWatcher = watch(mainAgent.rootPath, { depth: 0, ignoreInitial: true }).on(
-      "all",
-      (_event, changed) => {
-        if (path.basename(changed) !== "TODO.md") return;
-        todoStore
-          .list()
-          .then((list) => send("todos", list))
-          .catch(console.error);
-      },
-    );
+    todosWatcher = watch(mainAgent.rootPath, {
+      depth: 0,
+      ignoreInitial: true,
+    }).on("all", (_event, changed) => {
+      if (path.basename(changed) !== "TODO.md") return;
+      todoStore
+        .list()
+        .then((list) => send("todos", list))
+        .catch(console.error);
+    });
     await ensureHooks(mainAgent.rootPath, forwardPath);
     await ensureMcp(mainAgent, mcpPath);
     // a fresh install has no conversation to continue, and no history to brief

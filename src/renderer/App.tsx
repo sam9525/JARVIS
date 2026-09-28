@@ -70,6 +70,7 @@ import type {
   Settings,
   TodoList,
   TodoOp,
+  TodoOpResult,
   ToolEvent,
   VaultGraph,
   Workspace,
@@ -260,7 +261,9 @@ export default function App() {
   useEffect(() => {
     window.jarvis.getTodos().then(setTodoList).catch(console.error);
     const offList = window.jarvis.onTodos(setTodoList);
+    // the agent says the list is open, so a cleared deck must not hide it
     const offShow = window.jarvis.onShowTodos(() => {
+      setDeckCleared(false);
       setShowTodos(true);
       focusPanelRef.current("todos");
     });
@@ -271,15 +274,12 @@ export default function App() {
   }, []);
 
   // a refused op means the panel was looking at an old file: reload it
-  const onTodoOp = useCallback((op: TodoOp) => {
-    const reload = () =>
-      window.jarvis.getTodos().then(setTodoList).catch(console.error);
-    window.jarvis
+  const onTodoOp = useCallback(async (op: TodoOp): Promise<TodoOpResult> => {
+    const r = await window.jarvis
       .todoOp(op)
-      .then((r) => {
-        if (!r.ok) void reload();
-      })
-      .catch(() => void reload());
+      .catch((e: unknown): TodoOpResult => ({ ok: false, error: String(e) }));
+    if (!r.ok) window.jarvis.getTodos().then(setTodoList).catch(console.error);
+    return r;
   }, []);
 
   const todoProjects = useMemo(

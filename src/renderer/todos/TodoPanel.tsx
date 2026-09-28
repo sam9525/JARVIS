@@ -4,6 +4,7 @@ import {
   type Todo,
   type TodoList,
   type TodoOp,
+  type TodoOpResult,
 } from "../../shared/types";
 import { groupTodos } from "./group-todos";
 
@@ -46,11 +47,14 @@ export default function TodoPanel({
 }: {
   list: TodoList;
   projects: string[];
-  onOp(op: TodoOp): void;
+  onOp(op: TodoOp): Promise<TodoOpResult>;
 }) {
   const [openFolded, setOpenFolded] = useState(false);
   const [doneFolded, setDoneFolded] = useState(true);
-  const [editing, setEditing] = useState<number | null>(null);
+  // the whole task, not its line: a row deleted above it shifts the line, and
+  // the editor must not reappear on whichever task moved into that slot
+  const [editing, setEditing] = useState<Todo | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({ text: "", project: NONE });
   const [newText, setNewText] = useState("");
   const [newProject, setNewProject] = useState(NONE);
@@ -68,20 +72,27 @@ export default function TodoPanel({
   const optionsWith = (extra: string) =>
     extra && !projects.includes(extra) ? [...projects, extra] : projects;
 
-  const saveEdit = (t: Todo) => {
-    setEditing(null);
-    if (!draft.text.trim()) return;
-    onOp({
+  // a refused op keeps what was typed and says why
+  const send = async (op: TodoOp): Promise<boolean> => {
+    const r = await onOp(op);
+    setError(r.ok ? null : `Not saved: ${r.error}`);
+    return r.ok;
+  };
+
+  const saveEdit = async (t: Todo) => {
+    if (!draft.text.trim()) return setEditing(null);
+    const ok = await send({
       kind: "edit",
       line: t.line,
       raw: t.raw,
       text: draft.text,
       project: draft.project || null,
     });
+    if (ok) setEditing(null);
   };
 
   const row = (t: Todo, group: string) =>
-    editing === t.line ? (
+    editing?.line === t.line && editing.raw === t.raw ? (
       <li
         key={t.line}
         data-testid="todo-editor"
@@ -95,7 +106,8 @@ export default function TodoPanel({
           onKeyDown={(e) => {
             // the panel owns Enter and Esc here; the app's own Esc must not
             // clear the deck from inside a text field
-            if (e.key === "Enter") saveEdit(t);
+            if (e.key === "Enter" && !e.nativeEvent.isComposing)
+              void saveEdit(t);
             if (e.key === "Escape") {
               e.stopPropagation();
               setEditing(null);
@@ -127,7 +139,7 @@ export default function TodoPanel({
           dragged.current = null;
           if (!from || from.group !== group || from.todo.line === t.line)
             return;
-          onOp({
+          void send({
             kind: "move",
             line: from.todo.line,
             raw: from.todo.raw,
@@ -141,7 +153,9 @@ export default function TodoPanel({
           type="checkbox"
           checked={t.done}
           aria-label={`Done: ${t.text}`}
-          onChange={() => onOp({ kind: "toggle", line: t.line, raw: t.raw })}
+          onChange={() =>
+            void send({ kind: "toggle", line: t.line, raw: t.raw })
+          }
           className="cursor-pointer accent-cyan-400"
         />
         <span
@@ -156,7 +170,7 @@ export default function TodoPanel({
           title="Edit"
           className={ICON_BTN}
           onClick={() => {
-            setEditing(t.line);
+            setEditing(t);
             setDraft({ text: t.text, project: projectValue(t) });
           }}
         >
@@ -165,7 +179,9 @@ export default function TodoPanel({
         <button
           title="Delete"
           className={ICON_BTN}
-          onClick={() => onOp({ kind: "delete", line: t.line, raw: t.raw })}
+          onClick={() =>
+            void send({ kind: "delete", line: t.line, raw: t.raw })
+          }
         >
           🗑
         </button>
@@ -211,13 +227,26 @@ export default function TodoPanel({
           setDoneFolded((v) => !v),
         )}
       </div>
+      {error && (
+        <div
+          data-testid="todo-error"
+          role="alert"
+          className="px-2 pt-1 text-[11.5px] text-ink-dim"
+        >
+          {error}
+        </div>
+      )}
       <form
         data-testid="todo-add"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
           if (!newText.trim()) return;
-          onOp({ kind: "add", text: newText, project: newProject || null });
-          setNewText("");
+          const ok = await send({
+            kind: "add",
+            text: newText,
+            project: newProject || null,
+          });
+          if (ok) setNewText("");
         }}
         className="flex items-center gap-2 border-t border-edge p-2"
       >
