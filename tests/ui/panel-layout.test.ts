@@ -59,6 +59,13 @@ describe("defaultPanel", () => {
       );
   });
 
+  it("opens the to-do panel centred at half the window height", () => {
+    const todos = defaultPanel("todos", VP);
+    expect(todos.h).toBe(Math.round(VP.height * 0.5));
+    expect(todos.x + todos.w / 2).toBeCloseTo(VP.width / 2, 0);
+    expect(todos.y + todos.h / 2).toBeCloseTo(VP.height / 2, 0);
+  });
+
   it("opens the terminal folded, and nothing else", () => {
     expect(defaultPanel("terminal", VP).collapsed).toBe(true);
     expect(defaultPanel("preview", VP).collapsed).toBe(false);

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import {
   projectKey,
   type Todo,
@@ -44,10 +44,13 @@ export default function TodoPanel({
   list,
   projects,
   onOp,
+  onOverflow,
 }: {
   list: TodoList;
   projects: string[];
   onOp(op: TodoOp): Promise<TodoOpResult>;
+  /** the list is this many px taller than its box; the owner grows the panel */
+  onOverflow?(px: number): void;
 }) {
   const [openFolded, setOpenFolded] = useState(false);
   const [doneFolded, setDoneFolded] = useState(true);
@@ -61,6 +64,16 @@ export default function TodoPanel({
   // a ref, not dataTransfer: the drop only needs to know which row left, and
   // the group key is what keeps a row inside its own project
   const dragged = useRef<{ todo: Todo; group: string } | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  // grow-only: a shorter list leaves the panel at the height it has
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    // a box that measures 0 is not laid out; growing it would never converge
+    if (!el || !onOverflow || el.clientHeight === 0) return;
+    const over = el.scrollHeight - el.clientHeight;
+    if (over > 0) onOverflow(over);
+  }, [list, openFolded, doneFolded, error, editing, onOverflow]);
 
   // the dropdown's value for a task: the workspace's spelling when the token
   // names one, the token itself when it names nothing
@@ -219,7 +232,7 @@ export default function TodoPanel({
 
   return (
     <div className="flex h-full flex-col text-[12px]">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         {section("open", "TO DO", open, openFolded, () =>
           setOpenFolded((v) => !v),
         )}

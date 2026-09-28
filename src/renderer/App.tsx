@@ -35,6 +35,7 @@ import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
   ASK_Z,
   SETTINGS_Z,
+  clampToViewport,
   defaultPanel,
   grabTarget,
   movePanel,
@@ -281,6 +282,17 @@ export default function App() {
     if (!r.ok) window.jarvis.getTodos().then(setTodoList).catch(console.error);
     return r;
   }, []);
+
+  const growTodos = useCallback(
+    (px: number) => {
+      const s = panels.todos ?? defaultPanel("todos", viewport);
+      const next = clampToViewport({ ...s, h: s.h + px }, viewport);
+      // at full height the list still overflows; writing an unchanged box
+      // would re-render, re-measure and write again forever
+      if (next.h !== s.h) setPanel("todos", next);
+    },
+    [panels, viewport, setPanel],
+  );
 
   const todoProjects = useMemo(
     () => workspaces.filter((w) => !w.isSelf).map((w) => w.name),
@@ -1286,7 +1298,12 @@ export default function App() {
         onFocus={() => focusPanel("todos")}
         onClose={() => setShowTodos(false)}
       >
-        <TodoPanel list={todoList} projects={todoProjects} onOp={onTodoOp} />
+        <TodoPanel
+          list={todoList}
+          projects={todoProjects}
+          onOp={onTodoOp}
+          onOverflow={growTodos}
+        />
       </Panel>
 
       {(() => {

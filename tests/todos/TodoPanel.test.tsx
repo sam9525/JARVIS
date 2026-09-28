@@ -73,6 +73,48 @@ const submit = (form: HTMLElement) =>
     );
   });
 
+describe("TodoPanel growth", () => {
+  // jsdom lays nothing out, so the box sizes are stubbed on the prototype
+  const stub = (client: number, scroll: number) => {
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
+      client,
+    );
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
+      scroll,
+    );
+  };
+  afterEach(() => vi.restoreAllMocks());
+  const mount = (onOverflow: (px: number) => void) =>
+    act(() =>
+      root.render(
+        <TodoPanel
+          list={list}
+          projects={[]}
+          onOp={ok()}
+          onOverflow={onOverflow}
+        />,
+      ),
+    );
+
+  it("asks for the missing height when the list overflows", () => {
+    stub(200, 260);
+    const onOverflow = vi.fn();
+    mount(onOverflow);
+    expect(onOverflow).toHaveBeenCalledWith(60);
+  });
+
+  it("asks for nothing when the list fits, or the box is not laid out", () => {
+    const fits = vi.fn();
+    stub(200, 200);
+    mount(fits);
+    const hidden = vi.fn();
+    stub(0, 260);
+    mount(hidden);
+    expect(fits).not.toHaveBeenCalled();
+    expect(hidden).not.toHaveBeenCalled();
+  });
+});
+
 describe("TodoPanel", () => {
   it("shows open tasks grouped by project, with counts and dates", () => {
     render();
