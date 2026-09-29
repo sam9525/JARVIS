@@ -17,7 +17,7 @@ import { displayRadius, graphMetrics, sphereRadius } from "./graph-metrics";
 import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
-import { useSpriteMaterials } from "./sprite-materials";
+import { RING_SCALE, useSpriteMaterials } from "./sprite-materials";
 import { useMergedLinks } from "./use-merged-links";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 import { clampSpin, decaySpin, SPIN_PER_RAD_S } from "./spin";
@@ -529,22 +529,26 @@ export default function Graph3D({
       item.glow.scale.setScalar(sphereR * 4);
       item.glow.material = materials.glow(displayColor(node));
       const modified = d === "modified";
-      item.modifiedRing.scale.setScalar(sphereR * 2.6);
+      const readToo = modified && isRead(stateRef.current, hk);
+      item.modifiedRing.scale.setScalar(sphereR * RING_SCALE.modified);
       item.modifiedRing.visible = modified;
-      item.readRing.scale.setScalar(sphereR * 3);
+      // steps outside the modified ring when a node wears both
+      item.readRing.scale.setScalar(
+        sphereR * (readToo ? RING_SCALE.readOutsideModified : RING_SCALE.read),
+      );
       item.readRing.material = materials.ring(
         d === "impact" ? RADIUS_COLOR : COLORS.ring,
       );
       // a shallow impact keeps a ring too, in the radius colour
       item.readRing.visible =
         d === "ring" ||
-        (modified && isRead(stateRef.current, hk)) ||
+        readToo ||
         (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1);
-      item.matchRing.scale.setScalar(sphereR * 3.3);
+      item.matchRing.scale.setScalar(sphereR * RING_SCALE.match);
       item.matchRing.visible =
         matchProgress(stateRef.current, now) !== null &&
         stateRef.current.matched.has(hk);
-      item.focusRing.scale.setScalar(sphereR * 3.6);
+      item.focusRing.scale.setScalar(sphereR * RING_SCALE.focus);
       item.focusRing.visible = id === focusNode;
       item.label.position.set(0, -(r + 4), 0);
     },
