@@ -396,7 +396,10 @@ describe("six status kinds on a card", () => {
     expect(labelOf("none")).toContain("no session");
   });
 
-  it("borders a card warm when it wants you and alarm when it died", () => {
+  it("borders a card accent while working, warm when it wants you, alarm when it died", () => {
+    // leading space: every card carries "hover:border-accent" as a substring
+    expect(labelOf("working")).toMatch(/ border-accent[ "]/);
+    expect(labelOf("idle")).not.toMatch(/ border-accent[ "]/);
     expect(labelOf("asking")).toContain("border-warm");
     expect(labelOf("blocked")).toContain("border-warm");
     expect(labelOf("crashed")).toContain("border-alarm");
