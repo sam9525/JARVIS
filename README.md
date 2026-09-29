@@ -18,6 +18,7 @@ One extra session, the **main agent**, sits above the fleet. It can list every w
 - **Orchestrator.** The main agent drives the fleet through five MCP tools. See [MCP tools](#mcp-tools).
 - **Voice (optional).** Say "Jarvis …" and the command is typed into the main agent's terminal. You still press Enter. Replies are read aloud, with a wireframe head and waveform.
 - **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels. See [Gestures](#gestures).
+- **Inbox.** A list at the top of the terminal panel with one row per workspace. Each row shows the status and the last message from Claude, or its current tool call while it runs. It is read-only: you reply in the terminal.
 - **Floating panels.** The terminal, preview, settings and to-do list are panels that you can drag, resize and collapse.
 
 ## How it works
@@ -61,6 +62,7 @@ A repo with no index shows a button that runs `npx gitnexus analyze` for you.
 - Node.js 22 or newer
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) on your `PATH` as `claude`
 - Windows 10/11 (primary target) or macOS
+- Linux: `npm run make` builds `.deb` and `.rpm` packages, but nobody has tested them.
 - Optional: `gitnexus` for code-repo graphs
 
 ## Getting started
@@ -144,6 +146,7 @@ tests/       Vitest suite, mirrors src/
 
 ## Privacy and caveats
 
+- JARVIS writes its hooks into each workspace's `.claude/settings.local.json`, which Claude Code keeps out of git. To revert, delete the hook entries whose command runs `forward.mjs`, or delete the file if JARVIS created it.
 - The hook listener binds to localhost only. Orchestrator routes require a custom header, so a web page cannot call them.
 - Voice recognition runs locally. Nothing you say leaves the machine.
 - Spoken replies try ElevenLabs first (if a key is set), then Microsoft Edge's read-aloud service, then the system voice. The Edge service is undocumented and not meant for third-party apps, so it can stop working at any time.
