@@ -7,6 +7,7 @@ import {
   heatOf,
   hlKey,
   impactDepth,
+  isRead,
   matchProgress,
   nodeDisplay,
   pulseProgress,
@@ -231,27 +232,34 @@ export default function Graph({
             : colorFor(node.domain, domains, baseHue);
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-        // modified wins, then group color, then domain palette; reads keep
-        // their base color and get a ring instead. heat brightens whichever won.
+        // group color, then domain palette; reads and edits keep their base
+        // color and get rings instead. heat brightens whichever won.
+        const depth = impactDepth(stateRef.current, hk);
         ctx.fillStyle = brighten(
-          d === "modified"
-            ? COLORS.modified
-            : d === "impact"
-              ? radiusColor(
-                  impactDepth(stateRef.current, hk) ?? 1,
-                  groupColor(id, groups) ?? base,
-                )
-              : (groupColor(id, groups) ?? base),
+          depth !== null
+            ? radiusColor(depth, groupColor(id, groups) ?? base)
+            : (groupColor(id, groups) ?? base),
           t,
         );
         ctx.fill();
 
+        const modified = d === "modified";
+        if (modified) {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
+          ctx.strokeStyle = COLORS.modified;
+          ctx.lineWidth = 1.5 / globalScale;
+          ctx.stroke();
+        }
         if (
           d === "ring" ||
+          (modified && isRead(stateRef.current, hk)) ||
           (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1)
         ) {
           ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
+          // outside the modified ring when a node wears both
+          const gap = modified ? 4.5 : 2.5;
+          ctx.arc(node.x, node.y, r + gap / globalScale, 0, 2 * Math.PI);
           ctx.strokeStyle = d === "impact" ? RADIUS_COLOR : COLORS.ring;
           ctx.lineWidth = 1.5 / globalScale;
           ctx.stroke();

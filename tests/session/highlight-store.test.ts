@@ -6,6 +6,7 @@ import {
   heatOf,
   hlKey,
   impactDepth,
+  isRead,
   matchProgress,
   nodeDisplay,
   pulseProgress,
@@ -39,6 +40,18 @@ describe("highlight-store", () => {
     applyEvent(s, ev({ tool: "Edit", phase: "post", nodeIds: ["a"] }), 0);
     applyEvent(s, ev({ nodeIds: ["a"] }), 10);
     expect(nodeDisplay(s, "a")).toBe("modified");
+  });
+
+  it("a modified node remembers a read from before or after the edit", () => {
+    const s = emptyState();
+    applyEvent(s, ev({ nodeIds: ["a"] }), 0);
+    applyEvent(s, ev({ tool: "Edit", phase: "post", nodeIds: ["a"] }), 1);
+    applyEvent(s, ev({ tool: "Write", phase: "post", nodeIds: ["b"] }), 2);
+    expect(isRead(s, "a")).toBe(true);
+    expect(isRead(s, "b")).toBe(false);
+    applyEvent(s, ev({ nodeIds: ["b"] }), 3);
+    expect(isRead(s, "b")).toBe(true);
+    expect(nodeDisplay(s, "b")).toBe("modified");
   });
 
   it("reads build an ordered trail, skipping consecutive duplicates", () => {

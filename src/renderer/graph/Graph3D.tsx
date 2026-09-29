@@ -7,6 +7,7 @@ import {
   heatOf,
   hlKey,
   impactDepth,
+  isRead,
   matchProgress,
   nodeDisplay,
   type HighlightState,
@@ -50,6 +51,7 @@ type NodeAdornment = {
   group: Group;
   glow: Sprite;
   readRing: Sprite;
+  modifiedRing: Sprite;
   matchRing: Sprite;
   focusRing: Sprite;
   label: SpriteText;
@@ -478,20 +480,19 @@ export default function Graph3D({
     else rotationCtl.current?.arm();
   }, [rotationPaused]);
 
-  // highlights always win, then group color, then domain palette; heat
+  // the impact tier wins, then group color, then domain palette; heat
   // brightens whichever won rather than replacing it
   const displayColor = useCallback(
     (node: NodeObj): string => {
       const id = String(node.id);
       const hk = hlKey(node as { id: string | number; file?: string });
       const t = heatOf(stateRef.current, hk);
-      // modified recolors the sphere; a read gets a ring sprite (Task 3)
-      const d = nodeDisplay(stateRef.current, hk);
-      if (d === "modified") return brighten(COLORS.modified, t);
-      if (d === "impact")
+      // reads and edits keep the sphere's colour and get ring sprites
+      const depth = impactDepth(stateRef.current, hk);
+      if (depth !== null)
         return brighten(
           radiusColor(
-            impactDepth(stateRef.current, hk) ?? 1,
+            depth,
             baseNodeColor(
               { id, type: node.type, domain: node.domain },
               domains,
@@ -527,6 +528,9 @@ export default function Graph3D({
       const d = nodeDisplay(stateRef.current, hk);
       item.glow.scale.setScalar(sphereR * 4);
       item.glow.material = materials.glow(displayColor(node));
+      const modified = d === "modified";
+      item.modifiedRing.scale.setScalar(sphereR * 2.6);
+      item.modifiedRing.visible = modified;
       item.readRing.scale.setScalar(sphereR * 3);
       item.readRing.material = materials.ring(
         d === "impact" ? RADIUS_COLOR : COLORS.ring,
@@ -534,6 +538,7 @@ export default function Graph3D({
       // a shallow impact keeps a ring too, in the radius colour
       item.readRing.visible =
         d === "ring" ||
+        (modified && isRead(stateRef.current, hk)) ||
         (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1);
       item.matchRing.scale.setScalar(sphereR * 3.3);
       item.matchRing.visible =
@@ -653,6 +658,7 @@ export default function Graph3D({
         const group = new Group();
         const glow = new Sprite(materials.glow(displayColor(node)));
         const readRing = new Sprite(materials.ring(COLORS.ring));
+        const modifiedRing = new Sprite(materials.ring(COLORS.modified));
         const matchRing = new Sprite(materials.ring(COLORS.match));
         const focusRing = new Sprite(materials.ring(COLORS.hover));
         const label = new SpriteText(nodeLabelText(id, node.type));
@@ -661,10 +667,19 @@ export default function Graph3D({
         label.visible = sprites.current.get(id)?.visible ?? true;
         group.add(glow);
         group.add(readRing);
+        group.add(modifiedRing);
         group.add(matchRing);
         group.add(focusRing);
         group.add(label as unknown as Sprite);
-        item = { group, glow, readRing, matchRing, focusRing, label };
+        item = {
+          group,
+          glow,
+          readRing,
+          modifiedRing,
+          matchRing,
+          focusRing,
+          label,
+        };
         nodeAdornments.current.set(id, item);
         sprites.current.set(id, label);
       }

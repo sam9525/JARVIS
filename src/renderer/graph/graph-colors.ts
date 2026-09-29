@@ -1,5 +1,5 @@
-// Shared by Graph (2D canvas) and Graph3D (WebGL). "modified" matches the
-// NodeDisplay value from highlight-store; "ring" is the read-highlight ring,
+// Shared by Graph (2D canvas) and Graph3D (WebGL). "modified" is the edited
+// ring, named for the NodeDisplay value from highlight-store; "ring" is the read-highlight ring,
 // "trail" is the read-order arrows between consecutively read nodes.
 // "match" is the transient glow on files a Grep/Glob actually matched.
 export const COLORS = {
