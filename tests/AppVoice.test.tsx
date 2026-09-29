@@ -25,7 +25,10 @@ vi.mock("../src/renderer/home/WorkspaceRail", () => ({
   default: () => null,
   railSeats: () => 1, // App reads this for the boot hold, not for layout
 }));
-vi.mock("../src/renderer/terminal/TerminalPanel", () => nullComponent);
+vi.mock("../src/renderer/terminal/TerminalPanel", () => ({
+  ...nullComponent,
+  onTerminalTyped: () => () => undefined,
+}));
 vi.mock("../src/renderer/preview/Preview", () => nullComponent);
 vi.mock("../src/renderer/session/Timeline", () => nullComponent);
 vi.mock("../src/renderer/graph/GraphSlot", () => ({

@@ -81,7 +81,15 @@ const BAR: Record<StatusKind, string> = {
 // switches and panel collapse/expand — the component only attaches them.
 const entries = new Map<string, Entry>();
 const exitListeners = new Set<(id: string, code: number) => void>();
+const typedListeners = new Set<(id: string) => void>();
 let subscribed = false;
+
+/** Fires when a person types text or Enter into a workspace's terminal.
+ *  Escape sequences (arrows, xterm's own focus reports) do not count. */
+export function onTerminalTyped(fn: (id: string) => void): () => void {
+  typedListeners.add(fn);
+  return () => typedListeners.delete(fn);
+}
 
 // module-scope and permanent by design: these feed terminals that outlive
 // any one mount, so the disposers are deliberately dropped
@@ -108,7 +116,10 @@ function entryFor(id: string): Entry {
     el.style.width = "100%";
     el.style.height = "100%";
     term.open(el);
-    term.onData((d) => window.jarvis.ptyInput(id, d));
+    term.onData((d) => {
+      window.jarvis.ptyInput(id, d);
+      if (!d.startsWith("\x1b")) for (const l of typedListeners) l(id);
+    });
     e = { term, fit, el };
     entries.set(id, e);
   }

@@ -10,13 +10,13 @@ import Graph3D from "./graph/Graph3D";
 import GraphSlot from "./graph/GraphSlot";
 import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
-import AskPanel from "./ui/AskPanel";
+import AskPanel, { pickAsk } from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
 import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
-import TerminalPanel from "./terminal/TerminalPanel";
+import TerminalPanel, { onTerminalTyped } from "./terminal/TerminalPanel";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
@@ -106,6 +106,8 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
 // colour — the domain spread off the workspace's main hue — but a halo and a
 // settings entry for four notes is clutter, not information.
 const MIN_GROUP_NODES = 5;
+// the same box on the home screen and in a workspace
+const SHARED_PANELS = new Set<PanelId>(["todos", "compose", "ask"]);
 
 const fold = (m: PanelMap): PanelMap =>
   m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
@@ -196,8 +198,14 @@ export default function App() {
   const layoutId = showHome ? "home" : "workspace";
   const panels: PanelMap = settings.panels[layoutId];
 
-  const panelState = (id: PanelId): PanelState =>
-    panels[id] ?? defaultPanel(id, viewport);
+  // One box on both screens for these, read from the home map. Only the
+  // geometry is shared: z stays per layout, since `raise` renormalises a
+  // whole map and a z copied across would tie with its neighbours there.
+  const panelState = (id: PanelId): PanelState => {
+    const own = panels[id] ?? defaultPanel(id, viewport);
+    const home = SHARED_PANELS.has(id) ? settings.panels.home[id] : undefined;
+    return home ? { ...home, z: own.z } : own;
+  };
 
   // Debounced: a drag would otherwise rewrite jarvis-settings.json once per
   // frame. Renderer state updates immediately; only the disk write waits.
@@ -210,13 +218,23 @@ export default function App() {
   // `target.z === top` and focus stops reordering anything, permanently.
   const setPanels = useCallback(
     (patch: PanelMap) => {
-      setSettings((s) => ({
-        ...s,
-        panels: {
-          ...s.panels,
-          [layoutId]: { ...s.panels[layoutId], ...patch },
-        },
-      }));
+      setSettings((s) => {
+        const otherId = layoutId === "home" ? "workspace" : "home";
+        const other = { ...s.panels[otherId] };
+        for (const [id, p] of Object.entries(patch) as Array<
+          [PanelId, PanelState]
+        >)
+          if (SHARED_PANELS.has(id))
+            other[id] = { ...p, z: other[id]?.z ?? p.z };
+        return {
+          ...s,
+          panels: {
+            ...s.panels,
+            [layoutId]: { ...s.panels[layoutId], ...patch },
+            [otherId]: other,
+          },
+        };
+      });
       if (saveTimer.current) clearTimeout(saveTimer.current);
       // reads settingsRef at fire time, not whatever was current when the
       // timer was armed — an `updateSettings` write in between must not be
@@ -316,13 +334,13 @@ export default function App() {
 
   const growTodos = useCallback(
     (px: number) => {
-      const s = panels.todos ?? defaultPanel("todos", viewport);
+      const s = panelState("todos");
       const next = clampToViewport({ ...s, h: s.h + px }, viewport);
       // at full height the list still overflows; writing an unchanged box
       // would re-render, re-measure and write again forever
       if (next.h !== s.h) setPanel("todos", next);
     },
-    [panels, viewport, setPanel],
+    [panels, settings.panels.home, viewport, setPanel],
   );
 
   const todoProjects = useMemo(
@@ -447,6 +465,17 @@ export default function App() {
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
+    // typing into the session means the answer is being given there
+    offs.push(
+      onTerminalTyped((id) =>
+        setAsks((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Map(prev);
+          next.delete(id);
+          return next;
+        }),
+      ),
+    );
     offs.push(
       window.jarvis.onAsk?.((p) => {
         setAsks((prev) => {
@@ -1220,7 +1249,7 @@ export default function App() {
           footLeft={
             // bottom-anchored column: the slot sets only `bottom`, so the head
             // and wave stack upward and never cover the replay scrubber. The
-            // wave is pointer-transparent; the scrubber under it is not.
+            // slot is pointer-transparent; only the scrubber opts back in.
             <div className="flex flex-col items-start gap-2">
               {micOn ? (
                 <VoiceWave
@@ -1235,11 +1264,13 @@ export default function App() {
                 />
               ) : null}
               {showHome ? null : (
-                <Timeline
-                  log={(active && logsRef.current.get(active.id)) || []}
-                  index={replayIndex}
-                  onScrub={onScrub}
-                />
+                <div className="pointer-events-auto">
+                  <Timeline
+                    log={(active && logsRef.current.get(active.id)) || []}
+                    index={replayIndex}
+                    onScrub={onScrub}
+                  />
+                </div>
               )}
             </div>
           }
@@ -1385,8 +1416,10 @@ export default function App() {
       </Panel>
 
       {(() => {
-        const ws = showHome ? orchestrator : active;
-        const prompt = ws ? asks.get(ws.id) : undefined;
+        const own = showHome ? orchestrator : active;
+        const prompt = pickAsk(asks, own?.id);
+        const ws =
+          prompt && workspaces.find((w) => w.id === prompt.workspaceId);
         if (!ws || !prompt) return null;
         return (
           <Panel
@@ -1409,15 +1442,18 @@ export default function App() {
             }
           >
             <AskPanel
+              // a different question starts at its own first page
+              key={`${prompt.workspaceId}:${prompt.ts}`}
               prompt={prompt}
               workspaceName={ws.name}
-              onAnswer={(keys) => {
+              onAnswer={(writes) => {
                 askWriteRef.current = askWriteRef.current
                   .then(async (): Promise<void> => {
-                    await window.jarvis.ptyInput(ws.id, keys);
-                    // a SEPARATE write, 80 ms later — never merge these two
-                    await new Promise((r) => setTimeout(r, 80));
-                    await window.jarvis.ptyInput(ws.id, "\r");
+                    // SEPARATE writes, 80 ms apart — never merge them
+                    for (const [i, w] of writes.entries()) {
+                      if (i > 0) await new Promise((r) => setTimeout(r, 80));
+                      await window.jarvis.ptyInput(ws.id, w);
+                    }
                   })
                   // a failed write must not strand every answer behind it
                   .catch((): void => undefined);

@@ -498,6 +498,27 @@ describe("the ask panel's geometry", () => {
   });
 });
 
+describe("the to-do list across a maximize", () => {
+  const from = { width: 1280, height: 800 };
+  const to = { width: 1920, height: 1080 };
+
+  it("keeps a centred list centred", () => {
+    const out = rescaleAll({ todos: defaultPanel("todos", from) }, from, to);
+    const t = out.todos!;
+    expect(t.x + t.w / 2).toBeCloseTo(to.width / 2, 0);
+  });
+
+  it("keeps the composer beside the list", () => {
+    const todos = defaultPanel("todos", from);
+    const compose = besideTodos(todos, from);
+    const out = rescaleAll({ todos, compose }, from, to);
+    expect(out.compose!.x - out.todos!.x).toBe(compose.x - todos.x);
+    // and back again
+    const back = rescaleAll(out, to, from);
+    expect(back.compose!.x - back.todos!.x).toBe(compose.x - todos.x);
+  });
+});
+
 describe("besideTodos", () => {
   it("opens flush right of the list, top-aligned and as tall", () => {
     const todos = at(600, 200, 380, 450, 25);

@@ -5,8 +5,9 @@ import { LBL_DIM } from "./hud";
 type AskPanelProps = {
   prompt: AskPrompt;
   workspaceName: string;
-  /** the keystrokes that move the TUI's cursor onto the clicked option */
-  onAnswer: (keys: string) => void;
+  /** separate PTY writes, in order: a chunk arriving whole reads as a paste,
+   *  so the keystrokes, any typed text and each Enter must not be merged */
+  onAnswer: (writes: string[]) => void;
 };
 
 /**
@@ -18,6 +19,16 @@ type AskPanelProps = {
  */
 export function answerKeys(index: number, options: number): string {
   return "\x1b[A".repeat(options) + "\x1b[B".repeat(index);
+}
+
+/** The question to show: this screen's own workspace first, else the newest
+ *  open one in the fleet — a question must not hide behind the current view. */
+export function pickAsk(
+  asks: Map<string, AskPrompt>,
+  ownId: string | undefined,
+): AskPrompt | undefined {
+  const own = ownId === undefined ? undefined : asks.get(ownId);
+  return own ?? [...asks.values()].sort((a, b) => b.ts - a.ts)[0];
 }
 
 // Claude Code appends this itself, and it needs typed prose rather than a
@@ -38,6 +49,7 @@ export default function AskPanel({
   // is answered, and no event arrives until the whole tool completes
   const [index, setIndex] = useState(0);
   const [sent, setSent] = useState(false);
+  const [typed, setTyped] = useState("");
   const q = prompt.questions[Math.min(index, prompt.questions.length - 1)];
   // multi-select needs a toggle key this design cannot verify, and a wrong
   // guess submits a partial answer
@@ -45,13 +57,26 @@ export default function AskPanel({
     q.multiSelect ||
     q.options.some((o) => o.label.trim().toLowerCase() === OTHER);
 
-  const answer = (i: number) => {
-    onAnswer(answerKeys(i, q.options.length));
+  // Claude Code lists the options, then its own "Type something." input row
+  const rows = q.options.length + 1;
+  const last = index >= prompt.questions.length - 1;
+  // after the last of several questions the TUI shows a review screen whose
+  // focused button is "Submit answers" — one more Enter confirms it
+  const submit = last && prompt.questions.length > 1 ? ["\r"] : [];
+
+  const send = (writes: string[]) => {
+    onAnswer([...writes, "\r", ...submit]);
+    setTyped("");
     setSent(true);
-    if (index < prompt.questions.length - 1) {
+    if (!last) {
       setIndex(index + 1);
       setSent(false);
     }
+  };
+  const answer = (i: number) => send([answerKeys(i, rows)]);
+  const answerTyped = () => {
+    const text = typed.replace(/[\r\n]+/g, " ").trim();
+    if (text) send([answerKeys(q.options.length, rows), text]);
   };
 
   return (
@@ -86,6 +111,18 @@ export default function AskPanel({
           </div>
         ))}
       </div>
+      {!readOnly && (
+        <input
+          data-testid="ask-typed"
+          value={typed}
+          placeholder="Type something."
+          onChange={(e) => setTyped(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") answerTyped();
+          }}
+          className="border border-edge bg-transparent px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
+        />
+      )}
       <div
         data-testid="ask-foot"
         className={
