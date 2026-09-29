@@ -1,4 +1,8 @@
-# Vault X-Ray (JARVIS)
+<p align="center">
+  <img src="assets/icon.png" alt="JARVIS arc reactor icon" width="128" />
+</p>
+
+<h1 align="center">JARVIS</h1>
 
 A desktop cockpit for [Claude Code](https://claude.com/claude-code). Each workspace — an Obsidian vault or a code repo — gets its own force-graph and its own embedded Claude Code terminal. As Claude reads, searches and edits files, the matching nodes light up live: a real-time X-ray of what the AI is doing.
 
@@ -11,9 +15,9 @@ One extra session, the **main agent**, sits above the fleet. It can list every w
 - **Mission control.** The home screen shows every workspace as a card with its status: running, waiting on you, or idle. `Ring` and `Fleet` give two other views of the same fleet.
 - **2D and 3D graphs.** Vaults graph their `[[wikilinks]]`, Markdown links and tags. Code repos graph files and imports.
 - **Session replay.** A scrubber rebuilds the highlight state at any earlier point of the current session.
-- **Orchestrator.** The main agent gets `jarvis_list`, `jarvis_send`, `jarvis_watch`, `jarvis_say` and `jarvis_todos` as MCP tools.
+- **Orchestrator.** The main agent drives the fleet through five MCP tools. See [MCP tools](#mcp-tools).
 - **Voice (optional).** Say "Jarvis …" and the command is typed into the main agent's terminal. You still press Enter. Replies are read aloud, with a wireframe head and waveform.
-- **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels.
+- **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels. See [Gestures](#gestures).
 - **Floating panels.** The terminal, preview, settings and to-do list are panels that you can drag, resize and collapse.
 
 ## How it works
@@ -25,6 +29,20 @@ JARVIS writes no AI logic of its own. It is a passive observer:
 3. The app maps each event to graph nodes (what lights up) and to a workspace status (what the session is doing).
 
 The graph itself is static. It comes from the files on disk, never from search results.
+
+## MCP tools
+
+Only the main agent gets these tools. Delegate sessions never do, so a delegate cannot send work back up the chain.
+
+| Tool           | What it does                                                                  |
+| -------------- | ----------------------------------------------------------------------------- |
+| `jarvis_list`  | Lists every workspace with its status, current tool call and last message.    |
+| `jarvis_send`  | Types a prompt into another workspace's live terminal and returns at once.    |
+| `jarvis_watch` | Waits until another workspace finishes a turn, then returns its last message. |
+| `jarvis_say`   | Speaks a short summary aloud, up to 500 characters.                           |
+| `jarvis_todos` | Opens your to-do list on screen and returns the file path to edit.            |
+
+The main agent does not need to poll. When a delegate finishes, JARVIS types a short nudge into the main agent's terminal so it can read the result.
 
 ## Graph sources
 
@@ -58,6 +76,32 @@ npm start
 On first launch, JARVIS asks for your vault folder. Add code repos from the rail.
 
 `npm run voice:assets` downloads the Whisper speech model (about 760 MB) and the ONNX runtime into `public/voice/`. The app's content security policy blocks fetching them at runtime, so they must be on disk first. Voice does not start without them.
+
+## A first run
+
+You run `npm start`. JARVIS asks for your Obsidian vault, and you pick it. The cockpit animates in: the workspace rail, then the mission-control cards, then a terminal. That terminal is the main agent, a Claude Code session that JARVIS starts for you.
+
+You click **+** on the rail and add the repo you work on. JARVIS installs its hooks there and draws the repo's files as a graph. You open the repo and start its terminal.
+
+Back on the home screen, you type to the main agent: _"Ask my-app to find why the login test fails."_ The main agent calls `jarvis_send`. The my-app card turns to **running**. You open my-app and watch Claude work: a search pulses across the graph, the matched files glow, and each file it reads gets a ring and an arrow from the one before.
+
+When my-app goes idle, JARVIS nudges the main agent. The main agent reads the result with `jarvis_list`, sums it up in two sentences, and speaks it aloud with `jarvis_say`.
+
+## Gestures
+
+Turn on the webcam with the ✋ button at the top right, or in settings. Gestures act on the view under the hand cursor. The Cards view takes no gestures.
+
+| Gesture                                   | Action                                              |
+| ----------------------------------------- | --------------------------------------------------- |
+| Pinch and move                            | Pans the graph, or drags the panel you grab         |
+| Two fingers up, flick left or right       | Steps to the previous or next item                  |
+| Two fingers up, bend and straighten twice | Opens the item, like a double click                 |
+| Open palm, roll the hand                  | Orbits the camera. It keeps spinning and slows down |
+| Two open palms, move apart or together    | Zooms in or out                                     |
+| Fist, hold 1 second                       | Pauses hand control. The camera stays on            |
+| Open palm, hold 1 second                  | Turns hand control back on                          |
+
+A click on the dashed ✋ button also turns hand control back on.
 
 ## Configuration
 
