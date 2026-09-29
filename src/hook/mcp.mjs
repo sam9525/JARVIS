@@ -1,5 +1,5 @@
 // JARVIS orchestrator MCP server (stdio). Claude Code spawns this in the
-// vault workspace via .mcp.json; it proxies two tools to the app's localhost
+// vault workspace via .mcp.json; it proxies its tools to the app's localhost
 // listener and knows nothing about the app beyond two URLs. Hand-rolled
 // newline-delimited JSON-RPC, same school as forward.mjs — no SDK dependency.
 const PORT = process.env.JARVIS_PORT ?? 4599;
@@ -32,6 +32,24 @@ const TOOLS = [
         prompt: { type: "string", description: "The prompt to submit" },
       },
       required: ["workspace", "prompt"],
+    },
+  },
+  {
+    name: "jarvis_launch",
+    description:
+      "Start a Claude Code session for a workspace on the rail that has none " +
+      "(jarvis_list shows live: false), the same way its terminal's launch " +
+      "button does. Returns once the session is live; then jarvis_send to it. " +
+      "Fails if the name is unknown or a session already exists.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace: {
+          type: "string",
+          description: "Workspace name, as shown by jarvis_list",
+        },
+      },
+      required: ["workspace"],
     },
   },
   {
@@ -114,6 +132,17 @@ async function callTool(name, args) {
       return out?.ok
         ? textResult(`sent to ${args?.workspace}`)
         : textResult(out?.error ?? "send failed", true);
+    }
+    if (name === "jarvis_launch") {
+      // hook and .mcp.json installs run before the spawn, so allow past 1.5s
+      const out = await post(
+        "/orchestrate/launch",
+        { workspace: args?.workspace },
+        10000,
+      );
+      return out?.ok
+        ? textResult(`launched ${args?.workspace}`)
+        : textResult(out?.error ?? "launch failed", true);
     }
     if (name === "jarvis_watch") {
       const secs = Math.min(

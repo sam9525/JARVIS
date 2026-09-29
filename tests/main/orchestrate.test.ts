@@ -54,12 +54,14 @@ function setup(
     live?: string[]; // workspace ids with a PTY
     writeFails?: boolean; // PTY died between the probe and the write
     sayFails?: boolean; // no renderer window listening
+    launchFails?: boolean; // spawn threw — no claude on PATH
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
   const delegated: Array<[string, string]> = [];
   const said: string[] = [];
   const nudges: number[] = [];
+  const launched: string[] = [];
   const live = new Set(over.live ?? ["d:/aero"]);
   const orch = createOrchestrator({
     getWorkspaces: () => workspaces,
@@ -81,8 +83,14 @@ function setup(
     nudgeMain: () => {
       nudges.push(Date.now());
     },
+    launch: async (ws) => {
+      if (over.launchFails) return false;
+      launched.push(ws.id);
+      live.add(ws.id);
+      return true;
+    },
   });
-  return { orch, writes, delegated, said, nudges };
+  return { orch, writes, delegated, said, nudges, launched };
 }
 
 describe("orchestrate.list", () => {
@@ -371,5 +379,44 @@ describe("orchestrate.say", () => {
   it("errors rather than going silent when no renderer is listening", () => {
     const { orch } = setup({ sayFails: true });
     expect(orch.say("hello").ok).toBe(false);
+  });
+});
+
+describe("orchestrate.launch", () => {
+  it("starts a session for a named workspace that has none", async () => {
+    const { orch, launched } = setup({ live: [] });
+    expect(await orch.launch("finpulse")).toEqual({ ok: true });
+    expect(launched).toEqual(["d:/fin"]);
+    // the session is live, so a send goes straight through
+    expect(orch.send("FinPulse", "go").ok).toBe(true);
+  });
+
+  it("names the rail's workspaces when the target is unknown", async () => {
+    const { orch, launched } = setup({ live: [] });
+    const out = await orch.launch("Nope");
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("AeroGraph");
+    expect(launched).toEqual([]);
+  });
+
+  it("refuses a workspace that already has a session", async () => {
+    const { orch, launched } = setup({ live: ["d:/aero"] });
+    const out = await orch.launch("AeroGraph");
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("already has a live session");
+    expect(launched).toEqual([]);
+  });
+
+  it("refuses the orchestrator itself", async () => {
+    const { orch, launched } = setup({ live: [] });
+    expect((await orch.launch("JARVIS")).ok).toBe(false);
+    expect(launched).toEqual([]);
+  });
+
+  it("reports a spawn failure", async () => {
+    const { orch } = setup({ live: [], launchFails: true });
+    const out = await orch.launch("FinPulse");
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("failed to start");
   });
 });

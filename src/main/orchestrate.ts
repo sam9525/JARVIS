@@ -13,6 +13,8 @@ export interface OrchestrateDeps {
   snapshot: () => WorkspaceStatus[];
   hasPty: (workspaceId: string) => boolean;
   write: (workspaceId: string, data: string) => boolean;
+  // the same launch the terminal's button makes; false = spawn failed
+  launch: (ws: Workspace) => Promise<boolean>;
   markDelegated: (workspaceId: string, by: string) => void;
   // false = no renderer listening; say() reports that rather than going silent
   say: (text: string) => boolean;
@@ -48,6 +50,21 @@ export type WatchResult =
 
 type Finish = { workspace: string; message: string };
 
+function findWorkspace(all: Workspace[], target: string) {
+  const q = String(target ?? "")
+    .trim()
+    .toLowerCase();
+  return all.find((w) => w.name.toLowerCase() === q || w.id === q);
+}
+
+function unknownWorkspace(all: Workspace[], target: string): SendResult {
+  const names = all.map((w) => w.name).join(", ");
+  return {
+    ok: false,
+    error: `no workspace "${target}" — workspaces: ${names}`,
+  };
+}
+
 export function createOrchestrator(deps: OrchestrateDeps) {
   // A Claude Code session cannot act on its own, so jarvis_watch parks until a
   // delegate finishes. One shared queue is correct because the topology
@@ -75,17 +92,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
 
     send(target: string, prompt: string): SendResult {
       const all = deps.getWorkspaces();
-      const q = String(target ?? "")
-        .trim()
-        .toLowerCase();
-      const ws = all.find((w) => w.name.toLowerCase() === q || w.id === q);
-      if (!ws) {
-        const names = all.map((w) => w.name).join(", ");
-        return {
-          ok: false,
-          error: `no workspace "${target}" — workspaces: ${names}`,
-        };
-      }
+      const ws = findWorkspace(all, target);
+      if (!ws) return unknownWorkspace(all, target);
       // self-send is the one loop the one-orchestrator topology can't rule out
       if (ws.isSelf) {
         return {
@@ -122,6 +130,28 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       // that dies inside the 80ms leaves the prompt unsubmitted and only surfaces
       // as the delegate going stale in jarvis_list. Await delivery if that bites.
       setTimeout(() => deps.write(ws.id, "\r"), 80);
+      return { ok: true };
+    },
+
+    async launch(target: string): Promise<SendResult> {
+      const all = deps.getWorkspaces();
+      const ws = findWorkspace(all, target);
+      if (!ws) return unknownWorkspace(all, target);
+      if (ws.isSelf) {
+        return {
+          ok: false,
+          error: `refused: ${ws.name} is the orchestrator itself`,
+        };
+      }
+      if (deps.hasPty(ws.id)) {
+        return { ok: false, error: `${ws.name} already has a live session` };
+      }
+      if (!(await deps.launch(ws))) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session failed to start — is the claude CLI on PATH?`,
+        };
+      }
       return { ok: true };
     },
 

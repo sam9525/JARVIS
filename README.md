@@ -35,13 +35,14 @@ The graph itself is static. It comes from the files on disk, never from search r
 
 Only the main agent gets these tools. Delegate sessions never do, so a delegate cannot send work back up the chain.
 
-| Tool           | What it does                                                                  |
-| -------------- | ----------------------------------------------------------------------------- |
-| `jarvis_list`  | Lists every workspace with its status, current tool call and last message.    |
-| `jarvis_send`  | Types a prompt into another workspace's live terminal and returns at once.    |
-| `jarvis_watch` | Waits until another workspace finishes a turn, then returns its last message. |
-| `jarvis_say`   | Speaks a short summary aloud, up to 500 characters.                           |
-| `jarvis_todos` | Opens your to-do list on screen and returns the file path to edit.            |
+| Tool            | What it does                                                                        |
+| --------------- | ----------------------------------------------------------------------------------- |
+| `jarvis_list`   | Lists every workspace with its status, current tool call and last message.          |
+| `jarvis_send`   | Types a prompt into another workspace's live terminal and returns at once.          |
+| `jarvis_launch` | Starts a Claude Code session for a workspace that has none, like its Launch button. |
+| `jarvis_watch`  | Waits until another workspace finishes a turn, then returns its last message.       |
+| `jarvis_say`    | Speaks a short summary aloud, up to 500 characters.                                 |
+| `jarvis_todos`  | Opens your to-do list on screen and returns the file path to edit.                  |
 
 The main agent does not need to poll. When a delegate finishes, JARVIS types a short nudge into the main agent's terminal so it can read the result.
 

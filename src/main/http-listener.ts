@@ -14,6 +14,7 @@ const MAX_BODY = 1 << 20; // 1 MiB
 const ORCHESTRATE = [
   "/orchestrate/list",
   "/orchestrate/send",
+  "/orchestrate/launch",
   "/orchestrate/watch",
   "/orchestrate/say",
   "/orchestrate/todos",
@@ -41,6 +42,7 @@ export interface OrchestratorLike {
   send(target: string, prompt: string): SendResult;
   watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
+  launch(target: string): Promise<SendResult>;
   /** Opens the to-do panel and answers the list file for the agent to edit. */
   todos(): Promise<unknown>;
 }
@@ -168,6 +170,27 @@ export function startListener(
           } catch (err) {
             fail(err);
           }
+          return;
+        }
+        if (route === "/orchestrate/launch") {
+          let target: string;
+          try {
+            target = String(parse().workspace ?? "");
+          } catch (err) {
+            const out = {
+              ok: false,
+              error: `malformed request: ${String(err)}`,
+            };
+            res.writeHead(200).end(JSON.stringify(out));
+            return;
+          }
+          orchestrator
+            .launch(target)
+            .then((out) => {
+              if (res.writableEnded || res.destroyed) return;
+              res.writeHead(200).end(JSON.stringify(out));
+            })
+            .catch(fail);
           return;
         }
         if (route === "/orchestrate/todos") {

@@ -94,6 +94,8 @@ malformed. Answer with the next open task in one spoken sentence.
 - \`jarvis_list\` — every workspace, its status, and its last message. For a
   question about the whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into another workspace's session.
+- \`jarvis_launch\` — start a session for a workspace that has none, before
+  a \`jarvis_send\` to it.
 - \`jarvis_say\` — speak now, mid-turn.
 - \`jarvis_todos\` — open the to-do list on screen and read \`TODO.md\`.
 `;

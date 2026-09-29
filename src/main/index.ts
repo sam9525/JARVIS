@@ -433,6 +433,9 @@ app.whenReady().then(async () => {
     snapshot: () => status.snapshot(),
     hasPty: (id) => ptyManager.has(id),
     write: (id, data) => ptyManager.write(id, data),
+    // the terminal's own defaults — Opus, permissions on — at placeholder
+    // geometry the panel resizes when it attaches, as with the main agent
+    launch: async (ws) => (await launchSession(ws, 80, 24, false, "opus")).ok,
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (id, by) =>
       pushStatus(status.markDelegated(id, by, Date.now())),
@@ -563,9 +566,34 @@ app.whenReady().then(async () => {
     : path.join(app.getAppPath(), "src", "hook");
   const forwardPath = path.join(hookDir, "forward.mjs");
   const mcpPath = path.join(hookDir, "mcp.mjs");
+  // one launch path for the terminal's button and jarvis_launch
+  async function launchSession(
+    ws: Workspace,
+    cols: number,
+    rows: number,
+    dangerous: boolean,
+    model: string | undefined,
+  ): Promise<{ ok: boolean; hooksOk: boolean }> {
+    const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
+    const mcpOk = await ensureMcp(ws, mcpPath);
+    // a relaunched main agent continues its conversation like the boot
+    // launch does — /clear is the only reset, and it is the user's
+    const resume =
+      ws.isSelf === true &&
+      (await hasTranscript(transcriptDir(os.homedir(), ws.rootPath)));
+    try {
+      ptyManager.launch(ws, cols, rows, dangerous, model, resume);
+      pushStatus(status.ptyLaunched(ws.id, Date.now()));
+    } catch (err) {
+      // native load or spawn failure — the terminal reports it, app lives on
+      console.error("pty launch failed:", err);
+      return { ok: false, hooksOk: hooksOk && mcpOk };
+    }
+    return { ok: true, hooksOk: hooksOk && mcpOk };
+  }
   ipcMain.handle(
     "pty-launch",
-    async (
+    (
       _e,
       workspaceId: string,
       cols: number,
@@ -575,22 +603,7 @@ app.whenReady().then(async () => {
     ) => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
-      const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
-      const mcpOk = await ensureMcp(ws, mcpPath);
-      // a relaunched main agent continues its conversation like the boot
-      // launch does — /clear is the only reset, and it is the user's
-      const resume =
-        ws.isSelf === true &&
-        (await hasTranscript(transcriptDir(os.homedir(), ws.rootPath)));
-      try {
-        ptyManager.launch(ws, cols, rows, dangerous, model, resume);
-        pushStatus(status.ptyLaunched(ws.id, Date.now()));
-      } catch (err) {
-        // native load or spawn failure — the terminal reports it, app lives on
-        console.error("pty launch failed:", err);
-        return { ok: false, hooksOk: hooksOk && mcpOk };
-      }
-      return { ok: true, hooksOk: hooksOk && mcpOk };
+      return launchSession(ws, cols, rows, dangerous, model);
     },
   );
   ipcMain.handle("pty-input", (_e, id: string, data: string) =>

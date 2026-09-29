@@ -185,7 +185,42 @@ describe("mcp.mjs", () => {
       id: 7,
       method: "tools/list",
     });
-    expect(alive.result.tools).toHaveLength(5);
+    expect(alive.result.tools).toHaveLength(6);
+  });
+
+  it("tools/call jarvis_launch POSTs the name to /orchestrate/launch", async () => {
+    const listener = await fakeListener({ ok: true });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 8,
+      method: "tools/call",
+      params: { name: "jarvis_launch", arguments: { workspace: "FinPulse" } },
+    });
+    expect(listener.hits[0].url).toBe("/orchestrate/launch");
+    expect(listener.hits[0].headers["x-jarvis"]).toBe("1");
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "FinPulse",
+    });
+    expect(res.result.isError).toBeUndefined();
+    listener.close();
+  });
+
+  it("a refused launch comes back as a tool error", async () => {
+    const listener = await fakeListener({
+      ok: false,
+      error: "FinPulse already has a live session",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "tools/call",
+      params: { name: "jarvis_launch", arguments: { workspace: "FinPulse" } },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("already has a live session");
+    listener.close();
   });
 
   it("lists the two v0.4.1 tools", async () => {
