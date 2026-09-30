@@ -15,10 +15,11 @@ One extra session, the **main agent**, sits above the fleet. It can list every w
 - **Mission control.** The home screen shows every workspace as a card with its status: running, waiting on you, or idle. `Ring` and `Fleet` give two other views of the same fleet.
 - **2D and 3D graphs.** Vaults graph their `[[wikilinks]]`, Markdown links and tags. Code repos graph files and imports.
 - **Session replay.** A scrubber rebuilds the highlight state at any earlier point of the current session.
-- **Orchestrator.** The main agent drives the fleet through five MCP tools. See [MCP tools](#mcp-tools).
+- **Orchestrator.** The main agent drives the fleet through six MCP tools. See [MCP tools](#mcp-tools).
 - **Voice (optional).** Say "Jarvis …" and the command is typed into the main agent's terminal. You still press Enter. Replies are read aloud, with a wireframe head and waveform.
 - **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels. See [Gestures](#gestures).
 - **Inbox.** A list at the top of the terminal panel with one row per workspace. Each row shows the status and the last message from Claude, or its current tool call while it runs. It is read-only: you reply in the terminal.
+- **To-do list.** The main agent keeps your tasks in `TODO.md`, grouped by project. Double-click a task to read it in full, then edit or delete it. The main agent checks a task off only when you say it is done, not when a workspace reports it finished.
 - **Floating panels.** The terminal, preview, settings and to-do list are panels that you can drag, resize and collapse.
 
 ## How it works
@@ -88,7 +89,7 @@ You click **+** on the rail and add the repo you work on. JARVIS installs its ho
 
 Back on the home screen, you type to the main agent: _"Ask my-app to find why the login test fails."_ The main agent calls `jarvis_send`. The my-app card turns to **running**. You open my-app and watch Claude work: a search pulses across the graph, the matched files glow, and each file it reads gets a ring and an arrow from the one before.
 
-When my-app goes idle, JARVIS nudges the main agent. The main agent reads the result with `jarvis_list`, sums it up in two sentences, and speaks it aloud with `jarvis_say`.
+When my-app goes idle, JARVIS nudges the main agent. The main agent reads that one result with `jarvis_watch` and sums it up in a sentence or two. JARVIS reads the first sentence of each paragraph aloud.
 
 ## Gestures
 
