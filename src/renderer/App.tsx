@@ -1291,7 +1291,7 @@ export default function App() {
                 />
               ) : null}
               {showHome ? null : (
-                <div className="pointer-events-auto">
+                <div className="pointer-events-auto self-stretch">
                   <Timeline
                     log={(active && logsRef.current.get(active.id)) || []}
                     index={replayIndex}
