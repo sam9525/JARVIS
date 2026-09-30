@@ -373,8 +373,8 @@ describe("App: voice restored-message race", () => {
   });
 });
 
-describe("App: a long message is spoken by its headline", () => {
-  it("speaks the first paragraph once and does not repeat it", async () => {
+describe("App: a long message is spoken as a summary", () => {
+  it("speaks the summary once and does not repeat it", async () => {
     settingsOnDisk = { ...defaultSettings(), voiceControl: true };
     await mount();
     await act(async () => {
@@ -402,14 +402,16 @@ describe("App: a long message is spoken by its headline", () => {
 
     await push(""); // spends the mic-on swallow on an empty row
     await push(brief);
-    expect(speakSpy).toHaveBeenCalledWith("Three projects moved.");
+    expect(speakSpy).toHaveBeenCalledWith(
+      "Three projects moved. JARVIS: shipped 0.4.4.",
+    );
     expect(speakSpy).toHaveBeenCalledTimes(1);
 
     await push(brief); // the same status pushed again must stay silent
     expect(speakSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("does not speak a restored long message, and swallows it by headline", async () => {
+  it("does not speak a restored long message, and swallows it by summary", async () => {
     settingsOnDisk = { ...defaultSettings(), voiceControl: true };
     await mount();
     const brief = "Three projects moved.\n\nJARVIS: shipped 0.4.4.";

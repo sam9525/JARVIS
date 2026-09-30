@@ -202,11 +202,11 @@ describe("dailyBriefNudge", () => {
     expect(dailyBriefNudge(note)).not.toContain("\n");
   });
 
-  it("asks for a spoken summary paragraph ahead of the text", () => {
+  it("asks for a lead sentence per paragraph, since those are spoken", () => {
     const text = dailyBriefNudge(note);
     expect(text).toContain("spoken summary");
     expect(text).toContain("blank line");
-    expect(text).toContain("first paragraph is read aloud");
+    expect(text).toContain("first sentence");
   });
 
   it("asks the agent to report a note that is not yesterday's", () => {
