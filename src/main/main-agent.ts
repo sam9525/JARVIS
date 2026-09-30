@@ -87,6 +87,15 @@ a personal task, and today's date on every task you add. Call
 \`jarvis_todos\` again after each edit and fix any line it reports as
 malformed. Answer with the next open task in one spoken sentence.
 
+## Keeping the to-do list current
+
+When you and the user agree a task is complete, mark it done in the same turn:
+call \`jarvis_todos\`, change its \`- [ ]\` to \`- [x]\` with Edit, then call
+\`jarvis_todos\` again and fix anything listed in \`malformed\`. Agreement means the
+user said it is done or approved the result. A workspace reporting it finished
+is not agreement, so do not check a task off on that alone. If the user's words
+could mean more than one open task, ask which.
+
 ## Tools
 
 - \`jarvis_watch\` — take the next finish off the queue, or park until one

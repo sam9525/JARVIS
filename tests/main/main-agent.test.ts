@@ -106,6 +106,13 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("YYYY-MM-DD");
   });
 
+  it("checks a task off only on the user's agreement, not a workspace finish", () => {
+    expect(AGENT_GUIDE).toContain("## Keeping the to-do list current");
+    expect(AGENT_GUIDE).toContain(
+      "A workspace reporting it finished\nis not agreement",
+    );
+  });
+
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
