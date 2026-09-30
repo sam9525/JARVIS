@@ -38,6 +38,8 @@ const ASK_W = 560;
 const ASK_H = 420;
 const TODOS_W = 380;
 export const COMPOSE_W = 340;
+const VIEW_W = 380;
+const VIEW_H = 240;
 /** tall enough for the text box and a few rows of project chips */
 const COMPOSE_MIN_H = 320;
 /** the space between the to-do list and its composer */
@@ -67,6 +69,7 @@ const FIXED_W: Partial<Record<PanelId, number>> = {
   ask: ASK_W,
   todos: TODOS_W,
   compose: COMPOSE_W,
+  view: VIEW_W,
 };
 /** the picker is a fixed 520px canvas, so its panel is sized in pixels too */
 const MOUTH_W = 720;
@@ -143,6 +146,21 @@ export function besideTodos(todos: PanelState, vp: Viewport): PanelState {
       y: todos.y,
       w: COMPOSE_W,
       h: Math.max(todos.h, COMPOSE_MIN_H),
+      collapsed: false,
+      z: todos.z,
+    },
+    vp,
+  );
+}
+
+/** The to-do view opens in the middle of the window. */
+export function centredView(todos: PanelState, vp: Viewport): PanelState {
+  return clampToViewport(
+    {
+      x: Math.round((vp.width - VIEW_W) / 2),
+      y: Math.round((vp.height - VIEW_H) / 2),
+      w: VIEW_W,
+      h: VIEW_H,
       collapsed: false,
       z: todos.z,
     },

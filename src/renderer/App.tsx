@@ -32,11 +32,13 @@ import Panel from "./ui/Panel";
 import TodoPanel from "./todos/TodoPanel";
 import TodoComposer, { type ComposeRequest } from "./todos/TodoComposer";
 import TodoToggle from "./todos/TodoToggle";
+import TodoView from "./todos/TodoView";
 import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
   ASK_Z,
   SETTINGS_Z,
   besideTodos,
+  centredView,
   clampToViewport,
   defaultPanel,
   grabTarget,
@@ -71,6 +73,7 @@ import type {
   PanelMap,
   PanelState,
   Settings,
+  Todo,
   TodoList,
   TodoOp,
   TodoOpResult,
@@ -107,7 +110,7 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
 // settings entry for four notes is clutter, not information.
 const MIN_GROUP_NODES = 5;
 // the same box on the home screen and in a workspace
-const SHARED_PANELS = new Set<PanelId>(["todos", "compose", "ask"]);
+const SHARED_PANELS = new Set<PanelId>(["todos", "compose", "view", "ask"]);
 
 const fold = (m: PanelMap): PanelMap =>
   m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
@@ -176,6 +179,13 @@ export default function App() {
     request: ComposeRequest;
     seq: number;
   }>({ open: false, request: { mode: "add" }, seq: 0 });
+  // kept after close for the same reason as `compose.request`
+  const [taskView, setTaskView] = useState<{
+    open: boolean;
+    todo: Todo | null;
+    project: string;
+    seq: number;
+  }>({ open: false, todo: null, project: "", seq: 0 });
   const [deckCleared, setDeckCleared] = useState(false);
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
@@ -298,10 +308,25 @@ export default function App() {
     setPanels(raise({ ...panels, compose: at }, "compose"));
   };
   const closeCompose = () => setCompose((c) => ({ ...c, open: false }));
-  // closing the list takes its composer with it, and reopening it does not
-  // bring an old draft back
+  const viewShown = showTodos && taskView.open;
+  // re-centred on every opening, unlike the composer: a view is a glance
+  const openView = (todo: Todo, project: string) => {
+    setTaskView((v) => ({ open: true, todo, project, seq: v.seq + 1 }));
+    setFocusedPanel("view");
+    setPanels(
+      raise(
+        { ...panels, view: centredView(panelState("todos"), viewport) },
+        "view",
+      ),
+    );
+  };
+  const closeView = () => setTaskView((v) => ({ ...v, open: false }));
+  // closing the list takes its composer and view with it, and reopening it
+  // does not bring an old draft back
   useEffect(() => {
-    if (!showTodos) setCompose((c) => (c.open ? { ...c, open: false } : c));
+    if (showTodos) return;
+    setCompose((c) => (c.open ? { ...c, open: false } : c));
+    setTaskView((v) => (v.open ? { ...v, open: false } : v));
   }, [showTodos]);
 
   // jarvis_todos arrives as a push, long after this effect ran; the ref keeps
@@ -809,6 +834,7 @@ export default function App() {
     if (showMouthPicker) live.mouth = panelState("mouth");
     if (showTodos) live.todos = panelState("todos");
     if (composeShown) live.compose = panelState("compose");
+    if (viewShown) live.view = panelState("view");
     return live;
   }, [
     deckCleared,
@@ -818,6 +844,7 @@ export default function App() {
     showMouthPicker,
     showTodos,
     composeShown,
+    viewShown,
     panels,
   ]);
 
@@ -1384,6 +1411,7 @@ export default function App() {
           onEdit={(todo, project) =>
             openCompose({ mode: "edit", todo, project })
           }
+          onView={openView}
           onOpenProject={(name) => {
             const ws = fleet.find((w) => w.name === name);
             if (!ws) return;
@@ -1413,6 +1441,35 @@ export default function App() {
           onOp={onTodoOp}
           onClose={closeCompose}
         />
+      </Panel>
+
+      <Panel
+        id="view"
+        title="TASK"
+        open={viewShown}
+        state={panelState("view")}
+        focused={focusedPanel === "view"}
+        hidden={deckCleared}
+        onChange={(next) => setPanel("view", next)}
+        onFocus={() => focusPanel("view")}
+        onClose={closeView}
+      >
+        {taskView.todo && (
+          <TodoView
+            key={taskView.seq}
+            todo={taskView.todo}
+            project={taskView.project}
+            colors={todoColors}
+            onOp={onTodoOp}
+            onEdit={() => {
+              const todo = taskView.todo;
+              if (!todo) return;
+              closeView();
+              openCompose({ mode: "edit", todo, project: taskView.project });
+            }}
+            onClose={closeView}
+          />
+        )}
       </Panel>
 
       {(() => {

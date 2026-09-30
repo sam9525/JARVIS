@@ -116,7 +116,14 @@ export type CodeGraphLevel = "file" | "symbol";
 export type HomeView = "cards" | "ring" | "fleet";
 
 export type PanelId =
-  "terminal" | "preview" | "settings" | "mouth" | "ask" | "todos" | "compose";
+  | "terminal"
+  | "preview"
+  | "settings"
+  | "mouth"
+  | "ask"
+  | "todos"
+  | "compose"
+  | "view";
 export type LayoutId = "home" | "workspace";
 
 /**

@@ -35,9 +35,11 @@ const list: TodoList = parseTodos(FILE);
 const ok = () => vi.fn().mockResolvedValue({ ok: true });
 const onNew = vi.fn();
 const onEdit = vi.fn();
+const onView = vi.fn();
 beforeEach(() => {
   onNew.mockClear();
   onEdit.mockClear();
+  onView.mockClear();
 });
 const render = (
   onOp = ok(),
@@ -53,6 +55,7 @@ const render = (
         onOp={onOp}
         onNew={onNew}
         onEdit={onEdit}
+        onView={onView}
       />,
     ),
   );
@@ -206,6 +209,20 @@ describe("TodoPanel", () => {
     expect(onEdit).toHaveBeenCalledWith(list.todos[0], "JARVIS");
     act(() => $$('[data-testid="todo-row"] [title="Edit"]')[2].click()); // grouped: row 3 is Personal
     expect(onEdit).toHaveBeenLastCalledWith(list.todos[1], "");
+  });
+
+  it("asks for the view on a row double-click, never the composer", () => {
+    render();
+    const dbl = (el: Element) =>
+      act(() => {
+        el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      });
+    dbl(rows()[0].querySelector("span") as Element);
+    expect(onView).toHaveBeenCalledWith(list.todos[0], "JARVIS");
+    expect(onEdit).not.toHaveBeenCalled();
+    // a double-click on the checkbox is two ticks, not a view
+    dbl(rows()[1].querySelector("input") as Element);
+    expect(onView).toHaveBeenCalledTimes(1);
   });
 
   it("lights the row the composer is editing", () => {

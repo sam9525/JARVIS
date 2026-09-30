@@ -26,6 +26,7 @@ export default function TodoPanel({
   onOp,
   onNew,
   onEdit,
+  onView,
   onOpenProject,
   onOverflow,
 }: {
@@ -39,6 +40,8 @@ export default function TodoPanel({
   onNew(): void;
   /** `project` is the chip to preselect: "" for Personal */
   onEdit(todo: Todo, project: string): void;
+  /** a double-clicked row; `project` as for onEdit */
+  onView?(todo: Todo, project: string): void;
   onOpenProject?(name: string): void;
   /** the list is this many px taller than its box; the owner grows the panel */
   onOverflow?(px: number): void;
@@ -96,6 +99,11 @@ export default function TodoPanel({
         onDragStart={() => (dragged.current = { todo: t, group })}
         onDragEnd={() => {
           dragged.current = null;
+        }}
+        onDoubleClick={(e) => {
+          // two clicks on the checkbox or an icon are two of those clicks
+          if ((e.target as HTMLElement).closest("input, button")) return;
+          onView?.(t, projectValue(t));
         }}
         onDragOver={(e) => {
           if (dragged.current?.group === group) e.preventDefault();
