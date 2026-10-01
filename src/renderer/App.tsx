@@ -46,6 +46,7 @@ import {
   raise,
   rescaleAll,
   snapToEdges,
+  Z_BASE,
 } from "./ui/panel-layout";
 import { BTN_IDLE, TOP_ROW } from "./ui/hud";
 import { appendEvent, foldTo, nextRev } from "./session/replay";
@@ -236,7 +237,15 @@ export default function App() {
           [PanelId, PanelState]
         >)
           if (SHARED_PANELS.has(id))
-            other[id] = { ...p, z: other[id]?.z ?? p.z };
+            // first arrival on the other screen goes on top of its stack: this
+            // screen's z can tie a panel there, and a tie stalls `raise`
+            other[id] = {
+              ...p,
+              z:
+                other[id]?.z ??
+                Math.max(Z_BASE - 1, ...Object.values(other).map((q) => q.z)) +
+                  1,
+            };
         return {
           ...s,
           panels: {

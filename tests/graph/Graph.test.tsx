@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { vi, describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeAll } from "vitest";
 import type { VaultGraph } from "../../src/shared/types";
 
 // Mock React before any other code or dynamic imports run
@@ -52,6 +52,12 @@ Object.defineProperty(global, "navigator", {
   writable: true,
   configurable: true,
 });
+
+// the first dynamic import pays the whole module graph's transform; under a
+// loaded full run that alone can pass the 5s per-test timeout
+beforeAll(async () => {
+  await import("../../src/renderer/graph/Graph");
+}, 30_000);
 
 describe("Graph component", () => {
   it("wires sized nodes and sets nodeRelSize to 1", async () => {

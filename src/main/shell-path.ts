@@ -20,8 +20,12 @@ export function loginShellPath(
 ): string | null {
   if (platform === "win32") return null;
   try {
-    // an interactive shell may print a banner first, so the PATH is fenced
-    const out = run(shell, ["-ilc", `echo ${MARK}$PATH${MARK}`]);
+    // An interactive shell may print a banner first, so the PATH is fenced.
+    // printenv, not `echo $PATH`: fish expands $PATH to space-separated words.
+    const out = run(shell, [
+      "-ilc",
+      `printf %s ${MARK}; printenv PATH; printf %s ${MARK}`,
+    ]);
     return out.split(MARK)[1]?.trim() || null;
   } catch {
     return null;

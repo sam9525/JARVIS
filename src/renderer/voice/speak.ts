@@ -3,8 +3,21 @@ import type { WorkspaceStatus } from "../../shared/types";
 /** Longest summary the mouth reads — the same cap `jarvis_say` carries. */
 export const SUMMARY_MAX = 500;
 
-const leadSentence = (paragraph: string): string =>
-  (paragraph.match(/^[\s\S]*?[.!?](?=\s|$)/)?.[0] ?? paragraph).trim();
+// a stop after e.g / i.e / etc / vs is an abbreviation, not a sentence end
+const sentences = (paragraph: string): string[] =>
+  (
+    paragraph.match(
+      /[\s\S]*?(?<!\b(?:e\.g|i\.e|etc|vs))[.!?](?=\s|$)|[\s\S]+$/g,
+    ) ?? []
+  )
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+// headings, bullets and emphasis marks are read aloud literally otherwise
+const plain = (text: string): string =>
+  text
+    .replace(/^[ \t]*(?:#{1,6}|[-*+]|\d+[.)])[ \t]+/gm, "")
+    .replace(/\*\*|__|`/g, "");
 
 /** The spoken form of a message: one paragraph whole, several as the lead
  * sentence of each, joined and cut at the last sentence under `SUMMARY_MAX`.
@@ -15,14 +28,17 @@ const leadSentence = (paragraph: string): string =>
  * ponytail: extractive, the app runs no model — only as good as the agent's
  * lead sentences. */
 export const spokenSummary = (text: string): string => {
-  const paragraphs = text
+  const paragraphs = plain(text)
     .trim()
     .split(/\n\s*\n/)
     .map((p) => p.trim())
     .filter(Boolean);
-  if (paragraphs.length <= 1) return paragraphs[0] ?? "";
+  const said =
+    paragraphs.length <= 1
+      ? sentences(paragraphs[0] ?? "")
+      : paragraphs.map((p) => sentences(p)[0] ?? p);
   let summary = "";
-  for (const sentence of paragraphs.map(leadSentence)) {
+  for (const sentence of said) {
     const next = summary ? `${summary} ${sentence}` : sentence;
     if (next.length > SUMMARY_MAX) {
       return summary || sentence.slice(0, SUMMARY_MAX);

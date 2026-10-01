@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { vi, describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeAll } from "vitest";
 import type { VaultGraph } from "../../src/shared/types";
 import { hueToHex } from "../../src/renderer/graph/workspace-color";
 
@@ -94,6 +94,12 @@ export const sampleGraph: VaultGraph = {
   ],
   edges: [{ source: "physics/a", target: "physics/b" }],
 };
+
+// the first dynamic import pays the whole module graph's transform; under a
+// loaded full run that alone can pass the 5s per-test timeout
+beforeAll(async () => {
+  await import("../../src/renderer/graph/Graph3D");
+}, 30_000);
 
 describe("Graph3D component", () => {
   it("renders 16-segment spheres", async () => {

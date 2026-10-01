@@ -21,6 +21,8 @@ import { nodeLabelText } from "./node-label";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 
 const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
+// how often a still card checks the store for a new rev
+const IDLE_POLL_MS = 100;
 
 export type GraphHandle = {
   pan(dx: number, dy: number): void; // normalized hand units; content follows the hand
@@ -106,22 +108,29 @@ export default function Graph({
   }, [layoutEpoch]);
 
   // A parked card never runs onRenderFramePost, which is where the open view
-  // expires matches and repaints. Check the store every frame instead and
-  // nudge the canvas when its rev changes, and on every frame of a live
-  // pulse or match fade, so the ripple animates rather than stepping.
+  // expires matches and repaints. Poll the store instead and nudge the canvas
+  // when its rev changes — every frame while a pulse or match fade is live, so
+  // the ripple animates rather than stepping, and every IDLE_POLL_MS otherwise
+  // so an idle fleet runs no frame callbacks.
+  // ponytail: polling, not a store subscription — a pulse can start up to one
+  // idle poll late; subscribe to the store if that first 100 ms ever shows.
   const lastRev = useRef(-1);
   useEffect(() => {
     if (!thumbnail) return;
     let raf = 0;
+    let idle: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
-      raf = requestAnimationFrame(tick);
       const s = stateRef.current;
       const now = performance.now();
       expireMatches(s, now);
       const animating =
         s.frozenAt === undefined &&
         (pulseProgress(s, now) !== null || matchProgress(s, now) !== null);
-      if (s.rev === lastRev.current && !animating) return;
+      const changed = s.rev !== lastRev.current;
+      // a fresh rev usually means a pulse just started, so poll per frame next
+      if (animating || changed) raf = requestAnimationFrame(tick);
+      else idle = setTimeout(tick, IDLE_POLL_MS);
+      if (!changed && !animating) return;
       lastRev.current = s.rev;
       // ponytail: force-graph flips its internal needsRedraw on any zoom set,
       // so re-setting the value it already has buys one frame with no visual
@@ -131,7 +140,10 @@ export default function Graph({
       if (fg) fg.zoom(fg.zoom());
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(idle);
+    };
   }, [thumbnail, stateRef]);
 
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean.

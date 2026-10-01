@@ -1,5 +1,5 @@
 // JARVIS orchestrator MCP server (stdio). Claude Code spawns this in the
-// vault workspace via .mcp.json; it proxies its tools to the app's localhost
+// main-agent workspace via .mcp.json; it proxies its tools to the app's localhost
 // listener and knows nothing about the app beyond two URLs. Hand-rolled
 // newline-delimited JSON-RPC, same school as forward.mjs — no SDK dependency.
 const PORT = process.env.JARVIS_PORT ?? 4599;

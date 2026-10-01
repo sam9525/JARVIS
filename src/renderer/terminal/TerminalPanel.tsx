@@ -118,7 +118,10 @@ function entryFor(id: string): Entry {
     term.open(el);
     term.onData((d) => {
       window.jarvis.ptyInput(id, d);
-      if (!d.startsWith("\x1b")) for (const l of typedListeners) l(id);
+      // arrow keys move through a question without answering it; a bare Esc
+      // dismisses it, so that one counts as typing
+      if (d === "\x1b" || !d.startsWith("\x1b"))
+        for (const l of typedListeners) l(id);
     });
     e = { term, fit, el };
     entries.set(id, e);

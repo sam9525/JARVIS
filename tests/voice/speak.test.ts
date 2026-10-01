@@ -546,4 +546,21 @@ describe("spokenSummary", () => {
   it("is empty for an empty message", () => {
     expect(spokenSummary("  \n ")).toBe("");
   });
+
+  it("caps a single long paragraph at its last sentence under the cap", () => {
+    const sentence = "y".repeat(300) + ".";
+    expect(spokenSummary(`${sentence} ${sentence}`)).toBe(sentence);
+  });
+
+  it("does not end a lead sentence at an abbreviation", () => {
+    expect(spokenSummary("Fix it, e.g. the cap. More.\n\nNext.")).toBe(
+      "Fix it, e.g. the cap. Next.",
+    );
+  });
+
+  it("does not read markdown marks aloud", () => {
+    expect(spokenSummary("## Status\n\n- **Build** is `green`.")).toBe(
+      "Status Build is green.",
+    );
+  });
 });

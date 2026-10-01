@@ -139,7 +139,7 @@ export default function MissionControl({
               }}
               style={{ width: CARD_W + 26, ...e.style }}
               className={
-                "flex cursor-pointer flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:border-accent " +
+                "flex cursor-pointer flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:ring-1 hover:ring-ink-muted " +
                 BORDER[kind] +
                 e.className
               }

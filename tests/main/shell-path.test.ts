@@ -18,6 +18,15 @@ describe("loginShellPath", () => {
     });
     expect(calls[0][0]).toBe("/bin/bash");
     expect(calls[0][1][0]).toBe("-ilc");
+    // fish's `echo $PATH` prints space-separated words; printenv never does
+    expect(calls[0][1][1]).toContain("printenv PATH");
+  });
+
+  it("drops the newline printenv leaves before the closing fence", () => {
+    const run = () => "__JARVIS_PATH__/usr/local/bin:/usr/bin\n__JARVIS_PATH__";
+    expect(loginShellPath("darwin", "/bin/zsh", run)).toBe(
+      "/usr/local/bin:/usr/bin",
+    );
   });
 
   it("skips Windows", () => {

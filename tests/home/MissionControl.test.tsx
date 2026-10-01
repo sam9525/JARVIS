@@ -397,8 +397,11 @@ describe("six status kinds on a card", () => {
   });
 
   it("borders a card accent while working, warm when it wants you, alarm when it died", () => {
-    // leading space: every card carries "hover:border-accent" as a substring
+    // leading space: a class like "hover:border-accent" would match a substring
     expect(labelOf("working")).toMatch(/ border-accent[ "]/);
+    // hover is a ring, so a working card's accent border still shows hover
+    expect(labelOf("working")).not.toContain("hover:border-accent");
+    expect(labelOf("working")).toContain("hover:ring-1");
     expect(labelOf("idle")).not.toMatch(/ border-accent[ "]/);
     expect(labelOf("asking")).toContain("border-warm");
     expect(labelOf("blocked")).toContain("border-warm");
