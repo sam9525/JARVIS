@@ -29,6 +29,7 @@ import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
 import { createSettle } from "./settle";
+import { isTrusted } from "./folder-trust";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import {
   BRIEF_AFTER_HOUR,
@@ -445,6 +446,8 @@ app.whenReady().then(async () => {
       await settled;
       return true;
     },
+    isTrusted: (ws) => isTrusted(ws.rootPath),
+    waitQuiet: (id) => settle.wait(id, LAUNCH_SETTLE_DEADLINE_MS),
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (id, by) =>
       pushStatus(status.markDelegated(id, by, Date.now())),

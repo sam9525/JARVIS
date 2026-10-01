@@ -2,7 +2,7 @@ import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
 import { mapStatusEvent } from "./status-mapper";
 import { mapAskEvent, type AskPrompt } from "./ask-mapper";
-import type { SendResult } from "./orchestrate";
+import type { LaunchResult, SendResult } from "./orchestrate";
 import type { StatusEvent, ToolEvent, Workspace } from "../shared/types";
 
 export const DEFAULT_PORT = 4599;
@@ -15,6 +15,7 @@ const ORCHESTRATE = [
   "/orchestrate/list",
   "/orchestrate/send",
   "/orchestrate/launch",
+  "/orchestrate/trust",
   "/orchestrate/watch",
   "/orchestrate/say",
   "/orchestrate/todos",
@@ -42,7 +43,8 @@ export interface OrchestratorLike {
   send(target: string, prompt: string): SendResult;
   watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
-  launch(target: string): Promise<SendResult>;
+  launch(target: string): Promise<LaunchResult>;
+  trust(target: string, accept: boolean): Promise<SendResult>;
   /** Opens the to-do panel and answers the list file for the agent to edit. */
   todos(): Promise<unknown>;
 }
@@ -186,6 +188,31 @@ export function startListener(
           }
           orchestrator
             .launch(target)
+            .then((out) => {
+              if (res.writableEnded || res.destroyed) return;
+              res.writeHead(200).end(JSON.stringify(out));
+            })
+            .catch(fail);
+          return;
+        }
+        if (route === "/orchestrate/trust") {
+          let target: string;
+          let accept: boolean;
+          try {
+            const p = parse();
+            target = String(p.workspace ?? "");
+            // only a literal true trusts a folder; anything else declines
+            accept = p.accept === true;
+          } catch (err) {
+            const out = {
+              ok: false,
+              error: `malformed request: ${String(err)}`,
+            };
+            res.writeHead(200).end(JSON.stringify(out));
+            return;
+          }
+          orchestrator
+            .trust(target, accept)
             .then((out) => {
               if (res.writableEnded || res.destroyed) return;
               res.writeHead(200).end(JSON.stringify(out));

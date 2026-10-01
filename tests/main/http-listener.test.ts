@@ -34,6 +34,11 @@ function stubOrchestrator() {
       this.launches.push(workspace);
       return Promise.resolve({ ok: true as const });
     },
+    trusts: [] as Array<[string, boolean]>,
+    trust(workspace: string, accept: boolean) {
+      this.trusts.push([workspace, accept]);
+      return Promise.resolve({ ok: true as const });
+    },
     todosCalls: { n: 0 },
     todos() {
       this.todosCalls.n++;
@@ -300,6 +305,7 @@ describe("orchestrate routes", () => {
         say: () => ({ ok: true as const }),
         todos: () => Promise.resolve(null),
         launch: () => Promise.resolve({ ok: true as const }),
+        trust: () => Promise.resolve({ ok: true as const }),
       },
     );
     await new Promise((r) => server.once("listening", r));
@@ -621,6 +627,51 @@ describe("/orchestrate/launch", () => {
     const res = await call(s.port, "{not json", { "x-jarvis": "1" });
     expect((await res.json()).ok).toBe(false);
     expect(s.orch.launches).toEqual([]);
+    s.close();
+  });
+});
+
+describe("/orchestrate/trust", () => {
+  const call = (port: number, body: unknown, headers: Record<string, string>) =>
+    fetch(`http://127.0.0.1:${port}/orchestrate/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("forwards the workspace and the answer", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(
+      s.port,
+      { workspace: "New", accept: true },
+      { "x-jarvis": "1" },
+    );
+    expect(await res.json()).toEqual({ ok: true });
+    expect(s.orch.trusts).toEqual([["New", true]]);
+    s.close();
+  });
+
+  it("reads anything but a literal true as a decline", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    await call(
+      s.port,
+      { workspace: "New", accept: "yes" },
+      { "x-jarvis": "1" },
+    );
+    expect(s.orch.trusts).toEqual([["New", false]]);
+    s.close();
+  });
+
+  it("needs the x-jarvis header", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    await call(s.port, { workspace: "New", accept: true }, {});
+    expect(s.orch.trusts).toEqual([]);
     s.close();
   });
 });

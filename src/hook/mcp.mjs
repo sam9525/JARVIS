@@ -40,7 +40,9 @@ const TOOLS = [
       "Start a Claude Code session for a workspace on the rail that has none " +
       "(jarvis_list shows live: false), the same way its terminal's launch " +
       "button does. Returns once the session is ready for input; then " +
-      "jarvis_send to it. " +
+      "jarvis_send to it. If it says the session is asking to trust its " +
+      "folder, do not jarvis_send yet: ask the user whether they trust that " +
+      "folder, then call jarvis_trust with their answer. " +
       "Fails if the name is unknown or a session already exists.",
     inputSchema: {
       type: "object",
@@ -51,6 +53,29 @@ const TOOLS = [
         },
       },
       required: ["workspace"],
+    },
+  },
+  {
+    name: "jarvis_trust",
+    description:
+      "Answer the folder-trust prompt of a session jarvis_launch just " +
+      "started, with the user's own answer — never decide it yourself. " +
+      "accept: true selects 'Yes, I trust this folder' and the session " +
+      "continues, ready for jarvis_send. accept: false selects 'No, exit' and " +
+      "the session closes. Fails if the folder is already trusted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace: {
+          type: "string",
+          description: "Workspace name, as shown by jarvis_list",
+        },
+        accept: {
+          type: "boolean",
+          description: "true only if the user said they trust the folder",
+        },
+      },
+      required: ["workspace", "accept"],
     },
   },
   {
@@ -146,9 +171,29 @@ async function callTool(name, args) {
         { workspace: args?.workspace },
         30000,
       );
-      return out?.ok
-        ? textResult(`launched ${args?.workspace}`)
-        : textResult(out?.error ?? "launch failed", true);
+      if (!out?.ok) return textResult(out?.error ?? "launch failed", true);
+      return textResult(
+        out.trustPrompt
+          ? `launched ${args?.workspace}, but its session is asking whether ` +
+              `to trust the folder ${out.trustPrompt}. Ask the user if they ` +
+              "trust it, then call jarvis_trust with their answer. Do not " +
+              "jarvis_send to it before that."
+          : `launched ${args?.workspace}`,
+      );
+    }
+    if (name === "jarvis_trust") {
+      // the answer waits for the session to settle past the prompt
+      const out = await post(
+        "/orchestrate/trust",
+        { workspace: args?.workspace, accept: args?.accept === true },
+        30000,
+      );
+      if (!out?.ok) return textResult(out?.error ?? "trust failed", true);
+      return textResult(
+        args?.accept === true
+          ? `trusted ${args?.workspace}'s folder — its session is ready for jarvis_send`
+          : `declined — ${args?.workspace}'s session is closing`,
+      );
     }
     if (name === "jarvis_watch") {
       const secs = Math.min(

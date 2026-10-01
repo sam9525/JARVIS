@@ -105,6 +105,8 @@ could mean more than one open task, ask which.
 - \`jarvis_send\` — write a prompt into another workspace's session.
 - \`jarvis_launch\` — start a session for a workspace that has none, before
   a \`jarvis_send\` to it.
+- \`jarvis_trust\` — answer a new session's folder-trust prompt with the
+  user's own answer, after asking them.
 - \`jarvis_say\` — speak now, mid-turn.
 - \`jarvis_todos\` — open the to-do list on screen and read \`TODO.md\`.
 `;
