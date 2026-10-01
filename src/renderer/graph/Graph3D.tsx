@@ -10,6 +10,7 @@ import {
   isRead,
   matchProgress,
   nodeDisplay,
+  pulseProgress,
   type HighlightState,
 } from "../session/highlight-store";
 import { baseNodeColor } from "./domain-colors";
@@ -26,9 +27,12 @@ import { nodeLabelText } from "./node-label";
 import {
   ArrowHelper,
   Color,
+  DoubleSide,
   Group,
   LineBasicMaterial,
+  Mesh,
   MeshBasicMaterial,
+  RingGeometry,
   Sprite,
   Vector3,
 } from "three";
@@ -384,6 +388,43 @@ export default function Graph3D({
       scene.remove(g);
     };
   }, []);
+
+  // searching pulse: the 2D view's expanding ring, turned to face the camera
+  // each frame so it reads as a circle from any orbit angle. It runs per
+  // frame because the 500 ms highlight interval is close to the whole pulse.
+  useEffect(() => {
+    if (lite) return;
+    const scene = fgRef.current?.scene();
+    if (!scene) return;
+    const material = new MeshBasicMaterial({
+      color: COLORS.pulse,
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    const ring = new Mesh(new RingGeometry(0.99, 1, 128), material);
+    ring.visible = false;
+    scene.add(ring);
+    let raf = 0;
+    const tick = () => {
+      const t = pulseProgress(stateRef.current, performance.now());
+      ring.visible = t !== null && t > 0;
+      if (t !== null && t > 0) {
+        ring.scale.setScalar(t * 600);
+        material.opacity = 1 - t;
+        const cam = fgRef.current?.camera();
+        if (cam) ring.quaternion.copy(cam.quaternion);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      scene.remove(ring);
+      ring.geometry.dispose();
+      material.dispose();
+    };
+  }, [lite, stateRef]);
 
   // fly the camera to focusZoom units from the focused node, looking at a
   // point shifted left of it so the node lands in the visible area right of

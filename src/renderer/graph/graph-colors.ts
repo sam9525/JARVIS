@@ -12,6 +12,7 @@ export const COLORS = {
   modified: "#f59e0b",
   trail: "#ff8fab",
   match: "#a78bfa", // files a search hit — transient, distinct from the read ring
+  pulse: "#7ef9ff", // Graph.tsx's rgba(126, 249, 255)
 } as const;
 
 const HEAT_MIX = 0.55; // how far toward white a fully hot node goes
