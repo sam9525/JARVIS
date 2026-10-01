@@ -159,6 +159,7 @@ export default function App() {
   const [showMouthPicker, setShowMouthPicker] = useState(false);
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
+  const [ringCentreId, setRingCentreId] = useState<string | null>(null);
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
@@ -1143,6 +1144,8 @@ export default function App() {
                     indexing={indexing}
                     layoutEpoch={graphs.fleetEpoch}
                     actionsRef={handActionsRef}
+                    centreId={ringCentreId}
+                    onCentre={setRingCentreId}
                     onIndex={graphs.indexProject}
                     onOpen={(ws) => {
                       setShowHome(false);
