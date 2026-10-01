@@ -20,7 +20,7 @@ One extra session, the **main agent**, sits above the fleet. It can list every w
 - **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels. See [Gestures](#gestures).
 - **Inbox.** A list at the top of the terminal panel with one row per workspace. Each row shows the status and the last message from Claude, or its current tool call while it runs. It is read-only: you reply in the terminal.
 - **To-do list.** The main agent keeps your tasks in `TODO.md`, grouped by project. Double-click a task to read it in full, then edit or delete it. The main agent checks a task off only when you say it is done, not when a workspace reports it finished.
-- **Daily briefing (optional).** On the first launch of the day, the main agent reads your newest daily note and briefs you on each project in it. See [Daily briefing](#daily-briefing).
+- **Daily briefing (optional).** On the first launch of the day, the main agent asks the Obsidian-valut workspace to summarise your newest daily note, project by project. See [Daily briefing](#daily-briefing).
 - **Floating panels.** The terminal, preview, settings and to-do list are panels that you can drag, resize and collapse.
 
 ## How it works
@@ -96,14 +96,14 @@ When my-app goes idle, JARVIS nudges the main agent. The main agent reads that o
 
 To turn it on, open settings and click **Choose** under **Daily notes**. Pick the folder where you keep your daily notes. **Clear** turns the briefing off.
 
-The main agent resumes its last conversation each time JARVIS starts. On the first launch of a day, after 7:00, JARVIS also asks it for a briefing. The main agent reads the newest `.md` file in that folder and nothing else. It writes one short paragraph for each project the note mentions: what moved, what is still open, and what to do next. If the note is not from yesterday, it says which day it is from. JARVIS reads the first sentence of each paragraph aloud.
+The main agent resumes its last conversation each time JARVIS starts. On the first launch of a day, after 7:00, JARVIS also asks it for a briefing. The main agent does not read the note itself. It sends the newest `.md` file in that folder to the `Obsidian-valut` workspace with `jarvis_send`, and calls `jarvis_launch` first if that workspace has no session. Obsidian-valut writes a summary with one paragraph for each project the note mentions: what moved and what is still open. If the note is not from yesterday, it says which day it is from. You read that summary in Obsidian-valut's terminal or the inbox. When Obsidian-valut finishes, JARVIS wakes the main agent the normal way, and the main agent says its usual one or two sentences about it.
 
 Some details:
 
 - The briefing runs at most once a day. A launch before 7:00 skips it, and the next launch after 7:00 gives it.
 - It needs an earlier main-agent conversation to resume, so the very first launch has no briefing.
 - JARVIS waits for the main agent's terminal to go quiet before it asks. If the terminal stays busy for 60 seconds, that day is skipped.
-- The first time, Claude Code asks your permission to read the notes folder.
+- The first time, Claude Code in Obsidian-valut may ask your permission to read the notes folder.
 
 ## Gestures
 

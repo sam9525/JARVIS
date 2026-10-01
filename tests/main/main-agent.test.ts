@@ -8,7 +8,9 @@ import {
   FINISH_NUDGE,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
+  BRIEF_WORKSPACE,
   dailyBriefNudge,
+  dailyBriefPrompt,
   ensureMainAgent,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
@@ -194,36 +196,53 @@ describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
   });
 });
 
-describe("dailyBriefNudge", () => {
+describe("dailyBriefPrompt", () => {
   const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
 
   it("carries the note's path and nothing else about the work", () => {
-    expect(dailyBriefNudge(note)).toContain(note);
+    expect(dailyBriefPrompt(note)).toContain(note);
     // a location, not a description: swap the path and the rest is identical
-    const a = dailyBriefNudge("A").replace("A", "");
-    const b = dailyBriefNudge("B").replace("B", "");
+    const a = dailyBriefPrompt("A").replace("A", "");
+    const b = dailyBriefPrompt("B").replace("B", "");
     expect(a).toBe(b);
   });
+
+  it("asks for a written summary, one paragraph per project", () => {
+    const text = dailyBriefPrompt(note);
+    expect(text).toContain("one paragraph per project");
+    expect(text).toContain("what moved");
+    expect(text).toContain("still open");
+    // the main agent's finish summary is the spoken part, not this answer
+    expect(text).not.toContain("spoken");
+    expect(text).not.toContain("first sentence");
+  });
+
+  it("asks the delegate to report a note that is not yesterday's", () => {
+    expect(dailyBriefPrompt(note)).toContain("yesterday's");
+  });
+});
+
+describe("dailyBriefNudge", () => {
+  const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
 
   it("fits on one line, since it is typed into a TUI composer", () => {
     expect(dailyBriefNudge(note)).not.toContain("\n");
   });
 
-  it("asks for a lead sentence per paragraph, since those are spoken", () => {
+  it("delegates to the vault workspace instead of reading the note", () => {
     const text = dailyBriefNudge(note);
-    expect(text).toContain("spoken summary");
-    expect(text).toContain("blank line");
-    expect(text).toContain("first sentence");
+    expect(BRIEF_WORKSPACE).toBe("Obsidian-valut");
+    expect(text).toContain("Do not read the note yourself");
+    expect(text).toContain("jarvis_send to " + BRIEF_WORKSPACE);
+    expect(text).toContain("jarvis_launch");
   });
 
-  it("asks the agent to report a note that is not yesterday's", () => {
-    expect(dailyBriefNudge(note)).toContain("date");
+  it("forwards the delegate's prompt verbatim", () => {
+    expect(dailyBriefNudge(note)).toContain(dailyBriefPrompt(note));
   });
 
-  it("keeps the turn to one file, with no send and no watch", () => {
-    const text = dailyBriefNudge(note);
-    expect(text).not.toContain("jarvis_send");
-    expect(text).not.toContain("jarvis_watch");
+  it("leaves the wait to the finish nudge, not jarvis_watch", () => {
+    expect(dailyBriefNudge(note)).not.toContain("jarvis_watch");
   });
 });
 

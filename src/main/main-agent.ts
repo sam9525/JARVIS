@@ -142,27 +142,34 @@ export const SETTLE_MS = 1000;
  * quiet skips the day rather than typing over live work. */
 export const SETTLE_DEADLINE_MS = 60_000;
 
-/** Typed into the main agent's session on the first launch of a day. Fixed
- * text plus one absolute path: a location, not a description, so the app
- * still composes nothing about the work.
- *
- * The spoken-summary clause overrides AGENT_GUIDE, which tells the agent its whole
- * turn-end message is read aloud, where `spokenSummary` reads only each
- * paragraph's first sentence. The guide is written with `wx` and an
- * existing install never sees a new one, so the override travels in the nudge.
- */
-export const dailyBriefNudge = (notePath: string): string =>
+/** The workspace that reads the daily note. The main agent delegates to it
+ * rather than reading the note itself, so the summary comes back through the
+ * ordinary finish nudge like any other delegate's turn. */
+export const BRIEF_WORKSPACE = "Obsidian-valut";
+
+/** The prompt the main agent hands to BRIEF_WORKSPACE: fixed text plus one
+ * absolute path, so the app still composes nothing about the work. The answer
+ * is read as text; the main agent's finish summary is what gets spoken. */
+export const dailyBriefPrompt = (notePath: string): string =>
   "Daily briefing. Read this one file and nothing else: " +
   notePath +
   ". Its filename carries the date — if it is not yesterday's, say which day " +
-  "it is from in your first line. Then write one short paragraph per project " +
-  "the file mentions: what moved, in a line at most, then what is still open " +
-  "and what to carry on with. Say nothing about a project the file does not " +
-  "mention. Open every paragraph with one plain sentence that carries its " +
-  "most important point, in as few words as possible — the first sentence " +
-  "of each paragraph is read aloud as the spoken summary, the rest stays " +
-  "text. No preamble, no list, no file names, no markdown. Separate the " +
-  "paragraphs with a blank line. Read, answer, stop.";
+  "it is from. Then write a summary with one paragraph per project the file " +
+  "mentions: what moved, and what is still open. Say nothing about a project " +
+  "the file does not mention.";
+
+/** Typed into the main agent's session on the first launch of a day. It
+ * carries the delegate's prompt verbatim, so the agent forwards the wording
+ * rules instead of paraphrasing them. */
+export const dailyBriefNudge = (notePath: string): string =>
+  "Daily briefing. Do not read the note yourself. Delegate it to the " +
+  BRIEF_WORKSPACE +
+  " workspace: if jarvis_list shows it has no session, call jarvis_launch " +
+  "for it first, then call jarvis_send to " +
+  BRIEF_WORKSPACE +
+  " with exactly this prompt: " +
+  dailyBriefPrompt(notePath) +
+  " Then stop; you will be woken when it finishes.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */
