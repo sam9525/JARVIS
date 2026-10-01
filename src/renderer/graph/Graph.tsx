@@ -106,15 +106,22 @@ export default function Graph({
   }, [layoutEpoch]);
 
   // A parked card never runs onRenderFramePost, which is where the open view
-  // expires matches and repaints. Poll the store's rev counter instead and
-  // nudge the canvas on change.
+  // expires matches and repaints. Check the store every frame instead and
+  // nudge the canvas when its rev changes, and on every frame of a live
+  // pulse or match fade, so the ripple animates rather than stepping.
   const lastRev = useRef(-1);
   useEffect(() => {
     if (!thumbnail) return;
-    const id = setInterval(() => {
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
       const s = stateRef.current;
-      expireMatches(s, performance.now());
-      if (s.rev === lastRev.current) return;
+      const now = performance.now();
+      expireMatches(s, now);
+      const animating =
+        s.frozenAt === undefined &&
+        (pulseProgress(s, now) !== null || matchProgress(s, now) !== null);
+      if (s.rev === lastRev.current && !animating) return;
       lastRev.current = s.rev;
       // ponytail: force-graph flips its internal needsRedraw on any zoom set,
       // so re-setting the value it already has buys one frame with no visual
@@ -122,8 +129,9 @@ export default function Graph({
       // if force-graph ever exposes a real redraw, use it instead.
       const fg = fgRef.current;
       if (fg) fg.zoom(fg.zoom());
-    }, 250);
-    return () => clearInterval(id);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [thumbnail, stateRef]);
 
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean.
@@ -316,9 +324,14 @@ export default function Graph({
       ) => {
         const t = pulseProgress(stateRef.current, performance.now());
         if (t !== null) {
-          // searching pulse: ring expanding from the graph origin, fading out
+          // searching pulse: ring expanding from the graph origin, fading out.
+          // A card's capped graph spans far fewer than 600 units, so there the
+          // ring stops at the card's corner instead of leaving in a few frames.
+          const reach = thumbnail
+            ? Math.hypot(width, height) / 2 / globalScale
+            : 600;
           ctx.beginPath();
-          ctx.arc(0, 0, t * 600, 0, 2 * Math.PI);
+          ctx.arc(0, 0, t * reach, 0, 2 * Math.PI);
           ctx.strokeStyle = `rgba(126, 249, 255, ${1 - t})`;
           ctx.lineWidth = 3 / globalScale;
           ctx.stroke();
