@@ -39,7 +39,8 @@ const TOOLS = [
     description:
       "Start a Claude Code session for a workspace on the rail that has none " +
       "(jarvis_list shows live: false), the same way its terminal's launch " +
-      "button does. Returns once the session is live; then jarvis_send to it. " +
+      "button does. Returns once the session is ready for input; then " +
+      "jarvis_send to it. " +
       "Fails if the name is unknown or a session already exists.",
     inputSchema: {
       type: "object",
@@ -98,7 +99,11 @@ const TOOLS = [
       "personal task; @project is a workspace name from jarvis_list with " +
       "spaces written as hyphens. Write today's date on every task you add. " +
       "Call this again after each write and fix every line listed in " +
-      "malformed. Then say the next open task in one spoken sentence.",
+      "malformed. Then say the next open task in one spoken sentence. " +
+      "Check a task off ('- [x]') in the same turn the user agrees it is " +
+      "done — they said so or approved the result. A workspace reporting it " +
+      "finished is not agreement. If the user's words could mean more than " +
+      "one open task, ask which.",
     inputSchema: { type: "object", properties: {} },
   },
 ];
@@ -134,11 +139,12 @@ async function callTool(name, args) {
         : textResult(out?.error ?? "send failed", true);
     }
     if (name === "jarvis_launch") {
-      // hook and .mcp.json installs run before the spawn, so allow past 1.5s
+      // installs run before the spawn and the answer waits for the new TUI to
+      // go quiet (up to 20s in main), so allow well past 1.5s
       const out = await post(
         "/orchestrate/launch",
         { workspace: args?.workspace },
-        10000,
+        30000,
       );
       return out?.ok
         ? textResult(`launched ${args?.workspace}`)

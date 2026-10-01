@@ -164,10 +164,16 @@ export default function TerminalPanel({
   // silently become the next one too.
   const [model, setModel] = useState("opus");
   // an exit reaches localStatuses through the pty-exit listener, so a launch
-  // this panel did not make still ends here rather than staying "running"
+  // this panel did not make still ends here rather than staying "running".
+  // main clears `live` on every exit, so live beside a remembered exit means a
+  // later launch this panel did not make (jarvis_launch) — the exit is stale.
+  const local = localStatuses[workspace.id];
   const status: Status =
-    localStatuses[workspace.id] ??
-    (live ? { kind: "running", hooksOk: true } : { kind: "idle" });
+    local && !(local.kind === "exited" && live)
+      ? local
+      : live
+        ? { kind: "running", hooksOk: true }
+        : { kind: "idle" };
   // the reindex command comes from the workspace's own graph source — the
   // panel never names gitnexus, so a graphify workspace gets `/graphify .`
   const [reindexCommand, setReindexCommand] = useState<string | null>(null);
@@ -234,7 +240,6 @@ export default function TerminalPanel({
       exitListeners.delete(onExit);
     };
   }, []);
-
   // Attach the active workspace's terminal element to the panel and keep the
   // pty's cols/rows in step with it. One ResizeObserver covers all the ways
   // the element can change size — window resize, panel drag/resize.

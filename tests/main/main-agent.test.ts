@@ -8,7 +8,6 @@ import {
   FINISH_NUDGE,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
-  BRIEF_WORKSPACE,
   dailyBriefNudge,
   dailyBriefPrompt,
   ensureMainAgent,
@@ -226,23 +225,22 @@ describe("dailyBriefNudge", () => {
   const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
 
   it("fits on one line, since it is typed into a TUI composer", () => {
-    expect(dailyBriefNudge(note)).not.toContain("\n");
+    expect(dailyBriefNudge(note, "My Vault")).not.toContain("\n");
   });
 
   it("delegates to the vault workspace instead of reading the note", () => {
-    const text = dailyBriefNudge(note);
-    expect(BRIEF_WORKSPACE).toBe("Obsidian-valut");
+    const text = dailyBriefNudge(note, "My Vault");
     expect(text).toContain("Do not read the note yourself");
-    expect(text).toContain("jarvis_send to " + BRIEF_WORKSPACE);
+    expect(text).toContain("jarvis_send to My Vault");
     expect(text).toContain("jarvis_launch");
   });
 
   it("forwards the delegate's prompt verbatim", () => {
-    expect(dailyBriefNudge(note)).toContain(dailyBriefPrompt(note));
+    expect(dailyBriefNudge(note, "My Vault")).toContain(dailyBriefPrompt(note));
   });
 
   it("leaves the wait to the finish nudge, not jarvis_watch", () => {
-    expect(dailyBriefNudge(note)).not.toContain("jarvis_watch");
+    expect(dailyBriefNudge(note, "My Vault")).not.toContain("jarvis_watch");
   });
 });
 

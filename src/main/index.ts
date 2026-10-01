@@ -28,10 +28,12 @@ import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
+import { createSettle } from "./settle";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import {
   BRIEF_AFTER_HOUR,
   FINISH_NUDGE,
+  LAUNCH_SETTLE_DEADLINE_MS,
   MAIN_AGENT_MODEL,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
@@ -435,7 +437,14 @@ app.whenReady().then(async () => {
     write: (id, data) => ptyManager.write(id, data),
     // the terminal's own defaults — Opus, permissions on — at placeholder
     // geometry the panel resizes when it attaches, as with the main agent
-    launch: async (ws) => (await launchSession(ws, 80, 24, false, "opus")).ok,
+    // resolves once the new TUI has gone quiet, not at spawn: text written
+    // before raw mode is dropped, and jarvis_send follows this immediately
+    launch: async (ws) => {
+      const settled = settle.wait(ws.id, LAUNCH_SETTLE_DEADLINE_MS);
+      if (!(await launchSession(ws, 80, 24, false, "opus")).ok) return false;
+      await settled;
+      return true;
+    },
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (id, by) =>
       pushStatus(status.markDelegated(id, by, Date.now())),
@@ -502,27 +511,14 @@ app.whenReady().then(async () => {
     }
     return ptySpawn;
   };
-  // The briefing waits for the main agent's TUI to stop painting. Text
-  // written before raw mode is dropped, and --continue loads a transcript
-  // first — every chunk pushes the timer out, and SETTLE_MS of silence means
-  // the prompt is ready.
-  let settleTimer: ReturnType<typeof setTimeout> | null = null;
-  let onMainSettled: (() => void) | null = null;
-  const bumpSettle = (id: string) => {
-    if (!onMainSettled || id !== mainAgent.id) return;
-    if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = setTimeout(() => {
-      const fire = onMainSettled;
-      onMainSettled = null;
-      fire?.();
-    }, SETTLE_MS);
-  };
+  // the briefing and jarvis_launch both wait for a new session to stop painting
+  const settle = createSettle(SETTLE_MS);
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
       onData: (id, data) => {
         send("pty-data", id, data);
-        bumpSettle(id);
+        settle.bump(id);
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
@@ -640,45 +636,46 @@ app.whenReady().then(async () => {
     const resume = await hasTranscript(
       transcriptDir(os.homedir(), mainAgent.rootPath),
     );
-    // read before the launch: bumpSettle ignores output until onMainSettled
-    // is set, so a session that finished painting during these awaits would
-    // never start the settle timer
     const briefing = await readBriefing(userData);
     const note = briefing.notesDir ? await newestNote(briefing.notesDir) : null;
+    // the vault workspace reads the note; without one there is no one to ask
+    const briefTo = workspaces.find((w) => w.kind === "vault" && !w.isSelf);
     // lastBriefed is the briefing's own record, not a transcript mtime: an
     // mtime gate is cancelled by any overnight write, and the morning
     // briefing would silently never fire.
     const due =
       note !== null &&
+      briefTo !== undefined &&
       resume &&
       briefing.lastBriefed !== todayLocal() &&
       new Date().getHours() >= BRIEF_AFTER_HOUR;
+    // registered before the launch so the first chunk starts the timer; a
+    // session still busy at the deadline skips the day rather than typing
+    // over it
+    const settled = due
+      ? settle.wait(mainAgent.id, SETTLE_DEADLINE_MS)
+      : Promise.resolve(false);
     // placeholder geometry — the terminal panel resizes the pty the moment it
     // attaches, so this size never reaches the screen
     ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
-    if (due && note) {
-      onMainSettled = () => {
-        // same two-write shape as every other nudge: one arriving chunk is a
-        // paste, so a trailing CR would land as a newline in the composer
-        if (!ptyManager.write(mainAgent.id, dailyBriefNudge(note))) return;
-        setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
-        // re-read: the folder may have been picked since boot, and the date is
-        // written when the nudge is typed — a failed turn costs that day's
-        // briefing, which is cheaper than a nudge that retries into a live
-        // session
-        void readBriefing(userData)
-          .then((b) =>
-            writeBriefing(userData, { ...b, lastBriefed: todayLocal() }),
-          )
-          .catch(console.error);
-      };
-      // a session already busy at boot skips the day rather than typing over it
-      setTimeout(() => {
-        onMainSettled = null;
-        if (settleTimer) clearTimeout(settleTimer);
-      }, SETTLE_DEADLINE_MS);
-    }
+    void settled.then((ready) => {
+      if (!ready || !note || !briefTo) return;
+      // same two-write shape as every other nudge: one arriving chunk is a
+      // paste, so a trailing CR would land as a newline in the composer
+      const nudge = dailyBriefNudge(note, briefTo.name);
+      if (!ptyManager.write(mainAgent.id, nudge)) return;
+      setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+      // re-read: the folder may have been picked since boot, and the date is
+      // written when the nudge is typed — a failed turn costs that day's
+      // briefing, which is cheaper than a nudge that retries into a live
+      // session
+      void readBriefing(userData)
+        .then((b) =>
+          writeBriefing(userData, { ...b, lastBriefed: todayLocal() }),
+        )
+        .catch(console.error);
+    });
   } catch (err) {
     // no claude on PATH, node-pty failed to load, or the folder could not be
     // created. There is no terminal open yet to print into, so the console is

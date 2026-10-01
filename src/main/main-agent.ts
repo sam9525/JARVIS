@@ -142,12 +142,11 @@ export const SETTLE_MS = 1000;
  * quiet skips the day rather than typing over live work. */
 export const SETTLE_DEADLINE_MS = 60_000;
 
-/** The workspace that reads the daily note. The main agent delegates to it
- * rather than reading the note itself, so the summary comes back through the
- * ordinary finish nudge like any other delegate's turn. */
-export const BRIEF_WORKSPACE = "Obsidian-valut";
+/** How long jarvis_launch waits for a new session to go quiet before it
+ * answers anyway. Kept under the abort bound mcp.mjs gives that route. */
+export const LAUNCH_SETTLE_DEADLINE_MS = 20_000;
 
-/** The prompt the main agent hands to BRIEF_WORKSPACE: fixed text plus one
+/** The prompt the main agent hands to the vault workspace: fixed text plus one
  * absolute path, so the app still composes nothing about the work. The answer
  * is read as text; the main agent's finish summary is what gets spoken. */
 export const dailyBriefPrompt = (notePath: string): string =>
@@ -158,15 +157,17 @@ export const dailyBriefPrompt = (notePath: string): string =>
   "mentions: what moved, and what is still open. Say nothing about a project " +
   "the file does not mention.";
 
-/** Typed into the main agent's session on the first launch of a day. It
- * carries the delegate's prompt verbatim, so the agent forwards the wording
- * rules instead of paraphrasing them. */
-export const dailyBriefNudge = (notePath: string): string =>
+/** Typed into the main agent's session on the first launch of a day. The
+ * main agent delegates the note to `workspace` — the vault workspace — rather
+ * than reading it itself, so the summary comes back through the ordinary
+ * finish nudge. It carries the delegate's prompt verbatim, so the agent
+ * forwards the wording rules instead of paraphrasing them. */
+export const dailyBriefNudge = (notePath: string, workspace: string): string =>
   "Daily briefing. Do not read the note yourself. Delegate it to the " +
-  BRIEF_WORKSPACE +
+  workspace +
   " workspace: if jarvis_list shows it has no session, call jarvis_launch " +
   "for it first, then call jarvis_send to " +
-  BRIEF_WORKSPACE +
+  workspace +
   " with exactly this prompt: " +
   dailyBriefPrompt(notePath) +
   " Then stop; you will be woken when it finishes.";
