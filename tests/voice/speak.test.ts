@@ -3,7 +3,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   DEAF_TAIL_MS,
-  headline,
+  spokenSummary,
+  SUMMARY_MAX,
   isSounding,
   isSpeaking,
   nextUtterance,
@@ -62,15 +63,19 @@ describe("nextUtterance", () => {
     ).toBe("Jarvis, build is green");
   });
 
-  it("speaks only the headline of a multi-paragraph message", () => {
+  it("summarises a multi-paragraph message by each lead sentence", () => {
     expect(
-      nextUtterance(status("Headline.\n\nProject one moved."), nothing, false),
-    ).toBe("Headline.");
+      nextUtterance(
+        status("Headline. Detail.\n\nProject one moved. Body."),
+        nothing,
+        false,
+      ),
+    ).toBe("Headline. Project one moved.");
   });
 
   // a jarvis_say line is stored whole, and the turn-end copy compared by its
-  // headline would never match it and be spoken a second time
-  it("compares a jarvis_say line by its headline", () => {
+  // summary would never match it and be spoken a second time
+  it("compares a jarvis_say line by its summary", () => {
     expect(
       nextUtterance(
         status("Headline.\n\nProject one moved."),
@@ -498,26 +503,64 @@ describe("mouthOpen — the jaw curve", () => {
   });
 });
 
-describe("headline", () => {
+describe("spokenSummary", () => {
   it("returns a one-paragraph message whole", () => {
-    expect(headline("build is green")).toBe("build is green");
+    expect(spokenSummary("build is green. Tests pass.")).toBe(
+      "build is green. Tests pass.",
+    );
   });
 
-  it("returns the first paragraph of a multi-paragraph message", () => {
+  it("joins the lead sentence of every paragraph", () => {
     expect(
-      headline("Three projects moved.\n\nJARVIS: shipped.\n\nVault: idle."),
-    ).toBe("Three projects moved.");
+      spokenSummary(
+        "Three projects moved.\n\nJARVIS: shipped. Tag pushed.\n\nVault: idle!",
+      ),
+    ).toBe("Three projects moved. JARVIS: shipped. Vault: idle!");
+  });
+
+  it("does not split a sentence on a dot inside a word", () => {
+    expect(spokenSummary("Shipped 0.4.4 today. Tagged.\n\nNext.")).toBe(
+      "Shipped 0.4.4 today. Next.",
+    );
+  });
+
+  it("keeps a paragraph with no sentence end whole", () => {
+    expect(spokenSummary("One\n\nTwo")).toBe("One Two");
   });
 
   it("treats a blank line holding spaces as a break", () => {
-    expect(headline("Headline.\n   \nBody.")).toBe("Headline.");
+    expect(spokenSummary("Headline.\n   \nBody.")).toBe("Headline. Body.");
   });
 
   it("keeps a single newline inside one paragraph", () => {
-    expect(headline("one\ntwo")).toBe("one\ntwo");
+    expect(spokenSummary("one\ntwo")).toBe("one\ntwo");
+  });
+
+  it("stops at the last sentence under the cap", () => {
+    const long = "x".repeat(SUMMARY_MAX) + ".";
+    expect(spokenSummary(`Short.\n\n${long}\n\nTail.`)).toBe("Short.");
+    // a lead sentence too long on its own is cut rather than dropped
+    expect(spokenSummary(`${long}\n\nTail.`)).toHaveLength(SUMMARY_MAX);
   });
 
   it("is empty for an empty message", () => {
-    expect(headline("  \n ")).toBe("");
+    expect(spokenSummary("  \n ")).toBe("");
+  });
+
+  it("caps a single long paragraph at its last sentence under the cap", () => {
+    const sentence = "y".repeat(300) + ".";
+    expect(spokenSummary(`${sentence} ${sentence}`)).toBe(sentence);
+  });
+
+  it("does not end a lead sentence at an abbreviation", () => {
+    expect(spokenSummary("Fix it, e.g. the cap. More.\n\nNext.")).toBe(
+      "Fix it, e.g. the cap. Next.",
+    );
+  });
+
+  it("does not read markdown marks aloud", () => {
+    expect(spokenSummary("## Status\n\n- **Build** is `green`.")).toBe(
+      "Status Build is green.",
+    );
   });
 });

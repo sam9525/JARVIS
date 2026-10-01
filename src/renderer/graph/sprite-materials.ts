@@ -31,17 +31,42 @@ function makeGlowTexture(): CanvasTexture {
   return new CanvasTexture(canvas);
 }
 
+const RING_SIZE = 128;
+const RING_LINE = 8;
+
+/** Sprite scales, in sphere radii, for Graph3D's node rings. */
+export const RING_SCALE = {
+  read: 3,
+  modified: 3,
+  readOutsideModified: 3.8,
+  match: 3.3,
+  focus: 3.6,
+};
+
+/** Where a ring sprite of this scale draws its stroke: [inner, outer] in
+ * sphere radii. The sprite sits at the sphere's centre, so anything under 1
+ * is hidden behind the sphere. */
+export function ringBand(scale: number): [number, number] {
+  const half = RING_SIZE / 2;
+  const toSphere = scale / 2 / half;
+  const centre = half - RING_LINE;
+  return [
+    (centre - RING_LINE / 2) * toSphere,
+    (centre + RING_LINE / 2) * toSphere,
+  ];
+}
+
 // hollow white circle; tinted per use via material.color
 function makeRingTexture(): CanvasTexture {
-  const size = 128;
+  const size = RING_SIZE;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
   ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 8;
+  ctx.lineWidth = RING_LINE;
   ctx.beginPath();
-  ctx.arc(size / 2, size / 2, size / 2 - 8, 0, 2 * Math.PI);
+  ctx.arc(size / 2, size / 2, size / 2 - RING_LINE, 0, 2 * Math.PI);
   ctx.stroke();
   return new CanvasTexture(canvas);
 }

@@ -38,6 +38,8 @@ const ASK_W = 560;
 const ASK_H = 420;
 const TODOS_W = 380;
 export const COMPOSE_W = 340;
+const VIEW_W = 380;
+const VIEW_H = 240;
 /** tall enough for the text box and a few rows of project chips */
 const COMPOSE_MIN_H = 320;
 /** the space between the to-do list and its composer */
@@ -67,6 +69,7 @@ const FIXED_W: Partial<Record<PanelId, number>> = {
   ask: ASK_W,
   todos: TODOS_W,
   compose: COMPOSE_W,
+  view: VIEW_W,
 };
 /** the picker is a fixed 520px canvas, so its panel is sized in pixels too */
 const MOUTH_W = 720;
@@ -143,6 +146,21 @@ export function besideTodos(todos: PanelState, vp: Viewport): PanelState {
       y: todos.y,
       w: COMPOSE_W,
       h: Math.max(todos.h, COMPOSE_MIN_H),
+      collapsed: false,
+      z: todos.z,
+    },
+    vp,
+  );
+}
+
+/** The to-do view opens in the middle of the window. */
+export function centredView(todos: PanelState, vp: Viewport): PanelState {
+  return clampToViewport(
+    {
+      x: Math.round((vp.width - VIEW_W) / 2),
+      y: Math.round((vp.height - VIEW_H) / 2),
+      w: VIEW_W,
+      h: VIEW_H,
       collapsed: false,
       z: todos.z,
     },
@@ -325,20 +343,23 @@ export function rescaleAll(
     [PanelId, PanelState]
   >) {
     // A fixed-width panel keeps its width, so scaling both its edges apart
-    // would leave it floating between them. It holds the gap to whichever
-    // bezel edge it already sits nearer instead, which keeps a docked column
-    // docked.
+    // would leave it floating between them. It holds its offset from whichever
+    // anchor it already sits nearest — left edge, window centre or right edge
+    // — which keeps a docked column docked and a centred box centred.
     const fixed = FIXED_W[id] !== undefined;
     const leftGap = p.x - BEZEL_INSET;
     const rightGap = from.width - BEZEL_INSET - (p.x + p.w);
+    const centreOff = p.x + p.w / 2 - from.width / 2;
+    const anchor =
+      Math.abs(centreOff) < Math.min(leftGap, rightGap)
+        ? Math.round(to.width / 2 + centreOff - p.w / 2)
+        : leftGap <= rightGap
+          ? p.x
+          : to.width - BEZEL_INSET - rightGap - p.w;
     next[id] = clampToViewport(
       {
         ...p,
-        x: fixed
-          ? leftGap <= rightGap
-            ? p.x
-            : to.width - BEZEL_INSET - rightGap - p.w
-          : Math.round(BEZEL_INSET + leftGap * fx),
+        x: fixed ? anchor : Math.round(BEZEL_INSET + leftGap * fx),
         y: Math.round(TOP_INSET + (p.y - TOP_INSET) * fy),
         w: fixed ? p.w : Math.round(p.w * fx),
         h: Math.round(p.h * fy),
@@ -346,6 +367,14 @@ export function rescaleAll(
       to,
     );
   }
+  // the composer belongs to the list: it keeps its offset from the list
+  // rather than anchoring on its own and drifting apart from it
+  const { todos, compose } = panels;
+  if (todos && compose && next.todos && next.compose)
+    next.compose = clampToViewport(
+      { ...next.compose, x: next.todos.x + compose.x - todos.x },
+      to,
+    );
   return next;
 }
 

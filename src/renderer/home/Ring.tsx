@@ -52,6 +52,10 @@ type RingProps = {
   actionsRef: React.MutableRefObject<HandActions>; // hand gestures land here
   onIndex: (workspaceId: string) => void;
   onOpen: (ws: Workspace) => void;
+  // the ring unmounts whenever you leave it, so the owner keeps which
+  // workspace was centred and the ring opens back onto it
+  centreId: string | null;
+  onCentre: (workspaceId: string) => void;
 };
 
 // Every workspace on one rotating ring, the centred one's graph in the hollow
@@ -73,9 +77,14 @@ export default function Ring({
   actionsRef,
   onIndex,
   onOpen,
+  centreId,
+  onCentre,
 }: RingProps) {
   const count = workspaces.length;
-  const [rotation, setRotation] = useState(0);
+  const [rotation, setRotation] = useState(() => {
+    const i = workspaces.findIndex((w) => w.id === centreId);
+    return i > 0 ? rotationTo(i, 0, count) : 0;
+  });
   const [settledId, setSettledId] = useState<string | null>(null);
   // tiles animate to their new positions, except while a drag/wheel is driving
   // them — a transition mid-drag just lags behind the pointer
@@ -115,6 +124,11 @@ export default function Ring({
     );
     return () => clearTimeout(t);
   }, [rotation, centeredIndex, workspaces]);
+
+  useEffect(() => {
+    const id = workspaces[centeredIndex]?.id;
+    if (id) onCentre(id);
+  }, [centeredIndex, workspaces, onCentre]);
 
   useEffect(() => () => clearTimeout(wheelSnap.current), []);
 

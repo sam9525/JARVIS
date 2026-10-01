@@ -83,6 +83,8 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   actionsRef: { current: {} as HandActions },
   onIndex: () => undefined,
   onOpen: () => undefined,
+  centreId: null,
+  onCentre: () => undefined,
   ...over,
 });
 
@@ -150,6 +152,21 @@ describe("Ring", () => {
     render(<Ring {...(props() as any)} />);
     expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(true);
     expect(byTestId("tile-w2")!.hasAttribute("data-centered")).toBe(false);
+  });
+
+  it("reports the centred workspace and reopens on it after a remount", () => {
+    const onCentre = vi.fn();
+    render(<Ring {...(props({ onCentre }) as any)} />);
+    act(() => byTestId("tile-w3")!.click());
+    expect(onCentre).toHaveBeenLastCalledWith("w3");
+
+    act(() => root.unmount());
+    act(() => {
+      root = createRoot(container);
+    });
+    render(<Ring {...(props({ centreId: "w3" }) as any)} />);
+    expect(byTestId("tile-w3")!.hasAttribute("data-centered")).toBe(true);
+    expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(false);
   });
 
   it("opens the centred tile on click", () => {

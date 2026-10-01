@@ -7,6 +7,7 @@ import {
   heatOf,
   hlKey,
   impactDepth,
+  isRead,
   matchProgress,
   nodeDisplay,
   pulseProgress,
@@ -20,6 +21,8 @@ import { nodeLabelText } from "./node-label";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 
 const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
+// how often a still card checks the store for a new rev
+const IDLE_POLL_MS = 100;
 
 export type GraphHandle = {
   pan(dx: number, dy: number): void; // normalized hand units; content follows the hand
@@ -105,15 +108,29 @@ export default function Graph({
   }, [layoutEpoch]);
 
   // A parked card never runs onRenderFramePost, which is where the open view
-  // expires matches and repaints. Poll the store's rev counter instead and
-  // nudge the canvas on change.
+  // expires matches and repaints. Poll the store instead and nudge the canvas
+  // when its rev changes — every frame while a pulse or match fade is live, so
+  // the ripple animates rather than stepping, and every IDLE_POLL_MS otherwise
+  // so an idle fleet runs no frame callbacks.
+  // ponytail: polling, not a store subscription — a pulse can start up to one
+  // idle poll late; subscribe to the store if that first 100 ms ever shows.
   const lastRev = useRef(-1);
   useEffect(() => {
     if (!thumbnail) return;
-    const id = setInterval(() => {
+    let raf = 0;
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
       const s = stateRef.current;
-      expireMatches(s, performance.now());
-      if (s.rev === lastRev.current) return;
+      const now = performance.now();
+      expireMatches(s, now);
+      const animating =
+        s.frozenAt === undefined &&
+        (pulseProgress(s, now) !== null || matchProgress(s, now) !== null);
+      const changed = s.rev !== lastRev.current;
+      // a fresh rev usually means a pulse just started, so poll per frame next
+      if (animating || changed) raf = requestAnimationFrame(tick);
+      else idle = setTimeout(tick, IDLE_POLL_MS);
+      if (!changed && !animating) return;
       lastRev.current = s.rev;
       // ponytail: force-graph flips its internal needsRedraw on any zoom set,
       // so re-setting the value it already has buys one frame with no visual
@@ -121,8 +138,12 @@ export default function Graph({
       // if force-graph ever exposes a real redraw, use it instead.
       const fg = fgRef.current;
       if (fg) fg.zoom(fg.zoom());
-    }, 250);
-    return () => clearInterval(id);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(idle);
+    };
   }, [thumbnail, stateRef]);
 
   // force-graph mutates node objects (x/y); hand it copies so React state stays clean.
@@ -231,27 +252,34 @@ export default function Graph({
             : colorFor(node.domain, domains, baseHue);
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-        // modified wins, then group color, then domain palette; reads keep
-        // their base color and get a ring instead. heat brightens whichever won.
+        // group color, then domain palette; reads and edits keep their base
+        // color and get rings instead. heat brightens whichever won.
+        const depth = impactDepth(stateRef.current, hk);
         ctx.fillStyle = brighten(
-          d === "modified"
-            ? COLORS.modified
-            : d === "impact"
-              ? radiusColor(
-                  impactDepth(stateRef.current, hk) ?? 1,
-                  groupColor(id, groups) ?? base,
-                )
-              : (groupColor(id, groups) ?? base),
+          depth !== null
+            ? radiusColor(depth, groupColor(id, groups) ?? base)
+            : (groupColor(id, groups) ?? base),
           t,
         );
         ctx.fill();
 
+        const modified = d === "modified";
+        if (modified) {
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
+          ctx.strokeStyle = COLORS.modified;
+          ctx.lineWidth = 1.5 / globalScale;
+          ctx.stroke();
+        }
         if (
           d === "ring" ||
+          (modified && isRead(stateRef.current, hk)) ||
           (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1)
         ) {
           ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
+          // outside the modified ring when a node wears both
+          const gap = modified ? 4.5 : 2.5;
+          ctx.arc(node.x, node.y, r + gap / globalScale, 0, 2 * Math.PI);
           ctx.strokeStyle = d === "impact" ? RADIUS_COLOR : COLORS.ring;
           ctx.lineWidth = 1.5 / globalScale;
           ctx.stroke();
@@ -308,9 +336,14 @@ export default function Graph({
       ) => {
         const t = pulseProgress(stateRef.current, performance.now());
         if (t !== null) {
-          // searching pulse: ring expanding from the graph origin, fading out
+          // searching pulse: ring expanding from the graph origin, fading out.
+          // A card's capped graph spans far fewer than 600 units, so there the
+          // ring stops at the card's corner instead of leaving in a few frames.
+          const reach = thumbnail
+            ? Math.hypot(width, height) / 2 / globalScale
+            : 600;
           ctx.beginPath();
-          ctx.arc(0, 0, t * 600, 0, 2 * Math.PI);
+          ctx.arc(0, 0, t * reach, 0, 2 * Math.PI);
           ctx.strokeStyle = `rgba(126, 249, 255, ${1 - t})`;
           ctx.lineWidth = 3 / globalScale;
           ctx.stroke();

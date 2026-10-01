@@ -185,7 +185,79 @@ describe("mcp.mjs", () => {
       id: 7,
       method: "tools/list",
     });
-    expect(alive.result.tools).toHaveLength(5);
+    expect(alive.result.tools).toHaveLength(7);
+  });
+
+  it("tools/call jarvis_launch POSTs the name to /orchestrate/launch", async () => {
+    const listener = await fakeListener({ ok: true });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 8,
+      method: "tools/call",
+      params: { name: "jarvis_launch", arguments: { workspace: "FinPulse" } },
+    });
+    expect(listener.hits[0].url).toBe("/orchestrate/launch");
+    expect(listener.hits[0].headers["x-jarvis"]).toBe("1");
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "FinPulse",
+    });
+    expect(res.result.isError).toBeUndefined();
+    listener.close();
+  });
+
+  it("a refused launch comes back as a tool error", async () => {
+    const listener = await fakeListener({
+      ok: false,
+      error: "FinPulse already has a live session",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "tools/call",
+      params: { name: "jarvis_launch", arguments: { workspace: "FinPulse" } },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("already has a live session");
+    listener.close();
+  });
+
+  it("tells the agent to ask the user when a launch hits a trust prompt", async () => {
+    const listener = await fakeListener({ ok: true, trustPrompt: "D:\\new" });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "tools/call",
+      params: { name: "jarvis_launch", arguments: { workspace: "New" } },
+    });
+    const text = res.result.content[0].text;
+    expect(text).toContain("D:\\new");
+    expect(text).toContain("Ask the user");
+    expect(text).toContain("jarvis_trust");
+    listener.close();
+  });
+
+  it("tools/call jarvis_trust POSTs the user's answer to /orchestrate/trust", async () => {
+    const listener = await fakeListener({ ok: true });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/call",
+      params: {
+        name: "jarvis_trust",
+        arguments: { workspace: "New", accept: true },
+      },
+    });
+    expect(listener.hits[0].url).toBe("/orchestrate/trust");
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "New",
+      accept: true,
+    });
+    expect(res.result.content[0].text).toContain("ready for jarvis_send");
+    listener.close();
   });
 
   it("lists the two v0.4.1 tools", async () => {

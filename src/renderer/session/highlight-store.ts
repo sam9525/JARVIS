@@ -5,7 +5,8 @@ export const MATCH_MS = 3000; // matched-files glow lifetime
 export const HEAT_CAP = 6; // deliberate touches at which a node is fully hot
 export const FROZEN_PULSE = 0.5; // replay holds the pulse mid-animation — its zero-radius start would draw nothing
 
-type Highlight = { kind: "read" } | { kind: "modified" };
+// `read` on a modified node keeps its read ring beside the modified ring
+type Highlight = { kind: "read" } | { kind: "modified"; read: boolean };
 
 export interface HighlightState {
   sessionId: string | null;
@@ -83,9 +84,11 @@ export function applyEvent(
     state.rev++;
   } else if (e.phase === "pre" && e.tool === "Read" && nodeId) {
     // modified is stronger than read — never downgrade
-    if (state.nodes.get(nodeId)?.kind !== "modified") {
-      state.nodes.set(nodeId, { kind: "read" });
-    }
+    const prev = state.nodes.get(nodeId);
+    state.nodes.set(
+      nodeId,
+      prev?.kind === "modified" ? { ...prev, read: true } : { kind: "read" },
+    );
     if (state.trail[state.trail.length - 1] !== nodeId)
       state.trail.push(nodeId);
     bump(state, nodeId); // every read counts, including the ones trail skips
@@ -95,7 +98,8 @@ export function applyEvent(
     (e.tool === "Edit" || e.tool === "Write") &&
     nodeId
   ) {
-    state.nodes.set(nodeId, { kind: "modified" }); // sticks all session
+    // sticks all session
+    state.nodes.set(nodeId, { kind: "modified", read: isRead(state, nodeId) });
     bump(state, nodeId);
     state.rev++;
   } else if (
@@ -134,6 +138,12 @@ export function nodeDisplay(
   if (h?.kind === "modified") return "modified";
   if (state.impacted?.has(nodeId)) return "impact";
   return h ? "ring" : null;
+}
+
+/** Read this session, whether or not it was modified since. */
+export function isRead(state: HighlightState, nodeId: string): boolean {
+  const h = state.nodes.get(nodeId);
+  return h?.kind === "read" || (h?.kind === "modified" && h.read);
 }
 
 /** Hop count for the radius tiers; null when the node is off the radius. */

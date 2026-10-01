@@ -179,6 +179,14 @@ describe("TerminalPanel attaching to a session it did not launch", () => {
   it("hides it while the workspace reports a live pty", () => {
     expect(overlay(render({ live: true }))).toBeUndefined();
   });
+
+  it("lets a later launch it did not make replace a remembered exit", () => {
+    render();
+    // localStatuses is the second useState; the pty-exit listener writes it
+    states[1] = { [workspace.id]: { kind: "exited", code: 0 } };
+    expect(overlay(render())).toBeDefined();
+    expect(overlay(render({ live: true }))).toBeUndefined();
+  });
 });
 
 describe("TerminalPanel inbox", () => {

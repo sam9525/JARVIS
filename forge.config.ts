@@ -15,9 +15,17 @@ const config: ForgeConfig = {
     // node-pty loads pty.node and spawns OpenConsole.exe / winpty-agent.exe by
     // real path — neither works from inside an archive.
     asar: { unpack: "**/node_modules/node-pty/**" },
+    // No extension: the packager adds .ico on Windows and .icns on macOS.
+    icon: "assets/icon",
     // Claude Code spawns the hook forwarder and the MCP server itself, so they
     // have to be real files beside the asar rather than entries inside it.
     extraResource: ["src/hook"],
+    // macOS refuses the microphone (voice) and the webcam (hand control) to
+    // an app whose Info.plist gives no reason for them.
+    extendInfo: {
+      NSMicrophoneUsageDescription: "JARVIS listens for voice commands.",
+      NSCameraUsageDescription: "JARVIS tracks your hands to steer the graph.",
+    },
     // Left unset, the Vite plugin ignores everything outside `.vite`, which
     // drops node-pty — the one dependency Vite leaves external and so the one
     // that must ship as a real package. An ancestor of a kept path stays
@@ -36,7 +44,7 @@ const config: ForgeConfig = {
   // nothing; node-gyp would need a Windows SDK this machine doesn't have.
   rebuildConfig: { onlyModules: [] },
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({ setupIcon: "assets/icon.ico" }),
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({}),
     new MakerDeb({}),

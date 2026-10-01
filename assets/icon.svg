@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e2638"/>
+      <stop offset="1" stop-color="#050c14"/>
+    </linearGradient>
+    <radialGradient id="halo" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#5ee6f0" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#5ee6f0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="core" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".55" stop-color="#bff6ff"/>
+      <stop offset="1" stop-color="#5ee6f0"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="53.5" fill="none" stroke="#5ee6f0" stroke-opacity=".25"/>
+  <circle cx="128" cy="128" r="100" fill="url(#halo)"/>
+  <circle cx="128" cy="128" r="86" fill="none" stroke="#5ee6f0" stroke-width="5" opacity=".7"/>
+  <!-- ten segments; the amber one is a busy workspace -->
+  <circle cx="128" cy="128" r="66" fill="none" stroke="#5ee6f0" stroke-width="24" stroke-dasharray="33 8.47" filter="url(#glow)"/>
+  <circle cx="128" cy="128" r="66" fill="none" stroke="#ffb347" stroke-width="24" stroke-dasharray="33 381.69" stroke-dashoffset="82.94" filter="url(#glow)"/>
+  <circle cx="128" cy="128" r="44" fill="none" stroke="#5ee6f0" stroke-width="4" opacity=".8"/>
+  <circle cx="128" cy="128" r="30" fill="url(#core)" filter="url(#glow)"/>
+</svg>

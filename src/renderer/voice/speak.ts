@@ -1,14 +1,52 @@
 import type { WorkspaceStatus } from "../../shared/types";
 
-/** The spoken half of a message: everything before the first blank line.
- * A five-project briefing read aloud in full is a minute of speech that
- * cannot be skipped, and the cloud mouth bills per character. The inbox and
- * the cards still render `message` whole. */
-export const headline = (text: string): string =>
+/** Longest summary the mouth reads — the same cap `jarvis_say` carries. */
+export const SUMMARY_MAX = 500;
+
+// a stop after e.g / i.e / etc / vs is an abbreviation, not a sentence end
+const sentences = (paragraph: string): string[] =>
+  (
+    paragraph.match(
+      /[\s\S]*?(?<!\b(?:e\.g|i\.e|etc|vs))[.!?](?=\s|$)|[\s\S]+$/g,
+    ) ?? []
+  )
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+// headings, bullets and emphasis marks are read aloud literally otherwise
+const plain = (text: string): string =>
   text
+    .replace(/^[ \t]*(?:#{1,6}|[-*+]|\d+[.)])[ \t]+/gm, "")
+    .replace(/\*\*|__|`/g, "");
+
+/** The spoken form of a message: one paragraph whole, several as the lead
+ * sentence of each, joined and cut at the last sentence under `SUMMARY_MAX`.
+ * A five-project briefing read aloud in full is a minute of speech that cannot
+ * be skipped, and the cloud mouth bills per character, so the body is skipped
+ * but every paragraph still gets its point said. The inbox and the cards
+ * render `message` whole.
+ * ponytail: extractive, the app runs no model — only as good as the agent's
+ * lead sentences. */
+export const spokenSummary = (text: string): string => {
+  const paragraphs = plain(text)
     .trim()
-    .split(/\n\s*\n/, 1)[0]
-    .trim();
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const said =
+    paragraphs.length <= 1
+      ? sentences(paragraphs[0] ?? "")
+      : paragraphs.map((p) => sentences(p)[0] ?? p);
+  let summary = "";
+  for (const sentence of said) {
+    const next = summary ? `${summary} ${sentence}` : sentence;
+    if (next.length > SUMMARY_MAX) {
+      return summary || sentence.slice(0, SUMMARY_MAX);
+    }
+    summary = next;
+  }
+  return summary;
+};
 
 /** What the mouth last covered. `at` is the `messageAt` of the turn it
  * covered, or null for a jarvis_say line whose turn has not ended yet. */
@@ -23,18 +61,18 @@ export interface Spoken {
 //
 // A turn is known by its stamp, not its words: the same reply twice is two
 // answers. A jarvis_say line has no turn yet, so its turn-end copy is known
-// by its words — headline on both sides, since the line is stored whole.
+// by its words — summarised on both sides, since the line is stored whole.
 export function nextUtterance(
   status: WorkspaceStatus | undefined,
   spoken: Spoken,
   capturing: boolean,
 ): string | null {
   if (capturing) return null; // never talk over an open dictation
-  const message = headline(status?.message ?? "");
+  const message = spokenSummary(status?.message ?? "");
   if (!message) return null;
   const repeat =
     spoken.at === null
-      ? message === headline(spoken.text)
+      ? message === spokenSummary(spoken.text)
       : status?.messageAt === spoken.at;
   return repeat ? null : message;
 }

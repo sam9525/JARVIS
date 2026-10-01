@@ -87,6 +87,15 @@ a personal task, and today's date on every task you add. Call
 \`jarvis_todos\` again after each edit and fix any line it reports as
 malformed. Answer with the next open task in one spoken sentence.
 
+## Keeping the to-do list current
+
+When you and the user agree a task is complete, mark it done in the same turn:
+call \`jarvis_todos\`, change its \`- [ ]\` to \`- [x]\` with Edit, then call
+\`jarvis_todos\` again and fix anything listed in \`malformed\`. Agreement means the
+user said it is done or approved the result. A workspace reporting it finished
+is not agreement, so do not check a task off on that alone. If the user's words
+could mean more than one open task, ask which.
+
 ## Tools
 
 - \`jarvis_watch\` — take the next finish off the queue, or park until one
@@ -94,6 +103,10 @@ malformed. Answer with the next open task in one spoken sentence.
 - \`jarvis_list\` — every workspace, its status, and its last message. For a
   question about the whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into another workspace's session.
+- \`jarvis_launch\` — start a session for a workspace that has none, before
+  a \`jarvis_send\` to it.
+- \`jarvis_trust\` — answer a new session's folder-trust prompt with the
+  user's own answer, after asking them.
 - \`jarvis_say\` — speak now, mid-turn.
 - \`jarvis_todos\` — open the to-do list on screen and read \`TODO.md\`.
 `;
@@ -131,27 +144,35 @@ export const SETTLE_MS = 1000;
  * quiet skips the day rather than typing over live work. */
 export const SETTLE_DEADLINE_MS = 60_000;
 
-/** Typed into the main agent's session on the first launch of a day. Fixed
- * text plus one absolute path: a location, not a description, so the app
- * still composes nothing about the work.
- *
- * The spoken-summary clause overrides AGENT_GUIDE, which tells the agent its whole
- * turn-end message is read aloud. The guide is written with `wx` and an
- * existing install never sees a new one, so the override travels in the nudge.
- */
-export const dailyBriefNudge = (notePath: string): string =>
+/** How long jarvis_launch waits for a new session to go quiet before it
+ * answers anyway. Kept under the abort bound mcp.mjs gives that route. */
+export const LAUNCH_SETTLE_DEADLINE_MS = 20_000;
+
+/** The prompt the main agent hands to the vault workspace: fixed text plus one
+ * absolute path, so the app still composes nothing about the work. The answer
+ * is read as text; the main agent's finish summary is what gets spoken. */
+export const dailyBriefPrompt = (notePath: string): string =>
   "Daily briefing. Read this one file and nothing else: " +
   notePath +
   ". Its filename carries the date — if it is not yesterday's, say which day " +
-  "it is from in your first line. Then write one short paragraph per project " +
-  "the file mentions: what moved, in a line at most, then what is still open " +
-  "and what to carry on with. Say nothing about a project the file does not " +
-  "mention. Before those paragraphs, open with a short spoken summary: two to " +
-  "four plain sentences that name each project's most important open point " +
-  "or next step, in as few words as possible. No preamble, no list, no file " +
-  "names, no markdown. Then a blank line, then the paragraphs — only that " +
-  "first paragraph is read aloud, so this one reply may carry the rest as " +
-  "text. Read, answer, stop.";
+  "it is from. Then write a summary with one paragraph per project the file " +
+  "mentions: what moved, and what is still open. Say nothing about a project " +
+  "the file does not mention.";
+
+/** Typed into the main agent's session on the first launch of a day. The
+ * main agent delegates the note to `workspace` — the vault workspace — rather
+ * than reading it itself, so the summary comes back through the ordinary
+ * finish nudge. It carries the delegate's prompt verbatim, so the agent
+ * forwards the wording rules instead of paraphrasing them. */
+export const dailyBriefNudge = (notePath: string, workspace: string): string =>
+  "Daily briefing. Do not read the note yourself. Delegate it to the " +
+  workspace +
+  " workspace: if jarvis_list shows it has no session, call jarvis_launch " +
+  "for it first, then call jarvis_send to " +
+  workspace +
+  " with exactly this prompt: " +
+  dailyBriefPrompt(notePath) +
+  " Then stop; you will be woken when it finishes.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes
  * are re-run every boot: a wiped userData self-heals. */

@@ -164,6 +164,23 @@ describe("TodoComposer", () => {
     expect($('[data-testid="todo-error"]').textContent).toContain("stale");
   });
 
+  it("offers projects after @ and moves the pick into the project", async () => {
+    const { onOp } = render();
+    type("Fix the ring @");
+    const offered = () =>
+      [...container.querySelectorAll('[role="option"]')].map(
+        (b) => b.textContent,
+      );
+    expect(offered()).toEqual(["@JARVIS", "@AeroGraph"]);
+    type("Fix the ring @ja");
+    expect(offered()).toEqual(["@JARVIS"]);
+    await key("Enter");
+    expect(textBox().value).toBe("Fix the ring");
+    expect(pressed()).toBe("JARVIS");
+    expect(offered()).toEqual([]);
+    expect(onOp).not.toHaveBeenCalled();
+  });
+
   it("ignores Enter while an IME is composing", async () => {
     const { onOp } = render(EDIT);
     await key("Enter", true);

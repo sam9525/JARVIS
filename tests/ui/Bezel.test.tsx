@@ -55,7 +55,7 @@ describe("Bezel", () => {
     expect(html).not.toContain("boot-slide");
   });
 
-  it("makes every chrome layer pointer-transparent except footLeft", () => {
+  it("makes every chrome layer pointer-transparent, footLeft included", () => {
     // asserting the string appears *somewhere* proves nothing — the vignette
     // alone would satisfy it while four labels silently block the graph
     const el = Bezel(PROPS) as React.ReactElement<any>;
@@ -63,10 +63,10 @@ describe("Bezel", () => {
     const cls = (n: any) => String(n?.props?.className ?? "");
     const foot = layers.find((n) => cls(n).includes("z-[16]"));
     expect(foot).toBeDefined();
-    expect(cls(foot)).not.toContain("pointer-events-none");
-    const others = layers.filter((n) => n !== foot);
-    expect(others.length).toBeGreaterThan(3);
-    for (const layer of others)
+    // the slot spans the window bottom, over the ring view's front tile —
+    // its clickable content opts back in itself
+    expect(layers.length).toBeGreaterThan(4);
+    for (const layer of layers)
       expect(cls(layer)).toContain("pointer-events-none");
   });
 

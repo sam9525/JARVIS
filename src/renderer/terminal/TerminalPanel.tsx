@@ -81,7 +81,15 @@ const BAR: Record<StatusKind, string> = {
 // switches and panel collapse/expand — the component only attaches them.
 const entries = new Map<string, Entry>();
 const exitListeners = new Set<(id: string, code: number) => void>();
+const typedListeners = new Set<(id: string) => void>();
 let subscribed = false;
+
+/** Fires when a person types text or Enter into a workspace's terminal.
+ *  Escape sequences (arrows, xterm's own focus reports) do not count. */
+export function onTerminalTyped(fn: (id: string) => void): () => void {
+  typedListeners.add(fn);
+  return () => typedListeners.delete(fn);
+}
 
 // module-scope and permanent by design: these feed terminals that outlive
 // any one mount, so the disposers are deliberately dropped
@@ -108,7 +116,13 @@ function entryFor(id: string): Entry {
     el.style.width = "100%";
     el.style.height = "100%";
     term.open(el);
-    term.onData((d) => window.jarvis.ptyInput(id, d));
+    term.onData((d) => {
+      window.jarvis.ptyInput(id, d);
+      // arrow keys move through a question without answering it; a bare Esc
+      // dismisses it, so that one counts as typing
+      if (d === "\x1b" || !d.startsWith("\x1b"))
+        for (const l of typedListeners) l(id);
+    });
     e = { term, fit, el };
     entries.set(id, e);
   }
@@ -153,10 +167,16 @@ export default function TerminalPanel({
   // silently become the next one too.
   const [model, setModel] = useState("opus");
   // an exit reaches localStatuses through the pty-exit listener, so a launch
-  // this panel did not make still ends here rather than staying "running"
+  // this panel did not make still ends here rather than staying "running".
+  // main clears `live` on every exit, so live beside a remembered exit means a
+  // later launch this panel did not make (jarvis_launch) — the exit is stale.
+  const local = localStatuses[workspace.id];
   const status: Status =
-    localStatuses[workspace.id] ??
-    (live ? { kind: "running", hooksOk: true } : { kind: "idle" });
+    local && !(local.kind === "exited" && live)
+      ? local
+      : live
+        ? { kind: "running", hooksOk: true }
+        : { kind: "idle" };
   // the reindex command comes from the workspace's own graph source — the
   // panel never names gitnexus, so a graphify workspace gets `/graphify .`
   const [reindexCommand, setReindexCommand] = useState<string | null>(null);
@@ -223,7 +243,6 @@ export default function TerminalPanel({
       exitListeners.delete(onExit);
     };
   }, []);
-
   // Attach the active workspace's terminal element to the panel and keep the
   // pty's cols/rows in step with it. One ResizeObserver covers all the ways
   // the element can change size — window resize, panel drag/resize.

@@ -54,12 +54,16 @@ function setup(
     live?: string[]; // workspace ids with a PTY
     writeFails?: boolean; // PTY died between the probe and the write
     sayFails?: boolean; // no renderer window listening
+    launchFails?: boolean; // spawn threw — no claude on PATH
+    trusted?: boolean | null; // ~/.claude.json's answer for every folder
+    exitsOnKeys?: boolean; // the trust prompt took the keys as "No"
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
   const delegated: Array<[string, string]> = [];
   const said: string[] = [];
   const nudges: number[] = [];
+  const launched: string[] = [];
   const live = new Set(over.live ?? ["d:/aero"]);
   const orch = createOrchestrator({
     getWorkspaces: () => workspaces,
@@ -81,8 +85,19 @@ function setup(
     nudgeMain: () => {
       nudges.push(Date.now());
     },
+    launch: async (ws) => {
+      if (over.launchFails) return false;
+      launched.push(ws.id);
+      live.add(ws.id);
+      return true;
+    },
+    isTrusted: async () => (over.trusted === undefined ? true : over.trusted),
+    waitQuiet: async (id) => {
+      if (over.exitsOnKeys) live.delete(id);
+      return true;
+    },
   });
-  return { orch, writes, delegated, said, nudges };
+  return { orch, writes, delegated, said, nudges, launched };
 }
 
 describe("orchestrate.list", () => {
@@ -371,5 +386,99 @@ describe("orchestrate.say", () => {
   it("errors rather than going silent when no renderer is listening", () => {
     const { orch } = setup({ sayFails: true });
     expect(orch.say("hello").ok).toBe(false);
+  });
+});
+
+describe("orchestrate.launch", () => {
+  it("starts a session for a named workspace that has none", async () => {
+    const { orch, launched } = setup({ live: [] });
+    expect(await orch.launch("finpulse")).toEqual({ ok: true });
+    expect(launched).toEqual(["d:/fin"]);
+    // the session is live, so a send goes straight through
+    expect(orch.send("FinPulse", "go").ok).toBe(true);
+  });
+
+  it("names the rail's workspaces when the target is unknown", async () => {
+    const { orch, launched } = setup({ live: [] });
+    const out = await orch.launch("Nope");
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("AeroGraph");
+    expect(launched).toEqual([]);
+  });
+
+  it("refuses a workspace that already has a session", async () => {
+    const { orch, launched } = setup({ live: ["d:/aero"] });
+    const out = await orch.launch("AeroGraph");
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("already has a live session");
+    expect(launched).toEqual([]);
+  });
+
+  it("refuses the orchestrator itself", async () => {
+    const { orch, launched } = setup({ live: [] });
+    expect((await orch.launch("JARVIS")).ok).toBe(false);
+    expect(launched).toEqual([]);
+  });
+
+  it("reports a spawn failure", async () => {
+    const { orch } = setup({ live: [], launchFails: true });
+    const out = await orch.launch("FinPulse");
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("failed to start");
+  });
+
+  it("names the folder when the new session asks to be trusted", async () => {
+    const { orch } = setup({ live: [], trusted: false });
+    const out = await orch.launch("FinPulse");
+    expect(out).toEqual({ ok: true, trustPrompt: "D:\\fin" });
+  });
+});
+
+describe("orchestrate.trust", () => {
+  it("selects Yes with Down then Enter, as two writes", async () => {
+    const { orch, writes } = setup({ live: ["d:/fin"], trusted: false });
+    expect(await orch.trust("FinPulse", true)).toEqual({ ok: true });
+    expect(writes).toEqual([
+      ["d:/fin", "\x1b[B"],
+      ["d:/fin", "\r"],
+    ]);
+  });
+
+  it("declines with Enter alone, on the highlighted No", async () => {
+    const { orch, writes } = setup({ live: ["d:/fin"], trusted: false });
+    expect(await orch.trust("FinPulse", false)).toEqual({ ok: true });
+    expect(writes).toEqual([["d:/fin", "\r"]]);
+  });
+
+  it("sends no keys to a folder that is already trusted", async () => {
+    const { orch, writes } = setup({ live: ["d:/fin"], trusted: true });
+    const out = await orch.trust("FinPulse", true);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("already trusted");
+    expect(writes).toEqual([]);
+  });
+
+  it("sends no keys when the trust record cannot be read", async () => {
+    const { orch, writes } = setup({ live: ["d:/fin"], trusted: null });
+    expect((await orch.trust("FinPulse", true)).ok).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("needs a live session", async () => {
+    const { orch } = setup({ live: [], trusted: false });
+    const out = await orch.trust("FinPulse", true);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("launch it first");
+  });
+
+  it("reports a session that exited instead of continuing", async () => {
+    const { orch } = setup({
+      live: ["d:/fin"],
+      trusted: false,
+      exitsOnKeys: true,
+    });
+    const out = await orch.trust("FinPulse", true);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("exited");
   });
 });

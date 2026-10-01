@@ -7,8 +7,10 @@ import {
   heatOf,
   hlKey,
   impactDepth,
+  isRead,
   matchProgress,
   nodeDisplay,
+  pulseProgress,
   type HighlightState,
 } from "../session/highlight-store";
 import { baseNodeColor } from "./domain-colors";
@@ -16,7 +18,7 @@ import { displayRadius, graphMetrics, sphereRadius } from "./graph-metrics";
 import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
-import { useSpriteMaterials } from "./sprite-materials";
+import { RING_SCALE, useSpriteMaterials } from "./sprite-materials";
 import { useMergedLinks } from "./use-merged-links";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 import { clampSpin, decaySpin, SPIN_PER_RAD_S } from "./spin";
@@ -25,9 +27,12 @@ import { nodeLabelText } from "./node-label";
 import {
   ArrowHelper,
   Color,
+  DoubleSide,
   Group,
   LineBasicMaterial,
+  Mesh,
   MeshBasicMaterial,
+  RingGeometry,
   Sprite,
   Vector3,
 } from "three";
@@ -50,6 +55,7 @@ type NodeAdornment = {
   group: Group;
   glow: Sprite;
   readRing: Sprite;
+  modifiedRing: Sprite;
   matchRing: Sprite;
   focusRing: Sprite;
   label: SpriteText;
@@ -383,6 +389,43 @@ export default function Graph3D({
     };
   }, []);
 
+  // searching pulse: the 2D view's expanding ring, turned to face the camera
+  // each frame so it reads as a circle from any orbit angle. It runs per
+  // frame because the 500 ms highlight interval is close to the whole pulse.
+  useEffect(() => {
+    if (lite) return;
+    const scene = fgRef.current?.scene();
+    if (!scene) return;
+    const material = new MeshBasicMaterial({
+      color: COLORS.pulse,
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    const ring = new Mesh(new RingGeometry(0.99, 1, 128), material);
+    ring.visible = false;
+    scene.add(ring);
+    let raf = 0;
+    const tick = () => {
+      const t = pulseProgress(stateRef.current, performance.now());
+      ring.visible = t !== null && t > 0;
+      if (t !== null && t > 0) {
+        ring.scale.setScalar(t * 600);
+        material.opacity = 1 - t;
+        const cam = fgRef.current?.camera();
+        if (cam) ring.quaternion.copy(cam.quaternion);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      scene.remove(ring);
+      ring.geometry.dispose();
+      material.dispose();
+    };
+  }, [lite, stateRef]);
+
   // fly the camera to focusZoom units from the focused node, looking at a
   // point shifted left of it so the node lands in the visible area right of
   // the left-docked preview card (3D analog of 2D's panel/2 centerAt offset);
@@ -478,20 +521,19 @@ export default function Graph3D({
     else rotationCtl.current?.arm();
   }, [rotationPaused]);
 
-  // highlights always win, then group color, then domain palette; heat
+  // the impact tier wins, then group color, then domain palette; heat
   // brightens whichever won rather than replacing it
   const displayColor = useCallback(
     (node: NodeObj): string => {
       const id = String(node.id);
       const hk = hlKey(node as { id: string | number; file?: string });
       const t = heatOf(stateRef.current, hk);
-      // modified recolors the sphere; a read gets a ring sprite (Task 3)
-      const d = nodeDisplay(stateRef.current, hk);
-      if (d === "modified") return brighten(COLORS.modified, t);
-      if (d === "impact")
+      // reads and edits keep the sphere's colour and get ring sprites
+      const depth = impactDepth(stateRef.current, hk);
+      if (depth !== null)
         return brighten(
           radiusColor(
-            impactDepth(stateRef.current, hk) ?? 1,
+            depth,
             baseNodeColor(
               { id, type: node.type, domain: node.domain },
               domains,
@@ -527,19 +569,27 @@ export default function Graph3D({
       const d = nodeDisplay(stateRef.current, hk);
       item.glow.scale.setScalar(sphereR * 4);
       item.glow.material = materials.glow(displayColor(node));
-      item.readRing.scale.setScalar(sphereR * 3);
+      const modified = d === "modified";
+      const readToo = modified && isRead(stateRef.current, hk);
+      item.modifiedRing.scale.setScalar(sphereR * RING_SCALE.modified);
+      item.modifiedRing.visible = modified;
+      // steps outside the modified ring when a node wears both
+      item.readRing.scale.setScalar(
+        sphereR * (readToo ? RING_SCALE.readOutsideModified : RING_SCALE.read),
+      );
       item.readRing.material = materials.ring(
         d === "impact" ? RADIUS_COLOR : COLORS.ring,
       );
       // a shallow impact keeps a ring too, in the radius colour
       item.readRing.visible =
         d === "ring" ||
+        readToo ||
         (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1);
-      item.matchRing.scale.setScalar(sphereR * 3.3);
+      item.matchRing.scale.setScalar(sphereR * RING_SCALE.match);
       item.matchRing.visible =
         matchProgress(stateRef.current, now) !== null &&
         stateRef.current.matched.has(hk);
-      item.focusRing.scale.setScalar(sphereR * 3.6);
+      item.focusRing.scale.setScalar(sphereR * RING_SCALE.focus);
       item.focusRing.visible = id === focusNode;
       item.label.position.set(0, -(r + 4), 0);
     },
@@ -653,6 +703,7 @@ export default function Graph3D({
         const group = new Group();
         const glow = new Sprite(materials.glow(displayColor(node)));
         const readRing = new Sprite(materials.ring(COLORS.ring));
+        const modifiedRing = new Sprite(materials.ring(COLORS.modified));
         const matchRing = new Sprite(materials.ring(COLORS.match));
         const focusRing = new Sprite(materials.ring(COLORS.hover));
         const label = new SpriteText(nodeLabelText(id, node.type));
@@ -661,10 +712,19 @@ export default function Graph3D({
         label.visible = sprites.current.get(id)?.visible ?? true;
         group.add(glow);
         group.add(readRing);
+        group.add(modifiedRing);
         group.add(matchRing);
         group.add(focusRing);
         group.add(label as unknown as Sprite);
-        item = { group, glow, readRing, matchRing, focusRing, label };
+        item = {
+          group,
+          glow,
+          readRing,
+          modifiedRing,
+          matchRing,
+          focusRing,
+          label,
+        };
         nodeAdornments.current.set(id, item);
         sprites.current.set(id, label);
       }

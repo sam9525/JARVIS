@@ -16,8 +16,9 @@ type BezelProps = {
 };
 
 // Fixed window chrome, layer z10, plus the z50 overlay. Everything here is
-// pointer-transparent except `footLeft`, which carries the replay scrubber on
-// the workspace layout and must stay clickable.
+// pointer-transparent, `footLeft` included: its box spans the window width
+// above the ring view's front tile, so whatever inside it must stay
+// clickable (the replay scrubber) opts back in with pointer-events-auto.
 export default function Bezel({
   title,
   telemetry,
@@ -71,7 +72,7 @@ export default function Bezel({
       {/* stops short of footRight rather than spanning: the scrubber's fill is
           near-opaque and sits higher, so a full-width bar hides the read/edit
           telemetry on every workspace with a non-empty event log */}
-      <div className="absolute right-[220px] bottom-3 left-8 z-[16]">
+      <div className="pointer-events-none absolute right-[220px] bottom-3 left-8 z-[16]">
         {footLeft}
       </div>
       <div

@@ -4,18 +4,25 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+// values handed to the next useState calls in order: index, sent, typed
+const seeded = vi.hoisted(() => [] as any[]);
+
 vi.mock("react", async () => {
   const actual = (await vi.importActual("react")) as any;
   return {
     ...actual,
     useState: (init: any) => [
-      typeof init === "function" ? init() : init,
+      seeded.length
+        ? seeded.shift()
+        : typeof init === "function"
+          ? init()
+          : init,
       () => {},
     ],
   };
 });
 
-import AskPanel, { answerKeys } from "../../src/renderer/ui/AskPanel";
+import AskPanel, { answerKeys, pickAsk } from "../../src/renderer/ui/AskPanel";
 import type { AskPrompt } from "../../src/main/ask-mapper";
 
 // depth-first, source order
@@ -80,7 +87,56 @@ describe("AskPanel", () => {
     );
     expect(rows).toHaveLength(2);
     rows[1].props.onClick();
-    expect(onAnswer).toHaveBeenCalledWith(answerKeys(1, 2));
+    // two options plus Claude Code's own "Type something." row
+    expect(onAnswer).toHaveBeenCalledWith([answerKeys(1, 3), "\r"]);
+  });
+
+  it("types a free answer into the Type something row", () => {
+    const onAnswer = vi.fn();
+    seeded.push(0, false, "  use JWT\n");
+    const tree = (
+      <AskPanel prompt={prompt()} workspaceName="jarvis" onAnswer={onAnswer} />
+    ) as any;
+    walk(tree.type(tree.props))
+      .find((n: any) => n?.props?.["data-testid"] === "ask-typed")
+      .props.onKeyDown({ key: "Enter" });
+    expect(onAnswer).toHaveBeenCalledWith([answerKeys(2, 3), "use JWT", "\r"]);
+  });
+
+  it("confirms the review screen after the last of several questions", () => {
+    const onAnswer = vi.fn();
+    const p = prompt();
+    p.questions.push({ ...p.questions[0], question: "Second?" });
+    const click = () => {
+      const tree = (
+        <AskPanel prompt={p} workspaceName="jarvis" onAnswer={onAnswer} />
+      ) as any;
+      walk(tree.type(tree.props))
+        .find((n: any) => n?.props?.["data-testid"] === "ask-option-0")
+        .props.onClick();
+    };
+    click();
+    expect(onAnswer).toHaveBeenLastCalledWith([answerKeys(0, 3), "\r"]);
+    seeded.push(1);
+    click();
+    expect(onAnswer).toHaveBeenLastCalledWith([answerKeys(0, 3), "\r", "\r"]);
+  });
+
+  it("shows this screen's question first, else the newest in the fleet", () => {
+    const at = (workspaceId: string, ts: number) => ({
+      ...prompt(),
+      workspaceId,
+      ts,
+    });
+    const asks = new Map([
+      ["w1", at("w1", 1)],
+      ["w2", at("w2", 3)],
+      ["w3", at("w3", 2)],
+    ]);
+    expect(pickAsk(asks, "w1")?.workspaceId).toBe("w1");
+    expect(pickAsk(asks, "w9")?.workspaceId).toBe("w2");
+    expect(pickAsk(asks, undefined)?.workspaceId).toBe("w2");
+    expect(pickAsk(new Map(), "w1")).toBeUndefined();
   });
 
   it("gives a multi-select question no click target", () => {

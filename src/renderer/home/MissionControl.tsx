@@ -45,6 +45,15 @@ const TEXT: Record<StatusKind, string> = {
   none: "text-ink-dim",
 };
 
+const BORDER: Record<StatusKind, string> = {
+  working: "border-accent",
+  asking: "border-warm",
+  blocked: "border-warm",
+  idle: "border-edge",
+  crashed: "border-alarm",
+  none: "border-edge",
+};
+
 type MissionControlProps = {
   workspaces: Workspace[];
   mainColors?: Record<string, string>; // workspace id → its main colour
@@ -130,12 +139,8 @@ export default function MissionControl({
               }}
               style={{ width: CARD_W + 26, ...e.style }}
               className={
-                "flex cursor-pointer flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:border-accent " +
-                (kind === "asking" || kind === "blocked"
-                  ? "border-warm"
-                  : kind === "crashed"
-                    ? "border-alarm"
-                    : "border-edge") +
+                "flex cursor-pointer flex-col gap-2.5 rounded-lg border bg-panel p-3 text-left transition-colors hover:ring-1 hover:ring-ink-muted " +
+                BORDER[kind] +
                 e.className
               }
             >

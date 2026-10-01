@@ -137,3 +137,21 @@ describe("useSpriteMaterials", () => {
     texSpy.mockRestore();
   });
 });
+
+// radii in sphere radii: 1 is the sphere's own silhouette
+describe("3D ring layout", () => {
+  it("draws the modified ring clear of the sphere", async () => {
+    const { RING_SCALE, ringBand } =
+      await import("../../src/renderer/graph/sprite-materials");
+    const [inner] = ringBand(RING_SCALE.modified);
+    expect(inner).toBeGreaterThanOrEqual(1.15);
+  });
+
+  it("puts the read ring outside the modified ring when a node wears both", async () => {
+    const { RING_SCALE, ringBand } =
+      await import("../../src/renderer/graph/sprite-materials");
+    const [, modifiedOuter] = ringBand(RING_SCALE.modified);
+    const [readInner] = ringBand(RING_SCALE.readOutsideModified);
+    expect(readInner - modifiedOuter).toBeGreaterThanOrEqual(0.1);
+  });
+});

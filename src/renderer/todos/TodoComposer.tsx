@@ -58,6 +58,23 @@ export default function TodoComposer({
   // drops a project the list does not know
   const choices =
     project && !projects.includes(project) ? [...projects, project] : projects;
+  // a trailing "@partial" offers the projects it could name; picking one
+  // moves it from the text to the project, since TODO.md refuses text that
+  // ends in @word
+  const mention = /(^|\s)@(\S*)$/.exec(text);
+  const matches = mention
+    ? projects.filter((p) =>
+        p
+          .toLowerCase()
+          .replace(/\s+/g, "-")
+          .startsWith(mention[2].toLowerCase()),
+      )
+    : [];
+  const pickMention = (p: string) => {
+    setProject(p);
+    setText(text.slice(0, mention?.index ?? text.length).trimEnd());
+  };
+
   const chip = (value: string, label: string) => {
     const hue = colors[value] ?? NO_HUE;
     const selected = project === value;
@@ -103,7 +120,12 @@ export default function TodoComposer({
           // Esc must not close it from inside a text field
           if (e.key === "Enter" && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            void submit();
+            if (matches.length > 0) pickMention(matches[0]);
+            else void submit();
+          }
+          if (e.key === "Tab" && matches.length > 0) {
+            e.preventDefault();
+            pickMention(matches[0]);
           }
           if (e.key === "Escape") {
             e.stopPropagation();
@@ -112,6 +134,30 @@ export default function TodoComposer({
         }}
         className="min-h-20 flex-1 resize-none rounded border border-accent bg-abyss px-2 py-1.5 text-[13px] leading-normal text-ink outline-none"
       />
+      {matches.length > 0 && (
+        <div
+          data-testid="todo-mentions"
+          role="listbox"
+          className="flex flex-wrap gap-1.5"
+        >
+          {matches.map((p) => (
+            <button
+              key={p}
+              type="button"
+              role="option"
+              aria-selected={p === matches[0]}
+              onClick={() => pickMention(p)}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent py-px pr-2 pl-1.5 text-[11px] text-ink"
+            >
+              <span
+                className="h-[7px] w-[7px] rounded-full"
+                style={{ background: colors[p] ?? NO_HUE }}
+              />
+              @{p}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap gap-1.5">
         {chip("", "Personal")}
         {choices.map((p) => chip(p, p))}

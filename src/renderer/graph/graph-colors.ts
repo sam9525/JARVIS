@@ -1,5 +1,5 @@
-// Shared by Graph (2D canvas) and Graph3D (WebGL). "modified" matches the
-// NodeDisplay value from highlight-store; "ring" is the read-highlight ring,
+// Shared by Graph (2D canvas) and Graph3D (WebGL). "modified" is the edited
+// ring, named for the NodeDisplay value from highlight-store; "ring" is the read-highlight ring,
 // "trail" is the read-order arrows between consecutively read nodes.
 // "match" is the transient glow on files a Grep/Glob actually matched.
 export const COLORS = {
@@ -12,6 +12,7 @@ export const COLORS = {
   modified: "#f59e0b",
   trail: "#ff8fab",
   match: "#a78bfa", // files a search hit — transient, distinct from the read ring
+  pulse: "#7ef9ff", // Graph.tsx's rgba(126, 249, 255)
 } as const;
 
 const HEAT_MIX = 0.55; // how far toward white a fully hot node goes

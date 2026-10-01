@@ -13,6 +13,12 @@ export interface OrchestrateDeps {
   snapshot: () => WorkspaceStatus[];
   hasPty: (workspaceId: string) => boolean;
   write: (workspaceId: string, data: string) => boolean;
+  // the same launch the terminal's button makes; false = spawn failed
+  launch: (ws: Workspace) => Promise<boolean>;
+  // Claude Code's own record of the folder-trust prompt; null = unreadable
+  isTrusted: (ws: Workspace) => Promise<boolean | null>;
+  // resolves once the session's TUI has stopped painting (or a deadline passed)
+  waitQuiet: (workspaceId: string) => Promise<boolean>;
   markDelegated: (workspaceId: string, by: string) => void;
   // false = no renderer listening; say() reports that rather than going silent
   say: (text: string) => boolean;
@@ -34,6 +40,15 @@ export interface FleetEntry {
 
 export type SendResult = { ok: true } | { ok: false; error: string };
 
+/** `trustPrompt` is the folder a fresh session is asking the user to trust —
+ * a send before jarvis_trust answers it would land on that prompt. */
+export type LaunchResult =
+  { ok: true; trustPrompt?: string } | { ok: false; error: string };
+
+// the trust prompt opens on "No, exit": Down moves to "Yes", Enter confirms
+const TRUST_DOWN = "\x1b[B";
+const KEY_GAP_MS = 80;
+
 /** Only a summary is spoken, and this cap is what enforces that: a whole
  * project output pasted in is rejected with an error naming the number. */
 export const MAX_SAY = 500;
@@ -47,6 +62,21 @@ export type WatchResult =
   { workspace: string; message: string } | { timeout: true };
 
 type Finish = { workspace: string; message: string };
+
+function findWorkspace(all: Workspace[], target: string) {
+  const q = String(target ?? "")
+    .trim()
+    .toLowerCase();
+  return all.find((w) => w.name.toLowerCase() === q || w.id === q);
+}
+
+function unknownWorkspace(all: Workspace[], target: string): SendResult {
+  const names = all.map((w) => w.name).join(", ");
+  return {
+    ok: false,
+    error: `no workspace "${target}" — workspaces: ${names}`,
+  };
+}
 
 export function createOrchestrator(deps: OrchestrateDeps) {
   // A Claude Code session cannot act on its own, so jarvis_watch parks until a
@@ -75,17 +105,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
 
     send(target: string, prompt: string): SendResult {
       const all = deps.getWorkspaces();
-      const q = String(target ?? "")
-        .trim()
-        .toLowerCase();
-      const ws = all.find((w) => w.name.toLowerCase() === q || w.id === q);
-      if (!ws) {
-        const names = all.map((w) => w.name).join(", ");
-        return {
-          ok: false,
-          error: `no workspace "${target}" — workspaces: ${names}`,
-        };
-      }
+      const ws = findWorkspace(all, target);
+      if (!ws) return unknownWorkspace(all, target);
       // self-send is the one loop the one-orchestrator topology can't rule out
       if (ws.isSelf) {
         return {
@@ -122,6 +143,86 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       // that dies inside the 80ms leaves the prompt unsubmitted and only surfaces
       // as the delegate going stale in jarvis_list. Await delivery if that bites.
       setTimeout(() => deps.write(ws.id, "\r"), 80);
+      return { ok: true };
+    },
+
+    async launch(target: string): Promise<LaunchResult> {
+      const all = deps.getWorkspaces();
+      const ws = findWorkspace(all, target);
+      if (!ws) return unknownWorkspace(all, target);
+      if (ws.isSelf) {
+        return {
+          ok: false,
+          error: `refused: ${ws.name} is the orchestrator itself`,
+        };
+      }
+      if (deps.hasPty(ws.id)) {
+        return { ok: false, error: `${ws.name} already has a live session` };
+      }
+      // read before the spawn: the session itself writes the flag once answered
+      const trusted = await deps.isTrusted(ws);
+      if (!(await deps.launch(ws))) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session failed to start — is the claude CLI on PATH?`,
+        };
+      }
+      return trusted === false
+        ? { ok: true, trustPrompt: ws.rootPath }
+        : { ok: true };
+    },
+
+    /** Answers a fresh session's folder-trust prompt with the user's choice.
+     * Keys go in only while Claude Code's config still says untrusted, so they
+     * can never land in a live composer. */
+    async trust(target: string, accept: boolean): Promise<SendResult> {
+      const all = deps.getWorkspaces();
+      const ws = findWorkspace(all, target);
+      if (!ws) return unknownWorkspace(all, target);
+      if (ws.isSelf) {
+        return {
+          ok: false,
+          error: `refused: ${ws.name} is the orchestrator itself`,
+        };
+      }
+      if (!deps.hasPty(ws.id)) {
+        return {
+          ok: false,
+          error: `${ws.name} has no session — launch it first`,
+        };
+      }
+      const trusted = await deps.isTrusted(ws);
+      if (trusted === null) {
+        return {
+          ok: false,
+          error:
+            "could not read ~/.claude.json, so there is no telling whether a " +
+            `trust prompt is showing — ask the user to answer it in ${ws.name}'s terminal`,
+        };
+      }
+      if (trusted) {
+        return {
+          ok: false,
+          error: `${ws.name}'s folder is already trusted — there is no prompt to answer`,
+        };
+      }
+      // "No, exit" is the highlighted choice, so declining is Enter alone
+      if (!accept) {
+        deps.write(ws.id, "\r");
+        return { ok: true };
+      }
+      const quiet = deps.waitQuiet(ws.id);
+      // separate writes: one chunk holding both keys reads as a paste
+      deps.write(ws.id, TRUST_DOWN);
+      await new Promise((r) => setTimeout(r, KEY_GAP_MS));
+      deps.write(ws.id, "\r");
+      await quiet;
+      if (!deps.hasPty(ws.id)) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session exited — the prompt did not take "Yes"`,
+        };
+      }
       return { ok: true };
     },
 
