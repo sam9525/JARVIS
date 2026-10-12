@@ -6,6 +6,7 @@
   "main": ".vite/build/index.js",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/fix-pty-perms.mjs",
     "start": "electron-forge start",
     "voice:assets": "node scripts/fetch-voice-assets.mjs",
     "package": "electron-forge package",
