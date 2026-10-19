@@ -51,6 +51,7 @@ import { importHead, listHeads, readHead } from "./head-models";
 import {
   hasTranscript,
   newestNote,
+  pullNotes,
   readBriefing,
   todayLocal,
   transcriptDir,
@@ -640,14 +641,14 @@ app.whenReady().then(async () => {
       transcriptDir(os.homedir(), mainAgent.rootPath),
     );
     const briefing = await readBriefing(userData);
-    const note = briefing.notesDir ? await newestNote(briefing.notesDir) : null;
+    const notesDir = briefing.notesDir;
     // the vault workspace reads the note; without one there is no one to ask
     const briefTo = workspaces.find((w) => w.kind === "vault" && !w.isSelf);
     // lastBriefed is the briefing's own record, not a transcript mtime: an
     // mtime gate is cancelled by any overnight write, and the morning
     // briefing would silently never fire.
     const due =
-      note !== null &&
+      notesDir !== null &&
       briefTo !== undefined &&
       resume &&
       briefing.lastBriefed !== todayLocal() &&
@@ -658,12 +659,17 @@ app.whenReady().then(async () => {
     const settled = due
       ? settle.wait(mainAgent.id, SETTLE_DEADLINE_MS)
       : Promise.resolve(false);
+    // the pull runs during the settle wait, so the launch never waits on the
+    // network; the note is picked only once the vault is as fresh as it gets
+    const pulled = due && notesDir ? pullNotes(notesDir) : Promise.resolve();
     // placeholder geometry — the terminal panel resizes the pty the moment it
     // attaches, so this size never reaches the screen
     ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
-    void settled.then((ready) => {
-      if (!ready || !note || !briefTo) return;
+    void Promise.all([settled, pulled]).then(async ([ready]) => {
+      if (!ready || !notesDir || !briefTo) return;
+      const note = await newestNote(notesDir);
+      if (!note) return;
       // same two-write shape as every other nudge: one arriving chunk is a
       // paste, so a trailing CR would land as a newline in the composer
       const nudge = dailyBriefNudge(note, briefTo.name);

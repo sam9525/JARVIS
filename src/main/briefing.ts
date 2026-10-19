@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -28,8 +29,9 @@ export function todayLocal(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** The newest *.md in `dir` by mtime, absolute, or null when the folder is
- *  missing or holds none. */
+/** The *.md in `dir` whose filename carries the latest YYYY-MM-DD, absolute,
+ *  or null when the folder is missing or holds no dated note. The filename,
+ *  not mtime: a git pull stamps every file it writes with the pull time. */
 export async function newestNote(dir: string): Promise<string | null> {
   let names: string[];
   try {
@@ -37,16 +39,27 @@ export async function newestNote(dir: string): Promise<string | null> {
   } catch {
     return null;
   }
-  let best: { file: string; mtime: number } | null = null;
+  let best: { name: string; date: string } | null = null;
   for (const name of names) {
     if (!/\.md$/i.test(name)) continue;
-    const file = path.join(dir, name);
-    const stat = await fs.stat(file).catch(() => null);
-    if (!stat?.isFile()) continue;
-    if (!best || stat.mtimeMs > best.mtime)
-      best = { file, mtime: stat.mtimeMs };
+    const date = /\d{4}-\d{2}-\d{2}/.exec(name)?.[0];
+    if (date && (!best || date > best.date)) best = { name, date };
   }
-  return best?.file ?? null;
+  return best ? path.join(dir, best.name) : null;
+}
+
+/** `git pull --ff-only` in `dir`, resolving either way: offline, not a repo,
+ *  no git, diverged or past `timeoutMs` all leave the local copy to brief
+ *  from. */
+export function pullNotes(dir: string, timeoutMs = 15_000): Promise<void> {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      ["-C", dir, "pull", "--ff-only"],
+      { timeout: timeoutMs, windowsHide: true },
+      () => resolve(),
+    );
+  });
 }
 
 export interface Briefing {

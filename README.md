@@ -96,12 +96,13 @@ When my-app goes idle, JARVIS nudges the main agent. The main agent reads that o
 
 To turn it on, open settings and click **Choose** under **Daily notes**. Pick the folder where you keep your daily notes. **Clear** turns the briefing off.
 
-The main agent resumes its last conversation each time JARVIS starts. On the first launch of a day, after 7:00, JARVIS also asks it for a briefing. The main agent does not read the note itself. It sends the newest `.md` file in that folder to your vault workspace with `jarvis_send`, and calls `jarvis_launch` first if that workspace has no session. The vault workspace writes a summary with one paragraph for each project the note mentions: what moved and what is still open. If the note is not from yesterday, it says which day it is from. You read that summary in the vault workspace's terminal or the inbox. When the vault workspace finishes, JARVIS wakes the main agent the normal way, and the main agent says its usual one or two sentences about it.
+The main agent resumes its last conversation each time JARVIS starts. On the first launch of a day, after 7:00, JARVIS also asks it for a briefing. The main agent does not read the note itself. It sends the `.md` file in that folder with the latest `YYYY-MM-DD` date in its name to your vault workspace with `jarvis_send`, and calls `jarvis_launch` first if that workspace has no session. The vault workspace writes a summary with one paragraph for each project the note mentions: what moved and what is still open. If the note is not from yesterday, it says which day it is from. You read that summary in the vault workspace's terminal or the inbox. When the vault workspace finishes, JARVIS wakes the main agent the normal way, and the main agent says its usual one or two sentences about it.
 
 Some details:
 
 - The briefing runs at most once a day. A launch before 7:00 skips it, and the next launch after 7:00 gives it.
 - It needs an earlier main-agent conversation to resume, so the very first launch has no briefing.
+- Before it picks the note, JARVIS runs `git pull --ff-only` in the notes folder, so a vault behind its remote still gets the latest note. If the pull fails or takes more than 15 seconds, it briefs from the local copy. Notes with no date in the file name are not picked.
 - JARVIS waits for the main agent's terminal to go quiet before it asks. If the terminal stays busy for 60 seconds, that day is skipped.
 - The first time, Claude Code in the vault workspace may ask your permission to read the notes folder.
 
