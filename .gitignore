@@ -7,7 +7,6 @@ out/
 .env
 
 # CLAUDE
-CLAUDE.md
 .claude/
 .mcp.json
 
