@@ -195,19 +195,23 @@ describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
   });
 });
 
-describe("dailyBriefPrompt", () => {
-  const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
+const notes = [
+  "D:\\Obsidian-valut\\memory\\raw\\2026-09-13-Mac.md",
+  "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md",
+];
 
-  it("carries the note's path and nothing else about the work", () => {
-    expect(dailyBriefPrompt(note)).toContain(note);
+describe("dailyBriefPrompt", () => {
+  it("carries every note's path and nothing else about the work", () => {
+    const text = dailyBriefPrompt(notes);
+    for (const n of notes) expect(text).toContain(n);
     // a location, not a description: swap the path and the rest is identical
-    const a = dailyBriefPrompt("A").replace("A", "");
-    const b = dailyBriefPrompt("B").replace("B", "");
+    const a = dailyBriefPrompt(["A"]).replace("A", "");
+    const b = dailyBriefPrompt(["B"]).replace("B", "");
     expect(a).toBe(b);
   });
 
   it("asks for a written summary, one paragraph per project", () => {
-    const text = dailyBriefPrompt(note);
+    const text = dailyBriefPrompt(notes);
     expect(text).toContain("one paragraph per project");
     expect(text).toContain("what moved");
     expect(text).toContain("still open");
@@ -217,30 +221,30 @@ describe("dailyBriefPrompt", () => {
   });
 
   it("asks the delegate to report a note that is not yesterday's", () => {
-    expect(dailyBriefPrompt(note)).toContain("yesterday's");
+    expect(dailyBriefPrompt(notes)).toContain("yesterday's");
   });
 });
 
 describe("dailyBriefNudge", () => {
-  const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
-
   it("fits on one line, since it is typed into a TUI composer", () => {
-    expect(dailyBriefNudge(note, "My Vault")).not.toContain("\n");
+    expect(dailyBriefNudge(notes, "My Vault")).not.toContain("\n");
   });
 
-  it("delegates to the vault workspace instead of reading the note", () => {
-    const text = dailyBriefNudge(note, "My Vault");
-    expect(text).toContain("Do not read the note yourself");
+  it("delegates to the vault workspace instead of reading the notes", () => {
+    const text = dailyBriefNudge(notes, "My Vault");
+    expect(text).toContain("Do not read the notes yourself");
     expect(text).toContain("jarvis_send to My Vault");
     expect(text).toContain("jarvis_launch");
   });
 
   it("forwards the delegate's prompt verbatim", () => {
-    expect(dailyBriefNudge(note, "My Vault")).toContain(dailyBriefPrompt(note));
+    expect(dailyBriefNudge(notes, "My Vault")).toContain(
+      dailyBriefPrompt(notes),
+    );
   });
 
   it("leaves the wait to the finish nudge, not jarvis_watch", () => {
-    expect(dailyBriefNudge(note, "My Vault")).not.toContain("jarvis_watch");
+    expect(dailyBriefNudge(notes, "My Vault")).not.toContain("jarvis_watch");
   });
 });
 

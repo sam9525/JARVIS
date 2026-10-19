@@ -148,30 +148,35 @@ export const SETTLE_DEADLINE_MS = 60_000;
  * answers anyway. Kept under the abort bound mcp.mjs gives that route. */
 export const LAUNCH_SETTLE_DEADLINE_MS = 20_000;
 
-/** The prompt the main agent hands to the vault workspace: fixed text plus one
- * absolute path, so the app still composes nothing about the work. The answer
- * is read as text; the main agent's finish summary is what gets spoken. */
-export const dailyBriefPrompt = (notePath: string): string =>
-  "Daily briefing. Read this one file and nothing else: " +
-  notePath +
-  ". Its filename carries the date — if it is not yesterday's, say which day " +
-  "it is from. Then write a summary with one paragraph per project the file " +
-  "mentions: what moved, and what is still open. Say nothing about a project " +
-  "the file does not mention.";
+/** The prompt the main agent hands to the vault workspace: fixed text plus
+ * absolute paths — one note per machine that wrote that day — so the app
+ * still composes nothing about the work. The answer is read as text; the main
+ * agent's finish summary is what gets spoken. */
+export const dailyBriefPrompt = (notePaths: string[]): string =>
+  "Daily briefing. Read these files and nothing else: " +
+  notePaths.join(", ") +
+  ". They are the same day's notes, one per machine. Their filenames carry " +
+  "the date — if it is not yesterday's, say which day it is from. Then write " +
+  "one summary across all of them, with one paragraph per project they " +
+  "mention: what moved, and what is still open. Say nothing about a project " +
+  "they do not mention.";
 
 /** Typed into the main agent's session on the first launch of a day. The
  * main agent delegates the note to `workspace` — the vault workspace — rather
  * than reading it itself, so the summary comes back through the ordinary
  * finish nudge. It carries the delegate's prompt verbatim, so the agent
  * forwards the wording rules instead of paraphrasing them. */
-export const dailyBriefNudge = (notePath: string, workspace: string): string =>
-  "Daily briefing. Do not read the note yourself. Delegate it to the " +
+export const dailyBriefNudge = (
+  notePaths: string[],
+  workspace: string,
+): string =>
+  "Daily briefing. Do not read the notes yourself. Delegate them to the " +
   workspace +
   " workspace: if jarvis_list shows it has no session, call jarvis_launch " +
   "for it first, then call jarvis_send to " +
   workspace +
   " with exactly this prompt: " +
-  dailyBriefPrompt(notePath) +
+  dailyBriefPrompt(notePaths) +
   " Then stop; you will be woken when it finishes.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes

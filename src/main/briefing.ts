@@ -29,23 +29,29 @@ export function todayLocal(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** The *.md in `dir` whose filename carries the latest YYYY-MM-DD, absolute,
- *  or null when the folder is missing or holds no dated note. The filename,
- *  not mtime: a git pull stamps every file it writes with the pull time. */
-export async function newestNote(dir: string): Promise<string | null> {
+/** Every *.md in `dir` whose filename carries the latest YYYY-MM-DD, absolute
+ *  and sorted — one per machine when each writes its own note for the day
+ *  (`2026-10-12.md`, `2026-10-12-Mac.md`). Empty when the folder is missing
+ *  or holds no dated note. The filename, not mtime: a git pull stamps every
+ *  file it writes with the pull time. */
+export async function latestNotes(dir: string): Promise<string[]> {
   let names: string[];
   try {
     names = await fs.readdir(dir);
   } catch {
-    return null;
+    return [];
   }
-  let best: { name: string; date: string } | null = null;
-  for (const name of names) {
-    if (!/\.md$/i.test(name)) continue;
-    const date = /\d{4}-\d{2}-\d{2}/.exec(name)?.[0];
-    if (date && (!best || date > best.date)) best = { name, date };
-  }
-  return best ? path.join(dir, best.name) : null;
+  const dated = names.flatMap((name) => {
+    const date = /\.md$/i.test(name)
+      ? /\d{4}-\d{2}-\d{2}/.exec(name)?.[0]
+      : undefined;
+    return date ? [{ name, date }] : [];
+  });
+  const latest = dated.reduce((max, n) => (n.date > max ? n.date : max), "");
+  return dated
+    .filter((n) => n.date === latest)
+    .map((n) => path.join(dir, n.name))
+    .sort();
 }
 
 /** `git pull --ff-only` in `dir`, resolving either way: offline, not a repo,

@@ -50,7 +50,7 @@ import { createEdgeTts } from "./edge-tts";
 import { importHead, listHeads, readHead } from "./head-models";
 import {
   hasTranscript,
-  newestNote,
+  latestNotes,
   pullNotes,
   readBriefing,
   todayLocal,
@@ -668,11 +668,11 @@ app.whenReady().then(async () => {
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
     void Promise.all([settled, pulled]).then(async ([ready]) => {
       if (!ready || !notesDir || !briefTo) return;
-      const note = await newestNote(notesDir);
-      if (!note) return;
+      const notes = await latestNotes(notesDir);
+      if (notes.length === 0) return;
       // same two-write shape as every other nudge: one arriving chunk is a
       // paste, so a trailing CR would land as a newline in the composer
-      const nudge = dailyBriefNudge(note, briefTo.name);
+      const nudge = dailyBriefNudge(notes, briefTo.name);
       if (!ptyManager.write(mainAgent.id, nudge)) return;
       setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
       // re-read: the folder may have been picked since boot, and the date is
