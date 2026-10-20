@@ -23,14 +23,12 @@ export const RESERVED: readonly (readonly [number, number])[] = [
   [10, 40],
 ];
 
-/** Below this many degrees apart, two group colours stop being tellable apart
- * on a graph — red at 0 and orange at 25 is the pair that prompted this. */
-export const MIN_APART = 25;
-
-const wheelGap = (a: number, b: number) => {
-  const d = Math.abs(a - b) % 360;
-  return d > 180 ? 360 - d : d;
-};
+/** Below this OKLab distance (×100), two group colours stop being tellable
+ * apart on a graph. 11 is red at 0° against orange at 25°, the pair that
+ * prompted a minimum. Degrees cannot be the unit: at this saturation and
+ * lightness one 10° step moves red by ΔE 4–5 but green by ΔE 2, so 60° of
+ * green still reads as one colour. */
+export const MIN_DELTA_E = 11;
 
 const SAT = 65;
 const LIGHT = 66;
@@ -54,6 +52,12 @@ function avoidReserved(h: number): number {
 // in it come out the same colour.
 const RESERVED_SPAN = RESERVED.reduce((n, [lo, hi]) => n + (hi - lo + 1), 0);
 const FREE = 360 - RESERVED_SPAN;
+
+// Every hue outside the reserved bands: the only hues a draw or the fallback
+// may return.
+const FREE_HUES = Array.from({ length: 360 }, (_, h) => h).filter(
+  (h) => !bandOf(h),
+);
 
 // `offset` degrees around the wheel from `baseHue`, counting free degrees
 // only — a reserved band is stepped over rather than counted.
@@ -151,62 +155,117 @@ export function hexToHue(hex: string): number | null {
   return wrap(h * 60);
 }
 
-/** How many recent picks a new hue has to clear. Ten is the window the whole
- * scheme rests on: the wheel only holds about `360 / MIN_APART` ≈ 14 tellable
- * hues, so banning the last ten leaves a real choice while making a repeat of
- * a colour you just saw impossible. */
-export const RECENT_PICKS = 10;
+// OKLab of a #rrggbb colour (Björn Ottosson's matrices), the space where equal
+// distances look equally different.
+function oklab(hex: string): [number, number, number] {
+  const lin = (i: number) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const [r, g, b] = [lin(1), lin(3), lin(5)];
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675884 * s,
+  ];
+}
+
+const HUE_LAB = Array.from({ length: 360 }, (_, h) => oklab(hueToHex(h)));
+
+/** How different two hues look as group colours: OKLab distance ×100 at the
+ * group saturation and lightness. */
+export function colourGap(a: number, b: number): number {
+  const [p, q] = [HUE_LAB[wrap(a)], HUE_LAB[wrap(b)]];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) * 100;
+}
+
+/** How many recent picks a new hue has to clear. The free wheel holds only
+ * about 8 hues MIN_DELTA_E apart, so a full log of twelve always leaves the
+ * random draw blocked and `nextHue` choosing — which keeps a repeat of a
+ * colour you just saw impossible, and makes the thirteenth the first that may
+ * come back. */
+export const RECENT_PICKS = 12;
 
 /** A random hue that is no near-match of anything in `recent`, and outside the
  * reserved bands. `recent` is the tail of the pick log, newest last; only the
  * last RECENT_PICKS entries are honoured, so a colour becomes available again
- * once ten other picks have gone by.
+ * once twelve other picks have gone by.
  *
- * Rejection sampling, then `nextHue` as the floor. Ten banned hues can cover
- * the whole wheel (10 × 2 × MIN_APART = 500° > 360°), so "keep drawing until
- * one clears" is not guaranteed to terminate — the widest-gap pick always
- * returns something, and returns the least-bad something. */
-export function pickHue(recent: number[], tries = 60): number {
+ * The draw is uniform over the free hues. Drawing over the whole wheel and
+ * clamping out of a band would hand every in-band draw to the band's edge.
+ * Rejection sampling, then `nextHue` as the floor: the wheel holds fewer clear
+ * hues than the log bans, so "keep drawing until one clears" is not
+ * guaranteed to terminate — the furthest-hue pick always returns something,
+ * and returns the least-bad something.
+ *
+ * `own` is the hues already on this hue's own graph. The fallback keeps clear
+ * of those first, because two groups in one graph sit side by side, while two
+ * projects' groups only meet across cards. */
+export function pickHue(
+  recent: number[],
+  own: number[] = [],
+  tries = 60,
+): number {
   const ban = recent.slice(-RECENT_PICKS);
   for (let i = 0; i < tries; i++) {
-    const h = avoidReserved(wrap(Math.random() * 360));
-    if (ban.every((b) => wheelGap(h, b) >= MIN_APART)) return h;
+    const h = FREE_HUES[Math.floor(Math.random() * FREE_HUES.length)];
+    if (ban.every((b) => colourGap(h, b) >= MIN_DELTA_E)) return h;
   }
-  return nextHue(ban.map((h) => hueToHex(h)));
+  return nextHue(
+    ban.map((h) => hueToHex(h)),
+    0,
+    own,
+  );
 }
 
-/** `count` hues drawn in sequence, each one clearing the ten before it —
+/** `count` hues drawn in sequence, each one clearing the twelve before it —
  * including the ones drawn inside this same call, so seeding a workspace's
  * folders in one go cannot hand two of them the same green. */
 export function pickHues(count: number, recent: number[] = []): number[] {
   const log = [...recent];
   const out: number[] = [];
   for (let i = 0; i < count; i++) {
-    const h = pickHue(log);
+    const h = pickHue(log, out);
     out.push(h);
     log.push(h);
   }
   return out;
 }
 
-/** The hue furthest from every colour already in use: the middle of the widest
- * gap on the wheel. The floor under `pickHue` — where every random draw is
- * blocked, this still answers, and answers with the roomiest hue left. */
-export function nextHue(used: string[], fallback = 0): number {
-  const hues = used
-    .map(hexToHue)
-    .filter((h): h is number => h !== null)
-    .sort((a, b) => a - b);
-  if (hues.length === 0) return avoidReserved(wrap(fallback));
-  let best = hues[0];
-  let widest = -1;
-  for (let i = 0; i < hues.length; i++) {
-    const from = hues[i];
-    const to = i + 1 < hues.length ? hues[i + 1] : hues[0] + 360;
-    if (to - from > widest) {
-      widest = to - from;
-      best = wrap(from + (to - from) / 2);
+/** The free hue that looks least like every colour already in use: the one
+ * whose nearest used colour is furthest away in OKLab. The floor under
+ * `pickHue` — where every random draw is blocked, this still answers, and
+ * answers with the roomiest hue left. Measured in OKLab, not degrees, for the
+ * reason MIN_DELTA_E gives; and only free hues are candidates, so nothing is
+ * clamped onto a band's edge.
+ *
+ * Hues in `own` (the same graph's colours) come first: only hues MIN_DELTA_E
+ * clear of all of them are candidates, and when none is, the pick is simply
+ * the hue furthest from them. */
+export function nextHue(
+  used: string[],
+  fallback = 0,
+  own: number[] = [],
+): number {
+  const hues = used.map(hexToHue).filter((h): h is number => h !== null);
+  if (hues.length === 0 && own.length === 0)
+    return avoidReserved(wrap(fallback));
+  const room = (h: number, from: number[]) =>
+    Math.min(Infinity, ...from.map((u) => colourGap(h, u)));
+  const clear = FREE_HUES.filter((h) => room(h, own) >= MIN_DELTA_E);
+  const candidates = clear.length > 0 ? clear : FREE_HUES;
+  const against = clear.length > 0 ? [...hues, ...own] : own;
+  let best = candidates[0];
+  let roomiest = -1;
+  for (const h of candidates) {
+    const nearest = room(h, against);
+    if (nearest > roomiest) {
+      roomiest = nearest;
+      best = h;
     }
   }
-  return avoidReserved(best);
+  return best;
 }

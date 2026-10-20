@@ -10,7 +10,12 @@ import type {
 } from "../../shared/types";
 import type { TtsOption } from "../../main/tts";
 import type { RigKind } from "../voice/head-rig";
-import { RECENT_PICKS, hueToHex, pickHue } from "../graph/workspace-color";
+import {
+  RECENT_PICKS,
+  hexToHue,
+  hueToHex,
+  pickHue,
+} from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
 import Segmented from "./Segmented";
 
@@ -336,11 +341,14 @@ export default function GraphSettingsPanel({
               className="mt-1.5 w-full cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80"
               onClick={() => {
                 if (!activeId) return;
-                // Drawn against the shared pick log, not this workspace's own
-                // colours: the log is what stops a hand-added group repeating a
-                // green that another project drew a moment ago.
+                // Drawn against the shared pick log, which stops a hand-added
+                // group repeating a green another project drew a moment ago,
+                // and kept clear of this workspace's own colours first.
                 const recent = settings.recentHues ?? [];
-                const hue = pickHue(recent);
+                const own = groups
+                  .map((g) => hexToHue(g.color))
+                  .filter((h): h is number => h !== null);
+                const hue = pickHue(recent, own);
                 set({
                   groups: {
                     ...settings.groups,
