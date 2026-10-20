@@ -5,6 +5,8 @@ import type { Workspace } from "../../shared/types";
 
 type PreviewProps = {
   nodeId: string;
+  /** Bumped each time Claude edits this file; a change re-reads it in place. */
+  revision: number;
   workspace: Workspace;
   resolveLink: (target: string) => string | null;
   onNavigate: (nodeId: string) => void;
@@ -13,6 +15,7 @@ type PreviewProps = {
 
 export default function Preview({
   nodeId,
+  revision,
   workspace,
   resolveLink,
   onNavigate,
@@ -20,6 +23,7 @@ export default function Preview({
 }: PreviewProps) {
   const [html, setHtml] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
+  const shownRef = useRef<string | null>(null);
   const isCode = previewsAsCode(workspace.kind === "code", nodeId);
 
   useEffect(() => {
@@ -41,12 +45,15 @@ export default function Preview({
       }
       if (stale) return;
       setHtml(rendered);
-      panelRef.current?.scrollTo(0, 0); // wikilink nav starts at the top
+      // a new file (wikilink nav) starts at the top; a re-read after an edit
+      // keeps your place in the same file
+      if (shownRef.current !== nodeId) panelRef.current?.scrollTo(0, 0);
+      shownRef.current = nodeId;
     });
     return () => {
       stale = true;
     };
-  }, [nodeId, workspace, resolveLink]);
+  }, [nodeId, revision, workspace, resolveLink]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();

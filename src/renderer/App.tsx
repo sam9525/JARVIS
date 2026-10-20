@@ -66,7 +66,7 @@ import {
   hueOfWorkspace,
   hueToHex,
 } from "./graph/workspace-color";
-import { createPreviewOpener } from "./preview/preview-opener";
+import { createPreviewOpener, isEditOf } from "./preview/preview-opener";
 import type {
   CodeGraphLevel,
   HomeView,
@@ -439,6 +439,11 @@ export default function App() {
 
   // debounced auto-open: last-read file after reads go quiet
   const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
+  // read by the event subscription, which is set up once and would otherwise
+  // see only the first render's previewNode
+  const previewNodeRef = useRef(previewNode);
+  previewNodeRef.current = previewNode;
+  const [previewRev, setPreviewRev] = useState(0);
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
@@ -492,6 +497,7 @@ export default function App() {
           if (fresh) onScrub(null); // the past being replayed no longer exists
           setLogRev((n) => n + 1);
           onPreviewEvent(e);
+          if (isEditOf(e, previewNodeRef.current)) setPreviewRev((n) => n + 1);
         }
       }),
     );
@@ -1306,6 +1312,7 @@ export default function App() {
         >
           <Preview
             nodeId={previewNode}
+            revision={previewRev}
             workspace={active}
             resolveLink={resolveLink}
             onNavigate={setPreviewNode}
