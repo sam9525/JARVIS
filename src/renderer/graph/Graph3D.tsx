@@ -23,7 +23,7 @@ import { useMergedLinks } from "./use-merged-links";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 import { clampSpin, decaySpin, SPIN_PER_RAD_S } from "./spin";
 import SpriteText from "three-spritetext";
-import { nodeLabelText } from "./node-label";
+import { nodeLabelColor, nodeLabelText } from "./node-label";
 import {
   ArrowHelper,
   Color,
@@ -589,6 +589,9 @@ export default function Graph3D({
       item.focusRing.scale.setScalar(sphereR * RING_SCALE.focus);
       item.focusRing.visible = id === focusNode;
       item.label.position.set(0, -(r + 4), 0);
+      // SpriteText redraws its canvas on every color set, so set it only on a change
+      const labelColor = nodeLabelColor(d);
+      if (item.label.color !== labelColor) item.label.color = labelColor;
     },
     [display.nodeSize, materials, displayColor, stateRef, focusNode],
   );
@@ -704,7 +707,6 @@ export default function Graph3D({
         const matchRing = new Sprite(materials.ring(COLORS.match));
         const focusRing = new Sprite(materials.ring(COLORS.hover));
         const label = new SpriteText(nodeLabelText(id, node.type));
-        label.color = COLORS.label;
         label.textHeight = 4;
         label.visible = sprites.current.get(id)?.visible ?? true;
         group.add(glow);

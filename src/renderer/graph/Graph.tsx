@@ -17,7 +17,7 @@ import { colorFor, groupColor } from "./domain-colors";
 import { displayRadius, graphMetrics } from "./graph-metrics";
 import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
-import { nodeLabelText } from "./node-label";
+import { nodeLabelColor, nodeLabelText } from "./node-label";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 
 const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
@@ -308,7 +308,7 @@ export default function Graph({
         ctx.font = `${fontSize}px system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        ctx.fillStyle = COLORS.label;
+        ctx.fillStyle = nodeLabelColor(d);
         ctx.fillText(label, node.x, node.y + r + 2 / globalScale);
       }}
       linkColor={(l: LinkObj) => (linkHovered(l) ? COLORS.hover : COLORS.link)}
