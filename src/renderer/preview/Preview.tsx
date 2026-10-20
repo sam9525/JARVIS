@@ -11,6 +11,9 @@ const NOTE_VIEW_OPTIONS: { value: NoteView; label: string }[] = [
   { value: "source", label: "Source" },
 ];
 
+// ponytail: module-level, so the last choice lasts for the app session only
+let lastNoteView: NoteView = "source";
+
 type PreviewProps = {
   nodeId: string;
   /** Bumped each time Claude edits this file; a change re-reads it in place. */
@@ -33,7 +36,7 @@ export default function Preview({
   const panelRef = useRef<HTMLDivElement>(null);
   const shownRef = useRef<string | null>(null);
   // a note can also show its markdown source, coloured and numbered like code
-  const [noteView, setNoteView] = useState<NoteView>("rendered");
+  const [noteView, setNoteView] = useState<NoteView>(lastNoteView);
   const isCode = previewsAsCode(workspace.kind === "code", nodeId);
   const asSource = isCode || noteView === "source";
 
@@ -92,7 +95,10 @@ export default function Preview({
           <Segmented<NoteView>
             options={NOTE_VIEW_OPTIONS}
             value={noteView}
-            onChange={setNoteView}
+            onChange={(view) => {
+              lastNoteView = view;
+              setNoteView(view);
+            }}
           />
         </div>
       )}

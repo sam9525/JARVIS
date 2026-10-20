@@ -115,22 +115,37 @@ describe("Preview note source view", () => {
       );
     });
 
-  it("renders a note by default and shows its source on the toggle", async () => {
+  const clickView = (label: string) => {
+    const button = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === label,
+    );
+    act(() => button?.click());
+  };
+
+  it("shows a note's source by default and remembers the toggle across opens", async () => {
     files["notes/a"] = "# Title";
     added = [1];
     showNote();
-    await flush();
-    expect(container.querySelector("h1")?.textContent).toBe("Title");
-    expect(container.querySelector(".code-preview")).toBeNull();
-
-    const source = [...container.querySelectorAll("button")].find(
-      (b) => b.textContent === "Source",
-    );
-    act(() => source?.click());
     await flush();
     const pre = container.querySelector(".code-preview pre");
     expect(pre?.textContent).toBe("# Title");
     expect((pre as HTMLElement).dataset.added).toBe("1");
     expect((pre as HTMLElement).dataset.path).toBe("notes/a.md");
+
+    clickView("Rendered");
+    await flush();
+    expect(container.querySelector("h1")?.textContent).toBe("Title");
+    expect(container.querySelector(".code-preview")).toBeNull();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    showNote();
+    await flush();
+    expect(container.querySelector("h1")?.textContent).toBe("Title");
+
+    // leaves the session default at Source for any later test
+    clickView("Source");
+    await flush();
+    expect(container.querySelector(".code-preview pre")).not.toBeNull();
   });
 });
