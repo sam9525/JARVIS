@@ -265,6 +265,12 @@ export default function Graph3D({
     };
   }, [graph]);
 
+  // a filter or search hands over a new node set, which restarts the
+  // simulation; fit it to the screen once it settles, as at launch
+  useEffect(() => {
+    didFit.current = false;
+  }, [data]);
+
   const nodeById = useMemo(
     () => new Map(data.nodes.map((n) => [String(n.id), n as NodeObj])),
     [data],

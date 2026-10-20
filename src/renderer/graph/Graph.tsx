@@ -169,6 +169,12 @@ export default function Graph({
     };
   }, [graph]);
 
+  // a filter or search hands over a new node set, which restarts the
+  // simulation; fit it to the screen once it settles, as at launch
+  useEffect(() => {
+    didFit.current = false;
+  }, [data]);
+
   useForceTuning(
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
     forces,
