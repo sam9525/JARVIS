@@ -10,8 +10,8 @@ import type { Workspace } from "../../src/shared/types";
 
 vi.mock("../../src/renderer/preview/code-highlight", async (orig) => ({
   ...(await orig<typeof import("../../src/renderer/preview/code-highlight")>()),
-  highlightCode: async (code: string, _path: string, changes: any) =>
-    `<pre data-added="${changes.added.join(",")}">${code}</pre>`,
+  highlightCode: async (code: string, path: string, changes: any) =>
+    `<pre data-path="${path}" data-added="${changes.added.join(",")}">${code}</pre>`,
 }));
 
 const ws: Workspace = {
@@ -95,5 +95,42 @@ describe("Preview refresh", () => {
     show("b.ts", 1);
     await flush();
     expect(scrollTo).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Preview note source view", () => {
+  const vault: Workspace = { ...ws, kind: "vault", sourceId: "vault" };
+
+  const showNote = () =>
+    act(() => {
+      root.render(
+        <Preview
+          nodeId="notes/a"
+          revision={0}
+          workspace={vault}
+          resolveLink={resolveLink}
+          onNavigate={noop}
+          onClose={noop}
+        />,
+      );
+    });
+
+  it("renders a note by default and shows its source on the toggle", async () => {
+    files["notes/a"] = "# Title";
+    added = [1];
+    showNote();
+    await flush();
+    expect(container.querySelector("h1")?.textContent).toBe("Title");
+    expect(container.querySelector(".code-preview")).toBeNull();
+
+    const source = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === "Source",
+    );
+    act(() => source?.click());
+    await flush();
+    const pre = container.querySelector(".code-preview pre");
+    expect(pre?.textContent).toBe("# Title");
+    expect((pre as HTMLElement).dataset.added).toBe("1");
+    expect((pre as HTMLElement).dataset.path).toBe("notes/a.md");
   });
 });
