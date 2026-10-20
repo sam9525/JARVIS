@@ -75,6 +75,14 @@ export interface VaultGraph {
   edges: GraphEdge[];
 }
 
+/** A previewed file's uncommitted changes against HEAD, as 1-based line
+ * numbers in the working copy. `removedAfter` holds the line just above each
+ * deletion, so 0 means lines were removed from the top of the file. */
+export interface LineChanges {
+  added: number[];
+  removedAfter: number[];
+}
+
 export type WorkspaceKind = "vault" | "code";
 
 export const SOURCE_LABELS: Record<string, string> = {

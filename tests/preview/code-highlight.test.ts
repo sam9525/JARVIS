@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   langForPath,
   highlightCode,
+  lineClasses,
   previewsAsCode,
 } from "../../src/renderer/preview/code-highlight";
 
@@ -142,6 +143,38 @@ describe("highlightCode", () => {
     expect(count(await highlightCode(code, "test.ts"))).toBe(3);
     mockShouldThrow = true;
     expect(count(await highlightCode(code, "test.ts"))).toBe(3);
+  });
+
+  it("puts git markers on the changed lines in both renderers", async () => {
+    const code = "a\nb\nc";
+    const changes = { added: [2], removedAfter: [3] };
+    const classesOf = (html: string) =>
+      [...html.matchAll(/<span class="(line[^"]*)"/g)].map((m) => m[1]);
+    const expected = ["line", "line diff-add", "line diff-del-after"];
+    expect(classesOf(await highlightCode(code, "test.ts", changes))).toEqual(
+      expected,
+    );
+    mockShouldThrow = true;
+    expect(classesOf(await highlightCode(code, "test.ts", changes))).toEqual(
+      expected,
+    );
+  });
+});
+
+describe("lineClasses", () => {
+  const changes = { added: [1, 4], removedAfter: [0, 4] };
+
+  it("marks an added line", () => {
+    expect(lineClasses(changes, 4)).toContain("diff-add");
+  });
+
+  it("marks the line above a deletion, and line 1 for a top deletion", () => {
+    expect(lineClasses(changes, 4)).toContain("diff-del-after");
+    expect(lineClasses(changes, 1)).toEqual(["diff-add", "diff-del-before"]);
+  });
+
+  it("leaves an unchanged line bare", () => {
+    expect(lineClasses(changes, 2)).toEqual([]);
   });
 });
 

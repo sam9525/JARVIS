@@ -60,7 +60,14 @@ import {
 import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
-import type { Settings, TodoOp, VaultGraph, Workspace } from "../shared/types";
+import { lineChanges } from "./git-diff";
+import type {
+  LineChanges,
+  Settings,
+  TodoOp,
+  VaultGraph,
+  Workspace,
+} from "../shared/types";
 
 if (started) app.quit();
 
@@ -370,16 +377,32 @@ app.whenReady().then(async () => {
     });
   }
 
+  // a node's file inside its workspace, or null for anything that escapes it
+  const noteFile = (workspaceId: string, nodeId: string) => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return null;
+    const file = ws.kind === "vault" ? `${nodeId}.md` : nodeId;
+    const abs = path.resolve(ws.rootPath, file);
+    const rel = path.relative(ws.rootPath, abs);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // stay inside
+    return { root: ws.rootPath, abs, rel };
+  };
+
   ipcMain.handle(
     "read-note",
     async (_e, workspaceId: string, nodeId: string) => {
-      const ws = workspaces.find((w) => w.id === workspaceId);
-      if (!ws) return null;
-      const file = ws.kind === "vault" ? `${nodeId}.md` : nodeId;
-      const abs = path.resolve(ws.rootPath, file);
-      const rel = path.relative(ws.rootPath, abs);
-      if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // stay inside
-      return fs.readFile(abs, "utf8").catch(() => null);
+      const file = noteFile(workspaceId, nodeId);
+      return file ? fs.readFile(file.abs, "utf8").catch(() => null) : null;
+    },
+  );
+
+  ipcMain.handle(
+    "line-changes",
+    (_e, workspaceId: string, nodeId: string): Promise<LineChanges> => {
+      const file = noteFile(workspaceId, nodeId);
+      return file
+        ? lineChanges(file.root, file.rel)
+        : Promise.resolve({ added: [], removedAfter: [] });
     },
   );
 

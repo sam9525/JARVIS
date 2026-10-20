@@ -31,7 +31,8 @@ export default function Preview({
       if (md === null) {
         rendered = "<em>file not found</em>";
       } else if (previewsAsCode(workspace.kind === "code", nodeId)) {
-        rendered = await highlightCode(md, nodeId);
+        const changes = await window.jarvis.lineChanges(workspace.id, nodeId);
+        rendered = await highlightCode(md, nodeId, changes);
       } else {
         rendered = await renderNote(md, {
           resolveLink,

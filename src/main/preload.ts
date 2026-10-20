@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  LineChanges,
   Settings,
   TodoList,
   TodoOp,
@@ -49,6 +50,8 @@ const api = {
   onShowTodos: (cb: () => void) => subscribe<[]>("show-todos", cb),
   readNote: (workspaceId: string, nodeId: string): Promise<string | null> =>
     ipcRenderer.invoke("read-note", workspaceId, nodeId),
+  lineChanges: (workspaceId: string, nodeId: string): Promise<LineChanges> =>
+    ipcRenderer.invoke("line-changes", workspaceId, nodeId),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),
   setSettings: (s: Settings): Promise<void> =>
     ipcRenderer.invoke("set-settings", s),
