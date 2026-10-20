@@ -115,7 +115,12 @@ export async function highlightCode(
     }
     return hl.codeToHtml(code, { lang, theme: THEME });
   } catch (error) {
-    const escaped = escapeHtml(code);
-    return `<pre class="shiki dark-plus" style="background-color:#1e1e1e;color:#d4d4d4;"><code>${escaped}</code></pre>`;
+    // one span.line per source line, joined the way Shiki joins them, so the
+    // line-number gutter works on the plaintext fallback too
+    const lines = code
+      .split("\n")
+      .map((l) => `<span class="line">${escapeHtml(l)}</span>`)
+      .join("\n");
+    return `<pre class="shiki dark-plus" style="background-color:#1e1e1e;color:#d4d4d4;"><code>${lines}</code></pre>`;
   }
 }

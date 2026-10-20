@@ -133,6 +133,16 @@ describe("highlightCode", () => {
       "const x = &quot;hello&quot; &amp; &quot;world&quot;; &lt;tag&gt;",
     );
   });
+
+  // the line-number gutter counts .line spans, so both renderers must emit
+  // exactly one per source line, blank lines included
+  it("emits one .line span per source line", async () => {
+    const code = "const a = 1;\n\nconst b = 2;";
+    const count = (html: string) => html.match(/class="line/g)?.length;
+    expect(count(await highlightCode(code, "test.ts"))).toBe(3);
+    mockShouldThrow = true;
+    expect(count(await highlightCode(code, "test.ts"))).toBe(3);
+  });
 });
 
 afterEach(() => {

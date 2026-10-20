@@ -534,5 +534,28 @@
   .code-preview pre.shiki code {
     white-space: inherit;
     font-family: inherit;
+    counter-reset: line;
+    /* A flex container does not render whitespace-only text runs, so the
+       "\n" nodes Shiki puts between line spans stop showing as blank rows. */
+    display: flex;
+    flex-direction: column;
+  }
+  /* Line-number gutter. The left padding is a hanging indent, so a wrapped
+     line keeps its continuation rows past the number instead of under it.
+     An empty line has no text to give it height, hence the min-height. */
+  .code-preview .line {
+    position: relative;
+    min-height: 1.5em;
+    padding-left: 5ch;
+    counter-increment: line;
+  }
+  .code-preview .line::before {
+    content: counter(line);
+    position: absolute;
+    left: 0;
+    width: 3.5ch;
+    text-align: right;
+    color: var(--color-ink-dim);
+    user-select: none;
   }
 }
