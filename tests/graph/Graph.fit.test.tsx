@@ -57,7 +57,6 @@ const show = (graph: VaultGraph) =>
         stateRef={stateRef}
         onNodeClick={() => undefined}
         focusNode={null}
-        layoutEpoch={0}
         width={800}
         height={600}
       />,
@@ -82,6 +81,14 @@ describe("Graph: fit to screen", () => {
     expect(fg.zoomToFit).toHaveBeenCalledTimes(1);
 
     show(filtered);
+    settle();
+    expect(fg.zoomToFit).toHaveBeenCalledTimes(2);
+  });
+
+  it("fits again after a rescan hands over the same files as new objects", () => {
+    show(full);
+    settle();
+    show({ nodes: full.nodes.map((n) => ({ ...n })), edges: [] });
     settle();
     expect(fg.zoomToFit).toHaveBeenCalledTimes(2);
   });

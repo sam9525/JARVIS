@@ -395,14 +395,7 @@ export default function App() {
     showHome,
     onWorkspacesChanged: setWorkspaces,
   });
-  const {
-    graph,
-    graphLoading,
-    layoutEpoch,
-    cardGraphs,
-    cardsLoaded,
-    indexing,
-  } = graphs;
+  const { graph, graphLoading, cardGraphs, cardsLoaded, indexing } = graphs;
 
   // event log per workspace, feeding the replay scrubber. logRev exists only to
   // re-render the bar as events arrive — the log itself stays in a ref so an
@@ -1108,7 +1101,6 @@ export default function App() {
                     graphs={cardGraphs}
                     view={view}
                     dimensions={settings.dimensions}
-                    layoutEpoch={graphs.fleetEpoch}
                     width={width}
                     height={height}
                     actionsRef={handActionsRef}
@@ -1182,7 +1174,6 @@ export default function App() {
                     stateRef={stateRef}
                     onNodeClick={setPreviewNode}
                     focusNode={previewNode}
-                    layoutEpoch={layoutEpoch}
                     rotationPaused={previewNode !== null}
                     handleRef={graph3dHandle}
                     width={width}
@@ -1199,7 +1190,6 @@ export default function App() {
                     stateRef={stateRef}
                     onNodeClick={setPreviewNode}
                     focusNode={previewNode}
-                    layoutEpoch={layoutEpoch}
                     handleRef={graphHandle}
                     width={width}
                     height={height}

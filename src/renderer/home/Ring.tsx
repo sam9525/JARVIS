@@ -48,7 +48,7 @@ type RingProps = {
   width: number;
   height: number;
   indexing: Record<string, { state: IndexState; error?: string }>;
-  layoutEpoch: number; // ↻ bumps this — reset rotation, re-arm the centre fit
+  layoutEpoch: number; // ↻ bumps this — reset rotation to the front
   actionsRef: React.MutableRefObject<HandActions>; // hand gestures land here
   onIndex: (workspaceId: string) => void;
   onOpen: (ws: Workspace) => void;
@@ -132,7 +132,7 @@ export default function Ring({
 
   useEffect(() => () => clearTimeout(wheelSnap.current), []);
 
-  // ↻ resets the whole view: Graph3D re-arms its one-time fit off the epoch,
+  // ↻ resets the whole view: Graph3D re-fits off the rescanned graph,
   // returning the ring to the front is ours. Epoch 0 is the initial value, not
   // a refresh — don't fight a fresh mount's state (design §2.1).
   useEffect(() => {
@@ -284,23 +284,12 @@ export default function Ring({
         handleRef={centreHandle}
         onNodeClick={() => undefined}
         focusNode={null}
-        layoutEpoch={layoutEpoch}
         rotationPaused={false}
         width={width}
         height={height}
       />
     );
-  }, [
-    settledWs,
-    workspaces,
-    g,
-    domains,
-    groups,
-    view,
-    layoutEpoch,
-    width,
-    height,
-  ]);
+  }, [settledWs, workspaces, g, domains, groups, view, width, height]);
 
   return (
     <div

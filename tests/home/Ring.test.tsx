@@ -414,15 +414,18 @@ describe("Ring: refresh (layoutEpoch)", () => {
     expect(byTestId("tile-w1")!.hasAttribute("data-centered")).toBe(true);
   });
 
-  // the bug: nothing remounts when already centred, so the forwarded epoch is
-  // the only thing that can re-arm the centre graph's one-time camera fit
-  it("a bump on an already-centred ring reaches the centre Graph3D without a remount", () => {
+  // nothing remounts when already centred, so the rescanned graph itself has
+  // to reach the centre Graph3D, which re-fits off the new data
+  it("a refresh on an already-centred ring hands the centre Graph3D the new graph without a remount", () => {
     render(<Ring {...(props() as any)} />);
     settle();
-    expect(graph3d.mock.calls.at(-1)![0].layoutEpoch).toBe(0);
-    render(<Ring {...(props({ layoutEpoch: 3 }) as any)} />);
-    // same workspace, no settle wait, no remount — just the new epoch
-    expect(graph3d.mock.calls.at(-1)![0].layoutEpoch).toBe(3);
-    expect(graph3d.mock.calls.at(-1)![0].graph.nodes[0].id).toBe("a");
+    const before = graph3d.mock.calls.at(-1)![0].graph;
+    const graphs = new Map(props().graphs);
+    graphs.set("w1", graphOf("a"));
+    render(<Ring {...(props({ graphs, layoutEpoch: 3 }) as any)} />);
+    // same workspace, no settle wait, no remount — just the new graph
+    const after = graph3d.mock.calls.at(-1)![0].graph;
+    expect(after).not.toBe(before);
+    expect(after.nodes[0].id).toBe("a");
   });
 });

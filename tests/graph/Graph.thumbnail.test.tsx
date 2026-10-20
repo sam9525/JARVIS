@@ -50,7 +50,6 @@ const props = () => ({
   stateRef: { current: emptyState() },
   onNodeClick: () => undefined,
   focusNode: null,
-  layoutEpoch: 0,
   width: 220,
   height: 130,
 });

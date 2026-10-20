@@ -94,7 +94,6 @@ type GraphProps = {
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // aim the camera at this node
-  layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
   rotationPaused: boolean; // preview open — no auto-rotation
   width: number; // measured graph-slot size from GraphSlot's ResizeObserver
   height: number;
@@ -113,7 +112,6 @@ export default function Graph3D({
   stateRef,
   onNodeClick,
   focusNode,
-  layoutEpoch,
   rotationPaused,
   width,
   height,
@@ -248,13 +246,6 @@ export default function Graph3D({
     };
   }, []);
 
-  // a rescan hands over brand-new node objects, so the simulation restarts
-  // on its own; we only need to let onEngineStop re-fit the camera
-  useEffect(() => {
-    if (layoutEpoch === 0) return;
-    didFit.current = false;
-  }, [layoutEpoch]);
-
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time
   // so a slider tick doesn't re-bind data and restart the simulation.
   const data = useMemo(() => {
@@ -265,7 +256,7 @@ export default function Graph3D({
     };
   }, [graph]);
 
-  // a filter or search hands over a new node set, which restarts the
+  // a filter, search or rescan hands over a new node set, which restarts the
   // simulation; fit it to the screen once it settles, as at launch
   useEffect(() => {
     didFit.current = false;

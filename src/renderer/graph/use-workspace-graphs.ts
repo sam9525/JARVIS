@@ -42,8 +42,7 @@ export function useWorkspaceGraphs({
   // true while a fetch is in flight, so the "no graph" notice doesn't flash
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
-  const [layoutEpoch, setLayoutEpoch] = useState(0);
-  const [fleetEpoch, setFleetEpoch] = useState(0); // ↻ re-fits the fleet graph
+  const [fleetEpoch, setFleetEpoch] = useState(0); // ↻ returns the ring to the front
   const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
   // the first card pass has finished — every workspace loaded or failed. The
   // boot entrance gates the graph slot on this rather than on `cardGraphs.size`,
@@ -65,7 +64,6 @@ export function useWorkspaceGraphs({
     (id: string, g: VaultGraph) => {
       if (activeIdRef.current !== id) return;
       setGraph(g);
-      setLayoutEpoch((n) => n + 1);
       setGraphLoading(false);
     },
     [activeIdRef],
@@ -179,13 +177,11 @@ export function useWorkspaceGraphs({
               const finalG = capped(gSym);
               symbolCache.current.set(ws.id, finalG);
               setGraph(finalG);
-              setLayoutEpoch((n) => n + 1);
               setGraphLoading(false);
             })
             .catch(console.error);
         } else {
           setGraph(g);
-          setLayoutEpoch((n) => n + 1);
           setGraphLoading(false);
         }
       })
@@ -231,7 +227,6 @@ export function useWorkspaceGraphs({
   return {
     graph,
     graphLoading,
-    layoutEpoch,
     fleetEpoch,
     cardGraphs,
     cardsLoaded,
