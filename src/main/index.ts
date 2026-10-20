@@ -402,7 +402,7 @@ app.whenReady().then(async () => {
       const file = noteFile(workspaceId, nodeId);
       return file
         ? lineChanges(file.root, file.rel)
-        : Promise.resolve({ added: [], removedAfter: [] });
+        : Promise.resolve({ added: [], modified: [], removedAfter: [] });
     },
   );
 

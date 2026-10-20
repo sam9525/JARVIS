@@ -13,6 +13,7 @@
   --color-ink-dim: #5a7a8a;
   --color-alarm: #ef4444; /* the crashed status, and nothing else */
   --color-diff-add: #2ea043; /* code preview gutter: added line */
+  --color-diff-mod: #388bfd; /* code preview gutter: modified line */
   --color-diff-del: #f85149; /* code preview gutter: removed lines */
   --font-hud: Bahnschrift, "DIN Condensed", Oswald, sans-serif;
 }
@@ -560,11 +561,15 @@
     color: var(--color-ink-dim);
     user-select: none;
   }
-  /* Git change markers between the number and the code. The added bar is a
-     background so it never fights the removed triangle for ::after — one
-     line can be both added and sit above a deletion. */
+  /* Git change markers between the number and the code. The added and
+     modified bars are backgrounds so they never fight the removed triangle
+     for ::after — one line can be changed and sit above a deletion. */
   .code-preview .line.diff-add {
     background: linear-gradient(var(--color-diff-add), var(--color-diff-add))
+      4ch 0 / 3px 100% no-repeat;
+  }
+  .code-preview .line.diff-mod {
+    background: linear-gradient(var(--color-diff-mod), var(--color-diff-mod))
       4ch 0 / 3px 100% no-repeat;
   }
   .code-preview .line.diff-del-after::after,

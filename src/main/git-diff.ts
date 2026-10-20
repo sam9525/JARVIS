@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
 import type { LineChanges } from "../shared/types";
 
-const NONE: LineChanges = { added: [], removedAfter: [] };
+const NONE: LineChanges = { added: [], modified: [], removedAfter: [] };
 
-/** Line markers from `git diff --unified=0` output. A replaced line counts as
- * added: the gutter shows only added and removed, no separate "modified". */
+/** Line markers from `git diff --unified=0` output. A hunk that both removes
+ * and adds pairs its lines up: the paired ones are modified, extra new lines
+ * are added, and extra old lines are a deletion after the hunk's last line. */
 export function parseHunks(diff: string): LineChanges {
   const added: number[] = [];
+  const modified: number[] = [];
   const removedAfter: number[] = [];
   for (const m of diff.matchAll(
     /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm,
@@ -17,9 +19,13 @@ export function parseHunks(diff: string): LineChanges {
     // with zero lines added, git's start is the line just above the deletion
     if (count === 0) {
       if (removed > 0) removedAfter.push(start);
-    } else for (let i = 0; i < count; i++) added.push(start + i);
+      continue;
+    }
+    for (let i = 0; i < count; i++)
+      (i < removed ? modified : added).push(start + i);
+    if (removed > count) removedAfter.push(start + count - 1);
   }
-  return { added, removedAfter };
+  return { added, modified, removedAfter };
 }
 
 /** The working copy of `rel` against HEAD. Resolves to no changes when `root`

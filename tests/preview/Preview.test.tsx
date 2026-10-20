@@ -56,7 +56,7 @@ beforeEach(() => {
   added = [];
   (window as any).jarvis = {
     readNote: vi.fn(async (_ws: string, id: string) => files[id] ?? null),
-    lineChanges: vi.fn(async () => ({ added, removedAfter: [] })),
+    lineChanges: vi.fn(async () => ({ added, modified: [], removedAfter: [] })),
   };
   // jsdom has no layout, so it ships no scrollTo
   Element.prototype.scrollTo = scrollTo as any;

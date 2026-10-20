@@ -76,10 +76,12 @@ export interface VaultGraph {
 }
 
 /** A previewed file's uncommitted changes against HEAD, as 1-based line
- * numbers in the working copy. `removedAfter` holds the line just above each
- * deletion, so 0 means lines were removed from the top of the file. */
+ * numbers in the working copy. `added` lines are new, `modified` lines replace
+ * an old line. `removedAfter` holds the line just above each deletion, so 0
+ * means lines were removed from the top of the file. */
 export interface LineChanges {
   added: number[];
+  modified: number[];
   removedAfter: number[];
 }
 

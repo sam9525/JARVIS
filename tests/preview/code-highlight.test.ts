@@ -147,7 +147,7 @@ describe("highlightCode", () => {
 
   it("puts git markers on the changed lines in both renderers", async () => {
     const code = "a\nb\nc";
-    const changes = { added: [2], removedAfter: [3] };
+    const changes = { added: [2], modified: [], removedAfter: [3] };
     const classesOf = (html: string) =>
       [...html.matchAll(/<span class="(line[^"]*)"/g)].map((m) => m[1]);
     const expected = ["line", "line diff-add", "line diff-del-after"];
@@ -162,10 +162,14 @@ describe("highlightCode", () => {
 });
 
 describe("lineClasses", () => {
-  const changes = { added: [1, 4], removedAfter: [0, 4] };
+  const changes = { added: [1, 4], modified: [3], removedAfter: [0, 4] };
 
   it("marks an added line", () => {
     expect(lineClasses(changes, 4)).toContain("diff-add");
+  });
+
+  it("marks a modified line apart from an added one", () => {
+    expect(lineClasses(changes, 3)).toEqual(["diff-mod"]);
   });
 
   it("marks the line above a deletion, and line 1 for a top deletion", () => {

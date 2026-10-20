@@ -106,13 +106,14 @@ function escapeHtml(str: string): string {
 export function lineClasses(changes: LineChanges, line: number): string[] {
   const classes: string[] = [];
   if (changes.added.includes(line)) classes.push("diff-add");
+  if (changes.modified.includes(line)) classes.push("diff-mod");
   if (changes.removedAfter.includes(line)) classes.push("diff-del-after");
   if (line === 1 && changes.removedAfter.includes(0))
     classes.push("diff-del-before");
   return classes;
 }
 
-const NO_CHANGES: LineChanges = { added: [], removedAfter: [] };
+const NO_CHANGES: LineChanges = { added: [], modified: [], removedAfter: [] };
 
 export async function highlightCode(
   code: string,

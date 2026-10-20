@@ -9,6 +9,7 @@ describe("parseHunks", () => {
   it("marks every line of a pure addition as added", () => {
     expect(parseHunks("@@ -3,0 +4,2 @@ ctx\n+a\n+b\n")).toEqual({
       added: [4, 5],
+      modified: [],
       removedAfter: [],
     });
   });
@@ -16,6 +17,7 @@ describe("parseHunks", () => {
   it("marks a pure deletion after the line above it", () => {
     expect(parseHunks("@@ -5,2 +4,0 @@\n-a\n-b\n")).toEqual({
       added: [],
+      modified: [],
       removedAfter: [4],
     });
   });
@@ -24,10 +26,27 @@ describe("parseHunks", () => {
     expect(parseHunks("@@ -1 +0,0 @@\n-a\n").removedAfter).toEqual([0]);
   });
 
-  it("marks a replaced line as added, since only added and removed exist", () => {
+  it("marks a replaced line as modified", () => {
     expect(parseHunks("@@ -7 +7 @@\n-old\n+new\n")).toEqual({
-      added: [7],
+      added: [],
+      modified: [7],
       removedAfter: [],
+    });
+  });
+
+  it("marks lines past the replaced ones as added", () => {
+    expect(parseHunks("@@ -7 +7,3 @@\n-old\n+a\n+b\n+c\n")).toEqual({
+      added: [8, 9],
+      modified: [7],
+      removedAfter: [],
+    });
+  });
+
+  it("marks the surplus of a shrinking replacement as removed", () => {
+    expect(parseHunks("@@ -7,3 +7 @@\n-a\n-b\n-c\n+new\n")).toEqual({
+      added: [],
+      modified: [7],
+      removedAfter: [7],
     });
   });
 
@@ -41,11 +60,19 @@ describe("parseHunks", () => {
       "@@ -10,3 +11,0 @@",
       "-b",
     ].join("\n");
-    expect(parseHunks(diff)).toEqual({ added: [2], removedAfter: [11] });
+    expect(parseHunks(diff)).toEqual({
+      added: [2],
+      modified: [],
+      removedAfter: [11],
+    });
   });
 
   it("returns no changes for empty output", () => {
-    expect(parseHunks("")).toEqual({ added: [], removedAfter: [] });
+    expect(parseHunks("")).toEqual({
+      added: [],
+      modified: [],
+      removedAfter: [],
+    });
   });
 });
 
@@ -62,6 +89,7 @@ describe("lineChanges", () => {
     await writeFile(path.join(dir, "a.ts"), "one\nthree\nfour\n");
     expect(await lineChanges(dir, "a.ts")).toEqual({
       added: [3],
+      modified: [],
       removedAfter: [1],
     });
   });
@@ -71,6 +99,7 @@ describe("lineChanges", () => {
     await writeFile(path.join(dir, "a.ts"), "one\n");
     expect(await lineChanges(dir, "a.ts")).toEqual({
       added: [],
+      modified: [],
       removedAfter: [],
     });
   });
