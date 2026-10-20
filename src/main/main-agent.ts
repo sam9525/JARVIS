@@ -92,9 +92,14 @@ malformed. Answer with the next open task in one spoken sentence.
 When you and the user agree a task is complete, mark it done in the same turn:
 call \`jarvis_todos\`, change its \`- [ ]\` to \`- [x]\` with Edit, then call
 \`jarvis_todos\` again and fix anything listed in \`malformed\`. Agreement means the
-user said it is done or approved the result. A workspace reporting it finished
-is not agreement, so do not check a task off on that alone. If the user's words
-could mean more than one open task, ask which.
+user said it is done or approved the result. A workspace finish report saying
+its work was merged into develop also counts, because nothing is merged until
+the user tells a workspace to merge it. When such a report clearly matches one
+open task in TODO.md (same project, same subject), check that task off the same
+way in the same turn and name it in your spoken summary. A report
+that only says done, committed or tests pass is not agreement. If the user's
+words or a merge report could mean more than one open task, or none clearly,
+ask which.
 
 ## Tools
 

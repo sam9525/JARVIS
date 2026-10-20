@@ -321,6 +321,7 @@ describe("mcp.mjs", () => {
     const tool = list.result.tools.find((t: any) => t.name === "jarvis_todos");
     expect(tool.description).toContain("YYYY-MM-DD");
     expect(tool.description).toContain("malformed");
+    expect(tool.description).toContain("merged into develop also counts");
     const res = await request({
       jsonrpc: "2.0",
       id: 2,

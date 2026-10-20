@@ -126,9 +126,14 @@ const TOOLS = [
       "Call this again after each write and fix every line listed in " +
       "malformed. Then say the next open task in one spoken sentence. " +
       "Check a task off ('- [x]') in the same turn the user agrees it is " +
-      "done — they said so or approved the result. A workspace reporting it " +
-      "finished is not agreement. If the user's words could mean more than " +
-      "one open task, ask which.",
+      "done — they said so or approved the result. A workspace finish report " +
+      "saying its work was merged into develop also counts, because nothing " +
+      "is merged until the user tells a workspace to merge it: when it " +
+      "clearly matches one open task (same project, same subject), check " +
+      "that task off the same way and name it in your spoken summary. A " +
+      "report that only says done, committed or tests pass is not " +
+      "agreement. If the user's words or a merge report could mean more " +
+      "than one open task, or none clearly, ask which.",
     inputSchema: { type: "object", properties: {} },
   },
 ];

@@ -107,11 +107,13 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("YYYY-MM-DD");
   });
 
-  it("checks a task off only on the user's agreement, not a workspace finish", () => {
+  it("checks a task off on the user's agreement or a merge into develop, not a bare finish", () => {
     expect(AGENT_GUIDE).toContain("## Keeping the to-do list current");
+    expect(AGENT_GUIDE).toContain("merged into develop also counts");
     expect(AGENT_GUIDE).toContain(
-      "A workspace reporting it finished\nis not agreement",
+      "only says done, committed or tests pass is not agreement",
     );
+    expect(AGENT_GUIDE).toContain("or none clearly");
   });
 
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
