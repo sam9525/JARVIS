@@ -149,6 +149,37 @@ export const SETTLE_MS = 1000;
  * quiet skips the day rather than typing over live work. */
 export const SETTLE_DEADLINE_MS = 60_000;
 
+/** Empties Claude Code's composer: Ctrl+U and Ctrl+K kill the line on both
+ * sides of the cursor, and Backspace or Ctrl+K at an empty line joins the
+ * next line, so each round removes a line wherever the cursor sits. Only
+ * editing keys: Esc and Ctrl+C would interrupt a running turn or cancel a
+ * permission prompt, and the dialog ignores these. The kills chain, so the
+ * user gets a cleared draft back with Ctrl+Y.
+ * ponytail: 10 rounds clear a draft of about 20 lines. The TUI reads a chunk
+ * of 120 bytes as a paste and drops the keys, and 60 failed once, so the
+ * chunk stays at 30. */
+export const CLEAR_INPUT = "\x15\x0b\x7f".repeat(10);
+
+/** Writes that land together arrive as one chunk, which the TUI reads as a
+ * paste: the keys stop editing and a CR lands as a newline instead of
+ * submitting. The clear gets the wider gap because a paste that swallows it
+ * also swallows the Enter after it. */
+export const CLEAR_GAP_MS = 250;
+export const SUBMIT_GAP_MS = 80;
+
+/** Types a nudge into the main agent's session as clear, text, Enter — three
+ * separate writes. False when there is no session to type into. */
+export function typeNudge(
+  write: (data: string) => boolean,
+  text: string,
+): boolean {
+  if (!write(CLEAR_INPUT)) return false;
+  setTimeout(() => {
+    if (write(text)) setTimeout(() => write("\r"), SUBMIT_GAP_MS);
+  }, CLEAR_GAP_MS);
+  return true;
+}
+
 /** How long jarvis_launch waits for a new session to go quiet before it
  * answers anyway. Kept under the abort bound mcp.mjs gives that route. */
 export const LAUNCH_SETTLE_DEADLINE_MS = 20_000;

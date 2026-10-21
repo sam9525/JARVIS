@@ -38,6 +38,7 @@ import {
   MAIN_AGENT_MODEL,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
+  typeNudge,
   dailyBriefNudge,
   ensureMainAgent,
   mainAgentWorkspace,
@@ -489,13 +490,10 @@ app.whenReady().then(async () => {
       win.webContents.send("tts-say", text);
       return true;
     },
-    // Same two-write shape as jarvis_send: Claude Code's TUI reads one
-    // arriving chunk as a paste, so a trailing CR would land as a newline in
-    // the composer instead of submitting. No session yet means write returns
-    // false and the finish just waits in the queue for whenever one starts.
+    // No session yet means the write fails and the finish just waits in the
+    // queue for whenever one starts.
     nudgeMain: () => {
-      if (!ptyManager.write(mainAgent.id, FINISH_NUDGE)) return;
-      setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+      typeNudge((data) => ptyManager.write(mainAgent.id, data), FINISH_NUDGE);
     },
   });
 
@@ -701,11 +699,9 @@ app.whenReady().then(async () => {
       if (!ready || !notesDir || !briefTo) return;
       const notes = await latestNotes(notesDir);
       if (notes.length === 0) return;
-      // same two-write shape as every other nudge: one arriving chunk is a
-      // paste, so a trailing CR would land as a newline in the composer
       const nudge = dailyBriefNudge(notes, briefTo.name);
-      if (!ptyManager.write(mainAgent.id, nudge)) return;
-      setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+      const write = (data: string) => ptyManager.write(mainAgent.id, data);
+      if (!typeNudge(write, nudge)) return;
       // re-read: the folder may have been picked since boot, and the date is
       // written when the nudge is typed — a failed turn costs that day's
       // briefing, which is cheaper than a nudge that retries into a live

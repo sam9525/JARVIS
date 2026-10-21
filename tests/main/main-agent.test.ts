@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   AGENT_GUIDE,
   BRIEF_AFTER_HOUR,
+  CLEAR_INPUT,
   FINISH_NUDGE,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
@@ -13,7 +14,10 @@ import {
   ensureMainAgent,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
+  CLEAR_GAP_MS,
+  SUBMIT_GAP_MS,
   mainAgentWorkspace,
+  typeNudge,
   withMainAgent,
 } from "../../src/main/main-agent";
 import type { Workspace } from "../../src/shared/types";
@@ -259,5 +263,49 @@ describe("briefing constants", () => {
     expect(SETTLE_MS).toBe(1000);
     expect(SETTLE_DEADLINE_MS).toBe(60_000);
     expect(SETTLE_DEADLINE_MS).toBeGreaterThan(SETTLE_MS);
+  });
+});
+
+describe("typeNudge", () => {
+  const recorder = (alive = true) => {
+    const writes: string[] = [];
+    const write = (data: string) => {
+      writes.push(data);
+      return alive;
+    };
+    return { writes, write };
+  };
+
+  it("clears the input, then types the nudge, then submits — three writes", () => {
+    vi.useFakeTimers();
+    const { writes, write } = recorder();
+    expect(typeNudge(write, "hello")).toBe(true);
+    expect(writes).toEqual([CLEAR_INPUT]);
+    vi.advanceTimersByTime(CLEAR_GAP_MS - 1);
+    expect(writes).toEqual([CLEAR_INPUT]);
+    vi.advanceTimersByTime(1);
+    expect(writes).toEqual([CLEAR_INPUT, "hello"]);
+    vi.advanceTimersByTime(SUBMIT_GAP_MS);
+    expect(writes).toEqual([CLEAR_INPUT, "hello", "\r"]);
+    vi.useRealTimers();
+  });
+
+  it("writes nothing more when there is no session", () => {
+    vi.useFakeTimers();
+    const { writes, write } = recorder(false);
+    expect(typeNudge(write, "hello")).toBe(false);
+    vi.runAllTimers();
+    expect(writes).toEqual([CLEAR_INPUT]);
+    vi.useRealTimers();
+  });
+
+  it("clears with editing keys only — nothing that interrupts a turn or answers a dialog", () => {
+    // Esc interrupts a running turn and cancels a permission prompt; Ctrl+C
+    // interrupts or exits; CR submits
+    expect(new Set(CLEAR_INPUT)).toEqual(new Set(["\x15", "\x0b", "\x7f"]));
+  });
+
+  it("stays a short chunk, so the TUI reads keys rather than a paste", () => {
+    expect(CLEAR_INPUT.length).toBeLessThanOrEqual(30);
   });
 });
