@@ -24,6 +24,7 @@ import {
 import { resolveSourceId, sourceById } from "./graph-sources/registry";
 import { isDirectory } from "./is-directory";
 import { runAnalyze } from "./graph-sources/gitnexus-source";
+import { cachedGraph } from "./graph-cache";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
@@ -161,12 +162,7 @@ app.whenReady().then(async () => {
   const graphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
-    let g = graphs.get(id);
-    if (!g) {
-      g = loadGraph(ws);
-      graphs.set(id, g);
-    }
-    return g;
+    return cachedGraph(graphs, id, () => loadGraph(ws));
   };
 
   // symbol graphs are a second, independent per-workspace cache — the file
@@ -175,16 +171,15 @@ app.whenReady().then(async () => {
   const symbolGraphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
-    let g = symbolGraphs.get(id);
-    if (!g) {
-      // sources own their error handling; a source with no symbol level
-      // serves an empty graph rather than main knowing what a gitnexus is
-      g =
+    // sources own their error handling; a source with no symbol level
+    // serves an empty graph rather than main knowing what a gitnexus is
+    return cachedGraph(
+      symbolGraphs,
+      id,
+      () =>
         sourceById(ws.sourceId)?.loadSymbols?.(ws) ??
-        Promise.resolve({ nodes: [], edges: [] });
-      symbolGraphs.set(id, g);
-    }
-    return g;
+        Promise.resolve({ nodes: [], edges: [] }),
+    );
   };
 
   ipcMain.handle("get-workspaces", () => workspaces);
@@ -209,7 +204,9 @@ app.whenReady().then(async () => {
     // analyze` run in the workspace's own terminal), and refresh is how you say so
     ws.sourceId = await resolveSourceId(ws);
     const g = await loadGraph(ws);
-    graphs.set(id, Promise.resolve(g)); // assign only on success
+    // a failed rescan is returned but not cached, so the next ask reads again
+    if (g.failed) graphs.delete(id);
+    else graphs.set(id, Promise.resolve(g));
     symbolGraphs.delete(id);
     return g;
   });

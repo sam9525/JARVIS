@@ -14,6 +14,16 @@ const EMPTY: VaultGraph = { nodes: [], edges: [] };
 export const capped = (g: VaultGraph): VaultGraph =>
   g.nodes.length > SYMBOL_NODE_CAP ? busiest(g, SYMBOL_NODE_CAP) : g;
 
+// a failed load is shown but never cached, so the next visit reads it again
+const remember = (
+  cache: Map<string, VaultGraph>,
+  id: string,
+  g: VaultGraph,
+) => {
+  if (g.failed) cache.delete(id);
+  else cache.set(id, g);
+};
+
 type Params = {
   active: Workspace | null;
   activeIdRef: React.MutableRefObject<string | null>;
@@ -87,7 +97,7 @@ export function useWorkspaceGraphs({
       : window.jarvis.getGraph(ws.id);
     load
       .then((g) => {
-        cache.set(ws.id, g);
+        remember(cache, ws.id, g);
         if (!cancelled) show(ws.id, g);
       })
       .catch(() => setGraphLoading(false));
@@ -108,7 +118,7 @@ export function useWorkspaceGraphs({
           const cached = fileCache.current.get(ws.id);
           const g = cached ?? (await window.jarvis.getGraph(ws.id));
           if (cancelled) return;
-          fileCache.current.set(ws.id, g);
+          remember(fileCache.current, ws.id, g);
           setCardGraphs((prev) => new Map(prev).set(ws.id, g));
         } catch (err) {
           // one unreadable GitNexus index must not stop the remaining cards
@@ -145,7 +155,7 @@ export function useWorkspaceGraphs({
           workspaces.map(async (ws) => {
             try {
               const g = await window.jarvis.rescan(ws.id);
-              fileCache.current.set(ws.id, g);
+              remember(fileCache.current, ws.id, g);
               symbolCache.current.delete(ws.id);
               return [ws.id, g] as [string, VaultGraph];
             } catch (err) {
@@ -169,13 +179,13 @@ export function useWorkspaceGraphs({
     window.jarvis
       .rescan(ws.id)
       .then((g) => {
-        fileCache.current.set(ws.id, g);
+        remember(fileCache.current, ws.id, g);
         if (ws.kind === "code" && codeGraphLevel === "symbol") {
           window.jarvis
             .getSymbolGraph(ws.id)
             .then((gSym) => {
               const finalG = capped(gSym);
-              symbolCache.current.set(ws.id, finalG);
+              remember(symbolCache.current, ws.id, finalG);
               setGraph(finalG);
               setGraphLoading(false);
             })
@@ -205,7 +215,7 @@ export function useWorkspaceGraphs({
           // before pulling the graph the rail and cards will render
           onWorkspacesChanged(await window.jarvis.getWorkspaces());
           const g = await window.jarvis.rescan(id);
-          fileCache.current.set(id, g);
+          remember(fileCache.current, id, g);
           setCardGraphs((prev) => new Map(prev).set(id, g));
           show(id, g);
           setIndexing((prev) => {

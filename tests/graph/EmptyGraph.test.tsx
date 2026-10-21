@@ -79,6 +79,18 @@ describe("EmptyGraph", () => {
     expect(button().props.title).toContain("gitnexus not found");
   });
 
+  it("shows a failed read's reason and offers no index button", () => {
+    render(
+      <EmptyGraph
+        state="idle"
+        failed="GitNexus index busy, refresh"
+        onIndex={() => {}}
+      />,
+    );
+    expect(text(currentTree)).toBe("GitNexus index busy, refresh");
+    expect(() => button()).toThrow("index-button not found");
+  });
+
   it("stops the click from reaching the card behind it", () => {
     // the mission-control card is itself clickable; indexing must not also
     // navigate away from the fleet view

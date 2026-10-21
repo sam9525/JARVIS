@@ -314,6 +314,7 @@ export default function Ring({
               <EmptyGraph
                 state={idx?.state ?? "idle"}
                 error={idx?.error}
+                failed={raw?.failed}
                 onIndex={() => onIndex(settledWs.id)}
               />
             </div>

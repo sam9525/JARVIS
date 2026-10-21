@@ -73,6 +73,9 @@ export interface GraphEdge {
 export interface VaultGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  // set when the source could not read its index: a short reason for the card.
+  // A failed graph is never cached, so the next load asks the source again.
+  failed?: string;
 }
 
 /** A previewed file's uncommitted changes against HEAD, as 1-based line

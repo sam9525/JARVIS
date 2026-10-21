@@ -1225,6 +1225,7 @@ export default function App() {
                       <EmptyGraph
                         state={indexing[active.id]?.state ?? "idle"}
                         error={indexing[active.id]?.error}
+                        failed={graph.failed}
                         onIndex={() => graphs.indexProject(active.id)}
                       />
                     </div>
