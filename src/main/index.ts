@@ -57,6 +57,13 @@ import {
   transcriptDir,
   writeBriefing,
 } from "./briefing";
+import {
+  HEARTBEAT_MS,
+  hasSessionTranscript,
+  readSavedSessions,
+  sessionsToResume,
+  writeSavedSessions,
+} from "./session-restore";
 import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
@@ -596,14 +603,15 @@ app.whenReady().then(async () => {
     rows: number,
     dangerous: boolean,
     model: string | undefined,
+    resumeId?: string,
   ): Promise<{ ok: boolean; hooksOk: boolean }> {
     const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
     const mcpOk = await ensureMcp(ws, mcpPath);
     // a relaunched main agent continues its conversation like the boot
     // launch does — /clear is the only reset, and it is the user's
-    const resume =
-      ws.isSelf === true &&
-      (await hasTranscript(transcriptDir(os.homedir(), ws.rootPath)));
+    const resume = ws.isSelf
+      ? await hasTranscript(transcriptDir(os.homedir(), ws.rootPath))
+      : (resumeId ?? false);
     try {
       ptyManager.launch(ws, cols, rows, dangerous, model, resume);
       pushStatus(status.ptyLaunched(ws.id, Date.now()));
@@ -637,8 +645,8 @@ app.whenReady().then(async () => {
   );
 
   // The main agent owns the fleet watch and the voice, so it has to be running
-  // before any delegate can finish. It is the only session boot starts; project
-  // terminals still launch by hand.
+  // before any delegate can finish. It is the only session every boot starts;
+  // project terminals launch by hand, or resume after a recent close (below).
   let todosWatcher: FSWatcher | undefined;
   try {
     await ensureMainAgent(mainAgent.rootPath);
@@ -715,7 +723,41 @@ app.whenReady().then(async () => {
     console.error("[jarvis] main agent failed to launch:", err);
   }
 
+  // Project sessions live at the last close come back if the app reopens
+  // within the window. Read before the first heartbeat overwrites the file.
+  const toResume = sessionsToResume(
+    await readSavedSessions(userData),
+    Date.now(),
+  );
+  // a resumed session reports no id until its first hook, so the id it was
+  // resumed with stands in — otherwise a close before any prompt forgets it
+  const resumedWith = new Map<string, string>();
+  const saveSessions = () => {
+    const live: Record<string, string> = {};
+    for (const ws of workspaces) {
+      if (ws.isSelf || !ptyManager.has(ws.id)) continue;
+      const sid = status.sessionId(ws.id) || resumedWith.get(ws.id);
+      if (sid) live[ws.id] = sid;
+    }
+    writeSavedSessions(userData, live, Date.now());
+  };
+  const heartbeat = setInterval(saveSessions, HEARTBEAT_MS);
+  // the terminal's defaults (Opus, permissions on), as jarvis_launch uses.
+  // A workspace with no session id, or whose transcript is gone, is left for
+  // a manual launch as before rather than started fresh.
+  for (const [id, sid] of Object.entries(toResume)) {
+    const ws = workspaces.find((w) => w.id === id && !w.isSelf);
+    if (!ws) continue;
+    const dir = transcriptDir(os.homedir(), ws.rootPath);
+    if (!(await hasSessionTranscript(dir, sid))) continue;
+    resumedWith.set(ws.id, sid);
+    void launchSession(ws, 80, 24, false, "opus", sid);
+  }
+
   app.on("before-quit", () => {
+    clearInterval(heartbeat);
+    // before killAll, while every pty still counts as live
+    saveSessions();
     ptyManager.killAll();
     void todosWatcher?.close();
   });

@@ -32,18 +32,24 @@ export interface PtyManagerEvents {
  * so a renderer bug cannot place arbitrary text on the command line. */
 export const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
 
+export const isSessionId = (s: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
 // Windows can't spawn `claude` (a .cmd shim) without a shell.
 export function claudeCommand(
   dangerous = false,
   model?: string,
-  continueSession = false,
+  resume: boolean | string = false,
 ): { file: string; args: string[] } {
   const flags = dangerous ? ["--dangerously-skip-permissions"] : [];
   if (model && (CLAUDE_MODELS as readonly string[]).includes(model))
     flags.push("--model", model);
-  // resumes the newest conversation in this cwd; the caller checks a
-  // transcript exists first, so a fresh folder never asks for one
-  if (continueSession) flags.push("--continue");
+  // true resumes the newest conversation in this cwd, a string resumes that
+  // session id; the caller checks a transcript exists first. The id must be a
+  // UUID because `cmd.exe /c` would run anything after a `&`.
+  if (resume === true) flags.push("--continue");
+  else if (typeof resume === "string" && isSessionId(resume))
+    flags.push("--resume", resume);
   return process.platform === "win32"
     ? { file: "cmd.exe", args: ["/c", "claude", ...flags] }
     : { file: "claude", args: flags };
@@ -58,10 +64,10 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
       rows: number,
       dangerous = false,
       model?: string,
-      continueSession = false,
+      resume: boolean | string = false,
     ): void {
       if (ptys.has(ws.id)) return; // one live session per workspace
-      const { file, args } = claudeCommand(dangerous, model, continueSession);
+      const { file, args } = claudeCommand(dangerous, model, resume);
       const p = spawnFn(file, args, {
         cwd: ws.rootPath,
         cols,

@@ -40,6 +40,7 @@ export interface StatusStore {
   ptyExited(workspaceId: string, now: number, exitCode: number): boolean;
   sweep(now: number): boolean;
   snapshot(): WorkspaceStatus[];
+  sessionId(workspaceId: string): string;
 }
 
 export function createStatusStore(): StatusStore {
@@ -247,6 +248,11 @@ export function createStatusStore(): StatusStore {
         reads: e.reads.size,
         edits: e.edits.size,
       }));
+    },
+
+    // "" until a hook has spoken for this workspace
+    sessionId(id) {
+      return entries.get(id)?.sessionId ?? "";
     },
   };
 }
