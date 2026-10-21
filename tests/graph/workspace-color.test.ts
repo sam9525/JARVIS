@@ -4,6 +4,8 @@ import {
   hueFrom,
   hueToHex,
   colourGap,
+  distinctMains,
+  hexGap,
   MIN_DELTA_E,
   nextHue,
   pickHue,
@@ -300,5 +302,67 @@ describe("hueOfWorkspace", () => {
     expect(hueOfWorkspace(fleet[0], fleet, { "d:/a": "#808080" })).toBe(
       workspaceHue("alpha", fleetDomains(fleet)),
     );
+  });
+});
+
+describe("hexGap", () => {
+  it("reads #e1bf70 and #e1bd70 as one yellow", () => {
+    expect(hexGap("#e1bf70", "#e1bd70")).toBeLessThan(MIN_DELTA_E);
+  });
+
+  it("tells one hue at two lightnesses apart", () => {
+    expect(hexGap("#e1bd70", "#7a5a10")).toBeGreaterThan(MIN_DELTA_E);
+  });
+});
+
+describe("distinctMains", () => {
+  it("redraws the later of two near-identical yellows and keeps the first", () => {
+    const out = distinctMains({ vault: "#e1bf70", jarvis: "#e1bd70" });
+    expect(out.vault).toBe("#e1bf70");
+    expect(hexGap(out.vault, out.jarvis)).toBeGreaterThanOrEqual(MIN_DELTA_E);
+  });
+
+  it("keeps colours that already look different", () => {
+    const mains = { a: hueToHex(60), b: hueToHex(240) };
+    expect(distinctMains(mains)).toEqual(mains);
+  });
+
+  it("keeps the redrawn colour off the project's own other groups", () => {
+    const own = { jarvis: ["#e1bd70", hueToHex(260)] };
+    const out = distinctMains({ vault: "#e1bf70", jarvis: "#e1bd70" }, own);
+    expect(hexGap(out.jarvis, hueToHex(260))).toBeGreaterThanOrEqual(
+      MIN_DELTA_E,
+    );
+  });
+
+  // a real settings file: twelve projects, three pairs under ΔE 1
+  const twelve = [
+    "#e1bf70",
+    "#e18170",
+    "#df70e1",
+    "#7094e1",
+    "#70e1d0",
+    "#70e1a3",
+    "#70b5e1",
+    "#707de1",
+    "#e170b4",
+    "#e170e1",
+    "#e17d70",
+    "#e1bd70",
+  ];
+  const mains = Object.fromEntries(twelve.map((c, i) => [`p${i}`, c]));
+
+  it("gives twelve projects no near-identical pair, past the wheel's eight clear hues", () => {
+    const out = Object.values(distinctMains(mains));
+    let worst = Infinity;
+    for (let i = 0; i < out.length; i++)
+      for (let j = i + 1; j < out.length; j++)
+        worst = Math.min(worst, hexGap(out[i], out[j]));
+    expect(worst).toBeGreaterThan(5);
+  });
+
+  it("changes nothing on a second pass, so the settings effect cannot loop", () => {
+    const once = distinctMains(mains);
+    expect(distinctMains(once)).toEqual(once);
   });
 });

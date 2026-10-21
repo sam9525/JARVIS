@@ -63,6 +63,7 @@ import { seedGroups } from "./graph/seed-groups";
 import { defaultSettings, groupsFor } from "../shared/types";
 import {
   RECENT_PICKS,
+  distinctMains,
   hueOfWorkspace,
   hueToHex,
 } from "./graph/workspace-color";
@@ -955,7 +956,6 @@ export default function App() {
       .filter((ws) => !(ws.id in settings.groups))
       .map((ws) => [ws, cardGraphs.get(ws.id)] as const)
       .filter((pair): pair is [Workspace, VaultGraph] => pair[1] !== undefined);
-    if (pending.length === 0) return;
 
     const groups = { ...settings.groups };
     const mainColors = { ...settings.mainColors };
@@ -970,6 +970,29 @@ export default function App() {
       groups[ws.id] = seeded.groups;
       mainColors[ws.id] = seeded.main;
       log = [...log, ...seeded.hues].slice(-RECENT_PICKS);
+      changed = true;
+    }
+
+    // The pick log only remembers twelve hues, so a project seeded after that
+    // can still draw an older project's colour — and saved settings may hold
+    // such a pair already. Only live projects are compared: a removed one
+    // keeps its entry but no longer holds its colour. The biggest group wears
+    // the main colour, so it moves with it.
+    const live = Object.fromEntries(
+      Object.entries(mainColors).filter(([id]) =>
+        fleet.some((ws) => ws.id === id),
+      ),
+    );
+    const ownColours = Object.fromEntries(
+      Object.entries(groups).map(([id, gs]) => [id, gs.map((g) => g.color)]),
+    );
+    for (const [id, hex] of Object.entries(distinctMains(live, ownColours))) {
+      const old = mainColors[id];
+      if (hex === old) continue;
+      groups[id] = (groups[id] ?? []).map((g) =>
+        g.color === old ? { ...g, color: hex } : g,
+      );
+      mainColors[id] = hex;
       changed = true;
     }
 

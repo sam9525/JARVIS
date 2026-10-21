@@ -269,3 +269,41 @@ export function nextHue(
   }
   return best;
 }
+
+/** How different two #rrggbb colours look: OKLab distance ×100 of the colours
+ * themselves, lightness and saturation included. Hue alone cannot say: the
+ * same hue at another lightness is another colour, and two hexes a digit
+ * apart are one. */
+export function hexGap(a: string, b: string): number {
+  const [p, q] = [oklab(a), oklab(b)];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) * 100;
+}
+
+/** `mains` with every colour that looks like an earlier one — closer than
+ * MIN_DELTA_E — redrawn as the free hue furthest from the colours before it,
+ * kept off the project's own other group colours (`own`) first. Earlier means
+ * earlier in key order, which is seeding order, so the project that drew a
+ * colour first keeps it.
+ *
+ * ponytail: the free wheel holds about 8 hues MIN_DELTA_E apart, so from the
+ * ninth project on the redraw settles for the roomiest hue, not a clear one.
+ * Spread mains over lightness too if that stops being enough. Deterministic
+ * either way, so a pass over its own output changes nothing — which is what
+ * lets a settings effect run it on every render without looping. */
+export function distinctMains(
+  mains: Record<string, string>,
+  own: Record<string, string[]> = {},
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [id, hex] of Object.entries(mains)) {
+    const before = Object.values(out);
+    const ownHues = (own[id] ?? [])
+      .filter((c) => c !== hex)
+      .map(hexToHue)
+      .filter((h): h is number => h !== null);
+    out[id] = before.every((b) => hexGap(hex, b) >= MIN_DELTA_E)
+      ? hex
+      : hueToHex(nextHue(before, 0, ownHues));
+  }
+  return out;
+}
