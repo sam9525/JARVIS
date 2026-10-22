@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   AGENT_GUIDE,
   BRIEF_AFTER_HOUR,
+  CLEAR_INPUT,
   FINISH_NUDGE,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
@@ -13,7 +14,10 @@ import {
   ensureMainAgent,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
+  CLEAR_GAP_MS,
+  SUBMIT_GAP_MS,
   mainAgentWorkspace,
+  typeNudge,
   withMainAgent,
 } from "../../src/main/main-agent";
 import type { Workspace } from "../../src/shared/types";
@@ -107,11 +111,13 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("YYYY-MM-DD");
   });
 
-  it("checks a task off only on the user's agreement, not a workspace finish", () => {
+  it("checks a task off on the user's agreement or a merge into develop, not a bare finish", () => {
     expect(AGENT_GUIDE).toContain("## Keeping the to-do list current");
+    expect(AGENT_GUIDE).toContain("merged into develop also counts");
     expect(AGENT_GUIDE).toContain(
-      "A workspace reporting it finished\nis not agreement",
+      "only says done, committed or tests pass is not agreement",
     );
+    expect(AGENT_GUIDE).toContain("or none clearly");
   });
 
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
@@ -195,19 +201,23 @@ describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
   });
 });
 
-describe("dailyBriefPrompt", () => {
-  const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
+const notes = [
+  "D:\\Obsidian-valut\\memory\\raw\\2026-09-13-Mac.md",
+  "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md",
+];
 
-  it("carries the note's path and nothing else about the work", () => {
-    expect(dailyBriefPrompt(note)).toContain(note);
+describe("dailyBriefPrompt", () => {
+  it("carries every note's path and nothing else about the work", () => {
+    const text = dailyBriefPrompt(notes);
+    for (const n of notes) expect(text).toContain(n);
     // a location, not a description: swap the path and the rest is identical
-    const a = dailyBriefPrompt("A").replace("A", "");
-    const b = dailyBriefPrompt("B").replace("B", "");
+    const a = dailyBriefPrompt(["A"]).replace("A", "");
+    const b = dailyBriefPrompt(["B"]).replace("B", "");
     expect(a).toBe(b);
   });
 
   it("asks for a written summary, one paragraph per project", () => {
-    const text = dailyBriefPrompt(note);
+    const text = dailyBriefPrompt(notes);
     expect(text).toContain("one paragraph per project");
     expect(text).toContain("what moved");
     expect(text).toContain("still open");
@@ -217,30 +227,30 @@ describe("dailyBriefPrompt", () => {
   });
 
   it("asks the delegate to report a note that is not yesterday's", () => {
-    expect(dailyBriefPrompt(note)).toContain("yesterday's");
+    expect(dailyBriefPrompt(notes)).toContain("yesterday's");
   });
 });
 
 describe("dailyBriefNudge", () => {
-  const note = "D:\\Obsidian-valut\\memory\\raw\\2026-09-13.md";
-
   it("fits on one line, since it is typed into a TUI composer", () => {
-    expect(dailyBriefNudge(note, "My Vault")).not.toContain("\n");
+    expect(dailyBriefNudge(notes, "My Vault")).not.toContain("\n");
   });
 
-  it("delegates to the vault workspace instead of reading the note", () => {
-    const text = dailyBriefNudge(note, "My Vault");
-    expect(text).toContain("Do not read the note yourself");
+  it("delegates to the vault workspace instead of reading the notes", () => {
+    const text = dailyBriefNudge(notes, "My Vault");
+    expect(text).toContain("Do not read the notes yourself");
     expect(text).toContain("jarvis_send to My Vault");
     expect(text).toContain("jarvis_launch");
   });
 
   it("forwards the delegate's prompt verbatim", () => {
-    expect(dailyBriefNudge(note, "My Vault")).toContain(dailyBriefPrompt(note));
+    expect(dailyBriefNudge(notes, "My Vault")).toContain(
+      dailyBriefPrompt(notes),
+    );
   });
 
   it("leaves the wait to the finish nudge, not jarvis_watch", () => {
-    expect(dailyBriefNudge(note, "My Vault")).not.toContain("jarvis_watch");
+    expect(dailyBriefNudge(notes, "My Vault")).not.toContain("jarvis_watch");
   });
 });
 
@@ -253,5 +263,49 @@ describe("briefing constants", () => {
     expect(SETTLE_MS).toBe(1000);
     expect(SETTLE_DEADLINE_MS).toBe(60_000);
     expect(SETTLE_DEADLINE_MS).toBeGreaterThan(SETTLE_MS);
+  });
+});
+
+describe("typeNudge", () => {
+  const recorder = (alive = true) => {
+    const writes: string[] = [];
+    const write = (data: string) => {
+      writes.push(data);
+      return alive;
+    };
+    return { writes, write };
+  };
+
+  it("clears the input, then types the nudge, then submits — three writes", () => {
+    vi.useFakeTimers();
+    const { writes, write } = recorder();
+    expect(typeNudge(write, "hello")).toBe(true);
+    expect(writes).toEqual([CLEAR_INPUT]);
+    vi.advanceTimersByTime(CLEAR_GAP_MS - 1);
+    expect(writes).toEqual([CLEAR_INPUT]);
+    vi.advanceTimersByTime(1);
+    expect(writes).toEqual([CLEAR_INPUT, "hello"]);
+    vi.advanceTimersByTime(SUBMIT_GAP_MS);
+    expect(writes).toEqual([CLEAR_INPUT, "hello", "\r"]);
+    vi.useRealTimers();
+  });
+
+  it("writes nothing more when there is no session", () => {
+    vi.useFakeTimers();
+    const { writes, write } = recorder(false);
+    expect(typeNudge(write, "hello")).toBe(false);
+    vi.runAllTimers();
+    expect(writes).toEqual([CLEAR_INPUT]);
+    vi.useRealTimers();
+  });
+
+  it("clears with editing keys only — nothing that interrupts a turn or answers a dialog", () => {
+    // Esc interrupts a running turn and cancels a permission prompt; Ctrl+C
+    // interrupts or exits; CR submits
+    expect(new Set(CLEAR_INPUT)).toEqual(new Set(["\x15", "\x0b", "\x7f"]));
+  });
+
+  it("stays a short chunk, so the TUI reads keys rather than a paste", () => {
+    expect(CLEAR_INPUT.length).toBeLessThanOrEqual(30);
   });
 });

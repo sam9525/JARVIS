@@ -186,6 +186,46 @@ describe("useWorkspaceGraphs", () => {
     expect(h.result.graph.nodes).toEqual([]);
   });
 
+  it("shows a failed graph but fetches it again on the next visit", async () => {
+    const failed: VaultGraph = { nodes: [], edges: [], failed: "busy" };
+    jarvis.getGraph.mockResolvedValueOnce(failed);
+    const code = ws("c", "code");
+    const other = ws("o", "vault");
+    const activeIdRef = { current: "c" as string | null };
+    const base = params({ activeIdRef, active: code });
+    const h = renderHook(useWorkspaceGraphs, base);
+    await settle();
+    expect(h.result.graph.failed).toBe("busy");
+
+    activeIdRef.current = "o";
+    h.rerender({ ...base, active: other });
+    await settle();
+    activeIdRef.current = "c";
+    h.rerender({ ...base, active: code });
+    await settle();
+    // c twice (failed, then ok) + o once
+    expect(jarvis.getGraph).toHaveBeenCalledTimes(3);
+    expect(h.result.graph.nodes.map((n) => n.id)).toEqual(["a"]);
+  });
+
+  it("puts a failed card graph on the card without caching it", async () => {
+    const failed: VaultGraph = { nodes: [], edges: [], failed: "busy" };
+    jarvis.getGraph.mockResolvedValueOnce(failed);
+    const list = [ws("c", "code")];
+    const base = params({ showHome: true, workspaces: list });
+    const h = renderHook(useWorkspaceGraphs, base);
+    await settle();
+    await settle();
+    expect(h.result.cardGraphs.get("c")?.failed).toBe("busy");
+
+    h.rerender({ ...base, showHome: false });
+    h.rerender(base);
+    await settle();
+    await settle();
+    expect(jarvis.getGraph).toHaveBeenCalledTimes(2);
+    expect(h.result.cardGraphs.get("c")?.failed).toBeUndefined();
+  });
+
   it("shows a watched graph only while its workspace is open", async () => {
     const activeIdRef = { current: "v" as string | null };
     const h = renderHook(useWorkspaceGraphs, params({ activeIdRef }));

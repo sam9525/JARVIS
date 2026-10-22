@@ -17,6 +17,9 @@ type EmptyGraphProps = {
   error?: string;
   onIndex: () => void;
   compact?: boolean; // sized for a 220×150 mission-control card
+  // the graph's `failed` reason: the index exists but could not be read, so
+  // indexing again is the wrong advice and the button is not offered
+  failed?: string;
 };
 
 const BUTTON_TEXT: Record<IndexState, string> = {
@@ -25,14 +28,14 @@ const BUTTON_TEXT: Record<IndexState, string> = {
   error: "index failed — retry",
 };
 
-// Shown wherever a code workspace's graph came back empty — a project added
-// before it was ever analyzed, or a registry entry whose index is unreadable.
-// Both cases are fixed by the same command, so both get the same button.
+// Shown wherever a code workspace's graph came back empty. A project that was
+// never analyzed gets the index button; a read that failed gets its reason.
 export default function EmptyGraph({
   state,
   error,
   onIndex,
   compact = false,
+  failed,
 }: EmptyGraphProps) {
   return (
     <div
@@ -47,26 +50,32 @@ export default function EmptyGraph({
           "text-ink-dim " + (compact ? "text-[10px]" : "text-[12.5px]")
         }
       >
-        No GitNexus index
+        {failed ?? "No GitNexus index"}
       </span>
-      <button
-        data-testid="index-button"
-        disabled={state === "running"}
-        title={state === "error" && error ? error : "Run gitnexus analyze here"}
-        // the card behind this is itself a click target; indexing must not
-        // also navigate into the workspace
-        onClick={(e) => {
-          e.stopPropagation();
-          onIndex();
-        }}
-        className={
-          "cursor-pointer rounded border border-edge text-ink-dim transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-60 disabled:hover:border-edge disabled:hover:text-ink-dim " +
-          (compact ? "px-1.5 py-0.5 text-[10px]" : "px-2.5 py-1 text-[12px]") +
-          (state === "error" ? " border-warm text-warm" : "")
-        }
-      >
-        {BUTTON_TEXT[state]}
-      </button>
+      {!failed && (
+        <button
+          data-testid="index-button"
+          disabled={state === "running"}
+          title={
+            state === "error" && error ? error : "Run gitnexus analyze here"
+          }
+          // the card behind this is itself a click target; indexing must not
+          // also navigate into the workspace
+          onClick={(e) => {
+            e.stopPropagation();
+            onIndex();
+          }}
+          className={
+            "cursor-pointer rounded border border-edge text-ink-dim transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-60 disabled:hover:border-edge disabled:hover:text-ink-dim " +
+            (compact
+              ? "px-1.5 py-0.5 text-[10px]"
+              : "px-2.5 py-1 text-[12px]") +
+            (state === "error" ? " border-warm text-warm" : "")
+          }
+        >
+          {BUTTON_TEXT[state]}
+        </button>
+      )}
     </div>
   );
 }

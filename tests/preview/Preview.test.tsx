@@ -1,0 +1,151 @@
+// @vitest-environment jsdom
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import Preview from "../../src/renderer/preview/Preview";
+import type { Workspace } from "../../src/shared/types";
+
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock("../../src/renderer/preview/code-highlight", async (orig) => ({
+  ...(await orig<typeof import("../../src/renderer/preview/code-highlight")>()),
+  highlightCode: async (code: string, path: string, changes: any) =>
+    `<pre data-path="${path}" data-added="${changes.added.join(",")}">${code}</pre>`,
+}));
+
+const ws: Workspace = {
+  id: "w",
+  name: "w",
+  rootPath: "/tmp/w",
+  kind: "code",
+  sourceId: "gitnexus",
+};
+
+// stable, as App memoizes it: a new function per render would re-read on its own
+const resolveLink = () => null;
+const noop = () => undefined;
+
+let files: Record<string, string>;
+let added: number[];
+let root: Root;
+let container: HTMLDivElement;
+const scrollTo = vi.fn();
+
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+const show = (nodeId: string, revision: number) =>
+  act(() => {
+    root.render(
+      <Preview
+        nodeId={nodeId}
+        revision={revision}
+        workspace={ws}
+        resolveLink={resolveLink}
+        onNavigate={noop}
+        onClose={noop}
+      />,
+    );
+  });
+
+beforeEach(() => {
+  files = { "a.ts": "old text", "b.ts": "other file" };
+  added = [];
+  (window as any).jarvis = {
+    readNote: vi.fn(async (_ws: string, id: string) => files[id] ?? null),
+    lineChanges: vi.fn(async () => ({ added, modified: [], removedAfter: [] })),
+  };
+  // jsdom has no layout, so it ships no scrollTo
+  Element.prototype.scrollTo = scrollTo as any;
+  scrollTo.mockClear();
+  container = document.createElement("div");
+  act(() => {
+    root = createRoot(container);
+  });
+});
+
+afterEach(() => act(() => root.unmount()));
+
+describe("Preview refresh", () => {
+  it("re-reads the file and its markers when revision changes", async () => {
+    show("a.ts", 0);
+    await flush();
+    expect(container.textContent).toContain("old text");
+
+    files["a.ts"] = "new text";
+    added = [3];
+    show("a.ts", 1);
+    await flush();
+    expect(container.textContent).toContain("new text");
+    expect(container.querySelector("pre")?.dataset.added).toBe("3");
+  });
+
+  it("keeps the scroll place on a re-read, and resets it for a new file", async () => {
+    show("a.ts", 0);
+    await flush();
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+
+    show("a.ts", 1);
+    await flush();
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+
+    show("b.ts", 1);
+    await flush();
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Preview note source view", () => {
+  const vault: Workspace = { ...ws, kind: "vault", sourceId: "vault" };
+
+  const showNote = () =>
+    act(() => {
+      root.render(
+        <Preview
+          nodeId="notes/a"
+          revision={0}
+          workspace={vault}
+          resolveLink={resolveLink}
+          onNavigate={noop}
+          onClose={noop}
+        />,
+      );
+    });
+
+  const clickView = (label: string) => {
+    const button = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === label,
+    );
+    act(() => button?.click());
+  };
+
+  it("shows a note's source by default and remembers the toggle across opens", async () => {
+    files["notes/a"] = "# Title";
+    added = [1];
+    showNote();
+    await flush();
+    const pre = container.querySelector(".code-preview pre");
+    expect(pre?.textContent).toBe("# Title");
+    expect((pre as HTMLElement).dataset.added).toBe("1");
+    expect((pre as HTMLElement).dataset.path).toBe("notes/a.md");
+
+    clickView("Rendered");
+    await flush();
+    expect(container.querySelector("h1")?.textContent).toBe("Title");
+    expect(container.querySelector(".code-preview")).toBeNull();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    showNote();
+    await flush();
+    expect(container.querySelector("h1")?.textContent).toBe("Title");
+
+    // leaves the session default at Source for any later test
+    clickView("Source");
+    await flush();
+    expect(container.querySelector(".code-preview pre")).not.toBeNull();
+  });
+});

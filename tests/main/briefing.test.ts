@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
   hasTranscript,
-  newestNote,
+  latestNotes,
+  pullNotes,
   readBriefing,
   todayLocal,
   transcriptDir,
@@ -75,26 +77,73 @@ describe("todayLocal", () => {
   });
 });
 
-describe("newestNote", () => {
-  it("is null for a folder that is not there", async () => {
-    expect(await newestNote(path.join(await tmp(), "nope"))).toBe(null);
+describe("latestNotes", () => {
+  it("is empty for a folder that is not there", async () => {
+    expect(await latestNotes(path.join(await tmp(), "nope"))).toEqual([]);
   });
 
-  it("is null for a folder holding no .md", async () => {
+  it("is empty for a folder holding no .md", async () => {
     const dir = await tmp();
     await fs.writeFile(path.join(dir, "a.txt"), "x", "utf8");
-    expect(await newestNote(dir)).toBe(null);
+    expect(await latestNotes(dir)).toEqual([]);
   });
 
-  it("returns the newest .md by mtime, as an absolute path", async () => {
+  it("returns the .md with the latest filename date, ignoring mtime", async () => {
     const dir = await tmp();
     const older = path.join(dir, "2026-09-10.md");
-    const newer = path.join(dir, "2026-09-11.md");
+    const newer = path.join(dir, "Daily 2026-09-11.md");
     await fs.writeFile(older, "old", "utf8");
     await fs.writeFile(newer, "new", "utf8");
-    await fs.utimes(older, new Date(2026, 8, 10), new Date(2026, 8, 10));
+    // a pull touched the older note last
     await fs.utimes(newer, new Date(2026, 8, 11), new Date(2026, 8, 11));
-    expect(await newestNote(dir)).toBe(newer);
+    await fs.utimes(older, new Date(2026, 9, 1), new Date(2026, 9, 1));
+    expect(await latestNotes(dir)).toEqual([newer]);
+  });
+
+  it("returns every machine's note for the latest date", async () => {
+    const dir = await tmp();
+    for (const name of ["2026-10-11.md", "2026-10-12.md", "2026-10-12-Mac.md"])
+      await fs.writeFile(path.join(dir, name), "x", "utf8");
+    expect(await latestNotes(dir)).toEqual([
+      path.join(dir, "2026-10-12-Mac.md"),
+      path.join(dir, "2026-10-12.md"),
+    ]);
+  });
+
+  it("skips .md files with no date in the name", async () => {
+    const dir = await tmp();
+    await fs.writeFile(path.join(dir, "2026-09-10.md"), "x", "utf8");
+    await fs.writeFile(path.join(dir, "inbox.md"), "x", "utf8");
+    expect(await latestNotes(dir)).toEqual([path.join(dir, "2026-09-10.md")]);
+  });
+});
+
+describe("pullNotes", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, { cwd, stdio: "ignore" });
+
+  it("fast-forwards the local copy from its remote", async () => {
+    const origin = await tmp();
+    git(origin, "init", "-q");
+    git(origin, "config", "user.email", "t@t");
+    git(origin, "config", "user.name", "t");
+    await fs.writeFile(path.join(origin, "2026-09-10.md"), "x", "utf8");
+    git(origin, "add", ".");
+    git(origin, "commit", "-qm", "a");
+    const local = path.join(await tmp(), "vault");
+    git(origin, "clone", "-q", origin, local);
+    await fs.writeFile(path.join(origin, "2026-09-11.md"), "y", "utf8");
+    git(origin, "add", ".");
+    git(origin, "commit", "-qm", "b");
+
+    await pullNotes(local);
+    expect(await latestNotes(local)).toEqual([
+      path.join(local, "2026-09-11.md"),
+    ]);
+  });
+
+  it("resolves for a folder that is not a repo", async () => {
+    await expect(pullNotes(await tmp())).resolves.toBeUndefined();
   });
 });
 

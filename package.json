@@ -1,7 +1,7 @@
 {
   "name": "jarvis",
   "productName": "jarvis",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "My Electron application description",
   "main": ".vite/build/index.js",
   "private": true,

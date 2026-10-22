@@ -24,6 +24,7 @@ import {
 import { resolveSourceId, sourceById } from "./graph-sources/registry";
 import { isDirectory } from "./is-directory";
 import { runAnalyze } from "./graph-sources/gitnexus-source";
+import { cachedGraph } from "./graph-cache";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
@@ -38,6 +39,7 @@ import {
   MAIN_AGENT_MODEL,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
+  typeNudge,
   dailyBriefNudge,
   ensureMainAgent,
   mainAgentWorkspace,
@@ -50,16 +52,31 @@ import { createEdgeTts } from "./edge-tts";
 import { importHead, listHeads, readHead } from "./head-models";
 import {
   hasTranscript,
-  newestNote,
+  latestNotes,
+  pullNotes,
   readBriefing,
   todayLocal,
   transcriptDir,
   writeBriefing,
 } from "./briefing";
+import {
+  HEARTBEAT_MS,
+  hasSessionTranscript,
+  readSavedSessions,
+  sessionsToResume,
+  writeSavedSessions,
+} from "./session-restore";
 import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
-import type { Settings, TodoOp, VaultGraph, Workspace } from "../shared/types";
+import { lineChanges } from "./git-diff";
+import type {
+  LineChanges,
+  Settings,
+  TodoOp,
+  VaultGraph,
+  Workspace,
+} from "../shared/types";
 
 if (started) app.quit();
 
@@ -145,12 +162,7 @@ app.whenReady().then(async () => {
   const graphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
-    let g = graphs.get(id);
-    if (!g) {
-      g = loadGraph(ws);
-      graphs.set(id, g);
-    }
-    return g;
+    return cachedGraph(graphs, id, () => loadGraph(ws));
   };
 
   // symbol graphs are a second, independent per-workspace cache — the file
@@ -159,16 +171,15 @@ app.whenReady().then(async () => {
   const symbolGraphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
-    let g = symbolGraphs.get(id);
-    if (!g) {
-      // sources own their error handling; a source with no symbol level
-      // serves an empty graph rather than main knowing what a gitnexus is
-      g =
+    // sources own their error handling; a source with no symbol level
+    // serves an empty graph rather than main knowing what a gitnexus is
+    return cachedGraph(
+      symbolGraphs,
+      id,
+      () =>
         sourceById(ws.sourceId)?.loadSymbols?.(ws) ??
-        Promise.resolve({ nodes: [], edges: [] });
-      symbolGraphs.set(id, g);
-    }
-    return g;
+        Promise.resolve({ nodes: [], edges: [] }),
+    );
   };
 
   ipcMain.handle("get-workspaces", () => workspaces);
@@ -193,7 +204,9 @@ app.whenReady().then(async () => {
     // analyze` run in the workspace's own terminal), and refresh is how you say so
     ws.sourceId = await resolveSourceId(ws);
     const g = await loadGraph(ws);
-    graphs.set(id, Promise.resolve(g)); // assign only on success
+    // a failed rescan is returned but not cached, so the next ask reads again
+    if (g.failed) graphs.delete(id);
+    else graphs.set(id, Promise.resolve(g));
     symbolGraphs.delete(id);
     return g;
   });
@@ -369,16 +382,32 @@ app.whenReady().then(async () => {
     });
   }
 
+  // a node's file inside its workspace, or null for anything that escapes it
+  const noteFile = (workspaceId: string, nodeId: string) => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return null;
+    const file = ws.kind === "vault" ? `${nodeId}.md` : nodeId;
+    const abs = path.resolve(ws.rootPath, file);
+    const rel = path.relative(ws.rootPath, abs);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // stay inside
+    return { root: ws.rootPath, abs, rel };
+  };
+
   ipcMain.handle(
     "read-note",
     async (_e, workspaceId: string, nodeId: string) => {
-      const ws = workspaces.find((w) => w.id === workspaceId);
-      if (!ws) return null;
-      const file = ws.kind === "vault" ? `${nodeId}.md` : nodeId;
-      const abs = path.resolve(ws.rootPath, file);
-      const rel = path.relative(ws.rootPath, abs);
-      if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // stay inside
-      return fs.readFile(abs, "utf8").catch(() => null);
+      const file = noteFile(workspaceId, nodeId);
+      return file ? fs.readFile(file.abs, "utf8").catch(() => null) : null;
+    },
+  );
+
+  ipcMain.handle(
+    "line-changes",
+    (_e, workspaceId: string, nodeId: string): Promise<LineChanges> => {
+      const file = noteFile(workspaceId, nodeId);
+      return file
+        ? lineChanges(file.root, file.rel)
+        : Promise.resolve({ added: [], modified: [], removedAfter: [] });
     },
   );
 
@@ -458,13 +487,10 @@ app.whenReady().then(async () => {
       win.webContents.send("tts-say", text);
       return true;
     },
-    // Same two-write shape as jarvis_send: Claude Code's TUI reads one
-    // arriving chunk as a paste, so a trailing CR would land as a newline in
-    // the composer instead of submitting. No session yet means write returns
-    // false and the finish just waits in the queue for whenever one starts.
+    // No session yet means the write fails and the finish just waits in the
+    // queue for whenever one starts.
     nudgeMain: () => {
-      if (!ptyManager.write(mainAgent.id, FINISH_NUDGE)) return;
-      setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+      typeNudge((data) => ptyManager.write(mainAgent.id, data), FINISH_NUDGE);
     },
   });
 
@@ -572,14 +598,15 @@ app.whenReady().then(async () => {
     rows: number,
     dangerous: boolean,
     model: string | undefined,
+    resumeId?: string,
   ): Promise<{ ok: boolean; hooksOk: boolean }> {
     const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
     const mcpOk = await ensureMcp(ws, mcpPath);
     // a relaunched main agent continues its conversation like the boot
     // launch does — /clear is the only reset, and it is the user's
-    const resume =
-      ws.isSelf === true &&
-      (await hasTranscript(transcriptDir(os.homedir(), ws.rootPath)));
+    const resume = ws.isSelf
+      ? await hasTranscript(transcriptDir(os.homedir(), ws.rootPath))
+      : (resumeId ?? false);
     try {
       ptyManager.launch(ws, cols, rows, dangerous, model, resume);
       pushStatus(status.ptyLaunched(ws.id, Date.now()));
@@ -613,8 +640,8 @@ app.whenReady().then(async () => {
   );
 
   // The main agent owns the fleet watch and the voice, so it has to be running
-  // before any delegate can finish. It is the only session boot starts; project
-  // terminals still launch by hand.
+  // before any delegate can finish. It is the only session every boot starts;
+  // project terminals launch by hand, or resume after a recent close (below).
   let todosWatcher: FSWatcher | undefined;
   try {
     await ensureMainAgent(mainAgent.rootPath);
@@ -640,14 +667,14 @@ app.whenReady().then(async () => {
       transcriptDir(os.homedir(), mainAgent.rootPath),
     );
     const briefing = await readBriefing(userData);
-    const note = briefing.notesDir ? await newestNote(briefing.notesDir) : null;
+    const notesDir = briefing.notesDir;
     // the vault workspace reads the note; without one there is no one to ask
     const briefTo = workspaces.find((w) => w.kind === "vault" && !w.isSelf);
     // lastBriefed is the briefing's own record, not a transcript mtime: an
     // mtime gate is cancelled by any overnight write, and the morning
     // briefing would silently never fire.
     const due =
-      note !== null &&
+      notesDir !== null &&
       briefTo !== undefined &&
       resume &&
       briefing.lastBriefed !== todayLocal() &&
@@ -658,17 +685,20 @@ app.whenReady().then(async () => {
     const settled = due
       ? settle.wait(mainAgent.id, SETTLE_DEADLINE_MS)
       : Promise.resolve(false);
+    // the pull runs during the settle wait, so the launch never waits on the
+    // network; the note is picked only once the vault is as fresh as it gets
+    const pulled = due && notesDir ? pullNotes(notesDir) : Promise.resolve();
     // placeholder geometry — the terminal panel resizes the pty the moment it
     // attaches, so this size never reaches the screen
     ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
-    void settled.then((ready) => {
-      if (!ready || !note || !briefTo) return;
-      // same two-write shape as every other nudge: one arriving chunk is a
-      // paste, so a trailing CR would land as a newline in the composer
-      const nudge = dailyBriefNudge(note, briefTo.name);
-      if (!ptyManager.write(mainAgent.id, nudge)) return;
-      setTimeout(() => ptyManager.write(mainAgent.id, "\r"), 80);
+    void Promise.all([settled, pulled]).then(async ([ready]) => {
+      if (!ready || !notesDir || !briefTo) return;
+      const notes = await latestNotes(notesDir);
+      if (notes.length === 0) return;
+      const nudge = dailyBriefNudge(notes, briefTo.name);
+      const write = (data: string) => ptyManager.write(mainAgent.id, data);
+      if (!typeNudge(write, nudge)) return;
       // re-read: the folder may have been picked since boot, and the date is
       // written when the nudge is typed — a failed turn costs that day's
       // briefing, which is cheaper than a nudge that retries into a live
@@ -686,7 +716,41 @@ app.whenReady().then(async () => {
     console.error("[jarvis] main agent failed to launch:", err);
   }
 
+  // Project sessions live at the last close come back if the app reopens
+  // within the window. Read before the first heartbeat overwrites the file.
+  const toResume = sessionsToResume(
+    await readSavedSessions(userData),
+    Date.now(),
+  );
+  // a resumed session reports no id until its first hook, so the id it was
+  // resumed with stands in — otherwise a close before any prompt forgets it
+  const resumedWith = new Map<string, string>();
+  const saveSessions = () => {
+    const live: Record<string, string> = {};
+    for (const ws of workspaces) {
+      if (ws.isSelf || !ptyManager.has(ws.id)) continue;
+      const sid = status.sessionId(ws.id) || resumedWith.get(ws.id);
+      if (sid) live[ws.id] = sid;
+    }
+    writeSavedSessions(userData, live, Date.now());
+  };
+  const heartbeat = setInterval(saveSessions, HEARTBEAT_MS);
+  // the terminal's defaults (Opus, permissions on), as jarvis_launch uses.
+  // A workspace with no session id, or whose transcript is gone, is left for
+  // a manual launch as before rather than started fresh.
+  for (const [id, sid] of Object.entries(toResume)) {
+    const ws = workspaces.find((w) => w.id === id && !w.isSelf);
+    if (!ws) continue;
+    const dir = transcriptDir(os.homedir(), ws.rootPath);
+    if (!(await hasSessionTranscript(dir, sid))) continue;
+    resumedWith.set(ws.id, sid);
+    void launchSession(ws, 80, 24, false, "opus", sid);
+  }
+
   app.on("before-quit", () => {
+    clearInterval(heartbeat);
+    // before killAll, while every pty still counts as live
+    saveSessions();
     ptyManager.killAll();
     void todosWatcher?.close();
   });

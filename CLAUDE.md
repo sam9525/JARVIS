@@ -46,7 +46,7 @@ Electron desktop app — a cockpit for N workspaces (vault + indexed repos), eac
 - **Layers:** graph z0, bezel z10, scanlines z15 (below panels on purpose), `footLeft` z16, panels in the 20–40 band, sweep z48. The bezel and `footLeft` are pointer-transparent; only the scrubber opts back in.
 - **Panels (`ui/panel-layout.ts`, pure):** `raise` renormalises the whole map, so persist all of its output (writing back one panel causes a z tie, and `raise` then short-circuits forever). `resizePanel` clamps the west/north delta before the rect. `rescaleAll` scales against `panelViewport`, which keeps it idempotent and StrictMode-safe. Focus binds on the capture phase. Exit completion is a timer, not `animationend`. A Panel closed via `open === false` must stay mounted to play its exit, and `closing` must be cleared after `onClose`. The fold class is armed during render, not in an effect.
 - **Boot sequence (`ui/boot-stage.ts`):** one stage per tick; `FALLBACK_MS` is `Math.max`'d with the hold. Hidden sections use `visibility: hidden` (`boot-hold`), so `TerminalPanel` focuses on its `visible` prop rather than at mount. Reduced motion skips the sequence entirely. Duration constants have twins in `index.css`, enforced by `tests/ui/animation-durations.test.ts`.
-- **Colours:** hues are drawn at random (`pickHue`/`pickHues`, rejecting anything within 25° of the last 10 picks), with `nextHue()` as the always-terminating fallback. Reserved bands are cyan 172–202 (read/hover/accent) and amber 10–40 (modified); a plain node never wears them. Return `#rrggbb`, never `hsl()`, or `brighten` silently stops working. The workspace fallback hue is keyed on **name** so home and Fleet agree. Groups are per workspace and seeded in the renderer: "seeded" means `id in groups`, and the seeding effect writes only when something changed, which keeps it from looping. Folders of 5 notes or fewer get no group.
+- **Colours:** hues are drawn at random from the free hues (`pickHue`/`pickHues`, rejecting anything within OKLab ΔE 11 (`MIN_DELTA_E`) of the last 12 picks), with `nextHue()` as the always-terminating fallback. Distance is OKLab, never hue degrees: 60° of green reads as one colour. The fallback keeps a graph's own colours apart before other projects', and only folders that get a stored group draw a hue (`seed-groups.ts`). Reserved bands are cyan 172–202 (read/hover/accent) and amber 10–40 (modified); a plain node never wears them. Return `#rrggbb`, never `hsl()`, or `brighten` silently stops working. The workspace fallback hue is keyed on **name** so home and Fleet agree. Groups are per workspace and seeded in the renderer: "seeded" means `id in groups`, and the seeding effect writes only when something changed, which keeps it from looping. Folders of 5 notes or fewer get no group.
 - **One segmented control:** `ui/Segmented.tsx`. Don't add one-off toggles.
 
 ### Voice
@@ -82,25 +82,25 @@ tests/         vitest, mirroring src folders + fixtures/
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **JARVIS** (7400 symbols, 18813 relationships, 259 execution flows).
+This project is indexed by GitNexus as **JARVIS** (5063 symbols, 11302 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
 ## Always Do
 
-- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.
-- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "master"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "master" --repo .`.
-- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.
-- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
-- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
 - For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
 
 ## Never Do
 
-- NEVER edit a function, class, or method before MCP/CLI impact analysis.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit before MCP/CLI graph change analysis.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
 
 ## Resources
 
@@ -113,13 +113,13 @@ This project is indexed by GitNexus as **JARVIS** (7400 symbols, 18813 relations
 
 ## CLI
 
-| Task                                         | Read this skill file                               |
-| -------------------------------------------- | -------------------------------------------------- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md`       |
-| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus-debugging/SKILL.md`       |
-| Rename / extract / split / refactor          | `.claude/skills/gitnexus-refactoring/SKILL.md`     |
-| Tools, resources, schema reference           | `.claude/skills/gitnexus-guide/SKILL.md`           |
-| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus-cli/SKILL.md`             |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->

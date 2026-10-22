@@ -21,11 +21,13 @@ const fg = vi.hoisted(() => ({
   d3Force: vi.fn((): unknown => undefined),
   d3ReheatSimulation: vi.fn(),
 }));
+const last = vi.hoisted(() => ({ props: null as any }));
 vi.mock("react-force-graph-3d", async () => {
   const { default: React } = await vi.importActual<any>("react");
   return {
     default: React.forwardRef((props: any, ref: any) => {
       if (ref) ref.current = fg;
+      last.props = props;
       return null;
     }),
   };
@@ -59,7 +61,6 @@ const props = () => ({
   stateRef: { current: emptyState() },
   onNodeClick: () => undefined,
   focusNode: null,
-  layoutEpoch: 0,
   rotationPaused: false,
   width: 800,
   height: 600,
@@ -157,5 +158,20 @@ describe("Graph3D: the hand handle refuses non-finite input", () => {
     render(<Graph3D {...(props() as any)} handleRef={handleRef} />);
     handleRef.current.spin(NaN);
     expect(Number.isFinite(controls.autoRotateSpeed)).toBe(true);
+  });
+});
+
+describe("Graph3D: fit to screen", () => {
+  it("fits again after a rescan hands over the same files as new objects", () => {
+    const p = props();
+    render(<Graph3D {...(p as any)} />);
+    act(() => last.props.onEngineStop());
+    act(() => last.props.onEngineStop()); // a re-settle keeps the camera
+    expect(fg.zoomToFit).toHaveBeenCalledTimes(1);
+
+    const rescanned = { ...sample, nodes: sample.nodes.map((n) => ({ ...n })) };
+    render(<Graph3D {...(p as any)} graph={rescanned} />);
+    act(() => last.props.onEngineStop());
+    expect(fg.zoomToFit).toHaveBeenCalledTimes(2);
   });
 });

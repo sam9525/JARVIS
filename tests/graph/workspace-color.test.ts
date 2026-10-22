@@ -3,7 +3,10 @@ import {
   hexToHue,
   hueFrom,
   hueToHex,
-  MIN_APART,
+  colourGap,
+  distinctMains,
+  hexGap,
+  MIN_DELTA_E,
   nextHue,
   pickHue,
   pickHues,
@@ -19,6 +22,19 @@ const apart = (a: number, b: number) => {
   const d = Math.abs(a - b) % 360;
   return d > 180 ? 360 - d : d;
 };
+
+// closest pair by how different the colours look, not by degrees
+const nearestPair = (hues: number[]) => {
+  let worst = Infinity;
+  for (let i = 0; i < hues.length; i++)
+    for (let j = i + 1; j < hues.length; j++)
+      worst = Math.min(worst, colourGap(hues[i], hues[j]));
+  return worst;
+};
+
+const FREE = Array.from({ length: 360 }, (_, h) => h).filter(
+  (h) => !RESERVED.some(([lo, hi]) => h >= lo && h <= hi),
+);
 
 // asserts on the closest pair only, so a failure names the two hues that clashed
 const allApart = (hues: number[], min: number) => {
@@ -132,18 +148,27 @@ describe("nextHue", () => {
     expect(nextHue([], 207)).toBe(207);
   });
 
-  it("picks the middle of the widest gap", () => {
-    expect(nextHue([hueToHex(0), hueToHex(90)])).toBe(225);
+  it("picks the free hue whose nearest used colour is furthest away", () => {
+    const used = [0, 90];
+    const picked = nextHue(used.map((h) => hueToHex(h)));
+    const room = (h: number) => Math.min(...used.map((u) => colourGap(h, u)));
+    for (const h of FREE) expect(room(h)).toBeLessThanOrEqual(room(picked));
+  });
+
+  it("keeps clear of its own graph's colours before anyone else's", () => {
+    // the other projects' colours fill the wheel; the own graph holds only 81
+    const others = [0, 60, 120, 160, 220, 260, 300, 340].map((h) =>
+      hueToHex(h),
+    );
+    const picked = nextHue(others, 0, [81]);
+    expect(colourGap(picked, 81)).toBeGreaterThanOrEqual(MIN_DELTA_E);
   });
 
   it("stays clear of every colour already in use", () => {
-    const used = [0, 40, 80, 300].map((h) => hueToHex(h));
-    const picked = nextHue(used);
-    for (const u of used) {
-      const uh = hexToHue(u) as number;
-      const d = Math.abs(picked - uh) % 360;
-      expect(d > 180 ? 360 - d : d).toBeGreaterThan(25);
-    }
+    const used = [0, 40, 80, 300];
+    const picked = nextHue(used.map((h) => hueToHex(h)));
+    for (const u of used)
+      expect(colourGap(picked, u)).toBeGreaterThanOrEqual(MIN_DELTA_E);
   });
 
   it("never returns a hue reserved for a highlight colour", () => {
@@ -154,25 +179,44 @@ describe("nextHue", () => {
   });
 });
 
+describe("colourGap", () => {
+  it("scores the red and orange pair that sets the minimum at about 11", () => {
+    expect(Math.round(colourGap(0, 25))).toBe(MIN_DELTA_E);
+  });
+
+  // the jarvis src/ and tests/ greens: 56 degrees apart, one colour to the eye
+  it("scores two greens far apart in degrees below the minimum", () => {
+    expect(colourGap(81, 137)).toBeLessThan(MIN_DELTA_E);
+  });
+});
+
 describe("pickHue", () => {
   it("varies — it is a draw, not a formula", () => {
     const seen = new Set(Array.from({ length: 30 }, () => pickHue([])));
     expect(seen.size).toBeGreaterThan(5);
   });
 
-  it("clears every one of the last ten picks by MIN_APART", () => {
-    const recent = [0, 60, 120, 240, 300];
+  it("clears every recent pick by MIN_DELTA_E while the wheel has room", () => {
+    const recent = [0, 81, 240];
     for (let i = 0; i < 50; i++) {
       const h = pickHue(recent);
       for (const r of recent)
-        expect(apart(h, r)).toBeGreaterThanOrEqual(MIN_APART);
+        expect(colourGap(h, r)).toBeGreaterThanOrEqual(MIN_DELTA_E);
     }
   });
 
-  it("forgets a pick once ten newer ones have gone by", () => {
-    // 90 is the oldest of eleven, so it drops out of the window and a draw
+  it("never draws a band edge more often than any other free hue", () => {
+    const edges = Array.from({ length: 3000 }, () => pickHue([])).filter((h) =>
+      [9, 41, 171, 203].includes(h),
+    ).length;
+    // uniform over 298 free hues: about 40 of 3000, where clamping gave ~350
+    expect(edges).toBeLessThan(100);
+  });
+
+  it("forgets a pick once twelve newer ones have gone by", () => {
+    // 90 is the oldest of thirteen, so it drops out of the window and a draw
     // may legally land on it again
-    const log = [90, ...Array.from({ length: 10 }, (_, i) => i * 30 + 5)];
+    const log = [90, ...Array.from({ length: 12 }, (_, i) => i * 25 + 5)];
     const banned = log.slice(-RECENT_PICKS);
     expect(banned).not.toContain(90);
   });
@@ -193,16 +237,38 @@ describe("pickHue", () => {
 });
 
 describe("pickHues", () => {
+  // five fit at MIN_DELTA_E; a sixth may have to settle a little closer,
+  // since the free wheel holds only about eight such hues
   it("keeps its own draws apart, not just apart from the log", () => {
-    for (let run = 0; run < 20; run++) allApart(pickHues(6), MIN_APART - 1);
+    for (let run = 0; run < 20; run++) {
+      expect(nearestPair(pickHues(5))).toBeGreaterThanOrEqual(
+        MIN_DELTA_E - 0.5,
+      );
+      expect(nearestPair(pickHues(6))).toBeGreaterThanOrEqual(9);
+    }
   });
 
   it("continues an existing log", () => {
     const recent = [10, 70, 130];
-    const out = pickHues(3, recent);
+    // a third pick can find no hue clear of all five and fall back to the
+    // roomiest one, so two picks is what the log can always take
+    const out = pickHues(2, recent);
     for (const h of out)
       for (const r of recent)
-        expect(apart(h, r)).toBeGreaterThanOrEqual(MIN_APART);
+        expect(colourGap(h, r)).toBeGreaterThanOrEqual(MIN_DELTA_E);
+  });
+
+  // 13 groups cannot all look different — the wheel holds about eight — so
+  // the colours that share a graph are the ones kept apart
+  it("keeps each project's groups apart: three projects of 3, 3 and 7", () => {
+    for (let run = 0; run < 20; run++) {
+      let log: number[] = [];
+      for (const n of [3, 3, 7]) {
+        const hues = pickHues(n, log);
+        expect(nearestPair(hues)).toBeGreaterThanOrEqual(8);
+        log = [...log, ...hues].slice(-RECENT_PICKS);
+      }
+    }
   });
 
   it("returns nothing for a count of zero", () => {
@@ -236,5 +302,67 @@ describe("hueOfWorkspace", () => {
     expect(hueOfWorkspace(fleet[0], fleet, { "d:/a": "#808080" })).toBe(
       workspaceHue("alpha", fleetDomains(fleet)),
     );
+  });
+});
+
+describe("hexGap", () => {
+  it("reads #e1bf70 and #e1bd70 as one yellow", () => {
+    expect(hexGap("#e1bf70", "#e1bd70")).toBeLessThan(MIN_DELTA_E);
+  });
+
+  it("tells one hue at two lightnesses apart", () => {
+    expect(hexGap("#e1bd70", "#7a5a10")).toBeGreaterThan(MIN_DELTA_E);
+  });
+});
+
+describe("distinctMains", () => {
+  it("redraws the later of two near-identical yellows and keeps the first", () => {
+    const out = distinctMains({ vault: "#e1bf70", jarvis: "#e1bd70" });
+    expect(out.vault).toBe("#e1bf70");
+    expect(hexGap(out.vault, out.jarvis)).toBeGreaterThanOrEqual(MIN_DELTA_E);
+  });
+
+  it("keeps colours that already look different", () => {
+    const mains = { a: hueToHex(60), b: hueToHex(240) };
+    expect(distinctMains(mains)).toEqual(mains);
+  });
+
+  it("keeps the redrawn colour off the project's own other groups", () => {
+    const own = { jarvis: ["#e1bd70", hueToHex(260)] };
+    const out = distinctMains({ vault: "#e1bf70", jarvis: "#e1bd70" }, own);
+    expect(hexGap(out.jarvis, hueToHex(260))).toBeGreaterThanOrEqual(
+      MIN_DELTA_E,
+    );
+  });
+
+  // a real settings file: twelve projects, three pairs under ΔE 1
+  const twelve = [
+    "#e1bf70",
+    "#e18170",
+    "#df70e1",
+    "#7094e1",
+    "#70e1d0",
+    "#70e1a3",
+    "#70b5e1",
+    "#707de1",
+    "#e170b4",
+    "#e170e1",
+    "#e17d70",
+    "#e1bd70",
+  ];
+  const mains = Object.fromEntries(twelve.map((c, i) => [`p${i}`, c]));
+
+  it("gives twelve projects no near-identical pair, past the wheel's eight clear hues", () => {
+    const out = Object.values(distinctMains(mains));
+    let worst = Infinity;
+    for (let i = 0; i < out.length; i++)
+      for (let j = i + 1; j < out.length; j++)
+        worst = Math.min(worst, hexGap(out[i], out[j]));
+    expect(worst).toBeGreaterThan(5);
+  });
+
+  it("changes nothing on a second pass, so the settings effect cannot loop", () => {
+    const once = distinctMains(mains);
+    expect(distinctMains(once)).toEqual(once);
   });
 });

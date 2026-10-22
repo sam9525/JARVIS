@@ -73,6 +73,19 @@ export interface GraphEdge {
 export interface VaultGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  // set when the source could not read its index: a short reason for the card.
+  // A failed graph is never cached, so the next load asks the source again.
+  failed?: string;
+}
+
+/** A previewed file's uncommitted changes against HEAD, as 1-based line
+ * numbers in the working copy. `added` lines are new, `modified` lines replace
+ * an old line. `removedAfter` holds the line just above each deletion, so 0
+ * means lines were removed from the top of the file. */
+export interface LineChanges {
+  added: number[];
+  modified: number[];
+  removedAfter: number[];
 }
 
 export type WorkspaceKind = "vault" | "code";

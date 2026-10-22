@@ -83,11 +83,11 @@ describe("settings", () => {
     expect(loaded.recentHues).toEqual([12, 200]);
   });
 
-  it("keeps only the last ten hues from an oversized pick log", async () => {
+  it("keeps only the last twelve hues from an oversized pick log", async () => {
     const recentHues = Array.from({ length: 500 }, (_, i) => i % 360);
     const file = await writeSettings({ recentHues });
     const s = await loadSettings(file);
-    expect(s.recentHues).toEqual(recentHues.slice(-10));
+    expect(s.recentHues).toEqual(recentHues.slice(-12));
   });
 
   it("leaves the palette absent when the file has none", async () => {

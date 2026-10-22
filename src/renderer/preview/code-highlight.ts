@@ -1,5 +1,6 @@
 import { createHighlighter, createJavaScriptRegexEngine } from "shiki";
 import type { BundledLanguage, Highlighter } from "shiki";
+import type { LineChanges } from "../../shared/types";
 
 const THEME = "dark-plus";
 
@@ -100,9 +101,24 @@ function escapeHtml(str: string): string {
   });
 }
 
+/** Gutter marker classes for one 1-based line. A deletion is drawn on the edge
+ * of the line above it, or on line 1's top edge when the top was removed. */
+export function lineClasses(changes: LineChanges, line: number): string[] {
+  const classes: string[] = [];
+  if (changes.added.includes(line)) classes.push("diff-add");
+  if (changes.modified.includes(line)) classes.push("diff-mod");
+  if (changes.removedAfter.includes(line)) classes.push("diff-del-after");
+  if (line === 1 && changes.removedAfter.includes(0))
+    classes.push("diff-del-before");
+  return classes;
+}
+
+const NO_CHANGES: LineChanges = { added: [], modified: [], removedAfter: [] };
+
 export async function highlightCode(
   code: string,
   path: string,
+  changes: LineChanges = NO_CHANGES,
 ): Promise<string> {
   try {
     const lang = langForPath(path) ?? "text"; // "text" is a special always-loaded lang
@@ -113,9 +129,28 @@ export async function highlightCode(
       // degrades it to plaintext rather than breaking the preview
       await hl.loadLanguage(lang as BundledLanguage);
     }
-    return hl.codeToHtml(code, { lang, theme: THEME });
+    return hl.codeToHtml(code, {
+      lang,
+      theme: THEME,
+      transformers: [
+        {
+          line(node, line) {
+            for (const c of lineClasses(changes, line))
+              this.addClassToHast(node, c);
+          },
+        },
+      ],
+    });
   } catch (error) {
-    const escaped = escapeHtml(code);
-    return `<pre class="shiki dark-plus" style="background-color:#1e1e1e;color:#d4d4d4;"><code>${escaped}</code></pre>`;
+    // one span.line per source line, joined the way Shiki joins them, so the
+    // line-number gutter works on the plaintext fallback too
+    const lines = code
+      .split("\n")
+      .map((l, i) => {
+        const cls = ["line", ...lineClasses(changes, i + 1)].join(" ");
+        return `<span class="${cls}">${escapeHtml(l)}</span>`;
+      })
+      .join("\n");
+    return `<pre class="shiki dark-plus" style="background-color:#1e1e1e;color:#d4d4d4;"><code>${lines}</code></pre>`;
   }
 }

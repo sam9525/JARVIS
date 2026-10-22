@@ -196,4 +196,14 @@ describe("claudeCommand model flag", () => {
       "--model",
     );
   });
+
+  it("resumes a session id, and refuses one that is not a UUID", () => {
+    const sid = "0b5e6c1a-7f3d-4e2b-9a8c-1d2e3f4a5b6c";
+    const { args } = claudeCommand(false, undefined, sid);
+    expect(args.slice(-2)).toEqual(["--resume", sid]);
+    expect(args).not.toContain("--continue");
+    expect(claudeCommand(false, undefined, "x & calc").args).not.toContain(
+      "--resume",
+    );
+  });
 });

@@ -55,7 +55,6 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
   ]),
   view: defaultSettings().views["3d"],
   dimensions: "3d",
-  layoutEpoch: 0,
   width: 900,
   height: 600,
   actionsRef: { current: {} as HandActions },

@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -28,25 +29,43 @@ export function todayLocal(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** The newest *.md in `dir` by mtime, absolute, or null when the folder is
- *  missing or holds none. */
-export async function newestNote(dir: string): Promise<string | null> {
+/** Every *.md in `dir` whose filename carries the latest YYYY-MM-DD, absolute
+ *  and sorted — one per machine when each writes its own note for the day
+ *  (`2026-10-12.md`, `2026-10-12-Mac.md`). Empty when the folder is missing
+ *  or holds no dated note. The filename, not mtime: a git pull stamps every
+ *  file it writes with the pull time. */
+export async function latestNotes(dir: string): Promise<string[]> {
   let names: string[];
   try {
     names = await fs.readdir(dir);
   } catch {
-    return null;
+    return [];
   }
-  let best: { file: string; mtime: number } | null = null;
-  for (const name of names) {
-    if (!/\.md$/i.test(name)) continue;
-    const file = path.join(dir, name);
-    const stat = await fs.stat(file).catch(() => null);
-    if (!stat?.isFile()) continue;
-    if (!best || stat.mtimeMs > best.mtime)
-      best = { file, mtime: stat.mtimeMs };
-  }
-  return best?.file ?? null;
+  const dated = names.flatMap((name) => {
+    const date = /\.md$/i.test(name)
+      ? /\d{4}-\d{2}-\d{2}/.exec(name)?.[0]
+      : undefined;
+    return date ? [{ name, date }] : [];
+  });
+  const latest = dated.reduce((max, n) => (n.date > max ? n.date : max), "");
+  return dated
+    .filter((n) => n.date === latest)
+    .map((n) => path.join(dir, n.name))
+    .sort();
+}
+
+/** `git pull --ff-only` in `dir`, resolving either way: offline, not a repo,
+ *  no git, diverged or past `timeoutMs` all leave the local copy to brief
+ *  from. */
+export function pullNotes(dir: string, timeoutMs = 15_000): Promise<void> {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      ["-C", dir, "pull", "--ff-only"],
+      { timeout: timeoutMs, windowsHide: true },
+      () => resolve(),
+    );
+  });
 }
 
 export interface Briefing {

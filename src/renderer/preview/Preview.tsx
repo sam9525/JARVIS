@@ -1,10 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
 import { renderNote } from "./markdown";
 import { highlightCode, previewsAsCode } from "./code-highlight";
+import Segmented from "../ui/Segmented";
 import type { Workspace } from "../../shared/types";
+
+type NoteView = "rendered" | "source";
+
+const NOTE_VIEW_OPTIONS: { value: NoteView; label: string }[] = [
+  { value: "rendered", label: "Rendered" },
+  { value: "source", label: "Source" },
+];
+
+// ponytail: module-level, so the last choice lasts for the app session only
+let lastNoteView: NoteView = "source";
 
 type PreviewProps = {
   nodeId: string;
+  /** Bumped each time Claude edits this file; a change re-reads it in place. */
+  revision: number;
   workspace: Workspace;
   resolveLink: (target: string) => string | null;
   onNavigate: (nodeId: string) => void;
@@ -13,6 +26,7 @@ type PreviewProps = {
 
 export default function Preview({
   nodeId,
+  revision,
   workspace,
   resolveLink,
   onNavigate,
@@ -20,7 +34,11 @@ export default function Preview({
 }: PreviewProps) {
   const [html, setHtml] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
+  const shownRef = useRef<string | null>(null);
+  // a note can also show its markdown source, coloured and numbered like code
+  const [noteView, setNoteView] = useState<NoteView>(lastNoteView);
   const isCode = previewsAsCode(workspace.kind === "code", nodeId);
+  const asSource = isCode || noteView === "source";
 
   useEffect(() => {
     let stale = false;
@@ -30,8 +48,11 @@ export default function Preview({
       let rendered: string;
       if (md === null) {
         rendered = "<em>file not found</em>";
-      } else if (previewsAsCode(workspace.kind === "code", nodeId)) {
-        rendered = await highlightCode(md, nodeId);
+      } else if (asSource) {
+        const changes = await window.jarvis.lineChanges(workspace.id, nodeId);
+        // vault ids drop ".md", and the highlighter picks its grammar by extension
+        const path = workspace.kind === "vault" ? nodeId + ".md" : nodeId;
+        rendered = await highlightCode(md, path, changes);
       } else {
         rendered = await renderNote(md, {
           resolveLink,
@@ -40,12 +61,15 @@ export default function Preview({
       }
       if (stale) return;
       setHtml(rendered);
-      panelRef.current?.scrollTo(0, 0); // wikilink nav starts at the top
+      // a new file (wikilink nav) starts at the top; a re-read after an edit
+      // keeps your place in the same file
+      if (shownRef.current !== nodeId) panelRef.current?.scrollTo(0, 0);
+      shownRef.current = nodeId;
     });
     return () => {
       stale = true;
     };
-  }, [nodeId, workspace, resolveLink]);
+  }, [nodeId, revision, workspace, resolveLink, asSource]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -66,7 +90,19 @@ export default function Preview({
       ref={panelRef}
       className="h-full overflow-x-hidden overflow-y-auto px-4 py-3 font-sans text-sm leading-relaxed text-ink"
     >
-      {isCode ? (
+      {!isCode && (
+        <div className="mb-2 flex justify-end">
+          <Segmented<NoteView>
+            options={NOTE_VIEW_OPTIONS}
+            value={noteView}
+            onChange={(view) => {
+              lastNoteView = view;
+              setNoteView(view);
+            }}
+          />
+        </div>
+      )}
+      {asSource ? (
         <div
           className="code-preview"
           dangerouslySetInnerHTML={{ __html: html }}

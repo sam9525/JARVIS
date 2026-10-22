@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   langForPath,
   highlightCode,
+  lineClasses,
   previewsAsCode,
 } from "../../src/renderer/preview/code-highlight";
 
@@ -132,6 +133,52 @@ describe("highlightCode", () => {
     expect(html).toContain(
       "const x = &quot;hello&quot; &amp; &quot;world&quot;; &lt;tag&gt;",
     );
+  });
+
+  // the line-number gutter counts .line spans, so both renderers must emit
+  // exactly one per source line, blank lines included
+  it("emits one .line span per source line", async () => {
+    const code = "const a = 1;\n\nconst b = 2;";
+    const count = (html: string) => html.match(/class="line/g)?.length;
+    expect(count(await highlightCode(code, "test.ts"))).toBe(3);
+    mockShouldThrow = true;
+    expect(count(await highlightCode(code, "test.ts"))).toBe(3);
+  });
+
+  it("puts git markers on the changed lines in both renderers", async () => {
+    const code = "a\nb\nc";
+    const changes = { added: [2], modified: [], removedAfter: [3] };
+    const classesOf = (html: string) =>
+      [...html.matchAll(/<span class="(line[^"]*)"/g)].map((m) => m[1]);
+    const expected = ["line", "line diff-add", "line diff-del-after"];
+    expect(classesOf(await highlightCode(code, "test.ts", changes))).toEqual(
+      expected,
+    );
+    mockShouldThrow = true;
+    expect(classesOf(await highlightCode(code, "test.ts", changes))).toEqual(
+      expected,
+    );
+  });
+});
+
+describe("lineClasses", () => {
+  const changes = { added: [1, 4], modified: [3], removedAfter: [0, 4] };
+
+  it("marks an added line", () => {
+    expect(lineClasses(changes, 4)).toContain("diff-add");
+  });
+
+  it("marks a modified line apart from an added one", () => {
+    expect(lineClasses(changes, 3)).toEqual(["diff-mod"]);
+  });
+
+  it("marks the line above a deletion, and line 1 for a top deletion", () => {
+    expect(lineClasses(changes, 4)).toContain("diff-del-after");
+    expect(lineClasses(changes, 1)).toEqual(["diff-add", "diff-del-before"]);
+  });
+
+  it("leaves an unchanged line bare", () => {
+    expect(lineClasses(changes, 2)).toEqual([]);
   });
 });
 

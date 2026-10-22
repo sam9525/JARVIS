@@ -92,9 +92,14 @@ malformed. Answer with the next open task in one spoken sentence.
 When you and the user agree a task is complete, mark it done in the same turn:
 call \`jarvis_todos\`, change its \`- [ ]\` to \`- [x]\` with Edit, then call
 \`jarvis_todos\` again and fix anything listed in \`malformed\`. Agreement means the
-user said it is done or approved the result. A workspace reporting it finished
-is not agreement, so do not check a task off on that alone. If the user's words
-could mean more than one open task, ask which.
+user said it is done or approved the result. A workspace finish report saying
+its work was merged into develop also counts, because nothing is merged until
+the user tells a workspace to merge it. When such a report clearly matches one
+open task in TODO.md (same project, same subject), check that task off the same
+way in the same turn and name it in your spoken summary. A report
+that only says done, committed or tests pass is not agreement. If the user's
+words or a merge report could mean more than one open task, or none clearly,
+ask which.
 
 ## Tools
 
@@ -144,34 +149,70 @@ export const SETTLE_MS = 1000;
  * quiet skips the day rather than typing over live work. */
 export const SETTLE_DEADLINE_MS = 60_000;
 
+/** Empties Claude Code's composer: Ctrl+U and Ctrl+K kill the line on both
+ * sides of the cursor, and Backspace or Ctrl+K at an empty line joins the
+ * next line, so each round removes a line wherever the cursor sits. Only
+ * editing keys: Esc and Ctrl+C would interrupt a running turn or cancel a
+ * permission prompt, and the dialog ignores these. The kills chain, so the
+ * user gets a cleared draft back with Ctrl+Y.
+ * ponytail: 10 rounds clear a draft of about 20 lines. The TUI reads a chunk
+ * of 120 bytes as a paste and drops the keys, and 60 failed once, so the
+ * chunk stays at 30. */
+export const CLEAR_INPUT = "\x15\x0b\x7f".repeat(10);
+
+/** Writes that land together arrive as one chunk, which the TUI reads as a
+ * paste: the keys stop editing and a CR lands as a newline instead of
+ * submitting. The clear gets the wider gap because a paste that swallows it
+ * also swallows the Enter after it. */
+export const CLEAR_GAP_MS = 250;
+export const SUBMIT_GAP_MS = 80;
+
+/** Types a nudge into the main agent's session as clear, text, Enter — three
+ * separate writes. False when there is no session to type into. */
+export function typeNudge(
+  write: (data: string) => boolean,
+  text: string,
+): boolean {
+  if (!write(CLEAR_INPUT)) return false;
+  setTimeout(() => {
+    if (write(text)) setTimeout(() => write("\r"), SUBMIT_GAP_MS);
+  }, CLEAR_GAP_MS);
+  return true;
+}
+
 /** How long jarvis_launch waits for a new session to go quiet before it
  * answers anyway. Kept under the abort bound mcp.mjs gives that route. */
 export const LAUNCH_SETTLE_DEADLINE_MS = 20_000;
 
-/** The prompt the main agent hands to the vault workspace: fixed text plus one
- * absolute path, so the app still composes nothing about the work. The answer
- * is read as text; the main agent's finish summary is what gets spoken. */
-export const dailyBriefPrompt = (notePath: string): string =>
-  "Daily briefing. Read this one file and nothing else: " +
-  notePath +
-  ". Its filename carries the date — if it is not yesterday's, say which day " +
-  "it is from. Then write a summary with one paragraph per project the file " +
-  "mentions: what moved, and what is still open. Say nothing about a project " +
-  "the file does not mention.";
+/** The prompt the main agent hands to the vault workspace: fixed text plus
+ * absolute paths — one note per machine that wrote that day — so the app
+ * still composes nothing about the work. The answer is read as text; the main
+ * agent's finish summary is what gets spoken. */
+export const dailyBriefPrompt = (notePaths: string[]): string =>
+  "Daily briefing. Read these files and nothing else: " +
+  notePaths.join(", ") +
+  ". They are the same day's notes, one per machine. Their filenames carry " +
+  "the date — if it is not yesterday's, say which day it is from. Then write " +
+  "one summary across all of them, with one paragraph per project they " +
+  "mention: what moved, and what is still open. Say nothing about a project " +
+  "they do not mention.";
 
 /** Typed into the main agent's session on the first launch of a day. The
  * main agent delegates the note to `workspace` — the vault workspace — rather
  * than reading it itself, so the summary comes back through the ordinary
  * finish nudge. It carries the delegate's prompt verbatim, so the agent
  * forwards the wording rules instead of paraphrasing them. */
-export const dailyBriefNudge = (notePath: string, workspace: string): string =>
-  "Daily briefing. Do not read the note yourself. Delegate it to the " +
+export const dailyBriefNudge = (
+  notePaths: string[],
+  workspace: string,
+): string =>
+  "Daily briefing. Do not read the notes yourself. Delegate them to the " +
   workspace +
   " workspace: if jarvis_list shows it has no session, call jarvis_launch " +
   "for it first, then call jarvis_send to " +
   workspace +
   " with exactly this prompt: " +
-  dailyBriefPrompt(notePath) +
+  dailyBriefPrompt(notePaths) +
   " Then stop; you will be woken when it finishes.";
 
 /** The folder is the PTY's cwd, so it has to exist before launch. Both writes

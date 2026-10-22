@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   createPreviewOpener,
+  isEditOf,
   PREVIEW_QUIET_MS,
 } from "../../src/renderer/preview/preview-opener";
 import type { ToolEvent } from "../../src/shared/types";
@@ -66,5 +67,33 @@ describe("preview-opener", () => {
     vi.advanceTimersByTime(10_000);
     expect(open).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+});
+
+describe("isEditOf", () => {
+  it("matches a finished Edit or Write of the previewed file", () => {
+    expect(
+      isEditOf(ev({ phase: "post", tool: "Edit", nodeIds: ["a"] }), "a"),
+    ).toBe(true);
+    expect(
+      isEditOf(ev({ phase: "post", tool: "Write", nodeIds: ["a"] }), "a"),
+    ).toBe(true);
+  });
+
+  // the pre event fires before the file is written, so a re-read there
+  // would show the old text
+  it("ignores the pre phase, other files, reads and a closed preview", () => {
+    expect(
+      isEditOf(ev({ phase: "pre", tool: "Edit", nodeIds: ["a"] }), "a"),
+    ).toBe(false);
+    expect(
+      isEditOf(ev({ phase: "post", tool: "Edit", nodeIds: ["b"] }), "a"),
+    ).toBe(false);
+    expect(
+      isEditOf(ev({ phase: "post", tool: "Read", nodeIds: ["a"] }), "a"),
+    ).toBe(false);
+    expect(
+      isEditOf(ev({ phase: "post", tool: "Edit", nodeIds: ["a"] }), null),
+    ).toBe(false);
   });
 });

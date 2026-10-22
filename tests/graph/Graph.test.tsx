@@ -106,7 +106,6 @@ describe("Graph component", () => {
         return;
       },
       focusNode: null,
-      layoutEpoch: 0,
       width: 800,
       height: 600,
     });

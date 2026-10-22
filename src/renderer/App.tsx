@@ -20,7 +20,7 @@ import TerminalPanel, { onTerminalTyped } from "./terminal/TerminalPanel";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
-import EmptyGraph from "./graph/EmptyGraph";
+import EmptyGraph, { canIndex } from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
 // One source of truth for the version string: the title was a literal and had
@@ -59,14 +59,15 @@ import {
 import { filterGraph } from "./graph/graph-filter";
 import { useWorkspaceGraphs } from "./graph/use-workspace-graphs";
 import { domainsOf } from "./graph/domain-colors";
+import { seedGroups } from "./graph/seed-groups";
 import { defaultSettings, groupsFor } from "../shared/types";
 import {
   RECENT_PICKS,
+  distinctMains,
   hueOfWorkspace,
   hueToHex,
-  pickHues,
 } from "./graph/workspace-color";
-import { createPreviewOpener } from "./preview/preview-opener";
+import { createPreviewOpener, isEditOf } from "./preview/preview-opener";
 import type {
   CodeGraphLevel,
   HomeView,
@@ -106,10 +107,6 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
   { value: "symbol", label: "Symbols" },
 ];
 
-// A folder of this many notes or fewer seeds no stored group. Its nodes still draw a
-// colour — the domain spread off the workspace's main hue — but a halo and a
-// settings entry for four notes is clutter, not information.
-const MIN_GROUP_NODES = 5;
 // the same box on the home screen and in a workspace
 const SHARED_PANELS = new Set<PanelId>(["todos", "compose", "view", "ask"]);
 
@@ -399,14 +396,7 @@ export default function App() {
     showHome,
     onWorkspacesChanged: setWorkspaces,
   });
-  const {
-    graph,
-    graphLoading,
-    layoutEpoch,
-    cardGraphs,
-    cardsLoaded,
-    indexing,
-  } = graphs;
+  const { graph, graphLoading, cardGraphs, cardsLoaded, indexing } = graphs;
 
   // event log per workspace, feeding the replay scrubber. logRev exists only to
   // re-render the bar as events arrive — the log itself stays in a ref so an
@@ -443,6 +433,11 @@ export default function App() {
 
   // debounced auto-open: last-read file after reads go quiet
   const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
+  // read by the event subscription, which is set up once and would otherwise
+  // see only the first render's previewNode
+  const previewNodeRef = useRef(previewNode);
+  previewNodeRef.current = previewNode;
+  const [previewRev, setPreviewRev] = useState(0);
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
@@ -496,6 +491,7 @@ export default function App() {
           if (fresh) onScrub(null); // the past being replayed no longer exists
           setLogRev((n) => n + 1);
           onPreviewEvent(e);
+          if (isEditOf(e, previewNodeRef.current)) setPreviewRev((n) => n + 1);
         }
       }),
     );
@@ -960,7 +956,6 @@ export default function App() {
       .filter((ws) => !(ws.id in settings.groups))
       .map((ws) => [ws, cardGraphs.get(ws.id)] as const)
       .filter((pair): pair is [Workspace, VaultGraph] => pair[1] !== undefined);
-    if (pending.length === 0) return;
 
     const groups = { ...settings.groups };
     const mainColors = { ...settings.mainColors };
@@ -968,32 +963,36 @@ export default function App() {
     let changed = false;
 
     for (const [ws, g] of pending) {
-      const folders = domainsOf(g);
-      if (folders.length === 0) continue;
-      // One random hue per folder, each clearing the last RECENT_PICKS. The
-      // log threads through the whole loop, so two projects seeded in the same
-      // pass cannot come out the same green either.
-      const hues = pickHues(folders.length, log);
-      // A folder of a handful of notes does not earn a stored halo. It is left
-      // out of settings, and its nodes fall through to the domain spread off
-      // this workspace's main colour — a colour, never the pre-domain grey.
-      const counts = new Map<string, number>();
-      for (const n of g.nodes)
-        if (n.domain) counts.set(n.domain, (counts.get(n.domain) ?? 0) + 1);
-      groups[ws.id] = folders
-        .map((d, i) => ({ query: `${d}/`, color: hueToHex(hues[i]) }))
-        .filter((_, i) => (counts.get(folders[i]) ?? 0) > MIN_GROUP_NODES);
-      // The biggest folder's colour is the project's identity, in Fleet and at
-      // home — not the first hue drawn. Fleet paints a whole cluster with this,
-      // and the colour a cluster reads as should be the one most of its nodes
-      // already wear. Ties go to the first folder, which is alphabetical.
-      const biggest = folders.reduce(
-        (best, d, i) =>
-          (counts.get(d) ?? 0) > (counts.get(folders[best]) ?? 0) ? i : best,
-        0,
+      // The log threads through the whole loop, so two projects seeded in the
+      // same pass cannot come out the same green either.
+      const seeded = seedGroups(g, log);
+      if (!seeded) continue;
+      groups[ws.id] = seeded.groups;
+      mainColors[ws.id] = seeded.main;
+      log = [...log, ...seeded.hues].slice(-RECENT_PICKS);
+      changed = true;
+    }
+
+    // The pick log only remembers twelve hues, so a project seeded after that
+    // can still draw an older project's colour — and saved settings may hold
+    // such a pair already. Only live projects are compared: a removed one
+    // keeps its entry but no longer holds its colour. The biggest group wears
+    // the main colour, so it moves with it.
+    const live = Object.fromEntries(
+      Object.entries(mainColors).filter(([id]) =>
+        fleet.some((ws) => ws.id === id),
+      ),
+    );
+    const ownColours = Object.fromEntries(
+      Object.entries(groups).map(([id, gs]) => [id, gs.map((g) => g.color)]),
+    );
+    for (const [id, hex] of Object.entries(distinctMains(live, ownColours))) {
+      const old = mainColors[id];
+      if (hex === old) continue;
+      groups[id] = (groups[id] ?? []).map((g) =>
+        g.color === old ? { ...g, color: hex } : g,
       );
-      mainColors[ws.id] = hueToHex(hues[biggest]);
-      log = [...log, ...hues].slice(-RECENT_PICKS);
+      mainColors[id] = hex;
       changed = true;
     }
 
@@ -1125,7 +1124,6 @@ export default function App() {
                     graphs={cardGraphs}
                     view={view}
                     dimensions={settings.dimensions}
-                    layoutEpoch={graphs.fleetEpoch}
                     width={width}
                     height={height}
                     actionsRef={handActionsRef}
@@ -1199,7 +1197,6 @@ export default function App() {
                     stateRef={stateRef}
                     onNodeClick={setPreviewNode}
                     focusNode={previewNode}
-                    layoutEpoch={layoutEpoch}
                     rotationPaused={previewNode !== null}
                     handleRef={graph3dHandle}
                     width={width}
@@ -1216,19 +1213,20 @@ export default function App() {
                     stateRef={stateRef}
                     onNodeClick={setPreviewNode}
                     focusNode={previewNode}
-                    layoutEpoch={layoutEpoch}
                     handleRef={graphHandle}
                     width={width}
                     height={height}
                   />
                 )}
-                {active?.kind === "code" &&
+                {active &&
+                  canIndex(active) &&
                   !graphLoading &&
                   graph.nodes.length === 0 && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center">
                       <EmptyGraph
                         state={indexing[active.id]?.state ?? "idle"}
                         error={indexing[active.id]?.error}
+                        failed={graph.failed}
                         onIndex={() => graphs.indexProject(active.id)}
                       />
                     </div>
@@ -1329,6 +1327,7 @@ export default function App() {
         >
           <Preview
             nodeId={previewNode}
+            revision={previewRev}
             workspace={active}
             resolveLink={resolveLink}
             onNavigate={setPreviewNode}

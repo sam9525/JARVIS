@@ -23,7 +23,7 @@ import { useMergedLinks } from "./use-merged-links";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 import { clampSpin, decaySpin, SPIN_PER_RAD_S } from "./spin";
 import SpriteText from "three-spritetext";
-import { nodeLabelText } from "./node-label";
+import { nodeLabelColor, nodeLabelText } from "./node-label";
 import {
   ArrowHelper,
   Color,
@@ -94,7 +94,6 @@ type GraphProps = {
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // aim the camera at this node
-  layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
   rotationPaused: boolean; // preview open — no auto-rotation
   width: number; // measured graph-slot size from GraphSlot's ResizeObserver
   height: number;
@@ -113,7 +112,6 @@ export default function Graph3D({
   stateRef,
   onNodeClick,
   focusNode,
-  layoutEpoch,
   rotationPaused,
   width,
   height,
@@ -248,13 +246,6 @@ export default function Graph3D({
     };
   }, []);
 
-  // a rescan hands over brand-new node objects, so the simulation restarts
-  // on its own; we only need to let onEngineStop re-fit the camera
-  useEffect(() => {
-    if (layoutEpoch === 0) return;
-    didFit.current = false;
-  }, [layoutEpoch]);
-
   // Nodes carry the BASE radius only — display.nodeSize applies at paint time
   // so a slider tick doesn't re-bind data and restart the simulation.
   const data = useMemo(() => {
@@ -264,6 +255,12 @@ export default function Graph3D({
       links: graph.edges.map((e) => ({ source: e.source, target: e.target })),
     };
   }, [graph]);
+
+  // a filter, search or rescan hands over a new node set, which restarts the
+  // simulation; fit it to the screen once it settles, as at launch
+  useEffect(() => {
+    didFit.current = false;
+  }, [data]);
 
   const nodeById = useMemo(
     () => new Map(data.nodes.map((n) => [String(n.id), n as NodeObj])),
@@ -592,6 +589,9 @@ export default function Graph3D({
       item.focusRing.scale.setScalar(sphereR * RING_SCALE.focus);
       item.focusRing.visible = id === focusNode;
       item.label.position.set(0, -(r + 4), 0);
+      // SpriteText redraws its canvas on every color set, so set it only on a change
+      const labelColor = nodeLabelColor(d);
+      if (item.label.color !== labelColor) item.label.color = labelColor;
     },
     [display.nodeSize, materials, displayColor, stateRef, focusNode],
   );
@@ -707,7 +707,6 @@ export default function Graph3D({
         const matchRing = new Sprite(materials.ring(COLORS.match));
         const focusRing = new Sprite(materials.ring(COLORS.hover));
         const label = new SpriteText(nodeLabelText(id, node.type));
-        label.color = COLORS.label;
         label.textHeight = 4;
         label.visible = sprites.current.get(id)?.visible ?? true;
         group.add(glow);

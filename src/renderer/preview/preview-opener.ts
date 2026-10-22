@@ -4,6 +4,16 @@ export const PREVIEW_QUIET_MS = 2500;
 
 export type PreviewOpener = ((e: ToolEvent) => void) & { cancel(): void };
 
+/** Whether `e` is Claude finishing a write to the file the preview shows. */
+export function isEditOf(e: ToolEvent, nodeId: string | null): boolean {
+  return (
+    nodeId !== null &&
+    e.phase === "post" &&
+    (e.tool === "Edit" || e.tool === "Write") &&
+    e.nodeIds.includes(nodeId)
+  );
+}
+
 // Open the LAST file Claude read once reads go quiet — not every read.
 // A new prompt cancels any pending open and closes the leftover preview.
 // cancel() exists for workspace switches: a pending open from the old

@@ -94,7 +94,6 @@ export default function MiniGraph({
           stateRef={stateRef}
           onNodeClick={noop}
           focusNode={null}
-          layoutEpoch={0}
           thumbnail
           width={width}
           height={height}

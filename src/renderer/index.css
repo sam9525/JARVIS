@@ -12,6 +12,9 @@
   --color-ink-muted: #b0d2de;
   --color-ink-dim: #5a7a8a;
   --color-alarm: #ef4444; /* the crashed status, and nothing else */
+  --color-diff-add: #2ea043; /* code preview gutter: added line */
+  --color-diff-mod: #388bfd; /* code preview gutter: modified line */
+  --color-diff-del: #f85149; /* code preview gutter: removed lines */
   --font-hud: Bahnschrift, "DIN Condensed", Oswald, sans-serif;
 }
 
@@ -534,5 +537,54 @@
   .code-preview pre.shiki code {
     white-space: inherit;
     font-family: inherit;
+    counter-reset: line;
+    /* A flex container does not render whitespace-only text runs, so the
+       "\n" nodes Shiki puts between line spans stop showing as blank rows. */
+    display: flex;
+    flex-direction: column;
+  }
+  /* Line-number gutter. The left padding is a hanging indent, so a wrapped
+     line keeps its continuation rows past the number instead of under it.
+     An empty line has no text to give it height, hence the min-height. */
+  .code-preview .line {
+    position: relative;
+    min-height: 1.5em;
+    padding-left: 5ch;
+    counter-increment: line;
+  }
+  .code-preview .line::before {
+    content: counter(line);
+    position: absolute;
+    left: 0;
+    width: 3.5ch;
+    text-align: right;
+    color: var(--color-ink-dim);
+    user-select: none;
+  }
+  /* Git change markers between the number and the code. The added and
+     modified bars are backgrounds so they never fight the removed triangle
+     for ::after — one line can be changed and sit above a deletion. */
+  .code-preview .line.diff-add {
+    background: linear-gradient(var(--color-diff-add), var(--color-diff-add))
+      4ch 0 / 3px 100% no-repeat;
+  }
+  .code-preview .line.diff-mod {
+    background: linear-gradient(var(--color-diff-mod), var(--color-diff-mod))
+      4ch 0 / 3px 100% no-repeat;
+  }
+  .code-preview .line.diff-del-after::after,
+  .code-preview .line.diff-del-before::after {
+    content: "";
+    position: absolute;
+    left: 4ch;
+    border-left: 6px solid var(--color-diff-del);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+  }
+  .code-preview .line.diff-del-after::after {
+    bottom: -4px;
+  }
+  .code-preview .line.diff-del-before::after {
+    top: -4px;
   }
 }

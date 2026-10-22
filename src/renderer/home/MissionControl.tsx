@@ -187,6 +187,7 @@ export default function MissionControl({
                   <EmptyGraph
                     state={idx?.state ?? "idle"}
                     error={idx?.error}
+                    failed={g?.failed}
                     onIndex={() => onIndex(ws.id)}
                     compact
                   />

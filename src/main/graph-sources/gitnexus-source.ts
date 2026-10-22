@@ -7,6 +7,7 @@ import {
   loadCodeGraph,
   loadSymbolGraph,
 } from "../gitnexus-graph";
+import type { VaultGraph } from "../../shared/types";
 import type { GraphSource } from "./types";
 
 export function isStale(metaJson: string | null, head: string | null): boolean {
@@ -58,19 +59,31 @@ export async function runAnalyze(cwd: string): Promise<void> {
   });
 }
 
+// `gitnexus analyze` locks the index while it writes it, and a read in that
+// window exits with "Another process may be rebuilding the index".
+export function failedGraph(err: unknown): VaultGraph {
+  const busy = /rebuilding the index/.test(String(err));
+  return {
+    nodes: [],
+    edges: [],
+    failed: busy
+      ? "GitNexus index busy, refresh"
+      : "GitNexus read failed, refresh",
+  };
+}
+
 export const gitnexusSource: GraphSource = {
   id: "gitnexus",
   detect: (ws) => hasIndex(ws.rootPath),
   load: (ws) =>
     loadCodeGraph(ws.name).catch((err) => {
       console.error(`code graph failed for ${ws.name}:`, err);
-      return { nodes: [], edges: [] };
+      return failedGraph(err);
     }),
   loadSymbols: (ws) =>
     loadSymbolGraph(ws.name).catch((err) => {
-      // gitnexus format drift / unreadable index → empty graph, no crash
       console.error(`symbol graph failed for ${ws.name}:`, err);
-      return { nodes: [], edges: [] };
+      return failedGraph(err);
     }),
   index: runAnalyze,
   reindexCommand: "npx gitnexus analyze",

@@ -14,6 +14,16 @@ const EMPTY: VaultGraph = { nodes: [], edges: [] };
 export const capped = (g: VaultGraph): VaultGraph =>
   g.nodes.length > SYMBOL_NODE_CAP ? busiest(g, SYMBOL_NODE_CAP) : g;
 
+// a failed load is shown but never cached, so the next visit reads it again
+const remember = (
+  cache: Map<string, VaultGraph>,
+  id: string,
+  g: VaultGraph,
+) => {
+  if (g.failed) cache.delete(id);
+  else cache.set(id, g);
+};
+
 type Params = {
   active: Workspace | null;
   activeIdRef: React.MutableRefObject<string | null>;
@@ -42,8 +52,7 @@ export function useWorkspaceGraphs({
   // true while a fetch is in flight, so the "no graph" notice doesn't flash
   // during the gap between clearing the graph and the fetch resolving
   const [graphLoading, setGraphLoading] = useState(false);
-  const [layoutEpoch, setLayoutEpoch] = useState(0);
-  const [fleetEpoch, setFleetEpoch] = useState(0); // ↻ re-fits the fleet graph
+  const [fleetEpoch, setFleetEpoch] = useState(0); // ↻ returns the ring to the front
   const [cardGraphs, setCardGraphs] = useState(new Map<string, VaultGraph>());
   // the first card pass has finished — every workspace loaded or failed. The
   // boot entrance gates the graph slot on this rather than on `cardGraphs.size`,
@@ -65,7 +74,6 @@ export function useWorkspaceGraphs({
     (id: string, g: VaultGraph) => {
       if (activeIdRef.current !== id) return;
       setGraph(g);
-      setLayoutEpoch((n) => n + 1);
       setGraphLoading(false);
     },
     [activeIdRef],
@@ -89,7 +97,7 @@ export function useWorkspaceGraphs({
       : window.jarvis.getGraph(ws.id);
     load
       .then((g) => {
-        cache.set(ws.id, g);
+        remember(cache, ws.id, g);
         if (!cancelled) show(ws.id, g);
       })
       .catch(() => setGraphLoading(false));
@@ -110,7 +118,7 @@ export function useWorkspaceGraphs({
           const cached = fileCache.current.get(ws.id);
           const g = cached ?? (await window.jarvis.getGraph(ws.id));
           if (cancelled) return;
-          fileCache.current.set(ws.id, g);
+          remember(fileCache.current, ws.id, g);
           setCardGraphs((prev) => new Map(prev).set(ws.id, g));
         } catch (err) {
           // one unreadable GitNexus index must not stop the remaining cards
@@ -147,7 +155,7 @@ export function useWorkspaceGraphs({
           workspaces.map(async (ws) => {
             try {
               const g = await window.jarvis.rescan(ws.id);
-              fileCache.current.set(ws.id, g);
+              remember(fileCache.current, ws.id, g);
               symbolCache.current.delete(ws.id);
               return [ws.id, g] as [string, VaultGraph];
             } catch (err) {
@@ -171,21 +179,19 @@ export function useWorkspaceGraphs({
     window.jarvis
       .rescan(ws.id)
       .then((g) => {
-        fileCache.current.set(ws.id, g);
+        remember(fileCache.current, ws.id, g);
         if (ws.kind === "code" && codeGraphLevel === "symbol") {
           window.jarvis
             .getSymbolGraph(ws.id)
             .then((gSym) => {
               const finalG = capped(gSym);
-              symbolCache.current.set(ws.id, finalG);
+              remember(symbolCache.current, ws.id, finalG);
               setGraph(finalG);
-              setLayoutEpoch((n) => n + 1);
               setGraphLoading(false);
             })
             .catch(console.error);
         } else {
           setGraph(g);
-          setLayoutEpoch((n) => n + 1);
           setGraphLoading(false);
         }
       })
@@ -209,7 +215,7 @@ export function useWorkspaceGraphs({
           // before pulling the graph the rail and cards will render
           onWorkspacesChanged(await window.jarvis.getWorkspaces());
           const g = await window.jarvis.rescan(id);
-          fileCache.current.set(id, g);
+          remember(fileCache.current, id, g);
           setCardGraphs((prev) => new Map(prev).set(id, g));
           show(id, g);
           setIndexing((prev) => {
@@ -231,7 +237,6 @@ export function useWorkspaceGraphs({
   return {
     graph,
     graphLoading,
-    layoutEpoch,
     fleetEpoch,
     cardGraphs,
     cardsLoaded,

@@ -8,7 +8,10 @@ import {
   resolveSourceId,
   sourceById,
 } from "../../src/main/graph-sources/registry";
-import { isStale } from "../../src/main/graph-sources/gitnexus-source";
+import {
+  failedGraph,
+  isStale,
+} from "../../src/main/graph-sources/gitnexus-source";
 import type { GraphSource } from "../../src/main/graph-sources/types";
 import type { Workspace } from "../../src/shared/types";
 
@@ -109,12 +112,36 @@ describe("gitnexus stale", () => {
 });
 
 describe("gitnexus loadSymbols", () => {
-  it("is defined, and degrades to an empty graph instead of rejecting", async () => {
+  it("is defined, and degrades to a failed graph instead of rejecting", async () => {
     const gn = sourceById("gitnexus");
     expect(gn?.loadSymbols).toBeDefined();
     // "bad name!" fails runCypher's SAFE_REPO_NAME validation before any
     // process spawns — the cheapest guaranteed failure path
     const g = await gn?.loadSymbols?.(ws({ name: "bad name!" }));
-    expect(g).toEqual({ nodes: [], edges: [] });
+    expect(g).toEqual({
+      nodes: [],
+      edges: [],
+      failed: "GitNexus read failed, refresh",
+    });
+  });
+});
+
+describe("gitnexus load", () => {
+  it("marks a failed read, so it differs from a genuinely empty graph", async () => {
+    const g = await sourceById("gitnexus")?.load(ws({ name: "bad name!" }));
+    expect(g?.nodes).toEqual([]);
+    expect(g?.failed).toBe("GitNexus read failed, refresh");
+  });
+});
+
+describe("failedGraph", () => {
+  it("names a locked index as busy, and anything else as a failed read", () => {
+    const locked = new Error(
+      "LadybugDB unavailable. Another process may be rebuilding the index. Retry later.",
+    );
+    expect(failedGraph(locked).failed).toBe("GitNexus index busy, refresh");
+    expect(failedGraph(new Error("ERR_MODULE_NOT_FOUND")).failed).toBe(
+      "GitNexus read failed, refresh",
+    );
   });
 });

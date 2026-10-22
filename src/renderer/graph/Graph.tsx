@@ -17,7 +17,7 @@ import { colorFor, groupColor } from "./domain-colors";
 import { displayRadius, graphMetrics } from "./graph-metrics";
 import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
-import { nodeLabelText } from "./node-label";
+import { nodeLabelColor, nodeLabelText } from "./node-label";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
 
 const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
@@ -43,7 +43,6 @@ type GraphProps = {
   stateRef: React.MutableRefObject<HighlightState>;
   onNodeClick: (id: string) => void;
   focusNode: string | null; // center this node in the graph slot
-  layoutEpoch: number; // bumped by manual refresh — re-arm the one-time fit
   width: number; // measured graph-slot size from GraphSlot's ResizeObserver
   height: number;
   // card mode: no zoom floor (a 220px card fits at ~0.15, far below ZOOM.min),
@@ -62,7 +61,6 @@ export default function Graph({
   stateRef,
   onNodeClick,
   focusNode,
-  layoutEpoch,
   width,
   height,
   thumbnail = false,
@@ -99,13 +97,6 @@ export default function Graph({
       handleRef.current = null;
     };
   }, []);
-
-  // a rescan hands over brand-new node objects, so the simulation restarts
-  // on its own; we only need to let onEngineStop re-fit the camera
-  useEffect(() => {
-    if (layoutEpoch === 0) return;
-    didFit.current = false;
-  }, [layoutEpoch]);
 
   // A parked card never runs onRenderFramePost, which is where the open view
   // expires matches and repaints. Poll the store instead and nudge the canvas
@@ -168,6 +159,12 @@ export default function Graph({
       nodeById: new Map(nodes.map((n) => [n.id, n as NodeObj])),
     };
   }, [graph]);
+
+  // a filter, search or rescan hands over a new node set, which restarts the
+  // simulation; fit it to the screen once it settles, as at launch
+  useEffect(() => {
+    didFit.current = false;
+  }, [data]);
 
   useForceTuning(
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,
@@ -311,7 +308,7 @@ export default function Graph({
         ctx.font = `${fontSize}px system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        ctx.fillStyle = COLORS.label;
+        ctx.fillStyle = nodeLabelColor(d);
         ctx.fillText(label, node.x, node.y + r + 2 / globalScale);
       }}
       linkColor={(l: LinkObj) => (linkHovered(l) ? COLORS.hover : COLORS.link)}
