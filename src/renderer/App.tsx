@@ -20,7 +20,7 @@ import TerminalPanel, { onTerminalTyped } from "./terminal/TerminalPanel";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
-import EmptyGraph from "./graph/EmptyGraph";
+import EmptyGraph, { canIndex } from "./graph/EmptyGraph";
 import Timeline from "./session/Timeline";
 import Bezel from "./ui/Bezel";
 // One source of truth for the version string: the title was a literal and had
@@ -1218,7 +1218,8 @@ export default function App() {
                     height={height}
                   />
                 )}
-                {active?.kind === "code" &&
+                {active &&
+                  canIndex(active) &&
                   !graphLoading &&
                   graph.nodes.length === 0 && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center">

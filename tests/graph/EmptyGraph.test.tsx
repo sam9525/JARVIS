@@ -1,7 +1,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { vi, describe, it, expect } from "vitest";
-import EmptyGraph from "../../src/renderer/graph/EmptyGraph";
+import EmptyGraph, { canIndex } from "../../src/renderer/graph/EmptyGraph";
+import type { Workspace } from "../../src/shared/types";
+
+describe("canIndex", () => {
+  const ws = (kind: Workspace["kind"], sourceId: string): Workspace => ({
+    id: "w",
+    name: "w",
+    rootPath: "/tmp/w",
+    kind,
+    sourceId,
+  });
+
+  it("offers indexing to gitnexus and bare code folders only", () => {
+    expect(canIndex(ws("code", "gitnexus"))).toBe(true);
+    expect(canIndex(ws("code", "unknown"))).toBe(true);
+    // an empty graphify graph is a broken graph.json, not a missing index
+    expect(canIndex(ws("code", "graphify"))).toBe(false);
+    expect(canIndex(ws("vault", "vault"))).toBe(false);
+  });
+});
 
 // Same shallow shim as tests/MissionControl.test.tsx: call the component
 // function and walk the element tree it returns. EmptyGraph is hook-free.
