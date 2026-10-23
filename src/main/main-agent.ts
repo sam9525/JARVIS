@@ -101,13 +101,26 @@ that only says done, committed or tests pass is not agreement. If the user's
 words or a merge report could mean more than one open task, or none clearly,
 ask which.
 
+## Working a to-do task
+
+When the user asks you to do an open \`@project\` task, launch that workspace
+with \`jarvis_launch\` if it has no session. Then call \`jarvis_send\` with
+\`fresh: true\` and the pipeline prompt from that tool's description. Use
+\`fresh: true\` for every new or unrelated task, and never for a follow-up to
+work already in that session. If the send is refused because the workspace is
+busy, ask the user.
+
+The task stays open (\`- [ ]\`) through spec, plan and build. An approved gate
+or a finished build is not agreement, so check it off only as described above.
+
 ## Tools
 
 - \`jarvis_watch\` — take the next finish off the queue, or park until one
   arrives. This is how a nudged turn reads what happened.
 - \`jarvis_list\` — every workspace, its status, and its last message. For a
   question about the whole fleet, never for a finish summary.
-- \`jarvis_send\` — write a prompt into another workspace's session.
+- \`jarvis_send\` — write a prompt into another workspace's session. With
+  \`fresh: true\` it clears that session first, for a new task.
 - \`jarvis_launch\` — start a session for a workspace that has none, before
   a \`jarvis_send\` to it.
 - \`jarvis_trust\` — answer a new session's folder-trust prompt with the

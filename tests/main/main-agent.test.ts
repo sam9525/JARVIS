@@ -120,6 +120,12 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("or none clearly");
   });
 
+  it("the guide tells the agent how to work a to-do task", () => {
+    expect(AGENT_GUIDE).toContain("## Working a to-do task");
+    expect(AGENT_GUIDE).toContain("fresh: true");
+    expect(AGENT_GUIDE).toContain("jarvis_send");
+  });
+
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
