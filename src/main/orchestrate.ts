@@ -86,6 +86,29 @@ export function createOrchestrator(deps: OrchestrateDeps) {
   const queue: Finish[] = [];
   let waiter: ((f: Finish) => void) | null = null;
 
+  function checkTarget(target: string, prompt: string): Workspace | SendResult {
+    const all = deps.getWorkspaces();
+    const ws = findWorkspace(all, target);
+    if (!ws) return unknownWorkspace(all, target);
+    // self-send is the one loop the one-orchestrator topology can't rule out
+    if (ws.isSelf) {
+      return {
+        ok: false,
+        error: `refused: ${ws.name} is the orchestrator itself`,
+      };
+    }
+    if (!String(prompt ?? "").trim()) {
+      return { ok: false, error: "empty prompt" };
+    }
+    if (!deps.hasPty(ws.id)) {
+      return {
+        ok: false,
+        error: `${ws.name} has no session — launch it first`,
+      };
+    }
+    return ws;
+  }
+
   return {
     list(): FleetEntry[] {
       const byId = new Map(deps.snapshot().map((s) => [s.workspaceId, s]));
@@ -105,24 +128,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
 
     send(target: string, prompt: string): SendResult {
       const all = deps.getWorkspaces();
-      const ws = findWorkspace(all, target);
-      if (!ws) return unknownWorkspace(all, target);
-      // self-send is the one loop the one-orchestrator topology can't rule out
-      if (ws.isSelf) {
-        return {
-          ok: false,
-          error: `refused: ${ws.name} is the orchestrator itself`,
-        };
-      }
-      if (!String(prompt ?? "").trim()) {
-        return { ok: false, error: "empty prompt" };
-      }
-      if (!deps.hasPty(ws.id)) {
-        return {
-          ok: false,
-          error: `${ws.name} has no session — launch it first`,
-        };
-      }
+      const ws = checkTarget(target, prompt);
+      if ("ok" in ws) return ws;
       // the caller sends no identity — it can only be the one workspace that
       // has the tools, which mcp-install pins to isSelf
       const by = all.find((w) => w.isSelf)?.name ?? "JARVIS";
@@ -144,6 +151,39 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       // as the delegate going stale in jarvis_list. Await delivery if that bites.
       setTimeout(() => deps.write(ws.id, "\r"), 80);
       return { ok: true };
+    },
+
+    /** Types /clear into an idle session, waits for the TUI to repaint, then
+     * sends the prompt, so the task starts with an empty context. */
+    async sendFresh(target: string, prompt: string): Promise<SendResult> {
+      const ws = checkTarget(target, prompt);
+      if ("ok" in ws) return ws;
+      const kind = deps.snapshot().find((s) => s.workspaceId === ws.id)?.kind;
+      if (kind === "working" || kind === "asking" || kind === "blocked") {
+        return {
+          ok: false,
+          error: `${ws.name} is busy (${kind}) — ask the user before clearing it`,
+        };
+      }
+      // the waiter only counts output arriving after it exists, so it starts
+      // before the first write
+      const quiet = deps.waitQuiet(ws.id);
+      deps.write(ws.id, "/clear");
+      await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS));
+      deps.write(ws.id, "\r");
+      if (!(await quiet)) {
+        return {
+          ok: false,
+          error: `${ws.name} did not settle after /clear — prompt not sent`,
+        };
+      }
+      if (!deps.hasPty(ws.id)) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session ended during /clear`,
+        };
+      }
+      return this.send(target, prompt);
     },
 
     async launch(target: string): Promise<LaunchResult> {

@@ -57,6 +57,7 @@ function setup(
     launchFails?: boolean; // spawn threw — no claude on PATH
     trusted?: boolean | null; // ~/.claude.json's answer for every folder
     exitsOnKeys?: boolean; // the trust prompt took the keys as "No"
+    settles?: boolean; // waitQuiet's result; false = the deadline passed
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -94,7 +95,7 @@ function setup(
     isTrusted: async () => (over.trusted === undefined ? true : over.trusted),
     waitQuiet: async (id) => {
       if (over.exitsOnKeys) live.delete(id);
-      return true;
+      return over.settles ?? true;
     },
   });
   return { orch, writes, delegated, said, nudges, launched };
@@ -215,6 +216,72 @@ describe("orchestrate.send", () => {
     expect(out.ok).toBe(false);
     expect(writes).toEqual([]);
     expect(delegated).toEqual([]);
+  });
+});
+
+describe("orchestrate.sendFresh", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("clears, waits for quiet, then sends the prompt and the CR", async () => {
+    const { orch, writes } = setup({
+      statuses: [status({ workspaceId: "d:/aero", kind: "idle" })],
+    });
+    const out = orch.sendFresh("AeroGraph", "To-do task: x");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({ ok: true });
+    expect(writes).toEqual([
+      ["d:/aero", "/clear"],
+      ["d:/aero", "\r"],
+      ["d:/aero", "To-do task: x"],
+      ["d:/aero", "\r"],
+    ]);
+  });
+
+  it.each(["working", "asking", "blocked"] as const)(
+    "refuses a %s workspace and writes nothing",
+    async (kind) => {
+      const { orch, writes } = setup({
+        statuses: [status({ workspaceId: "d:/aero", kind })],
+      });
+      const out = await orch.sendFresh("AeroGraph", "x");
+      expect(out.ok).toBe(false);
+      expect(out).toMatchObject({
+        error: expect.stringContaining("AeroGraph is busy"),
+      });
+      expect(writes).toEqual([]);
+    },
+  );
+
+  it("does not send the prompt when the screen never settles", async () => {
+    const { orch, writes } = setup({ settles: false });
+    const out = orch.sendFresh("AeroGraph", "x");
+    await vi.runAllTimersAsync();
+    expect(await out).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("did not settle"),
+    });
+    expect(writes.map(([, d]) => d)).toEqual(["/clear", "\r"]);
+  });
+
+  it("reports a session that exits during the clear", async () => {
+    const { orch, writes } = setup({ exitsOnKeys: true });
+    const out = orch.sendFresh("AeroGraph", "x");
+    await vi.runAllTimersAsync();
+    expect(await out).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("session ended"),
+    });
+    expect(writes.map(([, d]) => d)).toEqual(["/clear", "\r"]);
+  });
+
+  it("keeps send's refusals: unknown, self, empty prompt, no session", async () => {
+    const { orch, writes } = setup({ live: [] });
+    expect((await orch.sendFresh("NopeCorp", "x")).ok).toBe(false);
+    expect((await orch.sendFresh("JARVIS", "x")).ok).toBe(false);
+    expect((await orch.sendFresh("AeroGraph", "  ")).ok).toBe(false);
+    expect((await orch.sendFresh("AeroGraph", "x")).ok).toBe(false);
+    expect(writes).toEqual([]);
   });
 });
 
