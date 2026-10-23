@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createOrchestrator,
+  FRESH_QUIET_MS,
   MAX_SAY,
   QUEUE_MAX,
 } from "../../src/main/orchestrate";
@@ -58,9 +59,11 @@ function setup(
     trusted?: boolean | null; // ~/.claude.json's answer for every folder
     exitsOnKeys?: boolean; // the trust prompt took the keys as "No"
     settles?: boolean; // waitQuiet's result; false = the deadline passed
+    outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
+  const attempted: string[] = []; // every write, delivered or not
   const delegated: Array<[string, string]> = [];
   const said: string[] = [];
   const nudges: number[] = [];
@@ -71,6 +74,7 @@ function setup(
     snapshot: () => over.statuses ?? [],
     hasPty: (id) => live.has(id),
     write: (id, data) => {
+      attempted.push(data);
       if (over.writeFails) return false;
       writes.push([id, data]);
       return true;
@@ -94,11 +98,14 @@ function setup(
     },
     isTrusted: async () => (over.trusted === undefined ? true : over.trusted),
     waitQuiet: async (id) => {
+      // a marker, so tests pin where the wait starts among the writes
+      writes.push([id, "<wait>"]);
       if (over.exitsOnKeys) live.delete(id);
       return over.settles ?? true;
     },
+    msSinceOutput: () => over.outputAgoMs ?? Infinity,
   });
-  return { orch, writes, delegated, said, nudges, launched };
+  return { orch, writes, attempted, delegated, said, nudges, launched };
 }
 
 describe("orchestrate.list", () => {
@@ -224,13 +231,15 @@ describe("orchestrate.sendFresh", () => {
   afterEach(() => vi.useRealTimers());
 
   it("clears, waits for quiet, then sends the prompt and the CR", async () => {
-    const { orch, writes } = setup({
+    const { orch, writes, delegated } = setup({
       statuses: [status({ workspaceId: "d:/aero", kind: "idle" })],
     });
     const out = orch.sendFresh("AeroGraph", "To-do task: x");
     await vi.runAllTimersAsync();
     expect(await out).toEqual({ ok: true });
+    expect(delegated).toEqual([["d:/aero", "JARVIS"]]);
     expect(writes).toEqual([
+      ["d:/aero", "<wait>"],
       ["d:/aero", "/clear"],
       ["d:/aero", "\r"],
       ["d:/aero", "To-do task: x"],
@@ -253,6 +262,61 @@ describe("orchestrate.sendFresh", () => {
     },
   );
 
+  // a live PTY with no busy status: never hooked, exited, or not yet seen
+  it.each([
+    ["none", [status({ workspaceId: "d:/aero", kind: "none" })]],
+    ["crashed", [status({ workspaceId: "d:/aero", kind: "crashed" })]],
+    ["missing", []],
+  ] as const)("allows a live PTY whose status is %s", async (_, statuses) => {
+    const { orch, writes } = setup({ statuses: [...statuses] });
+    const out = orch.sendFresh("AeroGraph", "x");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({ ok: true });
+    expect(writes.map(([, d]) => d)).toEqual([
+      "<wait>",
+      "/clear",
+      "\r",
+      "x",
+      "\r",
+    ]);
+  });
+
+  // a long Bash call sends no hook, so staleness can read it idle while the
+  // TUI is still painting; recent output is the tell
+  it("refuses a terminal that printed output within the quiet window", async () => {
+    const { orch, writes, attempted } = setup({
+      statuses: [status({ workspaceId: "d:/aero", kind: "idle" })],
+      outputAgoMs: FRESH_QUIET_MS - 1,
+    });
+    const out = await orch.sendFresh("AeroGraph", "x");
+    expect(out).toEqual({
+      ok: false,
+      error:
+        "AeroGraph is busy (output in the last 2 s) — ask the user before clearing it",
+    });
+    expect(writes).toEqual([]);
+    expect(attempted).toEqual([]);
+  });
+
+  it("allows a terminal quiet for the whole window", async () => {
+    const { orch } = setup({ outputAgoMs: FRESH_QUIET_MS });
+    const out = orch.sendFresh("AeroGraph", "x");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({ ok: true });
+  });
+
+  it("stops at once when /clear is not delivered", async () => {
+    const { orch, attempted, delegated } = setup({ writeFails: true });
+    const out = orch.sendFresh("AeroGraph", "x");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({
+      ok: false,
+      error: "AeroGraph's session ended before delivery",
+    });
+    expect(attempted).toEqual(["/clear"]);
+    expect(delegated).toEqual([]);
+  });
+
   it("does not send the prompt when the screen never settles", async () => {
     const { orch, writes } = setup({ settles: false });
     const out = orch.sendFresh("AeroGraph", "x");
@@ -261,7 +325,7 @@ describe("orchestrate.sendFresh", () => {
       ok: false,
       error: expect.stringContaining("did not settle"),
     });
-    expect(writes.map(([, d]) => d)).toEqual(["/clear", "\r"]);
+    expect(writes.map(([, d]) => d)).toEqual(["<wait>", "/clear", "\r"]);
   });
 
   it("reports a session that exits during the clear", async () => {
@@ -272,7 +336,7 @@ describe("orchestrate.sendFresh", () => {
       ok: false,
       error: expect.stringContaining("session ended"),
     });
-    expect(writes.map(([, d]) => d)).toEqual(["/clear", "\r"]);
+    expect(writes.map(([, d]) => d)).toEqual(["<wait>", "/clear", "\r"]);
   });
 
   it("keeps send's refusals: unknown, self, empty prompt, no session", async () => {
@@ -506,6 +570,7 @@ describe("orchestrate.trust", () => {
     const { orch, writes } = setup({ live: ["d:/fin"], trusted: false });
     expect(await orch.trust("FinPulse", true)).toEqual({ ok: true });
     expect(writes).toEqual([
+      ["d:/fin", "<wait>"],
       ["d:/fin", "\x1b[B"],
       ["d:/fin", "\r"],
     ]);

@@ -19,6 +19,8 @@ export interface OrchestrateDeps {
   isTrusted: (ws: Workspace) => Promise<boolean | null>;
   // resolves once the session's TUI has stopped painting (or a deadline passed)
   waitQuiet: (workspaceId: string) => Promise<boolean>;
+  // ms since the PTY last printed anything; Infinity = no output seen
+  msSinceOutput: (workspaceId: string) => number;
   markDelegated: (workspaceId: string, by: string) => void;
   // false = no renderer listening; say() reports that rather than going silent
   say: (text: string) => boolean;
@@ -52,6 +54,9 @@ const KEY_GAP_MS = 80;
 /** Only a summary is spoken, and this cap is what enforces that: a whole
  * project output pasted in is rejected with an error naming the number. */
 export const MAX_SAY = 500;
+/** A fresh send refuses a terminal that printed within this window: a long
+ * Bash call sends no hook, so its status can read idle while it still runs. */
+export const FRESH_QUIET_MS = 2000;
 export const WATCH_DEFAULT_S = 60;
 export const WATCH_MAX_S = 300;
 /** A watcher that has been away long enough to bank 50 finishes is not
@@ -109,7 +114,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     return ws;
   }
 
-  return {
+  const orchestrator = {
     list(): FleetEntry[] {
       const byId = new Map(deps.snapshot().map((s) => [s.workspaceId, s]));
       return deps.getWorkspaces().map((w) => {
@@ -165,10 +170,21 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name} is busy (${kind}) — ask the user before clearing it`,
         };
       }
+      if (deps.msSinceOutput(ws.id) < FRESH_QUIET_MS) {
+        return {
+          ok: false,
+          error: `${ws.name} is busy (output in the last 2 s) — ask the user before clearing it`,
+        };
+      }
       // the waiter only counts output arriving after it exists, so it starts
       // before the first write
       const quiet = deps.waitQuiet(ws.id);
-      deps.write(ws.id, "/clear");
+      if (!deps.write(ws.id, "/clear")) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session ended before delivery`,
+        };
+      }
       await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS));
       deps.write(ws.id, "\r");
       if (!(await quiet)) {
@@ -183,7 +199,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session ended during /clear`,
         };
       }
-      return this.send(target, prompt);
+      return orchestrator.send(target, prompt);
     },
 
     async launch(target: string): Promise<LaunchResult> {
@@ -331,6 +347,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       return { ok: true };
     },
   };
+  return orchestrator;
 }
 
 export type Orchestrator = ReturnType<typeof createOrchestrator>;

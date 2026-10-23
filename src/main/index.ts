@@ -477,6 +477,7 @@ app.whenReady().then(async () => {
     },
     isTrusted: (ws) => isTrusted(ws.rootPath),
     waitQuiet: (id) => settle.wait(id, LAUNCH_SETTLE_DEADLINE_MS),
+    msSinceOutput: (id) => Date.now() - (lastOutputAt.get(id) ?? -Infinity),
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (id, by) =>
       pushStatus(status.markDelegated(id, by, Date.now())),
@@ -542,12 +543,15 @@ app.whenReady().then(async () => {
   };
   // the briefing and jarvis_launch both wait for a new session to stop painting
   const settle = createSettle(SETTLE_MS);
+  // a fresh send reads this to tell a quiet terminal from one mid-command
+  const lastOutputAt = new Map<string, number>();
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
       onData: (id, data) => {
         send("pty-data", id, data);
         settle.bump(id);
+        lastOutputAt.set(id, Date.now());
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
