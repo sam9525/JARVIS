@@ -115,6 +115,18 @@ describe("TodoPanel growth", () => {
     mount(afterResize);
     expect(afterResize).not.toHaveBeenCalled();
   });
+
+  it("gives back the height DONE took when it folds again", () => {
+    stub(200, 200);
+    const onOverflow = vi.fn();
+    mount(onOverflow);
+    const doneButton = () =>
+      $('[data-testid="todo-done"] button') as HTMLElement;
+    act(() => doneButton().click());
+    stub(320, 320); // the owner grew the box to fit the done list
+    act(() => doneButton().click());
+    expect(onOverflow).toHaveBeenLastCalledWith(-120);
+  });
 });
 
 describe("TodoPanel", () => {
@@ -131,6 +143,35 @@ describe("TodoPanel", () => {
     expect(rows()[0].textContent).toContain("Fix the ring snap");
     // the age reads relative; the exact created date is its tooltip
     expect(rows()[0].querySelector('[title="2026-09-27"]')).not.toBeNull();
+  });
+
+  it("numbers each row per group and puts the date last, after the icons", () => {
+    render();
+    const parts = (r: HTMLElement) =>
+      [...r.children].map((c) => c.getAttribute("title") ?? c.tagName);
+    expect(rows().map((r) => r.firstElementChild?.textContent)).toEqual([
+      "1.",
+      "2.",
+      "1.",
+    ]);
+    expect(parts(rows()[0])).toEqual([
+      "SPAN",
+      "INPUT",
+      "SPAN",
+      "Edit",
+      "Delete",
+      "2026-09-27",
+    ]);
+  });
+
+  it("takes the icons out of the layout until the row is hovered or focused", () => {
+    render();
+    for (const title of ["Edit", "Delete"]) {
+      const icon = $(`[data-testid="todo-row"] [title="${title}"]`);
+      expect(icon.classList).toContain("hidden");
+      expect(icon.classList).toContain("group-hover:inline-block");
+      expect(icon.classList).toContain("group-focus-within:inline-block");
+    }
   });
 
   it("colours a workspace header and opens that workspace from it", () => {

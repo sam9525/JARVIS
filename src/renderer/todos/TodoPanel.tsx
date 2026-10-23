@@ -10,8 +10,10 @@ import { groupTodos } from "./group-todos";
 import { taskAge, type AgeTier } from "./task-age";
 
 const NONE = "";
+// display, not opacity: an idle row gives the icons' width to the text, and the
+// date stays put because it is the last, fixed-width item
 const ICON_BTN =
-  "cursor-pointer px-1 text-ink-dim opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent focus:opacity-100";
+  "hidden cursor-pointer px-1 text-ink-dim group-focus-within:inline-block group-hover:inline-block hover:text-accent";
 const AGE_CLASS: Record<AgeTier, string> = {
   fresh: "text-ink-muted",
   week: "text-ink-dim",
@@ -43,7 +45,8 @@ export default function TodoPanel({
   /** a double-clicked row; `project` as for onEdit */
   onView?(todo: Todo, project: string): void;
   onOpenProject?(name: string): void;
-  /** the list is this many px taller than its box; the owner grows the panel */
+  /** the list is this many px taller than its box; the owner grows the panel.
+   *  Negative when folding DONE gives back the height its unfolding took. */
   onOverflow?(px: number): void;
 }) {
   const [openFolded, setOpenFolded] = useState(false);
@@ -69,6 +72,20 @@ export default function TodoPanel({
     if (over > 0) grow(over);
   }, [list, openFolded, doneFolded, error]);
 
+  // the box height before DONE unfolded; folding it again shrinks back to it,
+  // but never grows a box the user made smaller meanwhile
+  const heightBeforeDone = useRef<number | null>(null);
+  const toggleDone = () => {
+    const el = scroller.current;
+    if (doneFolded) heightBeforeDone.current = el?.clientHeight ?? null;
+    else if (el && heightBeforeDone.current !== null) {
+      const extra = el.clientHeight - heightBeforeDone.current;
+      if (extra > 0) overflowRef.current?.(-extra);
+      heightBeforeDone.current = null;
+    }
+    setDoneFolded((v) => !v);
+  };
+
   // the chip for a task: the workspace's spelling when the token names one,
   // the token itself when it names nothing
   const projectValue = (t: Todo): string => {
@@ -88,7 +105,7 @@ export default function TodoPanel({
   // the list or a fold next re-renders it
   const now = new Date();
 
-  const row = (t: Todo, group: string) => {
+  const row = (t: Todo, group: string, n: number) => {
     const age = taskAge(t.created, now);
     const lit = editing?.line === t.line && editing.raw === t.raw;
     return (
@@ -124,6 +141,9 @@ export default function TodoPanel({
         }}
         className={`group flex items-center gap-2 px-2 py-0.5 ${lit ? "bg-accent/10" : "hover:bg-edge/30"}`}
       >
+        <span className="w-5 shrink-0 text-right text-[10px] text-ink-dim tabular-nums">
+          {n}.
+        </span>
         <input
           type="checkbox"
           checked={t.done}
@@ -138,14 +158,6 @@ export default function TodoPanel({
         >
           {t.text}
         </span>
-        {age && (
-          <span
-            title={t.created ?? undefined}
-            className={`shrink-0 text-[10px] tabular-nums ${AGE_CLASS[age.tier]}`}
-          >
-            {age.label}
-          </span>
-        )}
         <button
           title="Edit"
           className={ICON_BTN}
@@ -162,6 +174,14 @@ export default function TodoPanel({
         >
           🗑
         </button>
+        {age && (
+          <span
+            title={t.created ?? undefined}
+            className={`w-8 shrink-0 text-right text-[10px] tabular-nums ${AGE_CLASS[age.tier]}`}
+          >
+            {age.label}
+          </span>
+        )}
       </li>
     );
   };
@@ -214,7 +234,7 @@ export default function TodoPanel({
           <div key={g.key} data-testid="todo-group" className="pb-1">
             {header(g.label, g.todos.length)}
             <ul className="pl-3">
-              {g.todos.map((t) => row(t, `${id}:${g.key}`))}
+              {g.todos.map((t, i) => row(t, `${id}:${g.key}`, i + 1))}
             </ul>
           </div>
         ))}
@@ -242,9 +262,7 @@ export default function TodoPanel({
           {section("open", "TO DO", open, openFolded, () =>
             setOpenFolded((v) => !v),
           )}
-          {section("done", "DONE", done, doneFolded, () =>
-            setDoneFolded((v) => !v),
-          )}
+          {section("done", "DONE", done, doneFolded, toggleDone)}
         </div>
         <button
           title="New task (N)"
