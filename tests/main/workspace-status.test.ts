@@ -280,7 +280,22 @@ describe("status store", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "working" }));
     s.markDelegated("w1", "JARVIS", 2000);
+    // the old session acts after the mark, so the mark belongs to it
+    s.applyStatus(ev({ kind: "idle", ts: 3000, message: "done" }));
     s.applyStatus(ev({ sessionId: "s2", kind: "working", ts: 5000 }));
+    expect(s.snapshot()[0].delegatedBy).toBe("");
+  });
+
+  // a fresh send types /clear, which starts a new session id, then marks the
+  // delegation before the delegate's first prompt arrives under that new id
+  it("delegatedBy survives the session a fresh send starts", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", ts: 1000, message: "old" }));
+    s.markDelegated("w1", "JARVIS", 2000);
+    s.applyStatus(ev({ sessionId: "s2", kind: "working", ts: 2500 }));
+    expect(s.snapshot()[0].delegatedBy).toBe("JARVIS");
+    // the next session change is not the one the mark was made for
+    s.applyStatus(ev({ sessionId: "s3", kind: "working", ts: 9000 }));
     expect(s.snapshot()[0].delegatedBy).toBe("");
   });
 });

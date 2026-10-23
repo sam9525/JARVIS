@@ -19,6 +19,7 @@ interface Entry {
   message: string;
   messageAt: number;
   delegatedBy: string;
+  delegatedAt: number;
   since: number;
   lastEventAt: number;
   sessionId: string;
@@ -55,6 +56,7 @@ export function createStatusStore(): StatusStore {
         message: "",
         messageAt: 0,
         delegatedBy: "",
+        delegatedAt: 0,
         since: now,
         lastEventAt: now,
         sessionId: "",
@@ -107,7 +109,10 @@ export function createStatusStore(): StatusStore {
       if (sessionChanged) {
         resetCounts(e);
         e.message = "";
-        e.delegatedBy = ""; // provenance shares the message's lifecycle
+        // provenance shares the message's lifecycle, except for a mark made
+        // after the old session's last event: a fresh send's /clear opens a
+        // new session id, and that mark labels the turn the new id starts
+        if (e.delegatedAt < e.lastEventAt) e.delegatedBy = "";
       }
       // a permission prompt carries no call of its own; the pending PreToolUse
       // call is exactly what the user needs to see, so keep it
@@ -156,13 +161,15 @@ export function createStatusStore(): StatusStore {
       return changed || e.reads.size + e.edits.size !== before;
     },
 
-    // set by orchestrate.send just before the prompt is written; the target's
-    // own UserPromptSubmit arrives with the SAME session id, so this survives
-    // the turn it labels and dies with the session
+    // set by orchestrate.send once the prompt is in the PTY. It survives the
+    // turn it labels, whether that turn's UserPromptSubmit arrives under the
+    // same session id or the new one /clear opened, and dies with the session
+    // after that
     markDelegated(id, by, now) {
       const e = entry(id, now);
       const changed = e.delegatedBy !== by;
       e.delegatedBy = by;
+      e.delegatedAt = now;
       return changed;
     },
 
