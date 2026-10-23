@@ -124,6 +124,7 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("## Working a to-do task");
     expect(AGENT_GUIDE).toContain("fresh: true");
     expect(AGENT_GUIDE).toContain("jarvis_send");
+    expect(AGENT_GUIDE).toContain("never for a follow-up");
   });
 
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {

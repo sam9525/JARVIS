@@ -193,7 +193,7 @@ describe("mcp.mjs", () => {
 
   it("a fresh send waits past the 20 s settle deadline", async () => {
     const { server, port } = await startStubServer(async () => {
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 3000));
       return { ok: true };
     });
     const { request } = startMcp(port);

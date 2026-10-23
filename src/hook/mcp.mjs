@@ -48,7 +48,7 @@ const TOOLS = [
         fresh: {
           type: "boolean",
           description:
-            "true to clear the workspace's session with /clear first. Refused while it is working, asking or blocked.",
+            "true to clear the workspace's session with /clear first. Refused while it is working, asking or blocked. The user's unsent draft in that terminal breaks the clear.",
         },
       },
       required: ["workspace", "prompt"],

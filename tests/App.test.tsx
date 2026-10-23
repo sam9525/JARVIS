@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { vi, describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeAll } from "vitest";
 
 // Mock React hooks so the App function component can be invoked directly,
 // without a renderer. useCallback returns the fn without calling it — but its
@@ -60,12 +60,19 @@ const walk = (n: any): any[] =>
 };
 
 describe("App shell", () => {
+  // the first import loads the whole renderer, three included, which runs
+  // past a test timeout while the full suite shares the CPU; every test
+  // below reads the cached module
+  beforeAll(async () => {
+    await import("../src/renderer/App");
+  }, 60000);
+
   it("renders without throwing (guards callback declaration order)", async () => {
     const { default: App } = await import("../src/renderer/App");
     const el = (App as any)({});
     expect(el).toBeTruthy();
     expect(el.type).toBe("div");
-  }, 15000);
+  });
 
   it("declares the ✋ ↻ ⚙ cluster once, not once per showHome branch", async () => {
     const { default: App } = await import("../src/renderer/App");
