@@ -41,6 +41,8 @@ function readBody(
 export interface OrchestratorLike {
   list(): unknown;
   send(target: string, prompt: string): SendResult;
+  /** Clears the workspace, then sends; refuses a busy one. */
+  sendFresh(target: string, prompt: string): Promise<SendResult>;
   watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
   launch(target: string): Promise<LaunchResult>;
@@ -234,6 +236,35 @@ export function startListener(
             fail(err);
           }
           return;
+        }
+        if (route === "/orchestrate/send") {
+          let target: string;
+          let prompt: string;
+          let fresh: boolean;
+          try {
+            const p = parse();
+            target = String(p.workspace ?? "");
+            prompt = String(p.prompt ?? "");
+            // only a literal true clears the workspace first, like trust's accept
+            fresh = p.fresh === true;
+          } catch (err) {
+            const out = {
+              ok: false,
+              error: `malformed request: ${String(err)}`,
+            };
+            res.writeHead(200).end(JSON.stringify(out));
+            return;
+          }
+          if (fresh) {
+            orchestrator
+              .sendFresh(target, prompt)
+              .then((out) => {
+                if (res.writableEnded || res.destroyed) return;
+                res.writeHead(200).end(JSON.stringify(out));
+              })
+              .catch(fail);
+            return;
+          }
         }
         let out: SendResult;
         try {

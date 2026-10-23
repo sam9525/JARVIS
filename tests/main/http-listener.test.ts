@@ -3,13 +3,21 @@ import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
 import type { StatusEvent, ToolEvent, Workspace } from "../../src/shared/types";
 import { buildWorkspaces } from "../../src/main/workspaces";
+import type { SendResult } from "../../src/main/orchestrate";
 
 const workspaces: Workspace[] = buildWorkspaces("D:\\vault", []);
 
 function stubOrchestrator() {
   const sends: Array<[string, string]> = [];
+  const freshSends: Array<[string, string]> = [];
   return {
     sends,
+    freshSends,
+    freshResult: { ok: true } as SendResult,
+    sendFresh(workspace: string, prompt: string) {
+      freshSends.push([workspace, prompt]);
+      return Promise.resolve(this.freshResult);
+    },
     listCalls: { n: 0 },
     list() {
       this.listCalls.n++;
@@ -272,6 +280,59 @@ describe("orchestrate routes", () => {
     close();
   });
 
+  it("fresh: true goes to sendFresh", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    const res = await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({ workspace: "A", prompt: "p", fresh: true }),
+      { "x-jarvis": "1" },
+    );
+    expect(await res.json()).toEqual({ ok: true });
+    expect(orch.freshSends).toEqual([["A", "p"]]);
+    expect(orch.sends).toEqual([]);
+    close();
+  });
+
+  it.each(["true", 1, null])(
+    "a fresh that is not literally true goes to send (%s)",
+    async (fresh) => {
+      const { port, orch, close } = await start(() => {
+        /* no-op */
+      });
+      await post(
+        port,
+        "/orchestrate/send",
+        JSON.stringify({ workspace: "A", prompt: "p", fresh }),
+        { "x-jarvis": "1" },
+      );
+      expect(orch.sends).toEqual([["A", "p"]]);
+      expect(orch.freshSends).toEqual([]);
+      close();
+    },
+  );
+
+  it("a rejected sendFresh comes back as its error", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    orch.freshResult = { ok: false, error: "A is busy (working)" };
+    const res = await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({ workspace: "A", prompt: "p", fresh: true }),
+      { "x-jarvis": "1" },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "A is busy (working)",
+    });
+    close();
+  });
+
   it("a malformed send body reaches no handler and reports the failure", async () => {
     const { port, orch, close } = await start(() => {
       /* no-op */
@@ -301,6 +362,7 @@ describe("orchestrate routes", () => {
           throw new Error("snapshot exploded");
         },
         send: () => ({ ok: true as const }),
+        sendFresh: () => Promise.resolve({ ok: true as const }),
         watch: () => Promise.resolve(null),
         say: () => ({ ok: true as const }),
         todos: () => Promise.resolve(null),
