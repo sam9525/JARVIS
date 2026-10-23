@@ -21,7 +21,22 @@ const TOOLS = [
       "Send a prompt into another workspace's live Claude Code session, as if " +
       "typed there. Returns as soon as the prompt is submitted — it does NOT " +
       "wait for the delegate to finish; poll jarvis_list to follow progress. " +
-      "The target must already have a live session.",
+      "The target must already have a live session.\n\n" +
+      "Working a to-do task: when the user asks you to do an open @project task from\n" +
+      "TODO.md, launch the workspace if it has no session, then send with\n" +
+      "fresh: true and this prompt, with the task line copied in verbatim. Use\n" +
+      "fresh: true for any new or unrelated task; never for a follow-up on the same\n" +
+      "task. If fresh is refused as busy, tell the user and ask what to do.\n\n" +
+      "To-do task: <task text, verbatim from TODO.md>\n\n" +
+      "Run this pipeline. Stop at each gate and wait for my answer.\n" +
+      "1. Use superpowers:brainstorming to write a spec for this task.\n" +
+      '2. Gate: ask me with AskUserQuestion, header "Spec", options\n' +
+      '   "Approve" and "Review in browser". "Review in browser" means run\n' +
+      "   interactive-html-review on the spec, then ask this gate again.\n" +
+      "   Typed feedback means revise the spec, then ask this gate again.\n" +
+      '3. On "Approve", use superpowers:writing-plans to write the plan.\n' +
+      '4. Gate: the same question with header "Plan", for the plan.\n' +
+      '5. On "Approve", use superpowers:subagent-driven-development to build it.',
     inputSchema: {
       type: "object",
       properties: {
@@ -30,6 +45,11 @@ const TOOLS = [
           description: "Target workspace name, as shown by jarvis_list",
         },
         prompt: { type: "string", description: "The prompt to submit" },
+        fresh: {
+          type: "boolean",
+          description:
+            "true to clear the workspace's session with /clear first. Refused while it is working, asking or blocked.",
+        },
       },
       required: ["workspace", "prompt"],
     },
@@ -160,10 +180,14 @@ async function callTool(name, args) {
       return textResult(JSON.stringify(fleet, null, 2));
     }
     if (name === "jarvis_send") {
-      const out = await post("/orchestrate/send", {
-        workspace: args?.workspace,
-        prompt: args?.prompt,
-      });
+      const fresh = args?.fresh === true;
+      // a fresh send types /clear and waits up to 20s for the TUI to settle
+      // before sending, so give it the same bound as jarvis_launch
+      const out = await post(
+        "/orchestrate/send",
+        { workspace: args?.workspace, prompt: args?.prompt, fresh },
+        fresh ? 30000 : undefined,
+      );
       return out?.ok
         ? textResult(`sent to ${args?.workspace}`)
         : textResult(out?.error ?? "send failed", true);

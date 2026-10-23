@@ -141,10 +141,75 @@ describe("mcp.mjs", () => {
     expect(JSON.parse(listener.hits[0].body)).toEqual({
       workspace: "AeroGraph",
       prompt: "fix it",
+      fresh: false,
     });
     expect(res.result.isError).toBeUndefined();
     listener.close();
   });
+
+  it("jarvis_send's schema offers fresh as an optional boolean", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 20, method: "tools/list" });
+    const send = res.result.tools[1];
+    expect(send.inputSchema.properties.fresh.type).toBe("boolean");
+    expect(send.inputSchema.required).toEqual(["workspace", "prompt"]);
+  });
+
+  it("jarvis_send's description carries the pipeline and the fresh rule", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 21, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    for (const needle of [
+      "superpowers:brainstorming",
+      "interactive-html-review",
+      "superpowers:writing-plans",
+      "superpowers:subagent-driven-development",
+      "fresh: true",
+      "@project",
+    ]) {
+      expect(description).toContain(needle);
+    }
+  });
+
+  it("tools/call jarvis_send forwards fresh", async () => {
+    const listener = await fakeListener({ ok: true });
+    const { request } = startMcp(listener.port);
+    await request({
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true },
+      },
+    });
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "A",
+      prompt: "p",
+      fresh: true,
+    });
+    listener.close();
+  });
+
+  it("a fresh send waits past the 20 s settle deadline", async () => {
+    const { server, port } = await startStubServer(async () => {
+      await new Promise((r) => setTimeout(r, 2000));
+      return { ok: true };
+    });
+    const { request } = startMcp(port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 23,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true },
+      },
+    });
+    expect(res.result.isError).toBeUndefined();
+    expect(res.result.content[0].text).toBe("sent to A");
+    server.close();
+  }, 10000);
 
   it("a rejected send comes back as a tool error, not a protocol error", async () => {
     const listener = await fakeListener({ ok: false, error: "no workspace" });
