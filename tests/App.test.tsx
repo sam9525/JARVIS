@@ -166,6 +166,65 @@ describe("App shell", () => {
     ).toBe(true);
   });
 
+  describe("Scratch is hidden", () => {
+    const ws = (id: string, name: string, extra: any = {}) => ({
+      id,
+      name,
+      rootPath: `/u/${id}`,
+      kind: "vault",
+      sourceId: "unknown",
+      ...extra,
+    });
+    const all = [
+      ws("self", "Main agent", { isSelf: true }),
+      ws("scr", "Scratch", { isScratch: true }),
+      ws("r", "Repo"),
+    ];
+    // homeView is App's thirteenth useState
+    const render = async (homeView: string) => {
+      const { default: App } = await import("../src/renderer/App");
+      const { default: GraphSlot } =
+        await import("../src/renderer/graph/GraphSlot");
+      stateOverrides = { 0: all, 12: homeView };
+      stateCall = 0;
+      const nodes = walk((App as any)({}));
+      // the home views are GraphSlot's render function, which walk never calls
+      const slot = nodes.find((n: any) => n.type === GraphSlot);
+      return [
+        ...nodes,
+        ...walk(slot.props.children({ width: 800, height: 600 })),
+      ];
+    };
+    const shown = (nodes: any[], type: any) =>
+      nodes
+        .filter((n: any) => n.type === type)
+        .flatMap((n: any) => n.props.workspaces.map((w: any) => w.name));
+
+    it("leaves Scratch off the rail, the cards, the ring and Fleet", async () => {
+      const { default: WorkspaceRail } =
+        await import("../src/renderer/home/WorkspaceRail");
+      const { default: MissionControl } =
+        await import("../src/renderer/home/MissionControl");
+      const { default: Ring } = await import("../src/renderer/home/Ring");
+      const { default: FleetGraph } =
+        await import("../src/renderer/graph/FleetGraph");
+      const cards = await render("cards");
+      expect(shown(cards, WorkspaceRail)).toEqual(["Repo"]);
+      expect(shown(cards, MissionControl)).toEqual(["Repo"]);
+      expect(shown(await render("ring"), Ring)).toEqual(["Repo"]);
+      expect(shown(await render("fleet"), FleetGraph)).toEqual(["Repo"]);
+    });
+
+    it("offers no Scratch project chip on the to-do panel", async () => {
+      const nodes = await render("cards");
+      const withProjects = nodes.filter((n: any) =>
+        Array.isArray(n.props?.projects),
+      );
+      expect(withProjects.length).toBeGreaterThan(0);
+      for (const n of withProjects) expect(n.props.projects).toEqual(["Repo"]);
+    });
+  });
+
   describe("home terminal tabs", () => {
     const self = {
       id: "self",

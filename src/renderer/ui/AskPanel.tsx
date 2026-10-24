@@ -21,13 +21,14 @@ export function answerKeys(index: number, options: number): string {
   return "\x1b[A".repeat(options) + "\x1b[B".repeat(index);
 }
 
-/** The question to show: this screen's own workspace first, else the newest
- *  open one in the fleet — a question must not hide behind the current view. */
+/** The question to show, from questions keyed by session key: this screen's
+ *  own session first, else the newest open one in the fleet — a question must
+ *  not hide behind the current view. */
 export function pickAsk(
   asks: Map<string, AskPrompt>,
-  ownId: string | undefined,
+  ownKey: string | undefined,
 ): AskPrompt | undefined {
-  const own = ownId === undefined ? undefined : asks.get(ownId);
+  const own = ownKey === undefined ? undefined : asks.get(ownKey);
   return own ?? [...asks.values()].sort((a, b) => b.ts - a.ts)[0];
 }
 

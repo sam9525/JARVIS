@@ -141,6 +141,22 @@ describe("AskPanel", () => {
     expect(pickAsk(new Map(), "w1")).toBeUndefined();
   });
 
+  it("picks by session key: the own session first, else the newest", () => {
+    const at = (sessionKey: string, ts: number) => ({
+      ...prompt(),
+      workspaceId: "d:/r",
+      sessionKey,
+      ts,
+    });
+    const asks = new Map([
+      ["d:/r", at("d:/r", 1)],
+      ["d:/r#1", at("d:/r#1", 5)],
+    ]);
+    expect(pickAsk(asks, "d:/r")?.sessionKey).toBe("d:/r");
+    expect(pickAsk(asks, "d:/r#1")?.sessionKey).toBe("d:/r#1");
+    expect(pickAsk(asks, "d:/r#2")?.sessionKey).toBe("d:/r#1");
+  });
+
   it("gives a multi-select question no click target", () => {
     const tree = (
       <AskPanel

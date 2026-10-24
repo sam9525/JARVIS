@@ -174,8 +174,8 @@ export default function App() {
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
-  // the open question per workspace. Not a queue: the panel shows the active
-  // workspace's question, and another workspace asking shows up as its rail
+  // the open question per session key. Not a queue: the panel shows the
+  // selected tab's question, and another session asking shows up as its rail
   // pip going amber.
   const [asks, setAsks] = useState<Map<string, AskPrompt>>(new Map());
   // An answer is two writes 80 ms apart and the panel moves to the next
@@ -399,15 +399,24 @@ export default function App() {
   );
 
   const todoProjects = useMemo(
-    () => workspaces.filter((w) => !w.isSelf).map((w) => w.name),
+    () =>
+      workspaces.filter((w) => !w.isSelf && !w.isScratch).map((w) => w.name),
     [workspaces],
   );
 
-  // one highlight store per workspace; Graph reads stateRef.current per frame,
-  // so retargeting .current on switch is all a switch needs
+  // one highlight store per session key; Graph reads stateRef.current per
+  // frame, so retargeting .current on switch is all a switch needs
   const storesRef = useRef(new Map<string, HighlightState>());
   const stateRef = useRef(emptyState());
   const activeIdRef = useRef<string | null>(null);
+  // the session key of the open workspace's selected tab: the store the graph
+  // shows and the log the scrubber replays
+  const activeKeyRef = useRef<string | null>(null);
+  const selectedKeyOf = (ws: Workspace): string =>
+    pickTab(projectTabs(ws, statuses), selectedTabs.get(ws.id)?.key).key;
+  // openWorkspace is memoised once, so it reads the current selection here
+  const selectedKeyOfRef = useRef(selectedKeyOf);
+  selectedKeyOfRef.current = selectedKeyOf;
   // whichever graph view is mounted registers its gesture map here
   const handActionsRef = useRef<HandActions>({});
 
@@ -422,9 +431,9 @@ export default function App() {
   });
   const { graph, graphLoading, cardGraphs, cardsLoaded, indexing } = graphs;
 
-  // event log per workspace, feeding the replay scrubber. logRev exists only to
-  // re-render the bar as events arrive — the log itself stays in a ref so an
-  // append is O(1) rather than an array copy per event.
+  // event log per session key, feeding the replay scrubber. logRev exists only
+  // to re-render the bar as events arrive — the log itself stays in a ref so
+  // an append is O(1) rather than an array copy per event.
   const logsRef = useRef(new Map<string, ToolEvent[]>());
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -443,15 +452,15 @@ export default function App() {
   // live store keeps receiving events while parked, so returning to live needs
   // no catch-up — only a fresh rev so Graph3D re-bakes against the new object.
   const onScrub = useCallback((i: number | null) => {
-    const id = activeIdRef.current;
-    if (!id) return;
+    const key = activeKeyRef.current;
+    if (!key) return;
     setReplayIndex(i);
     if (i === null) {
-      const live = storeFor(id);
+      const live = storeFor(key);
       live.rev = nextRev();
       stateRef.current = live;
     } else {
-      stateRef.current = foldTo(logsRef.current.get(id) ?? [], i);
+      stateRef.current = foldTo(logsRef.current.get(key) ?? [], i);
     }
   }, []);
 
@@ -469,7 +478,8 @@ export default function App() {
       setPreviewNode(null);
       setActive(ws);
       activeIdRef.current = ws.id;
-      stateRef.current = storeFor(ws.id);
+      activeKeyRef.current = selectedKeyOfRef.current(ws);
+      stateRef.current = storeFor(activeKeyRef.current);
       setReplayIndex(null); // the ref above already points at the live store
       // a mid-drag switch must not latch across workspaces (ledger #11)
       grabbedRef.current = undefined;
@@ -504,14 +514,14 @@ export default function App() {
         // is also the backstop for a session still running the old matcher.
         if (e.tool === "Prompt")
           setAsks((prev) => {
-            if (!prev.has(e.workspaceId)) return prev;
+            if (!prev.has(e.sessionKey)) return prev;
             const next = new Map(prev);
-            next.delete(e.workspaceId);
+            next.delete(e.sessionKey);
             return next;
           });
         const fresh = appendEvent(logsRef.current, e);
-        applyEvent(storeFor(e.workspaceId), e, performance.now());
-        if (e.workspaceId === activeIdRef.current) {
+        applyEvent(storeFor(e.sessionKey), e, performance.now());
+        if (e.sessionKey === activeKeyRef.current) {
           if (fresh) onScrub(null); // the past being replayed no longer exists
           setLogRev((n) => n + 1);
           onPreviewEvent(e);
@@ -520,7 +530,8 @@ export default function App() {
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
-    // typing into the session means the answer is being given there
+    // typing into a session means its answer is being given there; the id is
+    // that terminal's session key
     offs.push(
       onTerminalTyped((id) =>
         setAsks((prev) => {
@@ -535,8 +546,8 @@ export default function App() {
       window.jarvis.onAsk?.((p) => {
         setAsks((prev) => {
           const next = new Map(prev);
-          if (p.questions.length === 0) next.delete(p.workspaceId);
-          else next.set(p.workspaceId, p);
+          if (p.questions.length === 0) next.delete(p.sessionKey);
+          else next.set(p.sessionKey, p);
           return next;
         });
       }) ?? (() => undefined),
@@ -632,10 +643,30 @@ export default function App() {
     );
   }, [orchestrator, workspaces, statuses]);
 
+  // Scratch has no graph either, and home's tabs already reach its sessions
   const fleet = useMemo(
-    () => workspaces.filter((w) => !w.isSelf),
+    () => workspaces.filter((w) => !w.isSelf && !w.isScratch),
     [workspaces],
   );
+
+  // Switching tabs retargets the graph to that session's live store, the same
+  // way opening a workspace does; openWorkspace has already moved the ref when
+  // the workspace itself changed.
+  const activeKey = active ? selectedKeyOf(active) : null;
+  useEffect(() => {
+    if (activeKey === null || activeKey === activeKeyRef.current) return;
+    activeKeyRef.current = activeKey;
+    const live = storeFor(activeKey);
+    live.rev = nextRev();
+    stateRef.current = live;
+    setReplayIndex(null);
+  }, [activeKey]);
+
+  // cards and the ring show the session each project's panel would open on
+  const selectedStoreOf = (workspaceId: string): HighlightState => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    return storeFor(ws ? selectedKeyOf(ws) : workspaceId);
+  };
 
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
   // the main agent's row has no card, no tile and no pip to point at
@@ -1184,7 +1215,7 @@ export default function App() {
                     mainColors={settings.mainColors}
                     statuses={statuses}
                     graphs={cardGraphs}
-                    getStore={storeFor}
+                    getStore={selectedStoreOf}
                     groups={settings.groups}
                     view={settings.views["3d"]}
                     filters={{
@@ -1211,7 +1242,7 @@ export default function App() {
                     mainColors={settings.mainColors}
                     statuses={statuses}
                     graphs={cardGraphs}
-                    getStore={storeFor}
+                    getStore={selectedStoreOf}
                     groups={settings.groups}
                     view={settings.views["2d"]}
                     filters={{
@@ -1351,7 +1382,7 @@ export default function App() {
               {showHome ? null : (
                 <div className="pointer-events-auto self-stretch">
                   <Timeline
-                    log={(active && logsRef.current.get(active.id)) || []}
+                    log={(activeKey && logsRef.current.get(activeKey)) || []}
                     index={replayIndex}
                     onScrub={onScrub}
                   />
@@ -1584,8 +1615,18 @@ export default function App() {
       </Panel>
 
       {(() => {
-        const own = showHome ? orchestrator : active;
-        const prompt = pickAsk(asks, own?.id);
+        const ownKey = showHome
+          ? orchestrator &&
+            pickTab(
+              homeTabs(
+                orchestrator,
+                workspaces.find((w) => w.isScratch),
+                statuses,
+              ),
+              selectedTabs.get(orchestrator.id)?.key,
+            ).key
+          : activeKey;
+        const prompt = pickAsk(asks, ownKey ?? undefined);
         const ws =
           prompt && workspaces.find((w) => w.id === prompt.workspaceId);
         if (!ws || !prompt) return null;
@@ -1604,14 +1645,14 @@ export default function App() {
             onClose={() =>
               setAsks((prev) => {
                 const next = new Map(prev);
-                next.delete(ws.id);
+                next.delete(prompt.sessionKey);
                 return next;
               })
             }
           >
             <AskPanel
               // a different question starts at its own first page
-              key={`${prompt.workspaceId}:${prompt.ts}`}
+              key={`${prompt.sessionKey}:${prompt.ts}`}
               prompt={prompt}
               workspaceName={ws.name}
               onAnswer={(writes) => {
@@ -1620,7 +1661,7 @@ export default function App() {
                     // SEPARATE writes, 80 ms apart — never merge them
                     for (const [i, w] of writes.entries()) {
                       if (i > 0) await new Promise((r) => setTimeout(r, 80));
-                      await window.jarvis.ptyInput(ws.id, w);
+                      await window.jarvis.ptyInput(prompt.sessionKey, w);
                     }
                   })
                   // a failed write must not strand every answer behind it

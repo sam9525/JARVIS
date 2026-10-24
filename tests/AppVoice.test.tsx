@@ -10,11 +10,26 @@ import type { Settings, Workspace, WorkspaceStatus } from "../src/shared/types";
 // heavy visual children are stubs — this suite is about App's voice wiring,
 // which lives entirely in App state + the real speak() calls it makes
 const nullComponent = vi.hoisted(() => ({ default: () => null }));
+// the graph and the rail record their last props, so a test can read the
+// highlight store the graph is pointed at and open a workspace from the rail
+const captured = vi.hoisted(() => ({
+  graph: null as any,
+  rail: null as any,
+  typed: null as ((key: string) => void) | null,
+}));
 vi.mock("../src/renderer/graph/Graph", () => ({
-  default: () => null,
+  default: (p: any) => {
+    captured.graph = p;
+    return null;
+  },
   PAN_PX_PER_UNIT: 900,
 }));
-vi.mock("../src/renderer/graph/Graph3D", () => nullComponent);
+vi.mock("../src/renderer/graph/Graph3D", () => ({
+  default: (p: any) => {
+    captured.graph = p;
+    return null;
+  },
+}));
 vi.mock("../src/renderer/graph/FleetGraph", () => nullComponent);
 vi.mock("../src/renderer/home/Ring", () => nullComponent);
 vi.mock("../src/renderer/home/MissionControl", () => ({
@@ -22,12 +37,18 @@ vi.mock("../src/renderer/home/MissionControl", () => ({
   DOT: {},
 }));
 vi.mock("../src/renderer/home/WorkspaceRail", () => ({
-  default: () => null,
+  default: (p: any) => {
+    captured.rail = p;
+    return null;
+  },
   railSeats: () => 1, // App reads this for the boot hold, not for layout
 }));
 vi.mock("../src/renderer/terminal/TerminalPanel", () => ({
   ...nullComponent,
-  onTerminalTyped: () => () => undefined,
+  onTerminalTyped: (cb: (key: string) => void) => {
+    captured.typed = cb;
+    return () => undefined;
+  },
 }));
 vi.mock("../src/renderer/preview/Preview", () => nullComponent);
 vi.mock("../src/renderer/session/Timeline", () => nullComponent);
@@ -68,6 +89,7 @@ const setSettings = vi.fn(() => Promise.resolve());
 let statusListener: ((s: WorkspaceStatus[]) => void) | null = null;
 let sayListener: ((text: string) => void) | null = null;
 let askListener: ((prompt: any) => void) | null = null;
+let toolListener: ((e: any) => void) | null = null;
 let resolveWorkspaces: ((list: Workspace[]) => void) | null = null;
 
 const ORCHESTRATOR: Workspace = {
@@ -94,6 +116,10 @@ beforeEach(() => {
   statusListener = null;
   sayListener = null;
   askListener = null;
+  toolListener = null;
+  captured.graph = null;
+  captured.rail = null;
+  captured.typed = null;
   resolveWorkspaces = null;
   settingsOnDisk = defaultSettings();
   (window as any).jarvis = {
@@ -111,7 +137,10 @@ beforeEach(() => {
     getCardSnapshots: () => Promise.resolve([]),
     ptyInput: () => Promise.resolve(true),
     onGraph: () => () => undefined,
-    onToolEvent: () => () => undefined,
+    onToolEvent: (cb: (e: any) => void) => {
+      toolListener = cb;
+      return () => undefined;
+    },
     onStatus: (cb: (s: WorkspaceStatus[]) => void) => {
       statusListener = cb;
       return () => undefined;
@@ -473,6 +502,7 @@ describe("App: a main-agent question is spoken", () => {
     }); // spend the restore swallow
     const ask = (ts: number) => ({
       workspaceId: "ws-self",
+      sessionKey: "ws-self",
       sessionId: "s1",
       ts,
       questions: [
@@ -518,6 +548,7 @@ describe("App: a main-agent question is spoken", () => {
     await act(async () => statusListener!([row("", 0)])); // spend the restore swallow
     const open = {
       workspaceId: "ws-self",
+      sessionKey: "ws-self",
       sessionId: "s1",
       ts: 1,
       questions: [
@@ -538,5 +569,178 @@ describe("App: a main-agent question is spoken", () => {
     await act(async () => statusListener!([row("working on it", 5)]));
     await flush();
     expect(speakSpy).not.toHaveBeenCalledWith(line);
+  });
+});
+
+const REPO: Workspace = {
+  id: "d:/r",
+  name: "Repo",
+  rootPath: "d:/r",
+  kind: "code",
+  sourceId: "gitnexus",
+};
+const sessionRow = (key: string, label: string) => ({
+  key,
+  label,
+  kind: "idle" as const,
+  live: true,
+  call: "",
+  since: 0,
+  worktree: true,
+});
+const repoRow = {
+  workspaceId: REPO.id,
+  kind: "idle" as const,
+  call: "",
+  since: 0,
+  reads: 0,
+  edits: 0,
+  sessions: [sessionRow("d:/r", "main"), sessionRow("d:/r#1", "1")],
+};
+
+describe("App: questions are kept per session", () => {
+  it("does not speak a project session's question; the main agent's still is", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () =>
+      statusListener!([
+        {
+          workspaceId: ORCHESTRATOR.id,
+          kind: "idle",
+          call: "",
+          message: "",
+          since: Date.now(),
+          reads: 0,
+          edits: 0,
+          sessions: [],
+        },
+        repoRow,
+      ]),
+    ); // spend the restore swallow
+    const ask = (workspaceId: string, sessionKey: string, ts: number) => ({
+      workspaceId,
+      sessionKey,
+      sessionId: `s-${sessionKey}`,
+      ts,
+      questions: [
+        {
+          question: "Approve?",
+          header: "",
+          multiSelect: false,
+          options: [{ label: "Approve", description: "" }],
+        },
+      ],
+    });
+    await act(async () => askListener!(ask("d:/r", "d:/r#1", 1)));
+    await flush();
+    expect(speakSpy).not.toHaveBeenCalled();
+    await act(async () => askListener!(ask("ws-self", "ws-self", 2)));
+    await flush();
+    expect(speakSpy).toHaveBeenCalledWith(
+      "Self asks: Approve?. Options: Approve.",
+    );
+  });
+});
+
+describe("App: the graph shows the selected tab's highlights", () => {
+  it("lights a #1 read only once tab 1 is selected", async () => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () => statusListener!([repoRow]));
+    await act(async () => captured.rail.onSelect(REPO));
+    await flush();
+    await act(async () =>
+      toolListener!({
+        sessionId: "s1",
+        workspaceId: "d:/r",
+        sessionKey: "d:/r#1",
+        phase: "pre",
+        tool: "Read",
+        nodeIds: ["src/a.ts"],
+        ts: 1,
+      }),
+    );
+    const lit = () =>
+      captured.graph.stateRef.current.nodes.has("src/a.ts") as boolean;
+    expect(lit()).toBe(false);
+    const tab = container.querySelector('[data-tab="d:/r#1"]');
+    expect(tab).not.toBeNull();
+    await act(async () =>
+      (tab!.closest("button") as HTMLButtonElement).click(),
+    );
+    await flush();
+    expect(lit()).toBe(true);
+  });
+});
+
+describe("App: a session's own activity clears its question", () => {
+  const ask = (sessionKey: string, question: string) => ({
+    workspaceId: "d:/r",
+    sessionKey,
+    sessionId: `s-${sessionKey}`,
+    ts: 1,
+    questions: [
+      {
+        question,
+        header: "",
+        multiSelect: false,
+        options: [{ label: "Yes", description: "" }],
+      },
+    ],
+  });
+  const shownQuestion = () =>
+    container.querySelector('[data-testid="ask-question"]')?.textContent ??
+    null;
+  const openRepo = async () => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () => statusListener!([repoRow]));
+    await act(async () => captured.rail.onSelect(REPO));
+    await flush();
+  };
+
+  it("typing in #1's terminal clears #1's question, not main's", async () => {
+    await openRepo();
+    await act(async () => askListener!(ask("d:/r", "Main?")));
+    await act(async () => askListener!(ask("d:/r#1", "One?")));
+    expect(shownQuestion()).toBe("Main?");
+    await act(async () => captured.typed!("d:/r"));
+    // main's is gone, so the fleet's other open question shows
+    expect(shownQuestion()).toBe("One?");
+    await act(async () => captured.typed!("d:/r#1"));
+    expect(shownQuestion()).toBeNull();
+  });
+
+  it("a Prompt event clears only its own session's question", async () => {
+    await openRepo();
+    await act(async () => askListener!(ask("d:/r#1", "One?")));
+    await act(async () =>
+      toolListener!({
+        sessionId: "s-main",
+        workspaceId: "d:/r",
+        sessionKey: "d:/r",
+        phase: "pre",
+        tool: "Prompt",
+        nodeIds: [],
+        ts: 2,
+      }),
+    );
+    expect(shownQuestion()).toBe("One?");
+    await act(async () =>
+      toolListener!({
+        sessionId: "s-d:/r#1",
+        workspaceId: "d:/r",
+        sessionKey: "d:/r#1",
+        phase: "pre",
+        tool: "Prompt",
+        nodeIds: [],
+        ts: 3,
+      }),
+    );
+    expect(shownQuestion()).toBeNull();
   });
 });

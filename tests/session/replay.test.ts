@@ -101,7 +101,10 @@ describe("appendEvent", () => {
     const logs = new Map<string, ToolEvent[]>();
     expect(appendEvent(logs, ev({ nodeIds: ["a"] }))).toBe(true); // first = fresh
     expect(appendEvent(logs, ev({ nodeIds: ["b"] }))).toBe(false);
-    appendEvent(logs, ev({ workspaceId: "w2", nodeIds: ["z"] }));
+    appendEvent(
+      logs,
+      ev({ workspaceId: "w2", sessionKey: "w2", nodeIds: ["z"] }),
+    );
     expect(logs.get("w1")!.length).toBe(2);
     expect(logs.get("w2")!.length).toBe(1);
   });
@@ -114,6 +117,23 @@ describe("appendEvent", () => {
       true,
     );
     expect(logs.get("w1")!.map((e) => e.nodeIds[0])).toEqual(["c"]);
+  });
+
+  it("keeps one log per session of a workspace", () => {
+    const logs = new Map<string, ToolEvent[]>();
+    const main = { workspaceId: "d:/r", sessionKey: "d:/r" };
+    const one = { workspaceId: "d:/r", sessionKey: "d:/r#1" };
+    appendEvent(logs, ev({ ...main, sessionId: "a", nodeIds: ["x"] }));
+    appendEvent(logs, ev({ ...one, sessionId: "b", nodeIds: ["y"] }));
+    appendEvent(logs, ev({ ...main, sessionId: "a", nodeIds: ["z"] }));
+    expect(logs.get("d:/r")!.map((e) => e.nodeIds[0])).toEqual(["x", "z"]);
+    expect(logs.get("d:/r#1")!.map((e) => e.nodeIds[0])).toEqual(["y"]);
+    // a new session on #1 resets only #1's log
+    expect(
+      appendEvent(logs, ev({ ...one, sessionId: "c", nodeIds: ["w"] })),
+    ).toBe(true);
+    expect(logs.get("d:/r#1")!.map((e) => e.nodeIds[0])).toEqual(["w"]);
+    expect(logs.get("d:/r")!.length).toBe(2);
   });
 
   it("keeps Prompt events — they are the chapter marks", () => {
