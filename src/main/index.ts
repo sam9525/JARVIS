@@ -474,7 +474,7 @@ app.whenReady().then(async () => {
   });
 
   const inboxPath = path.join(app.getPath("userData"), "jarvis-inbox.json");
-  const status = createStatusStore();
+  const status = createStatusStore(() => workspaces.map((w) => w.id));
   status.restore(
     await fs
       .readFile(inboxPath, "utf8")

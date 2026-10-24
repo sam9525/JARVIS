@@ -174,6 +174,27 @@ describe("pty-manager", () => {
     expect(mgr.kill("d:/r#1")).toBe(false);
   });
 
+  it("a killed pty's late exit does not disturb a relaunch of the key", () => {
+    const spawned: ReturnType<typeof fakePty>[] = [];
+    const onExit = vi.fn();
+    const mgr = createPtyManager(
+      () => {
+        const p = fakePty();
+        spawned.push(p);
+        return p;
+      },
+      { onData: vi.fn(), onExit },
+    );
+    mgr.launch("d:/r#1", "d:/r/.worktrees/1", 80, 24);
+    mgr.kill("d:/r#1");
+    mgr.launch("d:/r#1", "d:/r/.worktrees/1", 80, 24);
+    spawned[0].emitExit(0);
+    expect(mgr.has("d:/r#1")).toBe(true);
+    expect(onExit).not.toHaveBeenCalled();
+    spawned[1].emitExit(0);
+    expect(onExit).toHaveBeenCalledWith("d:/r#1", 0);
+  });
+
   it("onExit reports the session key", () => {
     const spawned: ReturnType<typeof fakePty>[] = [];
     const onExit = vi.fn();

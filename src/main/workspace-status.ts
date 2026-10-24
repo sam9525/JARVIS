@@ -71,12 +71,15 @@ const bySessionOrder = (a: Entry, b: Entry): number =>
           ? -1
           : 1;
 
-export function createStatusStore(): StatusStore {
+export function createStatusStore(
+  workspaceIds: () => Iterable<string> = () => [],
+): StatusStore {
   const entries = new Map<string, Entry>();
 
-  // The store does not know the workspace list, so an entry records its own
-  // workspace id and label: from the event when there is one, else parsed from
-  // the key.
+  // An entry records its own workspace id and label: from the caller's owner
+  // when it has one (an event names its workspace), else parsed from the key
+  // against the live workspace list, since a workspace id may hold a `#`. A
+  // given owner also corrects an entry first made from a bare key.
   const entry = (
     key: string,
     now: number,
@@ -84,7 +87,8 @@ export function createStatusStore(): StatusStore {
   ): Entry => {
     let e = entries.get(key);
     if (!e) {
-      const { workspaceId, label } = owner ?? parseSessionKey(key);
+      const { workspaceId, label } =
+        owner ?? parseSessionKey(key, workspaceIds());
       e = {
         workspaceId,
         label,
@@ -104,6 +108,10 @@ export function createStatusStore(): StatusStore {
         ptyOwned: false,
       };
       entries.set(key, e);
+    }
+    if (owner) {
+      e.workspaceId = owner.workspaceId;
+      e.label = owner.label;
     }
     return e;
   };
@@ -131,7 +139,10 @@ export function createStatusStore(): StatusStore {
         if (typeof raw?.workspaceId !== "string") continue;
         if (typeof raw.message !== "string" || !raw.message) continue;
         const since = typeof raw.since === "number" ? raw.since : Date.now();
-        const e = entry(raw.workspaceId, since);
+        const e = entry(raw.workspaceId, since, {
+          workspaceId: raw.workspaceId,
+          label: MAIN_LABEL,
+        });
         e.kind = "idle";
         e.message = raw.message;
         e.messageAt = since;
@@ -238,10 +249,6 @@ export function createStatusStore(): StatusStore {
       return !wasOwned;
     },
 
-    // A clean exit is what closing a terminal looks like, so it reads as no
-    // session. A non-zero exit is a different fact and gets its own word —
-    // and keeps the message, because what Claude last said still matters
-    // when the session dies.
     sessionOpened(key, worktree, now) {
       const e = entry(key, now);
       const changed = e.worktree !== worktree;
@@ -249,6 +256,10 @@ export function createStatusStore(): StatusStore {
       return changed;
     },
 
+    // A clean exit is what closing a terminal looks like, so it reads as no
+    // session. A non-zero exit is a different fact and gets its own word —
+    // and keeps the message, because what Claude last said still matters
+    // when the session dies.
     ptyExited(id, now, exitCode) {
       const e = entries.get(id);
       if (!e) return false;

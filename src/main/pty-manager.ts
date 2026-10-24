@@ -77,6 +77,8 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
       ptys.set(key, p);
       p.onData((d) => events.onData(key, d));
       p.onExit(({ exitCode }) => {
+        // a killed pty's late exit must not remove a relaunch of the same key
+        if (ptys.get(key) !== p) return;
         ptys.delete(key);
         events.onExit(key, exitCode);
       });

@@ -483,30 +483,82 @@ describe("crashed", () => {
       workspaceId: "d:/r",
     });
 
-    it("one row per workspace: the most urgent session sets the kind", () => {
+    it("one row per workspace: the most urgent session sets the row", () => {
       const s = createStatusStore();
-      s.applyStatus(ev({ ...sess("main"), kind: "working" }));
-      s.applyStatus(ev({ ...sess("1"), kind: "asking", call: "Ask(x)" }));
+      s.applyStatus(
+        ev({ ...sess("main"), kind: "asking", call: "Ask(x)", ts: 2000 }),
+      );
+      s.markDelegated("d:/r", "orch", 2500);
+      s.applyStatus(
+        ev({ ...sess("1"), kind: "working", call: "Bash(y)", ts: 3000 }),
+      );
       const rows = s.snapshot();
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
         workspaceId: "d:/r",
         kind: "asking",
         call: "Ask(x)",
+        delegatedBy: "orch",
+        since: 2000,
       });
       expect(rows[0].sessions.map((x) => [x.key, x.label, x.kind])).toEqual([
-        ["d:/r", "main", "working"],
-        ["d:/r#1", "1", "asking"],
+        ["d:/r", "main", "asking"],
+        ["d:/r#1", "1", "working"],
       ]);
+    });
+
+    it("a later session can be the more urgent one", () => {
+      const s = createStatusStore();
+      s.applyStatus(ev({ ...sess("main"), kind: "working", ts: 1000 }));
+      s.applyStatus(
+        ev({ ...sess("1"), kind: "asking", call: "Ask(z)", ts: 2000 }),
+      );
+      s.markDelegated("d:/r#1", "orch", 2500);
+      expect(s.snapshot()[0]).toMatchObject({
+        kind: "asking",
+        call: "Ask(z)",
+        delegatedBy: "orch",
+        since: 2000,
+      });
+    });
+
+    it("blocked outranks working", () => {
+      const s = createStatusStore();
+      s.applyStatus(ev({ ...sess("main"), kind: "working", ts: 1000 }));
+      s.applyStatus(
+        ev({ ...sess("2"), kind: "blocked", call: "Bash(rm)", ts: 2000 }),
+      );
+      expect(s.snapshot()[0]).toMatchObject({
+        kind: "blocked",
+        call: "Bash(rm)",
+        since: 2000,
+      });
+    });
+
+    it("a workspace id holding # keeps its own id from a bare key", () => {
+      const s = createStatusStore(() => ["d:/c#proj"]);
+      s.ptyLaunched("d:/c#proj", 1000);
+      const row = s.snapshot()[0];
+      expect(row.workspaceId).toBe("d:/c#proj");
+      expect(row.sessions[0].label).toBe("main");
+    });
+
+    it("an event's owner corrects an entry made from a bare key", () => {
+      const s = createStatusStore();
+      s.ptyLaunched("d:/c#proj", 1000);
+      s.applyStatus(
+        ev({ workspaceId: "d:/c#proj", sessionKey: "d:/c#proj", ts: 2000 }),
+      );
+      expect(s.snapshot().map((r) => r.workspaceId)).toEqual(["d:/c#proj"]);
     });
 
     it("the message comes from the session that spoke last", () => {
       const s = createStatusStore();
       s.applyStatus(
-        ev({ ...sess("main"), kind: "idle", message: "old", ts: 1000 }),
+        ev({ ...sess("1"), kind: "idle", message: "new", ts: 2000 }),
       );
       s.applyStatus(
-        ev({ ...sess("1"), kind: "idle", message: "new", ts: 2000 }),
+        ev({ ...sess("main"), kind: "idle", message: "old", ts: 1000 }),
       );
       expect(s.snapshot()[0]).toMatchObject({
         message: "new",
