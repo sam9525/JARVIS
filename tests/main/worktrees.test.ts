@@ -93,3 +93,33 @@ describe("worktrees", () => {
     }
   });
 });
+
+describe("worktrees without a develop branch", () => {
+  beforeEach(() => {
+    git(root, "branch", "-m", "develop", "main");
+  });
+
+  it("keeps a worktree holding a commit of its own", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.writeFile(path.join(wt, "b.txt"), "b");
+    git(wt, "add", "b.txt");
+    git(wt, "commit", "-m", "work");
+    const result = await removeWorktreeIfDone(root, wt);
+    expect(result.removed).toBe(false);
+    expect(!result.removed && result.reason).toContain("not merged");
+    await expect(fs.stat(wt)).resolves.toBeDefined();
+  });
+
+  it("removes a clean worktree with no commits of its own", async () => {
+    const wt = await createWorktree(root, "1");
+    expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+  });
+});
+
+describe("removeWorktreeIfDone on a missing folder", () => {
+  it("reports the folder as missing instead of throwing", async () => {
+    const result = await removeWorktreeIfDone(root, worktreePath(root, "9"));
+    expect(result.removed).toBe(false);
+    expect(!result.removed && result.reason).toContain("missing");
+  });
+});

@@ -21,12 +21,15 @@ async function succeeds(cwd: string, args: string[]): Promise<boolean> {
   }
 }
 
-/** The commit new worktrees start from and removal compares against:
- *  `develop` when that branch exists, else the main folder's `HEAD`. */
+/** The commit new worktrees start from and removal compares against, as a
+ *  SHA resolved in the main folder: `develop` when that branch exists, else
+ *  the main folder's `HEAD`. A SHA means the same thing from inside a worktree. */
 async function startPoint(root: string): Promise<string> {
-  return (await succeeds(root, ["rev-parse", "--verify", "develop"]))
-    ? "develop"
-    : "HEAD";
+  try {
+    return await git(root, ["rev-parse", "--verify", "refs/heads/develop"]);
+  } catch {
+    return git(root, ["rev-parse", "HEAD"]);
+  }
 }
 
 export function isGitRepo(root: string): Promise<boolean> {
@@ -87,6 +90,11 @@ export async function removeWorktreeIfDone(
   root: string,
   wtPath: string,
 ): Promise<{ removed: true } | { removed: false; reason: string }> {
+  try {
+    await fs.stat(wtPath);
+  } catch {
+    return { removed: false, reason: "worktree folder is missing" };
+  }
   if ((await git(wtPath, ["status", "--porcelain"])) !== "") {
     return { removed: false, reason: "uncommitted changes" };
   }
@@ -100,7 +108,10 @@ export async function removeWorktreeIfDone(
   if (!merged) {
     const ahead = await git(wtPath, ["rev-list", "--count", `${start}..HEAD`]);
     if (ahead !== "0")
-      return { removed: false, reason: "commits not merged into develop" };
+      return {
+        removed: false,
+        reason: "commits not merged into the start point",
+      };
   }
   await git(root, ["worktree", "remove", wtPath]);
   return { removed: true };
