@@ -36,7 +36,28 @@ const TOOLS = [
       "   Typed feedback means revise the spec, then ask this gate again.\n" +
       '3. On "Approve", use superpowers:writing-plans to write the plan.\n' +
       '4. Gate: the same question with header "Plan", for the plan.\n' +
-      '5. On "Approve", use superpowers:subagent-driven-development to build it.',
+      '5. On "Approve", use superpowers:subagent-driven-development to build it.\n\n' +
+      "Working several to-do tasks: when the user asks for all open tasks of one\n" +
+      "@project, or several of them, send them in ONE jarvis_send with fresh: true\n" +
+      "and the prompt below, each task line copied in verbatim.\n" +
+      "Use the single-task prompt when only one task is chosen.\n" +
+      "Tasks for different projects never share a prompt.\n\n" +
+      "To-do tasks:\n" +
+      "<task line 1, verbatim from TODO.md>\n" +
+      "<task line 2, verbatim from TODO.md>\n\n" +
+      "Run this pipeline. Stop at each gate and wait for my answer.\n" +
+      "1. Use superpowers:brainstorming to decide if these tasks fit one spec.\n" +
+      "   If they do, write one spec for all of them. If not, tell me which tasks\n" +
+      "   go in which spec, then write only the first spec.\n" +
+      '2. Gate: ask me with AskUserQuestion, header "Spec", options\n' +
+      '   "Approve" and "Review in browser". "Review in browser" means run\n' +
+      "   interactive-html-review on the spec, then ask this gate again.\n" +
+      "   Typed feedback means revise the spec, then ask this gate again.\n" +
+      '3. On "Approve", write the next spec and repeat step 2, until every\n' +
+      "   spec is approved. Never start a spec before the one before it is approved.\n" +
+      "4. Then, for each spec in order: use superpowers:writing-plans to write\n" +
+      '   its plan; gate with the same question, header "Plan"; on "Approve",\n' +
+      "   use superpowers:subagent-driven-development to build it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -150,7 +171,9 @@ const TOOLS = [
       "saying its work was merged into develop also counts, because nothing " +
       "is merged until the user tells a workspace to merge it: when it " +
       "clearly matches one open task (same project, same subject), check " +
-      "that task off the same way and name it in your spoken summary. A " +
+      "that task off the same way and name it in your spoken summary. " +
+      "A merge report that covers several tasks sent together checks off each task it clearly covers, and names each one. " +
+      "A " +
       "report that only says done, committed or tests pass is not " +
       "agreement. If the user's words or a merge report could mean more " +
       "than one open task, or none clearly, ask which.",

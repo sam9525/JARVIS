@@ -166,6 +166,11 @@ describe("mcp.mjs", () => {
       "superpowers:subagent-driven-development",
       "fresh: true",
       "@project",
+      "To-do tasks:",
+      "Never start a spec before the one before it is approved.",
+      "for each spec in order",
+      "Use the single-task prompt when only one task is chosen",
+      "never share a prompt",
     ]) {
       expect(description).toContain(needle);
     }
@@ -387,6 +392,7 @@ describe("mcp.mjs", () => {
     expect(tool.description).toContain("YYYY-MM-DD");
     expect(tool.description).toContain("malformed");
     expect(tool.description).toContain("merged into develop also counts");
+    expect(tool.description).toContain("each task it clearly covers");
     const res = await request({
       jsonrpc: "2.0",
       id: 2,
