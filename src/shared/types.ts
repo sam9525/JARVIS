@@ -383,3 +383,13 @@ export type CardLayout = {
   nodes: LayoutNode[];
   links: [number, number][]; // indices into nodes
 };
+
+export const SNAPSHOT_FORMAT = 1;
+
+export type StoredSnapshot = {
+  format: number;
+  id: string;
+  fingerprint: string;
+  look: string;
+  layout: CardLayout;
+};

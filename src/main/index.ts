@@ -25,6 +25,7 @@ import { resolveSourceId, sourceById } from "./graph-sources/registry";
 import { isDirectory } from "./is-directory";
 import { runAnalyze } from "./graph-sources/gitnexus-source";
 import { cachedGraph } from "./graph-cache";
+import { deleteSnapshot, readSnapshots, saveSnapshot } from "./card-snapshots";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
@@ -71,6 +72,7 @@ import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
 import type {
+  CardLayout,
   LineChanges,
   Settings,
   TodoOp,
@@ -182,6 +184,38 @@ app.whenReady().then(async () => {
     );
   };
 
+  const snapshotDir = path.join(app.getPath("userData"), "card-snapshots");
+  const fingerprintOf = (ws: Workspace): Promise<string | null> =>
+    sourceById(ws.sourceId)?.fingerprint?.(ws) ?? Promise.resolve(null);
+  const dropSnapshot = (id: string) =>
+    deleteSnapshot(snapshotDir, id).catch((err) =>
+      console.error("snapshot delete failed:", err),
+    );
+  ipcMain.handle("get-card-snapshots", () =>
+    readSnapshots(snapshotDir, workspaces, fingerprintOf),
+  );
+  ipcMain.handle(
+    "save-card-snapshot",
+    async (
+      _e,
+      id: string,
+      body: { look: string; layout: CardLayout },
+    ): Promise<boolean> => {
+      const ws = workspaces.find((w) => w.id === id);
+      try {
+        return await saveSnapshot(
+          snapshotDir,
+          ws,
+          body,
+          ws ? await fingerprintOf(ws) : null,
+        );
+      } catch (err) {
+        console.error("snapshot save failed:", err);
+        return false;
+      }
+    },
+  );
+
   ipcMain.handle("get-workspaces", () => workspaces);
   ipcMain.handle("get-graph", (_e, id: string) => graphFor(id));
   ipcMain.handle("get-symbol-graph", (_e, id: string) => symbolGraphFor(id));
@@ -203,6 +237,7 @@ app.whenReady().then(async () => {
     // re-probe: a source can appear after boot (`/graphify .` or `gitnexus
     // analyze` run in the workspace's own terminal), and refresh is how you say so
     ws.sourceId = await resolveSourceId(ws);
+    void dropSnapshot(id);
     const g = await loadGraph(ws);
     // a failed rescan is returned but not cached, so the next ask reads again
     if (g.failed) graphs.delete(id);
@@ -257,6 +292,7 @@ app.whenReady().then(async () => {
     const name = nameFromRegistry(registry, ws.rootPath);
     if (name) ws.name = name;
     ws.sourceId = await resolveSourceId(ws);
+    void dropSnapshot(ws.id);
     graphs.delete(ws.id); // next get-graph/rescan re-reads the fresh index
     symbolGraphs.delete(ws.id);
     return { ok: true };
@@ -525,6 +561,7 @@ app.whenReady().then(async () => {
 
   // file-watching stays vault-only; code graphs refresh via rescan
   watchVault(vault.rootPath, (g) => {
+    void dropSnapshot(vault.id);
     graphs.set(vault.id, Promise.resolve(g));
     send("graph", g);
   });

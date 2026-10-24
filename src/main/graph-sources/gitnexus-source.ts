@@ -85,6 +85,23 @@ export const gitnexusSource: GraphSource = {
       console.error(`symbol graph failed for ${ws.name}:`, err);
       return failedGraph(err);
     }),
+  fingerprint: async (ws) => {
+    const metaPath = path.join(ws.rootPath, ".gitnexus", "meta.json");
+    const raw = await fs.readFile(metaPath, "utf8").catch(() => null);
+    if (raw === null) return null;
+    try {
+      const m = JSON.parse(raw) as {
+        lastCommit?: unknown;
+        indexedAt?: unknown;
+      };
+      if (typeof m.lastCommit === "string" && typeof m.indexedAt === "string")
+        return `gitnexus:${m.lastCommit}:${m.indexedAt}`;
+    } catch {
+      // unparseable meta falls through to the file stat
+    }
+    const st = await fs.stat(metaPath).catch(() => null);
+    return st ? `gitnexus:${st.mtimeMs}:${st.size}` : null;
+  },
   index: runAnalyze,
   reindexCommand: "npx gitnexus analyze",
   stale: async (rootPath) => {

@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  CardLayout,
   LineChanges,
   Settings,
+  StoredSnapshot,
   TodoList,
   TodoOp,
   TodoOpResult,
@@ -29,6 +31,12 @@ const api = {
     ipcRenderer.invoke("get-workspaces"),
   getGraph: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("get-graph", workspaceId),
+  getCardSnapshots: (): Promise<StoredSnapshot[]> =>
+    ipcRenderer.invoke("get-card-snapshots"),
+  saveCardSnapshot: (
+    id: string,
+    body: { look: string; layout: CardLayout },
+  ): Promise<boolean> => ipcRenderer.invoke("save-card-snapshot", id, body),
   getSymbolGraph: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("get-symbol-graph", workspaceId),
   onGraph: (cb: (g: VaultGraph) => void) =>

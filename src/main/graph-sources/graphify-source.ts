@@ -133,6 +133,12 @@ export const graphifySource: GraphSource = {
         console.error(`graphify symbol graph failed for ${ws.name}:`, err);
         return EMPTY;
       }),
+  fingerprint: async (ws) => {
+    const st = await fs
+      .stat(path.join(ws.rootPath, OUT_DIR, "graph.json"))
+      .catch(() => null);
+    return st ? `graphify:${st.mtimeMs}:${st.size}` : null;
+  },
   // index() deliberately absent: the pipeline is agent-driven (LLM subagents),
   // so there is no headless invocation — and detect() only passes when a graph
   // already exists. Rebuilds are `/graphify .` in the workspace's own terminal.
