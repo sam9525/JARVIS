@@ -86,7 +86,7 @@ describe("SessionTabs", () => {
 
   it("calls onNew from +", () => {
     const { onNew } = render({ tabs: [tab("w", "main")], onNew: vi.fn() });
-    act(() => newButton()!.click());
+    act(() => newButton()?.click());
     expect(onNew).toHaveBeenCalledTimes(1);
   });
 
@@ -103,7 +103,7 @@ describe("SessionTabs", () => {
       onClose,
     });
     expect(closeControl("w")).toBeNull();
-    act(() => closeControl("w#1")!.click());
+    act(() => closeControl("w#1")?.click());
     expect(onClose).toHaveBeenCalledWith("w#1");
     expect(onSelect).not.toHaveBeenCalled();
   });

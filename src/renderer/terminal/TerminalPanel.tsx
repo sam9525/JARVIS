@@ -1,11 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
 import { LBL_AM } from "../ui/hud";
 import { PILL } from "./status-colours";
+import {
+  ensureSubscribed,
+  entryFor,
+  onTerminalExit,
+  releaseDetached,
+} from "./terminal-registry";
 import { MAIN_LABEL, sessionKey as keyOf } from "../../shared/session-key";
 import type {
   StatusKind,
@@ -17,8 +21,6 @@ type Status =
   | { kind: "idle" }
   | { kind: "running"; hooksOk: boolean }
   | { kind: "exited"; code: number };
-
-type Entry = { term: Terminal; fit: FitAddon; el: HTMLDivElement };
 
 const PILL_LABEL: Record<StatusKind, string> = {
   working: "working",
@@ -69,74 +71,11 @@ const BAR: Record<StatusKind, string> = {
   none: "from-ink-dim",
 };
 
-// Module-level and keyed by session key, so terminals (and their scrollback)
-// survive tab and workspace switches and panel collapse/expand — the component
-// only attaches them.
-const entries = new Map<string, Entry>();
-const exitListeners = new Set<(id: string, code: number) => void>();
-const typedListeners = new Set<(id: string) => void>();
-let subscribed = false;
-
-/** Fires with the session key when a person types text or Enter into a
- *  session's terminal. Escape sequences (arrows, xterm's own focus reports)
- *  do not count. */
-export function onTerminalTyped(fn: (id: string) => void): () => void {
-  typedListeners.add(fn);
-  return () => typedListeners.delete(fn);
-}
-
-// module-scope and permanent by design: these feed terminals that outlive
-// any one mount, so the disposers are deliberately dropped
-function ensureSubscribed() {
-  if (subscribed) return;
-  subscribed = true;
-  // a session starts writing before its tab is first shown, so its terminal
-  // is made on its first output rather than on first attach
-  window.jarvis.onPtyData((id, data) => entryFor(id).term.write(data));
-  window.jarvis.onPtyExit((id, code) => {
-    for (const l of exitListeners) l(id, code);
-  });
-}
-
-function entryFor(id: string): Entry {
-  let e = entries.get(id);
-  if (!e) {
-    const term = new Terminal({
-      fontSize: 13,
-      fontFamily: "Consolas, monospace",
-      theme: { background: "#02060b" },
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    const el = document.createElement("div");
-    el.style.width = "100%";
-    el.style.height = "100%";
-    term.open(el);
-    term.onData((d) => {
-      window.jarvis.ptyInput(id, d);
-      // arrow keys move through a question without answering it; a bare Esc
-      // dismisses it, so that one counts as typing
-      if (d === "\x1b" || !d.startsWith("\x1b"))
-        for (const l of typedListeners) l(id);
-    });
-    e = { term, fit, el };
-    entries.set(id, e);
-  }
-  return e;
-}
-
-/** Drops a closed session's terminal, so a later session reusing its label
- *  starts on an empty screen. */
-export function disposeTerminal(key: string): void {
-  entries.get(key)?.term.dispose();
-  entries.delete(key);
-}
-
-/** The size a new session should start at: that of the terminal on screen. */
-export function terminalSize(key: string): { cols: number; rows: number } {
-  const e = entries.get(key);
-  return e ? { cols: e.term.cols, rows: e.term.rows } : { cols: 80, rows: 24 };
-}
+export {
+  disposeTerminal,
+  onTerminalTyped,
+  terminalSize,
+} from "./terminal-registry";
 
 export default function TerminalPanel({
   workspace,
@@ -256,12 +195,9 @@ export default function TerminalPanel({
 
   useEffect(() => {
     ensureSubscribed();
-    const onExit = (id: string, code: number) =>
-      setLocalStatuses((m) => ({ ...m, [id]: { kind: "exited", code } }));
-    exitListeners.add(onExit);
-    return () => {
-      exitListeners.delete(onExit);
-    };
+    return onTerminalExit((id, code) =>
+      setLocalStatuses((m) => ({ ...m, [id]: { kind: "exited", code } })),
+    );
   }, []);
   // Attach the active workspace's terminal element to the panel and keep the
   // pty's cols/rows in step with it. One ResizeObserver covers all the ways
@@ -278,7 +214,10 @@ export default function TerminalPanel({
     refit();
     const observer = new ResizeObserver(refit);
     observer.observe(host);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      releaseDetached(sessionKey);
+    };
   }, [sessionKey]);
 
   // Separate from the mount effect above, and keyed on visibility: the boot

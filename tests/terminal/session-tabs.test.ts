@@ -3,6 +3,7 @@ import {
   homeTabs,
   pickTab,
   projectTabs,
+  pruneSelections,
 } from "../../src/renderer/terminal/session-tabs";
 import type {
   SessionStatus,
@@ -173,5 +174,46 @@ describe("pickTab", () => {
   it("falls back to the first tab when the selected session ended", () => {
     expect(pickTab(tabs, "repo#9").key).toBe("repo");
     expect(pickTab(tabs, undefined).key).toBe("repo");
+  });
+});
+
+describe("pruneSelections", () => {
+  const withOne = projectTabs(REPO, [
+    row("repo", [session("repo", "main"), session("repo#1", "1")]),
+  ]);
+  const oneEnded = projectTabs(REPO, [
+    row("repo", [
+      session("repo", "main"),
+      session("repo#1", "1", { live: false, kind: "none" }),
+    ]),
+  ]);
+
+  it("drops a selection once its session ends, so a reused label is not re-selected", () => {
+    let selected = new Map([["repo", { key: "repo#1", seen: true }]]);
+    selected = pruneSelections(selected, () => withOne);
+    selected = pruneSelections(selected, () => oneEnded);
+    expect(selected.has("repo")).toBe(false);
+    // a new live `1` appears later: the panel stays on main
+    expect(pickTab(withOne, selected.get("repo")?.key).key).toBe("repo");
+  });
+
+  it("keeps a just-launched selection until its tab first appears", () => {
+    let selected = new Map([["repo", { key: "repo#1", seen: false }]]);
+    selected = pruneSelections(selected, () => oneEnded);
+    expect(selected.get("repo")).toEqual({ key: "repo#1", seen: false });
+    selected = pruneSelections(selected, () => withOne);
+    expect(selected.get("repo")).toEqual({ key: "repo#1", seen: true });
+    selected = pruneSelections(selected, () => oneEnded);
+    expect(selected.has("repo")).toBe(false);
+  });
+
+  it("drops a selection whose owner is gone", () => {
+    const selected = new Map([["gone", { key: "gone#1", seen: true }]]);
+    expect(pruneSelections(selected, () => null).size).toBe(0);
+  });
+
+  it("returns the same map when nothing changed", () => {
+    const selected = new Map([["repo", { key: "repo#1", seen: true }]]);
+    expect(pruneSelections(selected, () => withOne)).toBe(selected);
   });
 });

@@ -22,8 +22,14 @@ import TerminalPanel, {
   terminalSize,
 } from "./terminal/TerminalPanel";
 import SessionTabs from "./terminal/SessionTabs";
-import { homeTabs, pickTab, projectTabs } from "./terminal/session-tabs";
-import { MAX_SESSIONS } from "../shared/session-key";
+import {
+  homeTabs,
+  pickTab,
+  projectTabs,
+  pruneSelections,
+  type TabSelection,
+} from "./terminal/session-tabs";
+import { closeSessionTab, openSessionTab } from "./terminal/tab-actions";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
@@ -194,8 +200,8 @@ export default function App() {
   }>({ open: false, todo: null, project: "", seq: 0 });
   const [deckCleared, setDeckCleared] = useState(false);
   // the terminal tab each panel owner shows, keyed by the owner's workspace id
-  // (home is the main agent's); a key that is no longer a tab reads as main
-  const [selectedTabs, setSelectedTabs] = useState<Map<string, string>>(
+  // (home is the main agent's); no entry, or a key that is not a tab, is main
+  const [selectedTabs, setSelectedTabs] = useState<Map<string, TabSelection>>(
     new Map(),
   );
   // a tab action's one-line result, shown only in the owner it came from
@@ -610,6 +616,22 @@ export default function App() {
 
   // The rail, the cards and the ring are graph views, and the main agent has
   // no graph. You reach its session from home, which already pins it.
+  // A selection whose session has ended is dropped on the next status push,
+  // so a later session reusing its label does not take the panel (and the
+  // keyboard focus) without the user choosing it.
+  useEffect(() => {
+    if (!orchestrator) return;
+    const scratch = workspaces.find((w) => w.isScratch);
+    setSelectedTabs((m) =>
+      pruneSelections(m, (ownerId) => {
+        if (ownerId === orchestrator.id)
+          return homeTabs(orchestrator, scratch, statuses);
+        const ws = workspaces.find((w) => w.id === ownerId);
+        return ws ? projectTabs(ws, statuses) : null;
+      }),
+    );
+  }, [orchestrator, workspaces, statuses]);
+
   const fleet = useMemo(
     () => workspaces.filter((w) => !w.isSelf),
     [workspaces],
@@ -1375,35 +1397,31 @@ export default function App() {
               statuses,
             )
           : projectTabs(owner, statuses);
-        const tab = pickTab(tabs, selectedTabs.get(owner.id));
+        const tab = pickTab(tabs, selectedTabs.get(owner.id)?.key);
         const ws = workspaces.find((w) => w.id === tab.workspaceId) ?? owner;
         const select = (key: string) =>
-          setSelectedTabs((m) => new Map(m).set(owner.id, key));
+          setSelectedTabs((m) =>
+            new Map(m).set(owner.id, {
+              key,
+              seen: tabs.some((t) => t.key === key),
+            }),
+          );
         const notify = (text: string) =>
           setTerminalNotice({ ownerId: owner.id, text });
-        const closeTab = (key: string) => {
-          window.jarvis
-            .ptyClose(key)
-            .then(({ kept }) => {
-              disposeTerminal(key);
-              if (kept) notify(`Worktree kept: ${kept}`);
-            })
-            .catch((err) => notify(`Could not close the session: ${err}`));
-        };
-        const newTab = () => {
-          const { cols, rows } = terminalSize(tab.key);
-          window.jarvis
-            .ptyLaunch(owner.id, null, cols, rows)
-            .then((r) => {
-              if (r.ok && r.key) return select(r.key);
-              notify(
-                r.error === "cap"
-                  ? `${MAX_SESSIONS} sessions are already open`
-                  : `Could not open a session${r.error ? `: ${r.error}` : ""}`,
-              );
-            })
-            .catch((err) => notify(`Could not open a session: ${err}`));
-        };
+        const closeTab = (key: string) =>
+          closeSessionTab(key, {
+            deselect: (closed) =>
+              setSelectedTabs((m) => {
+                if (m.get(owner.id)?.key !== closed) return m;
+                const next = new Map(m);
+                next.delete(owner.id);
+                return next;
+              }),
+            dispose: disposeTerminal,
+            notify,
+          });
+        const newTab = () =>
+          openSessionTab(owner.id, terminalSize(tab.key), { select, notify });
         return (
           <Panel
             id="terminal"

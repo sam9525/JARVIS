@@ -31,16 +31,19 @@ export default function SessionTabs({
 }) {
   // Segmented re-measures its fill whenever `options` changes identity, and
   // the owner re-renders on every hook event. The options are rebuilt only when
-  // what they show changes; the close handler is read through a ref.
+  // what they show changes: `shape` is every field they read, and the tabs and
+  // close handler come through refs, so the deps below are complete.
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
   const canClose = onClose !== undefined;
   const shape = tabs
     .map((t) => [t.key, t.label, t.kind, t.main, t.hint].join("\u0000"))
     .join("\u0001");
   const options = useMemo(
     () =>
-      tabs.map((t) => ({
+      tabsRef.current.map((t) => ({
         value: t.key,
         label: (
           <span

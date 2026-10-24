@@ -87,3 +87,28 @@ export function pickTab(
 ): SessionTab {
   return tabs.find((t) => t.key === selected) ?? tabs[0];
 }
+
+// `seen` turns true once the key has been one of the owner's tabs. A tab just
+// opened with `+` is selected before its status row reports it live, so an
+// unseen key is kept; a seen key that is no longer a tab has ended.
+export type TabSelection = { key: string; seen: boolean };
+
+/**
+ * Drops each owner's selection once its session has ended, so a later session
+ * reusing the label is not selected for the user. `tabsFor` returns null for an
+ * owner that no longer exists. Returns the same map when nothing changed.
+ */
+export function pruneSelections(
+  selected: Map<string, TabSelection>,
+  tabsFor: (ownerId: string) => SessionTab[] | null,
+): Map<string, TabSelection> {
+  let next: Map<string, TabSelection> | null = null;
+  for (const [ownerId, sel] of selected) {
+    const isTab = tabsFor(ownerId)?.some((t) => t.key === sel.key) ?? false;
+    if (isTab === sel.seen) continue;
+    next ??= new Map(selected);
+    if (isTab) next.set(ownerId, { key: sel.key, seen: true });
+    else next.delete(ownerId);
+  }
+  return next ?? selected;
+}
