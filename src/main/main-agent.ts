@@ -93,12 +93,12 @@ malformed. Answer with the next open task in one spoken sentence.
 ## Keeping the to-do list current
 
 When you and the user agree a task is complete, mark it done in the same turn:
-call \`jarvis_todos\`, change its \`- [ ]\` to \`- [x]\` with Edit, then call
+call \`jarvis_todos\`, change its \`- [ ]\` or \`- [/]\` to \`- [x]\` with Edit, then call
 \`jarvis_todos\` again and fix anything listed in \`malformed\`. Agreement means the
 user said it is done or approved the result. A workspace finish report saying
 its work was merged into develop also counts, because nothing is merged until
 the user tells a workspace to merge it. When such a report clearly matches one
-open task in TODO.md (same project, same subject), check that task off the same
+open or working task in TODO.md (same project, same subject), check that task off the same
 way in the same turn and name it in your spoken summary. A merge report that
 covers several tasks sent together checks off each task it clearly covers, and
 names each one. A merge report checks off the matching working (\`- [/]\`) tasks

@@ -39,14 +39,6 @@ const TOOLS = [
       '5. On "Approve", use superpowers:subagent-driven-development to build it.\n' +
       "   When the build is done, end your last message with a short list of\n" +
       "   what I should check by hand.\n\n" +
-      "After a to-do send succeeds, mark each sent task line - [/] in TODO.md\n" +
-      'with Edit, then call jarvis_todos and fix anything in malformed. "All\n' +
-      'open tasks" means the - [ ] lines only; never send a - [/] line as part\n' +
-      "of them. A working task the user names on its own is sent as usual and\n" +
-      "stays - [/].\n" +
-      "End your turn with one sentence naming the workspace and the task,\n" +
-      'such as "Told JARVIS to add the Working section." Say nothing about\n' +
-      "gates, approval, what the session will do, or what you will check later.\n\n" +
       "Working several to-do tasks: when the user asks for all open tasks of one\n" +
       "@project, or several of them, send them in ONE jarvis_send with fresh: true\n" +
       "and the prompt below, each task line copied in verbatim.\n" +
@@ -69,7 +61,15 @@ const TOOLS = [
       '   its plan; gate with the same question, header "Plan"; on "Approve",\n' +
       "   use superpowers:subagent-driven-development to build it. When the build\n" +
       "   is done, end your last message with a short list of what I should check\n" +
-      "   by hand.",
+      "   by hand.\n\n" +
+      "After a to-do send succeeds, mark each sent task line - [/] in TODO.md\n" +
+      'with Edit, then call jarvis_todos and fix anything in malformed. "All\n' +
+      'open tasks" means the - [ ] lines only; never send a - [/] line as part\n' +
+      "of them. A working task the user names on its own is sent as usual and\n" +
+      "stays - [/].\n" +
+      "End your turn with one sentence naming the workspace and the task,\n" +
+      'such as "Told JARVIS to add the Working section." Say nothing about\n' +
+      "gates, approval, what the session will do, or what you will check later.",
     inputSchema: {
       type: "object",
       properties: {
@@ -179,11 +179,11 @@ const TOOLS = [
       "spaces written as hyphens. Write today's date on every task you add. " +
       "Call this again after each write and fix every line listed in " +
       "malformed. Then say the next open task in one spoken sentence. " +
-      "Check a task off ('- [x]') in the same turn the user agrees it is " +
+      "Check a task off (change '- [ ]' or '- [/]' to '- [x]') in the same turn the user agrees it is " +
       "done — they said so or approved the result. A workspace finish report " +
       "saying its work was merged into develop also counts, because nothing " +
       "is merged until the user tells a workspace to merge it: when it " +
-      "clearly matches one open task (same project, same subject), check " +
+      "clearly matches one open or working task (same project, same subject), check " +
       "that task off the same way and name it in your spoken summary. " +
       "A merge report that covers several tasks sent together checks off each task it clearly covers, and names each one. " +
       "A merge report checks off the matching working tasks first. " +
