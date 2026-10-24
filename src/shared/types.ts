@@ -184,6 +184,8 @@ export interface Todo {
   line: number;
   raw: string;
   done: boolean;
+  /** `[/]`: the agent is on it. Never true together with `done`. */
+  working: boolean;
   text: string;
   project: string | null;
   created: string | null;
@@ -204,6 +206,7 @@ export type TodoOp =
       text: string;
       project: string | null;
     }
+  | { kind: "work"; line: number; raw: string }
   | { kind: "delete"; line: number; raw: string }
   | { kind: "add"; text: string; project: string | null }
   | { kind: "move"; line: number; raw: string; toLine: number; toRaw: string };
