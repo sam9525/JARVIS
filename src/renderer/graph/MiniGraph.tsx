@@ -126,9 +126,14 @@ export default function MiniGraph({
   const [, setChecks] = useState(0);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
+    let seenRev = latest.current.state.rev;
     const check = () => {
       const now = latest.current;
       const current = inputsOf(now.graph, now.state, now.look);
+      // the canvas repaints a new rev on Graph's next poll, so a capture waits
+      // for one tick in which the rev has held
+      const revHeld = now.state.rev === seenRev;
+      seenRev = now.state.rev;
       if (now.showImage) {
         // the store rev moves without a re-render, so the image watches it
         if (!current || !snapshotValid(snapshots.get(now.workspaceId), current))
@@ -136,6 +141,7 @@ export default function MiniGraph({
       } else if (
         current &&
         !now.working &&
+        revHeld &&
         settledRef.current &&
         isStill(now.state, performance.now())
       ) {

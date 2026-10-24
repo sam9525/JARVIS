@@ -126,6 +126,9 @@ describe("MiniGraph: live or snapshot", () => {
     settle();
     state.rev = 7;
     render(props({ working: false, state }));
+    // the first tick sees the rev move and leaves the canvas a tick to repaint
+    advance(500);
+    expect(img()).toBeNull();
     advance(500);
     expect(img()).not.toBeNull();
     expect(snapshots.get("w1")?.inputs.rev).toBe(7);
@@ -138,6 +141,41 @@ describe("MiniGraph: live or snapshot", () => {
     advance(500);
     expect(liveCanvas()).not.toBeNull();
     expect(img()).toBeNull();
+    // the remounted live graph waits for a settle of its own
+    advance(500);
+    expect(img()).toBeNull();
+    settle();
+    advance(500);
+    expect(img()).not.toBeNull();
+  });
+
+  it("a rev change on a settled live card waits one tick before capturing", () => {
+    const state = emptyState();
+    state.matchAt = performance.now(); // a match fade keeps the card from capturing
+    render(props({ state }));
+    settle();
+    advance(500);
+    expect(img()).toBeNull();
+    // ↺: transients clear and the rev moves without a re-render
+    state.matchAt = 0;
+    state.rev++;
+    advance(500);
+    expect(img()).toBeNull();
+    advance(500);
+    expect(img()).not.toBeNull();
+    expect(snapshots.get("w1")?.inputs.rev).toBe(state.rev);
+  });
+
+  it("a new graph object while live waits for the new settle", () => {
+    const state = emptyState();
+    render(props({ working: true, state }));
+    settle();
+    render(props({ working: false, state, graph: { ...graph } }));
+    advance(500);
+    expect(img()).toBeNull();
+    settle();
+    advance(500);
+    expect(img()).not.toBeNull();
   });
 
   it("an equal-but-fresh filters object and groups array keep the image", () => {
@@ -185,12 +223,15 @@ describe("MiniGraph: live or snapshot", () => {
   });
 
   it("unmounting mid-settle captures nothing", () => {
+    const consoleError = vi.spyOn(console, "error");
     render(props());
     settle();
     act(() => root.unmount());
     advance(1000);
     expect(snapshots.size).toBe(0);
     expect(toDataURL).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
     act(() => {
       root = createRoot(container);
     });

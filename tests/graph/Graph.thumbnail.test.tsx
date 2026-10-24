@@ -120,6 +120,27 @@ describe("Graph: onSettled", () => {
     expect(onSettled).toHaveBeenCalledTimes(1);
   });
 
+  it("drops a pending onSettled when the graph changes", () => {
+    const onSettled = vi.fn();
+    render(<Graph {...(props() as any)} thumbnail onSettled={onSettled} />);
+    act(() => latest.props.onEngineStop());
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    render(
+      <Graph
+        {...(props() as any)}
+        graph={{ ...sample }}
+        thumbnail
+        onSettled={onSettled}
+      />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onSettled).not.toHaveBeenCalled();
+  });
+
   it("does not call onSettled after unmount", () => {
     const onSettled = vi.fn();
     render(<Graph {...(props() as any)} thumbnail onSettled={onSettled} />);

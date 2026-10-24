@@ -81,7 +81,9 @@ export default function Graph({
   );
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
-  useEffect(() => () => clearTimeout(settledTimer.current), []);
+  // new data restarts the simulation, so a pending settle from the old data
+  // is dropped, as it is on unmount
+  useEffect(() => () => clearTimeout(settledTimer.current), [graph]);
 
   useEffect(() => {
     if (!handleRef) return;
