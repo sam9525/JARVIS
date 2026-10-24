@@ -9,24 +9,36 @@ const TOOLS = [
   {
     name: "jarvis_list",
     description:
-      "List every workspace in the JARVIS cockpit: name, kind (vault/code), " +
-      "status (waiting/running/idle/none), current tool call, last assistant " +
-      "message, whether a live Claude Code session exists, and who delegated " +
-      "its current turn. Poll this after jarvis_send to watch a delegate work.",
+      "List the JARVIS cockpit: one row per live session, plus one row for " +
+      "each workspace that has none. A row has the workspace name, kind " +
+      "(vault/code), status (waiting/running/idle/none), current tool call, " +
+      "last assistant message, whether a live Claude Code session exists, who " +
+      'delegated its current turn, the session label ("" when none), and the ' +
+      'worktree folder of that session ("" when it shares the workspace ' +
+      "folder). The vault workspace is the one with kind vault, never found " +
+      "by name. Poll this after jarvis_send to watch a delegate work.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "jarvis_send",
     description:
-      "Send a prompt into another workspace's live Claude Code session, as if " +
+      "Send a prompt into a Claude Code session of another workspace, as if " +
       "typed there. Returns as soon as the prompt is submitted — it does NOT " +
-      "wait for the delegate to finish; poll jarvis_list to follow progress. " +
-      "The target must already have a live session.\n\n" +
+      "wait for the delegate to finish; poll jarvis_list to follow progress.\n\n" +
+      "Without fresh, the prompt goes to the session named by session, or to " +
+      "the only live one; with several live and none named it is refused and " +
+      "the answer lists their labels. With fresh: true it opens a NEW session " +
+      "(in its own git worktree for a code repo) and sends there, answering " +
+      "{ session, worktree? }. At 4 live sessions it is refused and lists " +
+      "them: ask the user which one to close, and call jarvis_close only on " +
+      "their word. If the answer carries a trustPrompt, nothing was sent: ask " +
+      "the user, call jarvis_trust with their answer and the session, then " +
+      "send again with that session.\n\n" +
       "Working a to-do task: when the user asks you to do an open @project task from\n" +
-      "TODO.md, launch the workspace if it has no session, then send with\n" +
-      "fresh: true and this prompt, with the task line copied in verbatim. Use\n" +
-      "fresh: true for any new or unrelated task; never for a follow-up on the same\n" +
-      "task. If fresh is refused as busy, tell the user and ask what to do.\n\n" +
+      "TODO.md, send with fresh: true and this prompt, with the task line copied\n" +
+      "in verbatim. Use fresh: true for any new spec or new task; a follow-up on\n" +
+      "what a session already did goes to that session, with its session label.\n" +
+      "If fresh is refused at the cap of 4 sessions, ask the user which to close.\n\n" +
       "To-do task: <task text, verbatim from TODO.md>\n\n" +
       "Run this pipeline. Stop at each gate and wait for my answer.\n" +
       "1. Use superpowers:brainstorming to write a spec for this task.\n" +
@@ -70,7 +82,30 @@ const TOOLS = [
       "End your turn with one sentence naming the workspace and the task,\n" +
       'such as "Told JARVIS to add the Working section." Say nothing about\n' +
       "gates, approval, what the session will do, or what you will check later. " +
-      "That one sentence replaces the next-open-task sentence.",
+      "That one sentence replaces the next-open-task sentence.\n\n" +
+      "Worktree line: when the send answer has a worktree, add this line to\n" +
+      "the task prompt, with <main folder> and <branch> filled in:\n" +
+      "You are in a git worktree of <main folder>. Merge into develop from the\n" +
+      "main folder with git -C <main folder> merge --ff-only <branch>. If the\n" +
+      "main folder is not on develop or the fast-forward fails, stop and say\n" +
+      "the branch is ready to merge.\n\n" +
+      "Scratch: a short answer you can give from what you already know stays\n" +
+      "with you. Anything that needs files, the web, code, or more than a short\n" +
+      "spoken answer goes to the Scratch workspace with fresh: true, one fresh\n" +
+      "session per unrelated job. Scratch jobs get no note lookup.\n\n" +
+      "Note lookup: before every project task, to-do or not, ask the vault\n" +
+      "workspace first. Find it in jarvis_list as the workspace with kind vault,\n" +
+      "never by name. Send to its session labelled with the project name\n" +
+      "(jarvis_launch with label: <project> if there is none yet). One lookup\n" +
+      "covers a whole batch for one project. The prompt, with the task\n" +
+      "line(s) copied in verbatim:\n\n" +
+      'Note lookup for: <task line(s)>. Using your own CLAUDE.md search rules, find the daily notes and wiki pages related to this task. Answer in at most 10 lines, each a fact plus the note path it came from. Answer "nothing relevant" if nothing is.\n\n' +
+      'End that turn with one sentence, such as "Asked the vault about the\n' +
+      'Working-section task." When its finish wakes you, do not summarise it\n' +
+      "aloud: open the project session with fresh: true and send the pipeline\n" +
+      "prompt followed by a line Notes context: and the vault's answer\n" +
+      'verbatim. Skip that block when the answer is "nothing relevant", the\n' +
+      "lookup failed, or there is no vault workspace.",
     inputSchema: {
       type: "object",
       properties: {
@@ -96,13 +131,17 @@ const TOOLS = [
   {
     name: "jarvis_launch",
     description:
-      "Start a Claude Code session for a workspace on the rail that has none " +
-      "(jarvis_list shows live: false), the same way its terminal's launch " +
-      "button does. Returns once the session is ready for input; then " +
-      "jarvis_send to it. If it says the session is asking to trust its " +
-      "folder, do not jarvis_send yet: ask the user whether they trust that " +
-      "folder, then call jarvis_trust with their answer. " +
-      "Fails if the name is unknown or a session already exists.",
+      "Open a new Claude Code session for a workspace on the rail, in its own " +
+      "git worktree for a code repo. Pass label to name it (for the vault " +
+      "workspace, the project name); omit it for the next free number. " +
+      "Returns once the session is ready for input, with its session label; " +
+      "then jarvis_send to it with that session. If it says the session is " +
+      "asking to trust its folder, do not jarvis_send yet: ask the user " +
+      "whether they trust that folder, then call jarvis_trust with their " +
+      "answer and the session. Fails if the name is unknown, the workspace " +
+      "already has 4 sessions, or a session with that label is live. The " +
+      "label `main` is refused for a code workspace: its main-folder session " +
+      "is the user's own.",
     inputSchema: {
       type: "object",
       properties: {
@@ -150,8 +189,9 @@ const TOOLS = [
   {
     name: "jarvis_close",
     description:
-      "Close one session of a workspace, only when the user named it. " +
-      "Refused while that session is working, asking or blocked. A worktree " +
+      "Close one session of a workspace, only when the user named it (at the " +
+      "cap, ask which). Refused while that session is working, asking or " +
+      "blocked, or printed output a moment ago. A worktree " +
       "with uncommitted or unmerged work stays on disk, and the answer names it.",
     inputSchema: {
       type: "object",
@@ -172,9 +212,11 @@ const TOOLS = [
     name: "jarvis_watch",
     description:
       "Block until a workspace other than this one finishes a turn, then " +
-      "return { workspace, message } with that session's full last assistant " +
-      "message. Returns { timeout: true } if nothing finishes in time. Call " +
-      "it again after you handle an event to keep watching the fleet.",
+      "return { workspace, session, message } with that session's full last " +
+      "assistant message; session is its label. Returns { timeout: true } if " +
+      "nothing finishes in time. Call it again after you handle an event to " +
+      "keep watching the fleet. When the finish is a vault note lookup, do " +
+      "not summarise it aloud: pass its answer on as Notes context.",
     inputSchema: {
       type: "object",
       properties: {

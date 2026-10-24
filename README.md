@@ -12,10 +12,11 @@ One extra session, the **main agent**, sits above the fleet. It can list every w
 
 - **Live highlight layer.** Reads leave a persistent ring and a trail of arrows in read order. Searches pulse, and the files a search matched glow for a few seconds. Edited files stay marked for the whole session.
 - **Many workspaces.** A rail on the left switches between vaults and repos. Each has its own graph, terminal and status.
+- **Several sessions per workspace.** A workspace runs up to four Claude Code sessions, one tab each. See [Sessions](#sessions).
 - **Mission control.** The home screen shows every workspace as a card with its status: running, waiting on you, or idle. `Ring` and `Fleet` give two other views of the same fleet.
 - **2D and 3D graphs.** Vaults graph their `[[wikilinks]]`, Markdown links and tags. Code repos graph files and imports.
 - **Session replay.** A scrubber rebuilds the highlight state at any earlier point of the current session.
-- **Orchestrator.** The main agent drives the fleet through six MCP tools. See [MCP tools](#mcp-tools).
+- **Orchestrator.** The main agent drives the fleet through seven MCP tools. See [MCP tools](#mcp-tools).
 - **Voice (optional).** Say "Jarvis …" and the command is typed into the main agent's terminal. You still press Enter. Replies are read aloud, with a wireframe head and waveform.
 - **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels. See [Gestures](#gestures).
 - **Inbox.** A list at the top of the terminal panel with one row per workspace. Each row shows the status and the last message from Claude, or its current tool call while it runs. It is read-only: you reply in the terminal.
@@ -37,16 +38,27 @@ The graph itself is static. It comes from the files on disk, never from search r
 
 Only the main agent gets these tools. Delegate sessions never do, so a delegate cannot send work back up the chain.
 
-| Tool            | What it does                                                                                                                                         |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jarvis_list`   | Lists every workspace with its status, current tool call and last message.                                                                           |
-| `jarvis_send`   | Types a prompt into another workspace's live terminal and returns at once. With `fresh`, it types `/clear` first and waits for the screen to settle. |
-| `jarvis_launch` | Starts a Claude Code session for a workspace that has none, like its Launch button.                                                                  |
-| `jarvis_watch`  | Waits until another workspace finishes a turn, then returns its last message.                                                                        |
-| `jarvis_say`    | Speaks a short summary aloud, up to 500 characters.                                                                                                  |
-| `jarvis_todos`  | Opens your to-do list on screen and returns the file path to edit.                                                                                   |
+| Tool            | What it does                                                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `jarvis_list`   | Lists every live session, and every workspace with none, with status, current tool call, last message, session label and worktree. |
+| `jarvis_send`   | Types a prompt into a session of another workspace and returns at once. With `fresh`, it opens a new session and sends there.      |
+| `jarvis_launch` | Opens a new Claude Code session for a workspace, with an optional label.                                                           |
+| `jarvis_close`  | Closes a session you named. Refused while it is working, asking or blocked.                                                        |
+| `jarvis_watch`  | Waits until another workspace finishes a turn, then returns its last message.                                                      |
+| `jarvis_say`    | Speaks a short summary aloud, up to 500 characters.                                                                                |
+| `jarvis_todos`  | Opens your to-do list on screen and returns the file path to edit.                                                                 |
 
 The main agent does not need to poll. When a delegate finishes, JARVIS types a short nudge into the main agent's terminal so it can read the result.
+
+## Sessions
+
+A workspace holds up to four live Claude Code sessions, shown as tabs in its terminal panel. The `+` tab opens another.
+
+- **Worktrees.** In a code repo, the `main` session runs in your folder and is yours. Every other session runs in its own git worktree at `<repo>/.worktrees/<label>`, cut from `develop` (or `HEAD` without it). JARVIS adds `.worktrees/` to the repo's `.git/info/exclude`. Closing a tab removes its worktree only when it is clean and merged into `develop`; otherwise the folder stays and the close message names it. Vaults and folders that are not git repos share the folder.
+- **Fresh task, fresh session.** `jarvis_send` with `fresh` opens a new session for a new spec or task. A follow-up goes to the session that did the work. At four sessions the main agent asks which one to close.
+- **Scratch.** A `Scratch` workspace (hidden from the rail) takes the jobs the main agent should not do itself: anything that needs files, the web, code, or more than a short spoken answer. It shows as a `SCRATCH` tab beside `MAIN AGENT`.
+- **Vault lookup.** Before a project task, the main agent asks your vault workspace (found by its kind, not its name) for related notes, then passes the answer to the new session as `Notes context:`.
+- **Trust.** If a new session asks Claude Code to trust its folder, the main agent asks you. JARVIS never writes `~/.claude.json`.
 
 ## Graph sources
 

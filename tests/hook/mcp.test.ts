@@ -304,6 +304,39 @@ describe("mcp.mjs", () => {
     }
   });
 
+  it("jarvis_send's description carries the session, Scratch, worktree and lookup rules", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 40, method: "tools/list" });
+    const tool = (name: string) =>
+      res.result.tools.find((t: any) => t.name === name);
+    const send: string = tool("jarvis_send").description;
+    for (const needle of [
+      "Scratch",
+      "fresh: true",
+      "git -C",
+      "--ff-only",
+      "Note lookup for:",
+      "Notes context:",
+      "jarvis_close",
+      "never by name",
+      "trustPrompt",
+      "nothing relevant",
+    ]) {
+      expect(send).toContain(needle);
+    }
+    expect(send).not.toContain("refused as busy");
+    const launch: string = tool("jarvis_launch").description;
+    expect(launch).not.toContain("a session already exists");
+    expect(launch).toContain("`main`");
+    expect(launch).toContain("label");
+    const list: string = tool("jarvis_list").description;
+    expect(list).toContain("session");
+    expect(list).toContain("worktree");
+    const watch: string = tool("jarvis_watch").description;
+    expect(watch).toContain("do not summarise");
+    expect(watch).toContain("session");
+  });
+
   it("tools/call jarvis_send forwards fresh", async () => {
     const listener = await fakeListener({ ok: true });
     const { request } = startMcp(listener.port);

@@ -152,6 +152,26 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("never share a prompt");
   });
 
+  it("the guide carries the session, Scratch, worktree and lookup rules", () => {
+    for (const needle of [
+      "Scratch",
+      "fresh: true",
+      "git -C",
+      "--ff-only",
+      "Note lookup for:",
+      "Notes context:",
+      "jarvis_close",
+      "never by name",
+      "trustPrompt",
+      "nothing relevant",
+      "do not summarise",
+    ]) {
+      expect(AGENT_GUIDE).toContain(needle);
+    }
+    expect(AGENT_GUIDE).not.toContain("clears that session");
+    expect(AGENT_GUIDE).not.toContain("refused because the workspace is");
+  });
+
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);

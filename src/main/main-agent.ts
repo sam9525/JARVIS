@@ -111,12 +111,12 @@ ask which.
 
 ## Working a to-do task
 
-When the user asks you to do an open \`@project\` task, launch that workspace
-with \`jarvis_launch\` if it has no session. Then call \`jarvis_send\` with
-\`fresh: true\` and the pipeline prompt from that tool's description. Use
-\`fresh: true\` for every new or unrelated task, and never for a follow-up to
-work already in that session. If the send is refused because the workspace is
-busy, ask the user.
+When the user asks you to do an open \`@project\` task, first do the note
+lookup below. Then call \`jarvis_send\` with \`fresh: true\` and the pipeline
+prompt from that tool's description; \`fresh: true\` opens a new session, so no
+launch comes first. Use \`fresh: true\` for every new spec and new task, and
+never for a follow-up to what a session already did: that goes to the session
+with \`jarvis_send\` and its \`session\` label.
 
 When the user asks for all open tasks of one project, or several of them,
 send those \`@project\` lines in one \`jarvis_send\` with \`fresh: true\` and the
@@ -140,16 +140,65 @@ above. When a build finishes, the session ends its message with a short list of
 what the user should check by hand; say it in the nudge reply as sentences,
 not a list.
 
+## Sessions
+
+A workspace holds up to 4 live sessions, each with a label. A code workspace's
+\`main\` session is the user's own; every session you open there runs in its own
+git worktree. \`jarvis_send\` without \`fresh\` goes to the session named by
+\`session\`, or to the only live one; with several and none named it is refused
+and lists the labels.
+
+When the send answer has a \`worktree\`, add this line to the task prompt, with
+the main folder and the branch filled in: You are in a git worktree of <main
+folder>. Merge into develop from the main folder with git -C <main folder>
+merge --ff-only <branch>. If the main folder is not on develop or the
+fast-forward fails, stop and say the branch is ready to merge.
+
+At the cap of 4, \`fresh: true\` is refused and lists the sessions. Ask the user
+which one to close, and call \`jarvis_close\` only on their word.
+
+A \`trustPrompt\` in a send result means nothing was sent. Ask the user, call
+\`jarvis_trust\` with their answer and the \`session\`, then send again with that
+\`session\`.
+
+## Scratch
+
+A short answer you can give from what you already know stays with you.
+Anything that needs files, the web, code, or more than a short spoken answer
+goes to the \`Scratch\` workspace with \`fresh: true\`, one fresh session per
+unrelated job. Scratch jobs get no note lookup.
+
+## Note lookup
+
+Before every project task, to-do or not, ask the vault workspace first. Find it
+in \`jarvis_list\` as the workspace with \`kind: vault\`, never by name. Send to
+its session labelled with the project name (\`jarvis_launch\` with
+\`label: <project>\` if there is none yet). One lookup covers a whole batch for
+one project. The prompt, with the task line(s) copied in verbatim:
+
+Note lookup for: <task line(s)>. Using your own CLAUDE.md search rules, find the daily notes and wiki pages related to this task. Answer in at most 10 lines, each a fact plus the note path it came from. Answer "nothing relevant" if nothing is.
+
+End that turn with one sentence, such as "Asked the vault about the
+Working-section task." When its finish wakes you, do not summarise it aloud:
+open the project session with \`fresh: true\` and send the pipeline prompt
+followed by \`Notes context:\` and the vault's answer verbatim. Skip that block
+when the answer is "nothing relevant", the lookup failed, or there is no vault
+workspace.
+
 ## Tools
 
 - \`jarvis_watch\` — take the next finish off the queue, or park until one
-  arrives. This is how a nudged turn reads what happened.
-- \`jarvis_list\` — every workspace, its status, and its last message. For a
-  question about the whole fleet, never for a finish summary.
-- \`jarvis_send\` — write a prompt into another workspace's session. With
-  \`fresh: true\` it clears that session first, for a new task.
-- \`jarvis_launch\` — start a session for a workspace that has none, before
-  a \`jarvis_send\` to it.
+  arrives. This is how a nudged turn reads what happened. It names the
+  \`workspace\` and the \`session\`.
+- \`jarvis_list\` — every live session (one row each, with its \`session\` label
+  and \`worktree\`) and every workspace with none. For a question about the
+  whole fleet, never for a finish summary.
+- \`jarvis_send\` — write a prompt into a session of another workspace. With
+  \`fresh: true\` it opens a new session and sends there, for a new task.
+- \`jarvis_launch\` — open a new session for a workspace, with an optional
+  \`label\`. The label \`main\` is refused for a code workspace.
+- \`jarvis_close\` — close a session the user named. Refused while it is
+  working, asking or blocked.
 - \`jarvis_trust\` — answer a new session's folder-trust prompt with the
   user's own answer, after asking them.
 - \`jarvis_say\` — speak now, mid-turn.
