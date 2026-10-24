@@ -23,6 +23,7 @@ import TerminalPanel, {
 } from "./terminal/TerminalPanel";
 import SessionTabs from "./terminal/SessionTabs";
 import {
+  cardTab,
   homeTabs,
   pickTab,
   projectTabs,
@@ -412,8 +413,21 @@ export default function App() {
   // the session key of the open workspace's selected tab: the store the graph
   // shows and the log the scrubber replays
   const activeKeyRef = useRef<string | null>(null);
-  const selectedKeyOf = (ws: Workspace): string =>
-    pickTab(projectTabs(ws, statuses), selectedTabs.get(ws.id)?.key).key;
+  // A panel owner's tabs and the one it shows: home's for the main agent, the
+  // project's own otherwise. The terminal, the question panel and the graph
+  // all read the shown tab from here, so an answer lands in the session the
+  // terminal shows.
+  const shownTabs = (owner: Workspace, home: boolean) => {
+    const tabs = home
+      ? homeTabs(
+          owner,
+          workspaces.find((w) => w.isScratch),
+          statuses,
+        )
+      : projectTabs(owner, statuses);
+    return { tabs, tab: pickTab(tabs, selectedTabs.get(owner.id)?.key) };
+  };
+  const selectedKeyOf = (ws: Workspace): string => shownTabs(ws, false).tab.key;
   // openWorkspace is memoised once, so it reads the current selection here
   const selectedKeyOfRef = useRef(selectedKeyOf);
   selectedKeyOfRef.current = selectedKeyOf;
@@ -525,8 +539,14 @@ export default function App() {
           if (fresh) onScrub(null); // the past being replayed no longer exists
           setLogRev((n) => n + 1);
           onPreviewEvent(e);
-          if (isEditOf(e, previewNodeRef.current)) setPreviewRev((n) => n + 1);
         }
+        // sessions of one workspace can share its folder, so any of them
+        // editing the previewed file makes the preview stale
+        if (
+          e.workspaceId === activeIdRef.current &&
+          isEditOf(e, previewNodeRef.current)
+        )
+          setPreviewRev((n) => n + 1);
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
@@ -656,16 +676,19 @@ export default function App() {
   useEffect(() => {
     if (activeKey === null || activeKey === activeKeyRef.current) return;
     activeKeyRef.current = activeKey;
+    onPreviewEvent.cancel(); // a pending open from the old session must die
     const live = storeFor(activeKey);
     live.rev = nextRev();
     stateRef.current = live;
     setReplayIndex(null);
-  }, [activeKey]);
+  }, [activeKey, onPreviewEvent]);
 
-  // cards and the ring show the session each project's panel would open on
+  // cards and the ring show the selected session, else the most urgent one
   const selectedStoreOf = (workspaceId: string): HighlightState => {
     const ws = workspaces.find((w) => w.id === workspaceId);
-    return storeFor(ws ? selectedKeyOf(ws) : workspaceId);
+    if (!ws) return storeFor(workspaceId);
+    const { tabs } = shownTabs(ws, false);
+    return storeFor(cardTab(tabs, selectedTabs.get(ws.id)?.key).key);
   };
 
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
@@ -1421,14 +1444,7 @@ export default function App() {
         // home's terminal collapses to an inbox strip rather than to its title
         // bar — the fleet's state is what you want while the session is parked
         const inboxOnly = showHome && panelState("terminal").collapsed;
-        const tabs = showHome
-          ? homeTabs(
-              owner,
-              workspaces.find((w) => w.isScratch),
-              statuses,
-            )
-          : projectTabs(owner, statuses);
-        const tab = pickTab(tabs, selectedTabs.get(owner.id)?.key);
+        const { tabs, tab } = shownTabs(owner, showHome);
         const ws = workspaces.find((w) => w.id === tab.workspaceId) ?? owner;
         const select = (key: string) =>
           setSelectedTabs((m) =>
@@ -1616,15 +1632,7 @@ export default function App() {
 
       {(() => {
         const ownKey = showHome
-          ? orchestrator &&
-            pickTab(
-              homeTabs(
-                orchestrator,
-                workspaces.find((w) => w.isScratch),
-                statuses,
-              ),
-              selectedTabs.get(orchestrator.id)?.key,
-            ).key
+          ? orchestrator && shownTabs(orchestrator, true).tab.key
           : activeKey;
         const prompt = pickAsk(asks, ownKey ?? undefined);
         const ws =

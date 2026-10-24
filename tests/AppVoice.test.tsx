@@ -16,6 +16,8 @@ const captured = vi.hoisted(() => ({
   graph: null as any,
   rail: null as any,
   typed: null as ((key: string) => void) | null,
+  preview: null as any,
+  cards: null as any,
 }));
 vi.mock("../src/renderer/graph/Graph", () => ({
   default: (p: any) => {
@@ -33,7 +35,10 @@ vi.mock("../src/renderer/graph/Graph3D", () => ({
 vi.mock("../src/renderer/graph/FleetGraph", () => nullComponent);
 vi.mock("../src/renderer/home/Ring", () => nullComponent);
 vi.mock("../src/renderer/home/MissionControl", () => ({
-  default: () => null,
+  default: (p: any) => {
+    captured.cards = p;
+    return null;
+  },
   DOT: {},
 }));
 vi.mock("../src/renderer/home/WorkspaceRail", () => ({
@@ -50,7 +55,12 @@ vi.mock("../src/renderer/terminal/TerminalPanel", () => ({
     return () => undefined;
   },
 }));
-vi.mock("../src/renderer/preview/Preview", () => nullComponent);
+vi.mock("../src/renderer/preview/Preview", () => ({
+  default: (p: any) => {
+    captured.preview = p;
+    return null;
+  },
+}));
 vi.mock("../src/renderer/session/Timeline", () => nullComponent);
 vi.mock("../src/renderer/graph/GraphSlot", () => ({
   default: ({
@@ -120,6 +130,8 @@ beforeEach(() => {
   captured.graph = null;
   captured.rail = null;
   captured.typed = null;
+  captured.preview = null;
+  captured.cards = null;
   resolveWorkspaces = null;
   settingsOnDisk = defaultSettings();
   (window as any).jarvis = {
@@ -742,5 +754,99 @@ describe("App: a session's own activity clears its question", () => {
       }),
     );
     expect(shownQuestion()).toBeNull();
+  });
+});
+
+describe("App: the preview across sessions", () => {
+  const openRepo = async () => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () => statusListener!([repoRow]));
+    await act(async () => captured.rail.onSelect(REPO));
+    await flush();
+  };
+  const event = (sessionKey: string, over: any) => ({
+    sessionId: `s-${sessionKey}`,
+    workspaceId: "d:/r",
+    sessionKey,
+    nodeIds: [],
+    ts: 1,
+    ...over,
+  });
+
+  it("refreshes the open preview when a sibling session edits the file", async () => {
+    await openRepo();
+    await act(async () => captured.graph.onNodeClick("src/a.ts"));
+    const before = captured.preview.revision as number;
+    await act(async () =>
+      toolListener!(
+        event("d:/r#1", { phase: "post", tool: "Edit", nodeIds: ["src/a.ts"] }),
+      ),
+    );
+    expect(captured.preview.revision).toBe(before + 1);
+  });
+
+  describe("a pending open", () => {
+    afterEach(() => vi.useRealTimers());
+    const readThenWait = async (switchTab: boolean) => {
+      await openRepo();
+      vi.useFakeTimers();
+      await act(async () =>
+        toolListener!(
+          event("d:/r", { phase: "pre", tool: "Read", nodeIds: ["src/a.ts"] }),
+        ),
+      );
+      if (switchTab) {
+        const tab = container.querySelector('[data-tab="d:/r#1"]');
+        await act(async () =>
+          (tab!.closest("button") as HTMLButtonElement).click(),
+        );
+      }
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+    };
+
+    it("opens once reads go quiet", async () => {
+      await readThenWait(false);
+      expect(captured.preview?.nodeId).toBe("src/a.ts");
+    });
+
+    it("dies on a tab switch", async () => {
+      await readThenWait(true);
+      expect(captured.preview).toBeNull();
+    });
+  });
+});
+
+describe("App: a card with no selected tab", () => {
+  it("shows its most urgent session's highlights", async () => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () =>
+      statusListener!([
+        {
+          ...repoRow,
+          sessions: [
+            sessionRow("d:/r", "main"),
+            { ...sessionRow("d:/r#1", "1"), kind: "working" as const },
+          ],
+        },
+      ]),
+    );
+    await act(async () =>
+      toolListener!({
+        sessionId: "s1",
+        workspaceId: "d:/r",
+        sessionKey: "d:/r#1",
+        phase: "pre",
+        tool: "Read",
+        nodeIds: ["src/a.ts"],
+        ts: 1,
+      }),
+    );
+    expect(captured.cards.getStore("d:/r").nodes.has("src/a.ts")).toBe(true);
   });
 });

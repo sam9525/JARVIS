@@ -88,6 +88,27 @@ export function pickTab(
   return tabs.find((t) => t.key === selected) ?? tabs[0];
 }
 
+const URGENCY: Partial<Record<StatusKind, number>> = {
+  asking: 0,
+  blocked: 0,
+  working: 1,
+};
+
+/**
+ * The tab a card or ring tile shows: the owner's selection while it is a tab,
+ * else the most urgent session, so a card whose only working session is a
+ * worktree lights that session. Earlier tabs win a tie, which keeps main.
+ */
+export function cardTab(
+  tabs: SessionTab[],
+  selected: string | undefined,
+): SessionTab {
+  const chosen = tabs.find((t) => t.key === selected);
+  if (chosen) return chosen;
+  const rank = (t: SessionTab) => URGENCY[t.kind] ?? 2;
+  return tabs.reduce((best, t) => (rank(t) < rank(best) ? t : best));
+}
+
 // `seen` turns true once the key has been one of the owner's tabs. A tab just
 // opened with `+` is selected before its status row reports it live, so an
 // unseen key is kept; a seen key that is no longer a tab has ended.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cardTab,
   homeTabs,
   pickTab,
   projectTabs,
@@ -174,6 +175,62 @@ describe("pickTab", () => {
   it("falls back to the first tab when the selected session ended", () => {
     expect(pickTab(tabs, "repo#9").key).toBe("repo");
     expect(pickTab(tabs, undefined).key).toBe("repo");
+  });
+});
+
+describe("cardTab", () => {
+  const tabs = (sessions: SessionStatus[]) =>
+    projectTabs(REPO, [row("repo", sessions)]);
+
+  it("shows the only working session when nothing is selected", () => {
+    const t = tabs([
+      session("repo", "main"),
+      session("repo#1", "1", { kind: "working" }),
+    ]);
+    expect(cardTab(t, undefined).key).toBe("repo#1");
+  });
+
+  it("puts asking and blocked ahead of working", () => {
+    const t = tabs([
+      session("repo", "main", { kind: "working" }),
+      session("repo#1", "1", { kind: "working" }),
+      session("repo#2", "2", { kind: "blocked" }),
+    ]);
+    expect(cardTab(t, undefined).key).toBe("repo#2");
+    const asking = tabs([
+      session("repo", "main", { kind: "working" }),
+      session("repo#1", "1", { kind: "asking" }),
+    ]);
+    expect(cardTab(asking, undefined).key).toBe("repo#1");
+  });
+
+  it("keeps main on a tie, and over a stopped main's idle siblings", () => {
+    const t = tabs([
+      session("repo", "main", { kind: "working" }),
+      session("repo#1", "1", { kind: "working" }),
+    ]);
+    expect(cardTab(t, undefined).key).toBe("repo");
+    const stopped = tabs([
+      session("repo", "main", { kind: "none", live: false }),
+      session("repo#1", "1"),
+    ]);
+    expect(cardTab(stopped, undefined).key).toBe("repo");
+  });
+
+  it("lets an explicit selection win", () => {
+    const t = tabs([
+      session("repo", "main"),
+      session("repo#1", "1", { kind: "working" }),
+    ]);
+    expect(cardTab(t, "repo").key).toBe("repo");
+  });
+
+  it("ignores a selection that is no longer a tab", () => {
+    const t = tabs([
+      session("repo", "main"),
+      session("repo#1", "1", { kind: "working" }),
+    ]);
+    expect(cardTab(t, "repo#9").key).toBe("repo#1");
   });
 });
 
