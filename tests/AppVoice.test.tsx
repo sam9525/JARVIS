@@ -491,4 +491,44 @@ describe("App: a main-agent question is spoken", () => {
     expect(speakSpy).toHaveBeenCalledTimes(1);
     expect(speakSpy).toHaveBeenCalledWith(line);
   });
+
+  it("does not repeat an open question when the panel re-renders", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR]));
+    await flush();
+    const row = (message: string, messageAt: number) => ({
+      workspaceId: ORCHESTRATOR.id,
+      kind: "idle" as const,
+      call: "",
+      message,
+      messageAt,
+      since: Date.now(),
+      reads: 0,
+      edits: 0,
+    });
+    await act(async () => statusListener!([row("", 0)])); // spend the restore swallow
+    const open = {
+      workspaceId: "ws-self",
+      sessionId: "s1",
+      ts: 1,
+      questions: [
+        {
+          question: "Approve?",
+          header: "Spec",
+          multiSelect: false,
+          options: [{ label: "Approve", description: "" }],
+        },
+      ],
+    };
+    const line = "Self asks: Approve?. Options: Approve.";
+    await act(async () => askListener!(open));
+    await flush();
+    expect(speakSpy).toHaveBeenCalledWith(line);
+    speakSpy.mockClear();
+    await act(async () => askListener!(open));
+    await act(async () => statusListener!([row("working on it", 5)]));
+    await flush();
+    expect(speakSpy).not.toHaveBeenCalledWith(line);
+  });
 });

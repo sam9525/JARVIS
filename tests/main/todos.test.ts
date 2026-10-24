@@ -409,6 +409,21 @@ describe("working mark", () => {
     expect(r2.ok && r2.file).toBe(file);
   });
 
+  it("edit keeps the working mark", () => {
+    const r = applyOp(
+      "- [/] a @JARVIS 2026-09-20\n",
+      {
+        kind: "edit",
+        line: 0,
+        raw: "- [/] a @JARVIS 2026-09-20",
+        text: "bee",
+        project: "JARVIS",
+      },
+      TODAY,
+    );
+    expect(r.ok && r.file).toBe("- [/] bee @JARVIS 2026-09-20\n");
+  });
+
   it("work refuses a done task and a stale line", () => {
     expect(
       applyOp("- [x] a\n", { kind: "work", line: 0, raw: "- [x] a" }, TODAY),
