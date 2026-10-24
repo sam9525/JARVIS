@@ -477,6 +477,47 @@ describe("useWorkspaceGraphs", () => {
       expect(snapshots.has("kept")).toBe(false);
     });
 
+    it("puts a watched graph on a card that already holds one", async () => {
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({ showHome: true, workspaces: [ws("kept", "vault")] }),
+      );
+      await settle();
+      await settle();
+      expect(h.result.cardGraphs.get("kept")?.nodes[0].id).toBe("a");
+      await act(async () =>
+        h.result.applyWatchedGraph("kept", graphOf("rebuilt")),
+      );
+      expect(h.result.cardGraphs.get("kept")?.nodes[0].id).toBe("rebuilt");
+    });
+
+    it("a fleet refresh puts each rescanned graph on its card as it lands", async () => {
+      let release!: (g: VaultGraph) => void;
+      jarvis.rescan.mockImplementation((id: string) =>
+        id === "slow"
+          ? new Promise<VaultGraph>((res) => {
+              release = res;
+            })
+          : Promise.resolve(graphOf("fresh")),
+      );
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({
+          showHome: true,
+          workspaces: [ws("fast", "vault"), ws("slow", "code")],
+        }),
+      );
+      await settle();
+      await settle();
+      await act(async () => h.result.refresh());
+      await settle();
+      expect(h.result.cardGraphs.get("fast")?.nodes[0].id).toBe("fresh");
+      expect(h.result.cardGraphs.get("slow")?.nodes[0].id).toBe("a");
+      await act(async () => release(graphOf("late")));
+      await settle();
+      expect(h.result.cardGraphs.get("slow")?.nodes[0].id).toBe("late");
+    });
+
     it("drops stored layouts on a rescan and on indexing", async () => {
       jarvis.getCardSnapshots.mockResolvedValue([
         stored("kept"),

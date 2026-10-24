@@ -217,6 +217,18 @@ describe("MiniGraph: stored layout or live graph", () => {
     expect(paint.paintLayout).toHaveBeenCalled();
   });
 
+  it("a save names the fingerprint of the graph the card drew", () => {
+    const p = props({ graph: { ...graph, fingerprint: "vault:drawn" } });
+    render(p);
+    settle();
+    advance(500);
+    expect(save).toHaveBeenCalledWith("w1", {
+      look: lookOf(p),
+      layout: live.layout,
+      fingerprint: "vault:drawn",
+    });
+  });
+
   it("a working card never saves", () => {
     render(props({ working: true }));
     settle();

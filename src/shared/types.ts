@@ -76,6 +76,9 @@ export interface VaultGraph {
   // set when the source could not read its index: a short reason for the card.
   // A failed graph is never cached, so the next load asks the source again.
   failed?: string;
+  // the source's fingerprint, read before this graph loaded; a card saves its
+  // layout under it, so a layout never outlives the graph it was drawn from
+  fingerprint?: string;
 }
 
 /** A previewed file's uncommitted changes against HEAD, as 1-based line

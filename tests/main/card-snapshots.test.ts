@@ -4,10 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import {
   deleteSnapshot,
+  loadFingerprinted,
   readSnapshots,
   saveSnapshot,
   snapshotFile,
 } from "../../src/main/card-snapshots";
+import { gitnexusSource } from "../../src/main/graph-sources/gitnexus-source";
 import type { CardLayout, Workspace } from "../../src/shared/types";
 
 let dir: string;
@@ -26,7 +28,8 @@ const layout: CardLayout = {
   nodes: [{ id: "n", hk: "n", x: 1, y: 2, r: 3, fill: "#fff" }],
   links: [],
 };
-const body = { look: "l", layout };
+const body = { look: "l", layout, fingerprint: "f" };
+const at = (fingerprint: string | undefined) => ({ ...body, fingerprint });
 const fp = async () => "gitnexus:1:2";
 
 beforeEach(async () => {
@@ -44,30 +47,58 @@ const exists = (f: string) =>
 
 describe("saveSnapshot", () => {
   it("refuses unknown, isSelf, empty, oversized and unfingerprinted saves", async () => {
-    expect(await saveSnapshot(dir, undefined, body, "f")).toBe(false);
-    expect(await saveSnapshot(dir, self, body, "f")).toBe(false);
+    expect(await saveSnapshot(dir, undefined, body)).toBe(false);
+    expect(await saveSnapshot(dir, self, body)).toBe(false);
     expect(
-      await saveSnapshot(
-        dir,
-        wsA,
-        { look: "l", layout: { ...layout, nodes: [] } },
-        "f",
-      ),
+      await saveSnapshot(dir, wsA, {
+        ...body,
+        layout: { ...layout, nodes: [] },
+      }),
     ).toBe(false);
     expect(
-      await saveSnapshot(
-        dir,
-        wsA,
-        { look: "x".repeat(1024 * 1024), layout },
-        "f",
-      ),
+      await saveSnapshot(dir, wsA, { ...body, look: "x".repeat(1024 * 1024) }),
     ).toBe(false);
-    expect(await saveSnapshot(dir, wsA, body, null)).toBe(false);
+    expect(await saveSnapshot(dir, wsA, at(undefined))).toBe(false);
+    expect(await saveSnapshot(dir, wsA, at(""))).toBe(false);
     expect(await fs.readdir(dir)).toEqual([]);
   });
 
+  it("refuses a layout of the wrong shape and writes nothing", async () => {
+    const bad: unknown[] = [
+      { ...layout, transform: undefined },
+      { ...layout, transform: { k: 0, x: 0, y: 0 } },
+      { ...layout, width: Number.NaN },
+      { ...layout, height: 0 },
+      { ...layout, nodes: [null] },
+      { ...layout, nodes: [{ ...layout.nodes[0], x: "1" }] },
+      { ...layout, nodes: [{ ...layout.nodes[0], fill: 3 }] },
+      { ...layout, links: [[0, 1]] },
+      { ...layout, links: [[0]] },
+      { ...layout, links: [[0, 0.5]] },
+      { ...layout, links: null },
+    ];
+    for (const l of bad)
+      expect(
+        await saveSnapshot(dir, wsA, { ...body, layout: l as CardLayout }),
+      ).toBe(false);
+    expect(
+      await saveSnapshot(dir, wsA, { ...body, look: 3 as unknown as string }),
+    ).toBe(false);
+    expect(await fs.readdir(dir)).toEqual([]);
+  });
+
+  it("writes through a temporary file that does not survive", async () => {
+    await Promise.all([
+      saveSnapshot(dir, wsA, body),
+      saveSnapshot(dir, wsA, { ...body, look: "m" }),
+    ]);
+    expect(await fs.readdir(dir)).toEqual([
+      path.basename(snapshotFile(dir, "a")),
+    ]);
+  });
+
   it("writes a valid body", async () => {
-    expect(await saveSnapshot(dir, wsA, body, "f")).toBe(true);
+    expect(await saveSnapshot(dir, wsA, body)).toBe(true);
     const stored = JSON.parse(
       await fs.readFile(snapshotFile(dir, "a"), "utf8"),
     );
@@ -84,7 +115,7 @@ describe("saveSnapshot", () => {
 
 describe("readSnapshots", () => {
   it("returns a valid file", async () => {
-    await saveSnapshot(dir, wsA, body, "gitnexus:1:2");
+    await saveSnapshot(dir, wsA, at("gitnexus:1:2"));
     const got = await readSnapshots(dir, [wsA], fp);
     expect(got.map((s) => s.id)).toEqual(["a"]);
   });
@@ -131,11 +162,86 @@ describe("readSnapshots", () => {
     expect(await fs.readdir(dir)).toEqual([]);
   });
 
+  it("deletes a current-format file whose layout has the wrong shape", async () => {
+    const shapes: unknown[] = [
+      { ...layout, transform: undefined },
+      { ...layout, links: [[0, 7]] },
+      { ...layout, nodes: [null] },
+    ];
+    const list = shapes.map((_, i) => ({ ...wsA, id: `w${i}` }));
+    for (const [i, l] of shapes.entries())
+      await fs.writeFile(
+        snapshotFile(dir, `w${i}`),
+        JSON.stringify({
+          format: 1,
+          id: `w${i}`,
+          fingerprint: "gitnexus:1:2",
+          look: "",
+          layout: l,
+        }),
+      );
+    expect(await readSnapshots(dir, list, fp)).toEqual([]);
+    expect(await fs.readdir(dir)).toEqual([]);
+  });
+
+  it("prunes leftover temporary files", async () => {
+    await saveSnapshot(dir, wsA, at("gitnexus:1:2"));
+    await fs.writeFile(`${snapshotFile(dir, "a")}.123.tmp`, "{");
+    expect((await readSnapshots(dir, [wsA], fp)).map((s) => s.id)).toEqual([
+      "a",
+    ]);
+    expect(await fs.readdir(dir)).toEqual([
+      path.basename(snapshotFile(dir, "a")),
+    ]);
+  });
+
   it("a save then a delete then a read returns nothing", async () => {
-    await saveSnapshot(dir, wsA, body, "gitnexus:1:2");
+    await saveSnapshot(dir, wsA, at("gitnexus:1:2"));
     await deleteSnapshot(dir, "a");
     expect(await readSnapshots(dir, [wsA], fp)).toEqual([]);
     expect(await exists(snapshotFile(dir, "a"))).toBe(false);
+  });
+});
+
+describe("loadFingerprinted", () => {
+  it("a save of a graph loaded before a rebuild does not survive the next read", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "snap-root-"));
+    const ws = { ...wsA, rootPath: root };
+    const meta = path.join(root, ".gitnexus", "meta.json");
+    await fs.mkdir(path.dirname(meta));
+    await fs.writeFile(
+      meta,
+      JSON.stringify({ lastCommit: "A", indexedAt: "1" }),
+    );
+    const fingerprintOf = (w: Workspace) => gitnexusSource.fingerprint!(w);
+    const g = await loadFingerprinted(
+      async () => ({ nodes: [], edges: [] }),
+      () => fingerprintOf(ws),
+    );
+    expect(g.fingerprint).toBe("gitnexus:A:1");
+
+    await fs.writeFile(
+      meta,
+      JSON.stringify({ lastCommit: "B", indexedAt: "2" }),
+    );
+    expect(
+      await saveSnapshot(dir, ws, {
+        look: "l",
+        layout,
+        fingerprint: g.fingerprint,
+      }),
+    ).toBe(true);
+    expect(await readSnapshots(dir, [ws], fingerprintOf)).toEqual([]);
+    expect(await fs.readdir(dir)).toEqual([]);
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("leaves a source with no fingerprint unstamped", async () => {
+    const g = await loadFingerprinted(
+      async () => ({ nodes: [], edges: [] }),
+      async () => null,
+    );
+    expect("fingerprint" in g).toBe(false);
   });
 });
 

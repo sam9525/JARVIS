@@ -35,7 +35,7 @@ const api = {
     ipcRenderer.invoke("get-card-snapshots"),
   saveCardSnapshot: (
     id: string,
-    body: { look: string; layout: CardLayout },
+    body: { look: string; layout: CardLayout; fingerprint?: string },
   ): Promise<boolean> => ipcRenderer.invoke("save-card-snapshot", id, body),
   getSymbolGraph: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("get-symbol-graph", workspaceId),

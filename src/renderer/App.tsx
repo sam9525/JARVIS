@@ -940,10 +940,12 @@ export default function App() {
   );
 
   // Seed a workspace's groups once, from its own top-level folders, as soon as
-  // its graph exists — off `cardGraphs`, which fills for the whole fleet at
-  // boot, not off the open workspace. Keying this on `active` meant a project
-  // drew no colour until you opened it, so the cards and the fleet showed the
-  // unseeded fallback and the palette appeared to change when you came back.
+  // its graph exists — off `cardGraphs`, which fills as each card's graph
+  // loads (every card without a valid stored layout, every graph once Fleet
+  // or Ring opens), not off the open workspace. Keying this on `active` meant
+  // a project drew no colour until you opened it, so the cards and the fleet
+  // showed the unseeded fallback and the palette appeared to change when you
+  // came back.
   //
   // `id in groups` marks a workspace seeded, so later deletions are respected.
   // A workspace with no folders is skipped rather than marked: its graph may

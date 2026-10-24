@@ -25,7 +25,12 @@ import { resolveSourceId, sourceById } from "./graph-sources/registry";
 import { isDirectory } from "./is-directory";
 import { runAnalyze } from "./graph-sources/gitnexus-source";
 import { cachedGraph } from "./graph-cache";
-import { deleteSnapshot, readSnapshots, saveSnapshot } from "./card-snapshots";
+import {
+  deleteSnapshot,
+  loadFingerprinted,
+  readSnapshots,
+  saveSnapshot,
+} from "./card-snapshots";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
@@ -158,9 +163,17 @@ app.whenReady().then(async () => {
   // WorkspaceStatus is persisted to the inbox file, and a question's full
   // text and options do not belong on disk.
   const asks = new Map<string, AskPrompt>();
+  const fingerprintOf = (ws: Workspace): Promise<string | null> =>
+    sourceById(ws.sourceId)?.fingerprint?.(ws) ?? Promise.resolve(null);
+  // every load carries the fingerprint of the index it read, so a card's save
+  // names the graph it drew rather than whatever is on disk when it arrives
   const loadGraph = (ws: Workspace): Promise<VaultGraph> =>
-    sourceById(ws.sourceId)?.load(ws) ??
-    Promise.resolve({ nodes: [], edges: [] });
+    loadFingerprinted(
+      () =>
+        sourceById(ws.sourceId)?.load(ws) ??
+        Promise.resolve({ nodes: [], edges: [] }),
+      () => fingerprintOf(ws),
+    );
   const graphFor = (id: string): Promise<VaultGraph> => {
     const ws = workspaces.find((w) => w.id === id);
     if (!ws) return Promise.resolve({ nodes: [], edges: [] });
@@ -185,8 +198,6 @@ app.whenReady().then(async () => {
   };
 
   const snapshotDir = path.join(app.getPath("userData"), "card-snapshots");
-  const fingerprintOf = (ws: Workspace): Promise<string | null> =>
-    sourceById(ws.sourceId)?.fingerprint?.(ws) ?? Promise.resolve(null);
   const dropSnapshot = (id: string) =>
     deleteSnapshot(snapshotDir, id).catch((err) =>
       console.error("snapshot delete failed:", err),
@@ -199,16 +210,11 @@ app.whenReady().then(async () => {
     async (
       _e,
       id: string,
-      body: { look: string; layout: CardLayout },
+      body: { look: string; layout: CardLayout; fingerprint?: string },
     ): Promise<boolean> => {
       const ws = workspaces.find((w) => w.id === id);
       try {
-        return await saveSnapshot(
-          snapshotDir,
-          ws,
-          body,
-          ws ? await fingerprintOf(ws) : null,
-        );
+        return await saveSnapshot(snapshotDir, ws, body);
       } catch (err) {
         console.error("snapshot save failed:", err);
         return false;
@@ -560,11 +566,15 @@ app.whenReady().then(async () => {
   app.on("before-quit", () => clearInterval(sweepTimer));
 
   // file-watching stays vault-only; code graphs refresh via rescan
-  watchVault(vault.rootPath, (g) => {
-    void dropSnapshot(vault.id);
-    graphs.set(vault.id, Promise.resolve(g));
-    send("graph", g);
-  });
+  watchVault(
+    vault.rootPath,
+    (g) => {
+      void dropSnapshot(vault.id);
+      graphs.set(vault.id, Promise.resolve(g));
+      send("graph", g);
+    },
+    () => loadGraph(vault),
+  );
 
   // --- PTY ---
   // node-pty is a native module loaded on first launch, never at boot: a bad

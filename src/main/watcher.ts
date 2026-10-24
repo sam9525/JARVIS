@@ -6,6 +6,7 @@ import type { VaultGraph } from "../shared/types";
 export function watchVault(
   rootPath: string,
   onGraph: (g: VaultGraph) => void,
+  load: () => Promise<VaultGraph> = () => scanVault(rootPath),
 ): FSWatcher {
   let timer: NodeJS.Timeout | null = null;
   let activeScanId = 0;
@@ -27,7 +28,7 @@ export function watchVault(
     const scanId = activeScanId;
     // ponytail: debounced full rescan per change; incremental parse if vaults get huge
     timer = setTimeout(() => {
-      scanVault(rootPath)
+      load()
         .then((g) => {
           if (!isClosed && scanId === activeScanId) {
             onGraph(g);

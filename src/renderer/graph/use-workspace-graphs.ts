@@ -210,14 +210,17 @@ export function useWorkspaceGraphs({
   );
 
   // the vault watcher pushes a rebuilt graph; cache it and show it if it's up.
-  // Main deletes the stored layout on that rebuild, so the map entry goes too.
+  // Main deletes the stored layout on that rebuild, so the map entry goes too,
+  // and a card that holds the old graph gets the new one in the same step, or
+  // it would go live on the old graph and requestGraph would never fetch again.
   const applyWatchedGraph = useCallback(
     (id: string, g: VaultGraph) => {
       dropSnapshot(id);
+      if (cardHeld.current.has(id)) putCard(id, g);
       fileCache.current.set(id, g);
       if (activeIdRef.current === id) setGraph(g);
     },
-    [activeIdRef],
+    [activeIdRef, putCard],
   );
 
   // re-scan and re-settle: the whole fleet on the command center, otherwise
@@ -226,28 +229,23 @@ export function useWorkspaceGraphs({
     if (showHome) {
       // ponytail: rescan the fleet in parallel so the wait is the slowest
       // single scan, not the sum. N gitnexus spawns at once is fine for a
-      // handful of workspaces; throttle if a fleet ever grows large enough
+      // handful of workspaces; throttle if a fleet ever grows large enough.
+      // Each card gets its new graph in the step that drops its stored
+      // layout, so no card goes live on the pre-rescan graph meanwhile.
       (async () => {
-        const results = await Promise.all(
+        await Promise.all(
           workspaces.map(async (ws) => {
             try {
               const g = await window.jarvis.rescan(ws.id);
               dropSnapshot(ws.id);
+              putCard(ws.id, g);
               remember(fileCache.current, ws.id, g);
               symbolCache.current.delete(ws.id);
-              return [ws.id, g] as [string, VaultGraph];
             } catch (err) {
               console.error("fleet refresh failed for", ws.id, err);
-              return null;
             }
           }),
         );
-        for (const r of results) if (r) cardHeld.current.add(r[0]);
-        setCardGraphs((prev) => {
-          const m = new Map(prev);
-          for (const r of results) if (r) m.set(r[0], r[1]);
-          return m;
-        });
         setFleetEpoch((n) => n + 1);
       })();
       return;
@@ -276,7 +274,7 @@ export function useWorkspaceGraphs({
         }
       })
       .catch(console.error);
-  }, [showHome, workspaces, active, codeGraphLevel]);
+  }, [showHome, workspaces, active, codeGraphLevel, putCard]);
 
   const indexProject = useCallback(
     (id: string) => {

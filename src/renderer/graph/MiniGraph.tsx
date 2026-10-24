@@ -214,7 +214,10 @@ export default function MiniGraph({
           const s = { look: now.look, layout };
           snapshots.set(now.workspaceId, s);
           window.jarvis
-            .saveCardSnapshot(now.workspaceId, s)
+            .saveCardSnapshot(now.workspaceId, {
+              ...s,
+              fingerprint: now.graph.fingerprint,
+            })
             .catch(console.error);
           setChecks((n) => n + 1);
         }
