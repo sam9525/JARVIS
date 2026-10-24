@@ -1,22 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  CardLayout,
   GraphGroup,
   VaultGraph,
   ViewSettings,
   Workspace,
 } from "../../shared/types";
-import { expireMatches, type HighlightState } from "../session/highlight-store";
+import {
+  matchProgress,
+  pulseProgress,
+  type HighlightState,
+} from "../session/highlight-store";
 import Graph from "./Graph";
 import { domainsOf } from "./domain-colors";
 import { busiest, filterGraph, type GraphFilters } from "./graph-filter";
 import { COLORS } from "./graph-colors";
+import { paintLayout } from "./graph-paint";
 import {
   canSnapshot,
-  isStill,
+  dropSnapshot,
   lookKey,
   snapshots,
   snapshotValid,
-  type SnapshotInputs,
 } from "./card-snapshot";
 
 // A live card runs a whole force simulation, so cards show only their most
@@ -28,7 +33,7 @@ const SNAPSHOT_CHECK_MS = 500;
 type MiniGraphProps = {
   workspaceId: string; // keys the card's snapshot
   working: boolean; // a working card stays live, so its pulses and matches move
-  graph: VaultGraph | null; // null while the workspace's graph is still loading
+  graph: VaultGraph | null; // null until the workspace's graph is loaded
   kind: Workspace["kind"]; // code workspaces have no sections — see below
   baseHue: number; // the workspace identity hue — same one Fleet paints it with
   state: HighlightState;
@@ -39,13 +44,14 @@ type MiniGraphProps = {
   filters: Omit<GraphFilters, "search">;
   width: number;
   height: number;
+  onNeedGraph: () => void; // a card that has to go live asks for its graph
 };
 
 // A card is the 2D view, shrunk — same component, same forces, so a thumbnail
 // can't drift from the view it stands for. pointer-events are off so the card
-// stays one big button. A card that is not working and holds a snapshot valid
-// for its graph, highlights and look shows that image; otherwise it is live,
-// and captures one once it has settled and nothing is animating.
+// stays one big button. A card that is not working and holds a layout stored
+// for its look draws that layout, with live highlights, on a plain canvas;
+// otherwise it is live, and records its layout once it has settled.
 export default function MiniGraph({
   workspaceId,
   working,
@@ -58,6 +64,7 @@ export default function MiniGraph({
   filters,
   width,
   height,
+  onNeedGraph,
 }: MiniGraphProps) {
   // Graph reads highlights through a ref so its canvas can repaint without
   // re-rendering; cards get the state by value, so mirror it into one
@@ -93,20 +100,10 @@ export default function MiniGraph({
     [view.display],
   );
 
-  // the unfiltered graph is the identity: a reload yields a new object
-  const look = lookKey({
-    baseHue,
-    groups,
-    view,
-    filters,
-    width,
-    height,
-    dpr: window.devicePixelRatio,
-  });
-  const inputs = inputsOf(graph, state, look);
+  const look = lookKey({ baseHue, groups, view, filters, width, height });
   const snapshot = snapshots.get(workspaceId);
-  const showImage =
-    !working && inputs !== undefined && snapshotValid(snapshot, inputs);
+  const showStored = !working && snapshotValid(snapshot, look);
+  const dpr = window.devicePixelRatio || 1;
 
   // the check loop runs once for the card's lifetime and reads props from here
   const latest = useRef({
@@ -115,11 +112,41 @@ export default function MiniGraph({
     graph,
     state,
     look,
-    showImage,
+    showStored,
+    dpr,
+    display,
   });
-  latest.current = { workspaceId, working, graph, state, look, showImage };
+  latest.current = {
+    workspaceId,
+    working,
+    graph,
+    state,
+    look,
+    showStored,
+    dpr,
+    display,
+  };
 
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef<(() => CardLayout | null) | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const paintedRev = useRef<number | null>(null);
+  const paintStored = useRef(() => {
+    const now = latest.current;
+    const s = snapshots.get(now.workspaceId);
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!s || !ctx) return;
+    paintLayout(ctx, s.layout, now.state, {
+      nodeSize: now.display.nodeSize,
+      linkThickness: now.display.linkThickness,
+      dpr: now.dpr,
+      now: performance.now(),
+    });
+    paintedRev.current = now.state.rev;
+  }).current;
+  useEffect(() => {
+    if (showStored) paintStored();
+  }, [showStored, snapshot, dpr, paintStored]);
+
   const settledRef = useRef(false);
   const markSettled = useRef(() => {
     settledRef.current = true;
@@ -128,40 +155,50 @@ export default function MiniGraph({
   useEffect(() => {
     settledRef.current = false;
   }, [mini]);
-  // the live Graph is unmounted while the image shows, and going live re-settles
-  if (showImage) settledRef.current = false;
+  // the live Graph is unmounted while the stored layout shows, and going live
+  // re-settles
+  if (showStored) settledRef.current = false;
+
+  // a card that must go live with no graph asks once per workspace, so a
+  // re-render while the load is in flight does not ask again
+  const askedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (showStored || graph !== null || askedFor.current === workspaceId)
+      return;
+    askedFor.current = workspaceId;
+    onNeedGraph();
+  }, [showStored, graph, workspaceId, onNeedGraph]);
 
   const [, setChecks] = useState(0);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
-    let seenRev = latest.current.state.rev;
     const check = () => {
       const now = latest.current;
-      // an expiring match bumps the rev here, so the revHeld gate absorbs it
-      // instead of Graph's own tick moving the rev after a capture
-      expireMatches(now.state, performance.now());
-      const current = inputsOf(now.graph, now.state, now.look);
-      // the canvas repaints a new rev on Graph's next poll, so a capture waits
-      // for one tick in which the rev has held
-      const revHeld = now.state.rev === seenRev;
-      seenRev = now.state.rev;
-      if (now.showImage) {
-        // the store rev moves without a re-render, so the image watches it
-        if (!current || !snapshotValid(snapshots.get(now.workspaceId), current))
-          setChecks((n) => n + 1);
+      const valid = snapshotValid(snapshots.get(now.workspaceId), now.look);
+      if (now.showStored) {
+        const t = performance.now();
+        // the store rev moves without a re-render, so the canvas watches it;
+        // a dropped entry sends the card live
+        if (!valid) setChecks((n) => n + 1);
+        else if (
+          now.state.rev !== paintedRev.current ||
+          pulseProgress(now.state, t) !== null ||
+          matchProgress(now.state, t) !== null
+        )
+          paintStored();
       } else if (
-        current &&
         !now.working &&
-        revHeld &&
         settledRef.current &&
-        isStill(now.state, performance.now())
+        canSnapshot(now.graph) &&
+        !valid
       ) {
-        const canvas = wrapperRef.current?.querySelector("canvas");
-        if (canvas) {
-          snapshots.set(now.workspaceId, {
-            url: canvas.toDataURL(),
-            inputs: current,
-          });
+        const layout = layoutRef.current?.();
+        if (layout && layout.nodes.length > 0) {
+          const s = { look: now.look, layout };
+          snapshots.set(now.workspaceId, s);
+          window.jarvis
+            .saveCardSnapshot(now.workspaceId, s)
+            .catch(console.error);
           setChecks((n) => n + 1);
         }
       }
@@ -169,25 +206,29 @@ export default function MiniGraph({
     };
     timer = setTimeout(check, SNAPSHOT_CHECK_MS);
     return () => clearTimeout(timer);
-  }, []);
+  }, [paintStored]);
 
-  // a failed, empty or loading graph keeps no image, so a later good load
-  // captures afresh
+  // a failed or empty graph keeps no layout, so a later good load records
+  // afresh. A null graph only means "not loaded", so it keeps the entry.
   useEffect(() => {
-    if (!canSnapshot(graph)) snapshots.delete(workspaceId);
+    if (graph === null || canSnapshot(graph)) return;
+    if (snapshots.has(workspaceId)) {
+      dropSnapshot(workspaceId);
+      setChecks((n) => n + 1);
+    }
   }, [graph, workspaceId]);
 
   return (
     <div
-      ref={wrapperRef}
       className="pointer-events-none overflow-hidden rounded"
       style={{ width, height, background: COLORS.bg }}
     >
-      {showImage && snapshot ? (
-        <img
-          src={snapshot.url}
-          alt=""
-          draggable={false}
+      {showStored ? (
+        <canvas
+          ref={canvasRef}
+          data-testid={`snapshot-${workspaceId}`}
+          width={Math.round(width * dpr)}
+          height={Math.round(height * dpr)}
           style={{ width, height, display: "block" }}
         />
       ) : (
@@ -202,6 +243,7 @@ export default function MiniGraph({
             stateRef={stateRef}
             onNodeClick={noop}
             onSettled={markSettled}
+            layoutRef={layoutRef}
             focusNode={null}
             thumbnail
             width={width}
@@ -211,14 +253,6 @@ export default function MiniGraph({
       )}
     </div>
   );
-}
-
-function inputsOf(
-  graph: VaultGraph | null,
-  state: HighlightState,
-  look: string,
-): SnapshotInputs | undefined {
-  return canSnapshot(graph) ? { graph, rev: state.rev, look } : undefined;
 }
 
 function noop() {

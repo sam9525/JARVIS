@@ -68,6 +68,8 @@ type MissionControlProps = {
   // keyed by workspace id; absent means idle
   indexing: Record<string, { state: IndexState; error?: string }>;
   onIndex: (workspaceId: string) => void;
+  // a card asks for its graph only when it has to go live
+  onNeedGraph: (workspaceId: string) => void;
   /** Play the entrance run across the cards. App passes `stage >= 2`. */
   stagger?: boolean;
 };
@@ -87,6 +89,7 @@ export default function MissionControl({
   onSelect,
   indexing,
   onIndex,
+  onNeedGraph,
   stagger,
 }: MissionControlProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
@@ -205,6 +208,7 @@ export default function MissionControl({
                   filters={filters}
                   width={CARD_W}
                   height={CARD_H}
+                  onNeedGraph={() => onNeedGraph(ws.id)}
                 />
               )}
 

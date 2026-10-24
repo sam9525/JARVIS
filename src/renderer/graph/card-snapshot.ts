@@ -1,22 +1,24 @@
-import type { GraphGroup, VaultGraph, ViewSettings } from "../../shared/types";
-import {
-  matchProgress,
-  pulseProgress,
-  type HighlightState,
-} from "../session/highlight-store";
+import { SNAPSHOT_FORMAT } from "../../shared/types";
+import type {
+  CardLayout,
+  GraphGroup,
+  StoredSnapshot,
+  VaultGraph,
+  ViewSettings,
+} from "../../shared/types";
 import type { GraphFilters } from "./graph-filter";
 
-export type SnapshotInputs = { graph: VaultGraph; rev: number; look: string };
-export type CardSnapshot = { url: string; inputs: SnapshotInputs };
+export type CardSnapshot = { look: string; layout: CardLayout };
 
-// Renderer memory only, keyed by workspace id.
+// Keyed by workspace id. Filled from main's stored files, then by live cards.
 export const snapshots = new Map<string, CardSnapshot>();
 
 export function canSnapshot(graph: VaultGraph | null): graph is VaultGraph {
   return graph !== null && !graph.failed && graph.nodes.length > 0;
 }
 
-// Serialised so a re-render that hands over equal-but-fresh objects yields the same key.
+// Serialised so a re-render that hands over equal-but-fresh objects yields the
+// same key. The format is part of it, so a format bump invalidates every look.
 export function lookKey(parts: {
   baseHue: number;
   groups: GraphGroup[];
@@ -24,26 +26,24 @@ export function lookKey(parts: {
   filters: Omit<GraphFilters, "search">;
   width: number;
   height: number;
-  dpr: number; // the canvas backing store scales with it
 }): string {
-  return JSON.stringify(parts);
+  return JSON.stringify({ format: SNAPSHOT_FORMAT, ...parts });
 }
 
-// The graph is compared by identity: a reload yields a new object and a new layout.
+// Main checks the graph by fingerprint before it hands a layout over, so only
+// the look is left to compare here.
 export function snapshotValid(
   s: CardSnapshot | undefined,
-  now: SnapshotInputs,
+  look: string,
 ): boolean {
-  return (
-    s !== undefined &&
-    s.inputs.graph === now.graph &&
-    s.inputs.rev === now.rev &&
-    s.inputs.look === now.look
-  );
+  return s?.look === look;
 }
 
-export function isStill(state: HighlightState, now: number): boolean {
-  return (
-    pulseProgress(state, now) === null && matchProgress(state, now) === null
-  );
+export function loadStoredSnapshots(list: StoredSnapshot[]): void {
+  snapshots.clear();
+  for (const s of list) snapshots.set(s.id, { look: s.look, layout: s.layout });
+}
+
+export function dropSnapshot(id: string): void {
+  snapshots.delete(id);
 }

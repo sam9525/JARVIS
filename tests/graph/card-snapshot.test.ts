@@ -1,19 +1,30 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   canSnapshot,
-  isStill,
+  dropSnapshot,
+  loadStoredSnapshots,
   lookKey,
+  snapshots,
   snapshotValid,
 } from "../../src/renderer/graph/card-snapshot";
 import type { CardSnapshot } from "../../src/renderer/graph/card-snapshot";
-import {
-  emptyState,
-  MATCH_MS,
-  PULSE_MS,
-} from "../../src/renderer/session/highlight-store";
-import type { GraphGroup, VaultGraph } from "../../src/shared/types";
+import { SNAPSHOT_FORMAT } from "../../src/shared/types";
+import type {
+  CardLayout,
+  GraphGroup,
+  StoredSnapshot,
+  VaultGraph,
+} from "../../src/shared/types";
 
 const g: VaultGraph = { nodes: [{ id: "a", type: "note" }], edges: [] };
+
+const layout: CardLayout = {
+  width: 220,
+  height: 150,
+  transform: { k: 1, x: 0, y: 0 },
+  nodes: [{ id: "a", hk: "a", x: 1, y: 2, r: 4, fill: "#112233" }],
+  links: [],
+};
 
 const partsOf = (baseHue: number) => ({
   baseHue,
@@ -26,12 +37,21 @@ const partsOf = (baseHue: number) => ({
   },
   width: 320,
   height: 200,
-  dpr: 1,
 });
 
 function defaultView() {
   return {} as Parameters<typeof lookKey>[0]["view"];
 }
+
+const stored = (id: string, look: string): StoredSnapshot => ({
+  format: SNAPSHOT_FORMAT,
+  id,
+  fingerprint: "vault:x",
+  look,
+  layout,
+});
+
+beforeEach(() => snapshots.clear());
 
 describe("canSnapshot", () => {
   it("refuses null, failed and empty graphs", () => {
@@ -45,43 +65,43 @@ describe("canSnapshot", () => {
 });
 
 describe("lookKey", () => {
-  it("is equal for equal-but-fresh objects and differs when a value changes", () => {
+  it("is equal for equal-but-fresh parts", () => {
     expect(lookKey(partsOf(200))).toBe(lookKey(partsOf(200)));
+  });
+
+  it("differs when the hue or the format differs", () => {
     expect(lookKey(partsOf(201))).not.toBe(lookKey(partsOf(200)));
-    expect(lookKey({ ...partsOf(200), dpr: 2 })).not.toBe(
-      lookKey(partsOf(200)),
-    );
+    const otherFormat = JSON.stringify({
+      format: SNAPSHOT_FORMAT + 1,
+      ...partsOf(200),
+    });
+    expect(lookKey(partsOf(200))).not.toBe(otherFormat);
+    expect(JSON.parse(lookKey(partsOf(200))).format).toBe(SNAPSHOT_FORMAT);
   });
 });
 
 describe("snapshotValid", () => {
-  const snap: CardSnapshot = {
-    url: "data:image/png;base64,x",
-    inputs: { graph: g, rev: 3, look: "k" },
-  };
-  it("needs the same graph object, rev and look", () => {
-    expect(snapshotValid(undefined, snap.inputs)).toBe(false);
-    expect(snapshotValid(snap, { graph: g, rev: 3, look: "k" })).toBe(true);
-    expect(snapshotValid(snap, { graph: { ...g }, rev: 3, look: "k" })).toBe(
-      false,
-    );
-    expect(snapshotValid(snap, { graph: g, rev: 4, look: "k" })).toBe(false);
-    expect(snapshotValid(snap, { graph: g, rev: 3, look: "other" })).toBe(
-      false,
-    );
+  const snap: CardSnapshot = { look: "k", layout };
+  it("needs a snapshot with the same look", () => {
+    expect(snapshotValid(undefined, "k")).toBe(false);
+    expect(snapshotValid(snap, "other")).toBe(false);
+    expect(snapshotValid(snap, "k")).toBe(true);
   });
 });
 
-describe("isStill", () => {
-  it("is false while a pulse or match is animating", () => {
-    expect(isStill(emptyState(), 5000)).toBe(true);
+describe("loadStoredSnapshots", () => {
+  it("replaces the map with the stored looks and layouts", () => {
+    snapshots.set("old", { look: "x", layout });
+    loadStoredSnapshots([stored("w1", "k1"), stored("w2", "k2")]);
+    expect([...snapshots.keys()].sort()).toEqual(["w1", "w2"]);
+    expect(snapshots.get("w1")).toEqual({ look: "k1", layout });
+  });
+});
 
-    const pulsing = { ...emptyState(), pulseAt: 1000 };
-    expect(isStill(pulsing, 1100)).toBe(false);
-    expect(isStill(pulsing, 1000 + PULSE_MS)).toBe(true);
-
-    const matching = { ...emptyState(), matchAt: 1000 };
-    expect(isStill(matching, 1100)).toBe(false);
-    expect(isStill(matching, 1000 + MATCH_MS)).toBe(true);
+describe("dropSnapshot", () => {
+  it("removes the entry", () => {
+    snapshots.set("w1", { look: "k", layout });
+    dropSnapshot("w1");
+    expect(snapshots.has("w1")).toBe(false);
   });
 });

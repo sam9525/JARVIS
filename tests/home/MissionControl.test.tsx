@@ -389,6 +389,17 @@ describe("MissionControl", () => {
     expect(mini("w2").props.working).toBe(false);
   });
 
+  it("binds a card's graph request to its workspace id", () => {
+    const onNeedGraph = vi.fn();
+    render(<MissionControl {...(props({ onNeedGraph }) as any)} />);
+    const mini = walk(
+      currentTree,
+      (n) => n.type === MiniGraph && n.props.workspaceId === "w2",
+    );
+    mini.props.onNeedGraph();
+    expect(onNeedGraph).toHaveBeenCalledWith("w2");
+  });
+
   it("has no tooltip when there is no call", () => {
     render(
       <MissionControl

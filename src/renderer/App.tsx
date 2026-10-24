@@ -1177,6 +1177,9 @@ export default function App() {
                     stagger={stage >= 2}
                     indexing={indexing}
                     onIndex={graphs.indexProject}
+                    // every card graph already loads in parallel, so a
+                    // card's request has nothing left to fetch
+                    onNeedGraph={() => undefined}
                     onSelect={(ws) => {
                       setShowHome(false);
                       openWorkspace(ws);

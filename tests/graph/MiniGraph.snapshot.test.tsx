@@ -4,34 +4,47 @@ import React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import type { CardLayout } from "../../src/shared/types";
 
-// The stand-in Graph paints one canvas and hands its onSettled out, so a test
-// decides when the settle and fit have finished.
+// The stand-in Graph paints one canvas, hands its onSettled out and fills the
+// layoutRef with a fixed layout, so a test decides when the settle is done.
 const live = vi.hoisted(() => ({
   onSettled: undefined as (() => void) | undefined,
+  layout: {
+    width: 220,
+    height: 150,
+    transform: { k: 2, x: 0, y: 0 },
+    nodes: [
+      { id: "a", hk: "a", x: -5, y: 0, r: 4, fill: "#112233" },
+      { id: "b", hk: "b", x: 5, y: 0, r: 4, fill: "#112233" },
+    ],
+    links: [[0, 1]],
+  } as CardLayout,
 }));
 vi.mock("../../src/renderer/graph/Graph", async () => {
   const { default: React } = await vi.importActual<any>("react");
   return {
     default: (props: any) => {
       live.onSettled = props.onSettled;
+      if (props.layoutRef) props.layoutRef.current = () => live.layout;
       return React.createElement("canvas", { "data-testid": "live" });
     },
   };
 });
+const paint = vi.hoisted(() => ({ paintLayout: vi.fn() }));
+vi.mock("../../src/renderer/graph/graph-paint", async (importOriginal) => ({
+  ...(await importOriginal<any>()),
+  paintLayout: paint.paintLayout,
+}));
 
 import MiniGraph from "../../src/renderer/graph/MiniGraph";
-import { snapshots } from "../../src/renderer/graph/card-snapshot";
-import {
-  emptyState,
-  MATCH_MS,
-} from "../../src/renderer/session/highlight-store";
+import { lookKey, snapshots } from "../../src/renderer/graph/card-snapshot";
+import { emptyState } from "../../src/renderer/session/highlight-store";
 import { defaultSettings } from "../../src/shared/types";
 import type { VaultGraph } from "../../src/shared/types";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const URL = "data:image/png;base64,AAAA";
 const graph: VaultGraph = {
   nodes: [
     { id: "a", type: "note" },
@@ -56,12 +69,24 @@ const props = (over: Record<string, unknown> = {}) => ({
   },
   width: 220,
   height: 150,
+  onNeedGraph: vi.fn(),
   ...over,
 });
 
+const lookOf = (p: ReturnType<typeof props>) =>
+  lookKey({
+    baseHue: p.baseHue,
+    groups: p.groups,
+    view: p.view,
+    filters: p.filters,
+    width: p.width,
+    height: p.height,
+  });
+
 let root: Root;
 let container: HTMLDivElement;
-let toDataURL: ReturnType<typeof vi.spyOn>;
+let save: ReturnType<typeof vi.fn>;
+let getContext: ReturnType<typeof vi.spyOn>;
 const render = (p: ReturnType<typeof props>) =>
   act(() => root.render(<MiniGraph {...(p as any)} />));
 const advance = (ms: number) =>
@@ -69,24 +94,19 @@ const advance = (ms: number) =>
     vi.advanceTimersByTime(ms);
   });
 const settle = () => act(() => live.onSettled?.());
-const img = () => container.querySelector("img");
+const stored = () => container.querySelector('[data-testid="snapshot-w1"]');
 const liveCanvas = () => container.querySelector('[data-testid="live"]');
-
-// renders an idle card and lets it capture, leaving the image on screen
-function reachImage(p: ReturnType<typeof props>) {
-  render(p);
-  settle();
-  advance(500);
-  expect(img()).not.toBeNull();
-}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   snapshots.clear();
   live.onSettled = undefined;
-  toDataURL = vi
-    .spyOn(HTMLCanvasElement.prototype, "toDataURL")
-    .mockReturnValue(URL);
+  paint.paintLayout.mockClear();
+  save = vi.fn().mockResolvedValue(true);
+  (window as any).jarvis = { saveCardSnapshot: save };
+  getContext = vi
+    .spyOn(HTMLCanvasElement.prototype, "getContext")
+    .mockReturnValue({} as any);
   container = document.createElement("div");
   document.body.appendChild(container);
   act(() => {
@@ -97,168 +117,138 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  toDataURL.mockRestore();
+  getContext.mockRestore();
+  delete (window as any).jarvis;
   vi.useRealTimers();
 });
 
-describe("MiniGraph: live or snapshot", () => {
-  it("an idle card captures after it settles and then shows the image", () => {
-    render(props());
+describe("MiniGraph: stored layout or live graph", () => {
+  it("a stored snapshot with a matching look draws without a graph", () => {
+    const p = props({ graph: null });
+    snapshots.set("w1", { look: lookOf(p), layout: live.layout });
+    render(p);
+    const canvas = stored() as HTMLCanvasElement | null;
+    expect(canvas).not.toBeNull();
+    expect(canvas?.width).toBe(220 * window.devicePixelRatio);
+    expect(canvas?.style.width).toBe("220px");
+    expect(liveCanvas()).toBeNull();
+    expect(p.onNeedGraph).not.toHaveBeenCalled();
+    expect(paint.paintLayout).toHaveBeenCalledTimes(1);
+    expect(paint.paintLayout.mock.calls[0][1]).toBe(live.layout);
+    expect(paint.paintLayout.mock.calls[0][3]).toMatchObject({
+      nodeSize: p.view.display.nodeSize * 1.5,
+      linkThickness: p.view.display.linkThickness,
+    });
+  });
+
+  it("a working card with a stored snapshot asks for its graph once", () => {
+    const p = props({ graph: null, working: true });
+    snapshots.set("w1", { look: lookOf(p), layout: live.layout });
+    render(p);
+    expect(p.onNeedGraph).toHaveBeenCalledTimes(1);
+    expect(stored()).toBeNull();
+    render({ ...p });
+    advance(1000);
+    expect(p.onNeedGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stored snapshot with another look goes live and saves the new look", () => {
+    snapshots.set("w1", { look: "old", layout: live.layout });
+    const p = props({ graph: null });
+    render(p);
+    expect(p.onNeedGraph).toHaveBeenCalledTimes(1);
+    expect(stored()).toBeNull();
+    render({ ...p, graph });
     expect(liveCanvas()).not.toBeNull();
     settle();
     advance(500);
-    const shown = img();
-    expect(shown?.getAttribute("src")).toBe(URL);
-    expect(shown?.getAttribute("alt")).toBe("");
-    expect(shown?.getAttribute("draggable")).toBe("false");
-    expect(liveCanvas()).toBeNull();
+    expect(save).toHaveBeenCalledWith("w1", {
+      look: lookOf(p),
+      layout: live.layout,
+    });
+    expect(p.onNeedGraph).toHaveBeenCalledTimes(1);
   });
 
-  it("a working card never captures", () => {
+  it("an idle live card saves after it settles and then draws the layout", () => {
+    const p = props();
+    render(p);
+    expect(liveCanvas()).not.toBeNull();
+    advance(500);
+    expect(save).not.toHaveBeenCalled();
+    settle();
+    advance(500);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith("w1", {
+      look: lookOf(p),
+      layout: live.layout,
+    });
+    expect(snapshots.get("w1")).toEqual({
+      look: lookOf(p),
+      layout: live.layout,
+    });
+    expect(stored()).not.toBeNull();
+    expect(liveCanvas()).toBeNull();
+    expect(paint.paintLayout).toHaveBeenCalled();
+  });
+
+  it("a working card never saves", () => {
     render(props({ working: true }));
     settle();
     advance(2000);
     expect(liveCanvas()).not.toBeNull();
-    expect(img()).toBeNull();
+    expect(save).not.toHaveBeenCalled();
     expect(snapshots.size).toBe(0);
   });
 
-  it("leaving working captures the final highlights", () => {
+  it("a rev change with no re-render repaints the stored layout within a tick", () => {
     const state = emptyState();
-    render(props({ working: true, state }));
-    settle();
-    state.rev = 7;
-    render(props({ working: false, state }));
-    // the first tick sees the rev move and leaves the canvas a tick to repaint
+    const p = props({ graph: null, state });
+    snapshots.set("w1", { look: lookOf(p), layout: live.layout });
+    render(p);
+    expect(paint.paintLayout).toHaveBeenCalledTimes(1);
     advance(500);
-    expect(img()).toBeNull();
-    advance(500);
-    expect(img()).not.toBeNull();
-    expect(snapshots.get("w1")?.inputs.rev).toBe(7);
-  });
-
-  it("a rev change with no re-render brings the live graph back", () => {
-    const state = emptyState();
-    reachImage(props({ state }));
+    expect(paint.paintLayout).toHaveBeenCalledTimes(1);
     state.rev++;
     advance(500);
-    expect(liveCanvas()).not.toBeNull();
-    expect(img()).toBeNull();
-    // the remounted live graph waits for a settle of its own
-    advance(500);
-    expect(img()).toBeNull();
-    settle();
-    advance(500);
-    expect(img()).not.toBeNull();
+    expect(paint.paintLayout).toHaveBeenCalledTimes(2);
+    expect(p.onNeedGraph).not.toHaveBeenCalled();
   });
 
-  it("a rev change on a settled live card waits one tick before capturing", () => {
+  it("a fading match repaints the stored layout on every tick", () => {
     const state = emptyState();
-    state.matchAt = performance.now(); // a match fade keeps the card from capturing
-    render(props({ state }));
-    settle();
+    state.matchAt = performance.now();
+    const p = props({ graph: null, state });
+    snapshots.set("w1", { look: lookOf(p), layout: live.layout });
+    render(p);
     advance(500);
-    expect(img()).toBeNull();
-    // ↺: transients clear and the rev moves without a re-render
-    state.matchAt = 0;
-    state.rev++;
     advance(500);
-    expect(img()).toBeNull();
-    advance(500);
-    expect(img()).not.toBeNull();
-    expect(snapshots.get("w1")?.inputs.rev).toBe(state.rev);
+    expect(paint.paintLayout).toHaveBeenCalledTimes(3);
   });
 
-  it("matches that expire between ticks bump the rev before a capture", () => {
-    const state = emptyState();
-    state.matched.add("a");
-    state.matchAt = performance.now() - MATCH_MS - 10;
-    render(props({ state }));
-    settle();
-    advance(500);
-    expect(img()).toBeNull();
-    expect(state.matched.size).toBe(0);
-    advance(500);
-    expect(img()).not.toBeNull();
-    expect(snapshots.get("w1")?.inputs.rev).toBe(state.rev);
-  });
-
-  it("a remount with the same graph, state and look shows the image at once", () => {
-    const state = emptyState();
-    reachImage(props({ state }));
-    act(() => root.unmount());
-    act(() => {
-      root = createRoot(container);
-    });
-    render(props({ state }));
-    expect(img()?.getAttribute("src")).toBe(URL);
-    expect(liveCanvas()).toBeNull();
-  });
-
-  it("a new graph object while live waits for the new settle", () => {
-    const state = emptyState();
-    render(props({ working: true, state }));
-    settle();
-    render(props({ working: false, state, graph: { ...graph } }));
-    advance(500);
-    expect(img()).toBeNull();
-    settle();
-    advance(500);
-    expect(img()).not.toBeNull();
-  });
-
-  it("an equal-but-fresh filters object and groups array keep the image", () => {
-    const state = emptyState();
-    reachImage(props({ state }));
-    render(
-      props({
-        state,
-        filters: { sectionFilter: "both", showTags: true, showOrphans: true },
-        groups: [],
-      }),
-    );
-    expect(img()).not.toBeNull();
-    advance(500);
-    expect(img()).not.toBeNull();
-  });
-
-  it("a new graph object goes live and waits for the new settle", () => {
-    const state = emptyState();
-    reachImage(props({ state }));
-    render(props({ state, graph: { ...graph } }));
-    advance(500);
-    expect(liveCanvas()).not.toBeNull();
-    expect(img()).toBeNull();
-    settle();
-    advance(500);
-    expect(img()).not.toBeNull();
-  });
-
-  it("a failed graph is never captured and drops a stored snapshot", () => {
+  it("a failed graph is never saved and drops the map entry", () => {
     const failed: VaultGraph = {
       failed: "x",
       nodes: [{ id: "a", type: "note" }],
       edges: [],
     };
-    snapshots.set("w1", {
-      url: URL,
-      inputs: { graph: failed, rev: 0, look: "" },
-    });
-    render(props({ graph: failed }));
+    const p = props({ graph: failed });
+    snapshots.set("w1", { look: lookOf(p), layout: live.layout });
+    render(p);
     expect(snapshots.has("w1")).toBe(false);
+    expect(stored()).toBeNull();
     settle();
     advance(1000);
-    expect(img()).toBeNull();
+    expect(save).not.toHaveBeenCalled();
   });
 
-  it("unmounting mid-settle captures nothing", () => {
+  it("unmounting mid-settle saves nothing", () => {
     const consoleError = vi.spyOn(console, "error");
     render(props());
     settle();
     act(() => root.unmount());
     advance(1000);
     expect(snapshots.size).toBe(0);
-    expect(toDataURL).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
     act(() => {
