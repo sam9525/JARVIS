@@ -67,6 +67,7 @@ let settingsOnDisk: Settings;
 const setSettings = vi.fn(() => Promise.resolve());
 let statusListener: ((s: WorkspaceStatus[]) => void) | null = null;
 let sayListener: ((text: string) => void) | null = null;
+let askListener: ((prompt: any) => void) | null = null;
 let resolveWorkspaces: ((list: Workspace[]) => void) | null = null;
 
 const ORCHESTRATOR: Workspace = {
@@ -92,6 +93,7 @@ beforeEach(() => {
   setSettings.mockClear();
   statusListener = null;
   sayListener = null;
+  askListener = null;
   resolveWorkspaces = null;
   settingsOnDisk = defaultSettings();
   (window as any).jarvis = {
@@ -118,6 +120,12 @@ beforeEach(() => {
       sayListener = cb;
       return () => {
         sayListener = null;
+      };
+    },
+    onAsk: (cb: (prompt: any) => void) => {
+      askListener = cb;
+      return () => {
+        askListener = null;
       };
     },
     ttsVoices: () => Promise.resolve([]),
@@ -434,5 +442,53 @@ describe("App: a long message is spoken as a summary", () => {
     });
     await flush();
     expect(speakSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("App: a main-agent question is spoken", () => {
+  it("speaks each question panel once, and the same question again when re-asked", async () => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR]));
+    await flush();
+    await act(async () => {
+      statusListener!([
+        {
+          workspaceId: ORCHESTRATOR.id,
+          kind: "idle",
+          call: "",
+          message: "",
+          since: Date.now(),
+          reads: 0,
+          edits: 0,
+        },
+      ]);
+    }); // spend the restore swallow
+    const ask = (ts: number) => ({
+      workspaceId: "ws-self",
+      sessionId: "s1",
+      ts,
+      questions: [
+        {
+          question: "Approve?",
+          header: "Spec",
+          multiSelect: false,
+          options: [
+            { label: "Approve", description: "" },
+            { label: "Review in browser", description: "" },
+          ],
+        },
+      ],
+    });
+    const line = "Self asks: Approve?. Options: Approve, Review in browser.";
+    await act(async () => askListener!(ask(1)));
+    await flush();
+    expect(speakSpy).toHaveBeenCalledWith(line);
+    speakSpy.mockClear();
+    await act(async () => askListener!({ ...ask(1), questions: [] })); // answered
+    await act(async () => askListener!(ask(2))); // re-asked, same words
+    await flush();
+    expect(speakSpy).toHaveBeenCalledTimes(1);
+    expect(speakSpy).toHaveBeenCalledWith(line);
   });
 });

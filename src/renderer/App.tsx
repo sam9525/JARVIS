@@ -725,6 +725,7 @@ export default function App() {
   // The mouth. Only the orchestrator's row is read, and only once per turn
   // — spokenRef is a ref because speaking must not itself cause a render.
   const spokenRef = useRef<Spoken>({ text: "", at: null });
+  const spokenAskRef = useRef("");
   // A restored session (jarvis-inbox.json carries a last message) or a
   // manual mic-on mid-session both find a message already sitting in
   // `statuses` — without this, the false→true edge reads it aloud as if it
@@ -782,7 +783,10 @@ export default function App() {
     const line = `${ws.name} asks: ${q.question}. Options: ${q.options
       .map((o) => o.label)
       .join(", ")}.`.slice(0, 500);
-    if (spokenRef.current.text === line) return;
+    // identity, not wording: the same question re-asked is a new panel
+    const askId = `${prompt.sessionId}:${prompt.ts}`;
+    if (spokenAskRef.current === askId) return;
+    spokenAskRef.current = askId;
     spokenRef.current = { ...spokenRef.current, text: line };
     void speak(line);
   }, [asks, micOn, workspaces]);
