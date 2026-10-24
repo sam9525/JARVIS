@@ -106,6 +106,7 @@ beforeEach(() => {
     addProject: () => Promise.resolve([]),
     getGraph: () => Promise.resolve({ nodes: [], edges: [] }),
     getSymbolGraph: () => Promise.resolve({ nodes: [], edges: [] }),
+    getCardSnapshots: () => Promise.resolve([]),
     ptyInput: () => Promise.resolve(true),
     onGraph: () => () => undefined,
     onToolEvent: () => () => undefined,

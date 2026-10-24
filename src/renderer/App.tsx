@@ -394,6 +394,7 @@ export default function App() {
     codeGraphLevel: settings.codeGraphLevel,
     workspaces,
     showHome,
+    homeView,
     onWorkspacesChanged: setWorkspaces,
   });
   const { graph, graphLoading, cardGraphs, cardsLoaded, indexing } = graphs;
@@ -1177,9 +1178,7 @@ export default function App() {
                     stagger={stage >= 2}
                     indexing={indexing}
                     onIndex={graphs.indexProject}
-                    // every card graph already loads in parallel, so a
-                    // card's request has nothing left to fetch
-                    onNeedGraph={() => undefined}
+                    onNeedGraph={graphs.requestGraph}
                     onSelect={(ws) => {
                       setShowHome(false);
                       openWorkspace(ws);

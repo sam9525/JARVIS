@@ -77,6 +77,7 @@ beforeEach(() => {
   settingsOnDisk = defaultSettings();
   (window as any).jarvis = {
     getWorkspaces: () => Promise.resolve([]),
+    getCardSnapshots: () => Promise.resolve([]),
     getSettings: () => Promise.resolve(settingsOnDisk),
     setSettings,
     addProject: () => Promise.resolve([]),
