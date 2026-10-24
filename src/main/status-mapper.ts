@@ -1,4 +1,4 @@
-import type { RawHookEvent } from "./event-mapper";
+import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
 import type { StatusEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 
@@ -64,6 +64,7 @@ export function mapStatusEvent(
   if (!ws) return null;
   const common = {
     workspaceId: ws.id,
+    sessionKey: resolveSessionKey(raw, ws),
     sessionId: raw.session_id,
     ts: Date.now(),
   };

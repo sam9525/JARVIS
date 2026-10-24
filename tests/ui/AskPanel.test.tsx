@@ -35,6 +35,7 @@ const walk = (n: any): any[] =>
 
 const prompt = (over: Partial<AskPrompt["questions"][0]> = {}): AskPrompt => ({
   workspaceId: "w1",
+  sessionKey: "w1",
   sessionId: "s1",
   ts: 0,
   questions: [
@@ -126,6 +127,7 @@ describe("AskPanel", () => {
     const at = (workspaceId: string, ts: number) => ({
       ...prompt(),
       workspaceId,
+      sessionKey: workspaceId,
       ts,
     });
     const asks = new Map([

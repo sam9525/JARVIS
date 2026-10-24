@@ -4,6 +4,7 @@ export type ToolName =
 export interface ToolEvent {
   sessionId: string;
   workspaceId: string; // which workspace's graph/highlights this event drives
+  sessionKey: string; // which of that workspace's sessions emitted it
   phase: "pre" | "post";
   tool: ToolName;
   // vault: relative POSIX path without .md; code: relative POSIX path with
@@ -45,6 +46,7 @@ export interface WorkspaceStatus {
 // emitted by the status mapper; "none" is never a hook outcome, only a PTY one
 export interface StatusEvent {
   workspaceId: string;
+  sessionKey: string;
   sessionId: string;
   // "none" is never a hook outcome, only a PTY one; "crashed" likewise
   kind: "working" | "asking" | "blocked" | "idle";

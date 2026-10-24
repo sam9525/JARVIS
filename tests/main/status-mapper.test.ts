@@ -319,3 +319,19 @@ describe("six status kinds", () => {
     expect(out?.call).toBe("AskUserQuestion");
   });
 });
+
+describe("mapStatusEvent session key", () => {
+  it("carries the payload's session key", () => {
+    const ws = workspaces[1];
+    const e = mapStatusEvent(
+      {
+        session_id: "s1",
+        cwd: "D:\\proj",
+        hook_event_name: "UserPromptSubmit",
+        jarvis_session: `${ws.id}#2`,
+      },
+      workspaces,
+    );
+    expect(e?.sessionKey).toBe(`${ws.id}#2`);
+  });
+});

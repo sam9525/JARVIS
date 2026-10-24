@@ -16,6 +16,45 @@ const workspaces: Workspace[] = buildWorkspaces("D:\\vault", [
   { name: "proj", path: "D:\\proj" },
 ]);
 
+describe("session key", () => {
+  const proj = workspaces[1];
+  const worktreeRead = (extra: Record<string, unknown>) => ({
+    session_id: "s1",
+    cwd: "D:\\proj\\.worktrees\\2",
+    hook_event_name: "PreToolUse",
+    tool_name: "Read",
+    tool_input: { file_path: "D:\\proj\\.worktrees\\2\\src\\a.ts" },
+    ...extra,
+  });
+
+  it("maps a worktree file to the main folder's node id", () => {
+    const e = mapHookEvent(
+      worktreeRead({ jarvis_session: `${proj.id}#2` }),
+      workspaces,
+    );
+    expect(e).toMatchObject({
+      nodeIds: ["src/a.ts"],
+      sessionKey: `${proj.id}#2`,
+    });
+  });
+
+  it("keeps the session key when the Claude session id changes", () => {
+    const e = mapHookEvent(
+      worktreeRead({ jarvis_session: `${proj.id}#2`, session_id: "s2" }),
+      workspaces,
+    );
+    expect(e).toMatchObject({ sessionId: "s2", sessionKey: `${proj.id}#2` });
+  });
+
+  it("falls back to the main key when the session names another workspace", () => {
+    const e = mapHookEvent(
+      worktreeRead({ jarvis_session: "d:/other#1" }),
+      workspaces,
+    );
+    expect(e?.sessionKey).toBe(proj.id);
+  });
+});
+
 describe("mapHookEvent", () => {
   it("PreToolUse Grep → search pulse event with pattern, no nodes", () => {
     const e = mapHookEvent(

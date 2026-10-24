@@ -8,6 +8,7 @@ import type { StatusEvent, ToolEvent } from "../../src/shared/types";
 
 const ev = (over: Partial<StatusEvent>): StatusEvent => ({
   workspaceId: "w1",
+  sessionKey: "w1",
   sessionId: "s1",
   kind: "working",
   call: "",
@@ -18,6 +19,7 @@ const ev = (over: Partial<StatusEvent>): StatusEvent => ({
 const tool = (over: Partial<ToolEvent>): ToolEvent => ({
   sessionId: "s1",
   workspaceId: "w1",
+  sessionKey: "w1",
   phase: "pre",
   tool: "Read",
   nodeIds: ["a"],
@@ -439,6 +441,7 @@ describe("crashed", () => {
     s.ptyLaunched("w1", 1000);
     s.applyStatus({
       workspaceId: "w1",
+      sessionKey: "w1",
       sessionId: "s1",
       kind: "working",
       call: "",
@@ -446,6 +449,7 @@ describe("crashed", () => {
     });
     s.applyStatus({
       workspaceId: "w1",
+      sessionKey: "w1",
       sessionId: "s1",
       kind: "idle",
       call: "",
@@ -462,6 +466,7 @@ describe("crashed", () => {
     const s = createStatusStore();
     s.applyStatus({
       workspaceId: "w1",
+      sessionKey: "w1",
       sessionId: "s1",
       kind: "working",
       call: "Read(a.md)",

@@ -1,4 +1,4 @@
-import type { RawHookEvent } from "./event-mapper";
+import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
 import type { Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 
@@ -16,6 +16,7 @@ export interface AskQuestion {
 
 export interface AskPrompt {
   workspaceId: string;
+  sessionKey: string;
   sessionId: string;
   questions: AskQuestion[];
   ts: number;
@@ -78,6 +79,7 @@ export function mapAskEvent(
   if (raw.hook_event_name === "PostToolUse")
     return {
       workspaceId: ws.id,
+      sessionKey: resolveSessionKey(raw, ws),
       sessionId: raw.session_id,
       questions: [],
       ts: Date.now(),
@@ -88,6 +90,7 @@ export function mapAskEvent(
   if (questions.length === 0) return undefined;
   return {
     workspaceId: ws.id,
+    sessionKey: resolveSessionKey(raw, ws),
     sessionId: raw.session_id,
     questions,
     ts: Date.now(),

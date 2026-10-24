@@ -17,6 +17,7 @@ import type { ToolEvent } from "../../src/shared/types";
 const ev = (over: Partial<ToolEvent>): ToolEvent => ({
   sessionId: "s1",
   workspaceId: "w1",
+  sessionKey: "w1",
   phase: "pre",
   tool: "Read",
   nodeIds: [],

@@ -116,3 +116,20 @@ describe("mapAskEvent", () => {
     ).toBeUndefined();
   });
 });
+
+describe("mapAskEvent session key", () => {
+  it("carries the payload's session key", () => {
+    const ws = workspaces[1];
+    const out = mapAskEvent(
+      {
+        session_id: "s1",
+        cwd: "D:\\proj",
+        hook_event_name: "PostToolUse",
+        tool_name: "AskUserQuestion",
+        jarvis_session: `${ws.id}#2`,
+      },
+      workspaces,
+    );
+    expect(out?.sessionKey).toBe(`${ws.id}#2`);
+  });
+});
