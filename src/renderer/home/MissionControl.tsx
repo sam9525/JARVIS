@@ -70,6 +70,8 @@ type MissionControlProps = {
   onIndex: (workspaceId: string) => void;
   // a card asks for its graph only when it has to go live
   onNeedGraph: (workspaceId: string) => void;
+  // cards draw nothing until this home visit's stored layouts have arrived
+  snapshotsReady: boolean;
   /** Play the entrance run across the cards. App passes `stage >= 2`. */
   stagger?: boolean;
 };
@@ -90,6 +92,7 @@ export default function MissionControl({
   indexing,
   onIndex,
   onNeedGraph,
+  snapshotsReady,
   stagger,
 }: MissionControlProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
@@ -209,6 +212,7 @@ export default function MissionControl({
                   width={CARD_W}
                   height={CARD_H}
                   onNeedGraph={() => onNeedGraph(ws.id)}
+                  ready={snapshotsReady}
                 />
               )}
 

@@ -400,6 +400,21 @@ describe("MissionControl", () => {
     expect(onNeedGraph).toHaveBeenCalledWith("w2");
   });
 
+  it("holds every card until the stored snapshots arrive", () => {
+    const readyOf = (snapshotsReady: boolean) => {
+      render(<MissionControl {...(props({ snapshotsReady }) as any)} />);
+      return ["w1", "w2"].map(
+        (id) =>
+          walk(
+            currentTree,
+            (n) => n.type === MiniGraph && n.props.workspaceId === id,
+          ).props.ready,
+      );
+    };
+    expect(readyOf(false)).toEqual([false, false]);
+    expect(readyOf(true)).toEqual([true, true]);
+  });
+
   it("has no tooltip when there is no call", () => {
     render(
       <MissionControl

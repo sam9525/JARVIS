@@ -1179,6 +1179,7 @@ export default function App() {
                     indexing={indexing}
                     onIndex={graphs.indexProject}
                     onNeedGraph={graphs.requestGraph}
+                    snapshotsReady={graphs.snapshotsReady}
                     onSelect={(ws) => {
                       setShowHome(false);
                       openWorkspace(ws);

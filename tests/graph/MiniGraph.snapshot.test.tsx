@@ -70,6 +70,7 @@ const props = (over: Record<string, unknown> = {}) => ({
   width: 220,
   height: 150,
   onNeedGraph: vi.fn(),
+  ready: true,
   ...over,
 });
 
@@ -139,6 +140,28 @@ describe("MiniGraph: stored layout or live graph", () => {
       nodeSize: p.view.display.nodeSize * 1.5,
       linkThickness: p.view.display.linkThickness,
     });
+  });
+
+  it("a card held until the stored list arrives neither asks nor saves", () => {
+    const p = props({ graph: null, ready: false });
+    render(p);
+    advance(1000);
+    expect(p.onNeedGraph).not.toHaveBeenCalled();
+    expect(stored()).toBeNull();
+    expect(liveCanvas()).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+
+    render({ ...p, ready: true });
+    render({ ...p, ready: true, onNeedGraph: vi.fn() });
+    expect(p.onNeedGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it("a held card with a graph draws nothing and saves nothing", () => {
+    render(props({ ready: false }));
+    advance(1000);
+    expect(liveCanvas()).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+    expect(snapshots.size).toBe(0);
   });
 
   it("a working card with a stored snapshot asks for its graph once", () => {

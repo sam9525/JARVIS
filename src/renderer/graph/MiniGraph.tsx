@@ -45,6 +45,9 @@ type MiniGraphProps = {
   width: number;
   height: number;
   onNeedGraph: () => void; // a card that has to go live asks for its graph
+  // false until this home visit's stored layouts are in the map; until then
+  // the card cannot tell a stored layout from none, so it draws nothing
+  ready: boolean;
 };
 
 // A card is the 2D view, shrunk — same component, same forces, so a thumbnail
@@ -65,6 +68,7 @@ export default function MiniGraph({
   width,
   height,
   onNeedGraph,
+  ready,
 }: MiniGraphProps) {
   // Graph reads highlights through a ref so its canvas can repaint without
   // re-rendering; cards get the state by value, so mirror it into one
@@ -102,12 +106,13 @@ export default function MiniGraph({
 
   const look = lookKey({ baseHue, groups, view, filters, width, height });
   const snapshot = snapshots.get(workspaceId);
-  const showStored = !working && snapshotValid(snapshot, look);
+  const showStored = ready && !working && snapshotValid(snapshot, look);
   const dpr = window.devicePixelRatio || 1;
 
   // the check loop runs once for the card's lifetime and reads props from here
   const latest = useRef({
     workspaceId,
+    ready,
     working,
     graph,
     state,
@@ -118,6 +123,7 @@ export default function MiniGraph({
   });
   latest.current = {
     workspaceId,
+    ready,
     working,
     graph,
     state,
@@ -168,11 +174,16 @@ export default function MiniGraph({
   // re-render while the load is in flight does not ask again
   const askedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (showStored || graph !== null || askedFor.current === workspaceId)
+    if (
+      !ready ||
+      showStored ||
+      graph !== null ||
+      askedFor.current === workspaceId
+    )
       return;
     askedFor.current = workspaceId;
     onNeedGraph();
-  }, [showStored, graph, workspaceId, onNeedGraph]);
+  }, [ready, showStored, graph, workspaceId, onNeedGraph]);
 
   const [, setChecks] = useState(0);
   useEffect(() => {
@@ -192,6 +203,7 @@ export default function MiniGraph({
         )
           paintStored();
       } else if (
+        now.ready &&
         !now.working &&
         settledRef.current &&
         canSnapshot(now.graph) &&
@@ -216,12 +228,12 @@ export default function MiniGraph({
   // a failed or empty graph keeps no layout, so a later good load records
   // afresh. A null graph only means "not loaded", so it keeps the entry.
   useEffect(() => {
-    if (graph === null || canSnapshot(graph)) return;
+    if (!ready || graph === null || canSnapshot(graph)) return;
     if (snapshots.has(workspaceId)) {
       dropSnapshot(workspaceId);
       setChecks((n) => n + 1);
     }
-  }, [graph, workspaceId]);
+  }, [ready, graph, workspaceId]);
 
   return (
     <div
@@ -237,6 +249,7 @@ export default function MiniGraph({
           style={{ width, height, display: "block" }}
         />
       ) : (
+        ready &&
         mini && (
           <Graph
             graph={mini}

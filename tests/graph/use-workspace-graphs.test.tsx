@@ -509,6 +509,31 @@ describe("useWorkspaceGraphs", () => {
       expect(snapshots.has("bare")).toBe(false);
     });
 
+    it("reports the cards ready only once the stored list has arrived", async () => {
+      let release!: (list: StoredSnapshot[]) => void;
+      jarvis.getCardSnapshots.mockReturnValue(
+        new Promise<StoredSnapshot[]>((res) => {
+          release = res;
+        }),
+      );
+      const base = params({
+        showHome: true,
+        workspaces: [ws("kept", "vault")],
+      });
+      const h = renderHook(useWorkspaceGraphs, base);
+      await settle();
+      expect(h.result.snapshotsReady).toBe(false);
+      expect(jarvis.getGraph).not.toHaveBeenCalled();
+
+      await act(async () => release([stored("kept")]));
+      await settle();
+      expect(h.result.snapshotsReady).toBe(true);
+      expect(jarvis.getGraph).not.toHaveBeenCalled();
+
+      h.rerender({ ...base, showHome: false });
+      expect(h.result.snapshotsReady).toBe(false);
+    });
+
     it("settles a fully stored fleet with no graph load", async () => {
       jarvis.getCardSnapshots.mockResolvedValue([
         stored("kept"),

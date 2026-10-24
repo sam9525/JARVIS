@@ -321,6 +321,7 @@ export function useWorkspaceGraphs({
     fleetEpoch,
     cardGraphs,
     cardsLoaded,
+    snapshotsReady: storedRev > 0,
     indexing,
     requestGraph,
     applyWatchedGraph,
