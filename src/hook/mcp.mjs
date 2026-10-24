@@ -79,10 +79,15 @@ const TOOLS = [
           description: "Target workspace name, as shown by jarvis_list",
         },
         prompt: { type: "string", description: "The prompt to submit" },
+        session: {
+          type: "string",
+          description:
+            "Label of the live session to send to, as shown by jarvis_list. Needed when the workspace has more than one; ignored with fresh.",
+        },
         fresh: {
           type: "boolean",
           description:
-            "true to clear the workspace's session with /clear first. Refused while it is working, asking or blocked. The user's unsent draft in that terminal breaks the clear.",
+            "true to open a new session for the workspace (its own git worktree in a code repo) and send the prompt there. Answers with the new session's label. Refused at 4 sessions.",
         },
       },
       required: ["workspace", "prompt"],
@@ -104,6 +109,11 @@ const TOOLS = [
         workspace: {
           type: "string",
           description: "Workspace name, as shown by jarvis_list",
+        },
+        label: {
+          type: "string",
+          description:
+            "Session label, at most 20 characters of letters, digits, spaces and hyphens. Omit for the next free number.",
         },
       },
       required: ["workspace"],
@@ -128,8 +138,34 @@ const TOOLS = [
           type: "boolean",
           description: "true only if the user said they trust the folder",
         },
+        session: {
+          type: "string",
+          description:
+            "Label of the session showing the prompt. Needed when the workspace has more than one.",
+        },
       },
       required: ["workspace", "accept"],
+    },
+  },
+  {
+    name: "jarvis_close",
+    description:
+      "Close one session of a workspace, only when the user named it. " +
+      "Refused while that session is working, asking or blocked. A worktree " +
+      "with uncommitted or unmerged work stays on disk, and the answer names it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace: {
+          type: "string",
+          description: "Workspace name, as shown by jarvis_list",
+        },
+        session: {
+          type: "string",
+          description: "Session label, as shown by jarvis_list",
+        },
+      },
+      required: ["workspace", "session"],
     },
   },
   {
@@ -211,6 +247,11 @@ const textResult = (text, isError) =>
     ? { content: [{ type: "text", text }], isError: true }
     : { content: [{ type: "text", text }] };
 
+// names the session a send or launch reached, and its worktree folder
+const where = (out) =>
+  (out?.session ? ` session "${out.session}"` : "") +
+  (out?.worktree ? ` (git worktree ${out.worktree})` : "");
+
 async function callTool(name, args) {
   try {
     if (name === "jarvis_list") {
@@ -219,40 +260,72 @@ async function callTool(name, args) {
     }
     if (name === "jarvis_send") {
       const fresh = args?.fresh === true;
-      // a fresh send types /clear and waits up to 20s for the TUI to settle
-      // before sending, so give it the same bound as jarvis_launch
+      // a fresh send opens a session and waits up to 20s for its TUI to
+      // settle before sending, so give it the same bound as jarvis_launch
       const out = await post(
         "/orchestrate/send",
-        { workspace: args?.workspace, prompt: args?.prompt, fresh },
+        {
+          workspace: args?.workspace,
+          prompt: args?.prompt,
+          fresh,
+          session: args?.session,
+        },
         fresh ? 30000 : undefined,
       );
-      return out?.ok
-        ? textResult(`sent to ${args?.workspace}`)
-        : textResult(out?.error ?? "send failed", true);
+      if (!out?.ok) return textResult(out?.error ?? "send failed", true);
+      if (out.trustPrompt)
+        return textResult(
+          `opened session "${out.session}" in ${args?.workspace}, but it is ` +
+            `asking whether to trust the folder ${out.trustPrompt}, so the ` +
+            "prompt was not sent. Ask the user if they trust it, then call " +
+            `jarvis_trust with their answer and session "${out.session}", ` +
+            `then jarvis_send the prompt with session "${out.session}".`,
+        );
+      return textResult(`sent to ${args?.workspace}${where(out)}`);
     }
     if (name === "jarvis_launch") {
       // installs run before the spawn and the answer waits for the new TUI to
       // go quiet (up to 20s in main), so allow well past 1.5s
       const out = await post(
         "/orchestrate/launch",
-        { workspace: args?.workspace },
+        { workspace: args?.workspace, label: args?.label },
         30000,
       );
       if (!out?.ok) return textResult(out?.error ?? "launch failed", true);
       return textResult(
         out.trustPrompt
-          ? `launched ${args?.workspace}, but its session is asking whether ` +
-              `to trust the folder ${out.trustPrompt}. Ask the user if they ` +
-              "trust it, then call jarvis_trust with their answer. Do not " +
-              "jarvis_send to it before that."
-          : `launched ${args?.workspace}`,
+          ? `launched ${args?.workspace}${where(out)}, but its session is ` +
+              `asking whether to trust the folder ${out.trustPrompt}. Ask the ` +
+              "user if they trust it, then call jarvis_trust with their " +
+              "answer. Do not jarvis_send to it before that."
+          : `launched ${args?.workspace}${where(out)}`,
+      );
+    }
+    if (name === "jarvis_close") {
+      // the close waits for the process to exit and for git to check the
+      // worktree, so allow well past 1.5s
+      const out = await post(
+        "/orchestrate/close",
+        { workspace: args?.workspace, session: args?.session },
+        30000,
+      );
+      if (!out?.ok) return textResult(out?.error ?? "close failed", true);
+      return textResult(
+        out.kept
+          ? `closed ${args?.workspace} session "${args?.session}"; its ` +
+              `worktree stays on disk: ${out.kept}`
+          : `closed ${args?.workspace} session "${args?.session}"`,
       );
     }
     if (name === "jarvis_trust") {
       // the answer waits for the session to settle past the prompt
       const out = await post(
         "/orchestrate/trust",
-        { workspace: args?.workspace, accept: args?.accept === true },
+        {
+          workspace: args?.workspace,
+          accept: args?.accept === true,
+          session: args?.session,
+        },
         30000,
       );
       if (!out?.ok) return textResult(out?.error ?? "trust failed", true);

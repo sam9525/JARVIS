@@ -3,29 +3,29 @@ import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
 import type { StatusEvent, ToolEvent, Workspace } from "../../src/shared/types";
 import { buildWorkspaces } from "../../src/main/workspaces";
-import type { SendResult } from "../../src/main/orchestrate";
+import type { DeliveredResult } from "../../src/main/orchestrate";
 
 const workspaces: Workspace[] = buildWorkspaces("D:\\vault", []);
 
 function stubOrchestrator() {
-  const sends: Array<[string, string]> = [];
-  const freshSends: Array<[string, string]> = [];
+  const sends: Array<
+    [string, string, { session?: string; fresh?: boolean } | undefined]
+  > = [];
   return {
     sends,
-    freshSends,
-    freshResult: { ok: true } as SendResult,
-    sendFresh(workspace: string, prompt: string) {
-      freshSends.push([workspace, prompt]);
-      return Promise.resolve(this.freshResult);
-    },
+    sendResult: { ok: true } as DeliveredResult,
     listCalls: { n: 0 },
     list() {
       this.listCalls.n++;
       return [{ name: "vault", live: false }];
     },
-    send(workspace: string, prompt: string) {
-      sends.push([workspace, prompt]);
-      return { ok: true as const };
+    send(
+      workspace: string,
+      prompt: string,
+      opts?: { session?: string; fresh?: boolean },
+    ) {
+      sends.push([workspace, prompt, opts]);
+      return Promise.resolve(this.sendResult);
     },
     says: [] as string[],
     watchCalls: [] as number[],
@@ -37,15 +37,23 @@ function stubOrchestrator() {
       this.says.push(text);
       return { ok: true as const };
     },
-    launches: [] as string[],
-    launch(workspace: string) {
-      this.launches.push(workspace);
+    launches: [] as Array<[string, string | undefined]>,
+    launch(workspace: string, label?: string) {
+      this.launches.push([workspace, label]);
+      return Promise.resolve({ ok: true as const, session: "1" });
+    },
+    trusts: [] as Array<[string, boolean, string | undefined]>,
+    trust(workspace: string, accept: boolean, session?: string) {
+      this.trusts.push([workspace, accept, session]);
       return Promise.resolve({ ok: true as const });
     },
-    trusts: [] as Array<[string, boolean]>,
-    trust(workspace: string, accept: boolean) {
-      this.trusts.push([workspace, accept]);
-      return Promise.resolve({ ok: true as const });
+    closes: [] as Array<[string, string]>,
+    close(workspace: string, session: string) {
+      this.closes.push([workspace, session]);
+      return Promise.resolve({
+        ok: true as const,
+        kept: "D:\\a\\.worktrees\\1",
+      });
     },
     todosCalls: { n: 0 },
     todos() {
@@ -276,28 +284,39 @@ describe("orchestrate routes", () => {
       { "x-jarvis": "1" },
     );
     expect(await res.json()).toEqual({ ok: true });
-    expect(orch.sends).toEqual([["AeroGraph", "fix it"]]);
+    expect(orch.sends).toEqual([
+      ["AeroGraph", "fix it", { session: undefined, fresh: false }],
+    ]);
     close();
   });
 
-  it("fresh: true goes to sendFresh", async () => {
+  it("send forwards the session and a literal fresh: true", async () => {
     const { port, orch, close } = await start(() => {
       /* no-op */
     });
+    orch.sendResult = { ok: true, session: "2", worktree: "D:\\a\\.wt\\2" };
     const res = await post(
       port,
       "/orchestrate/send",
-      JSON.stringify({ workspace: "A", prompt: "p", fresh: true }),
+      JSON.stringify({
+        workspace: "A",
+        prompt: "p",
+        fresh: true,
+        session: "2",
+      }),
       { "x-jarvis": "1" },
     );
-    expect(await res.json()).toEqual({ ok: true });
-    expect(orch.freshSends).toEqual([["A", "p"]]);
-    expect(orch.sends).toEqual([]);
+    expect(await res.json()).toEqual({
+      ok: true,
+      session: "2",
+      worktree: "D:\\a\\.wt\\2",
+    });
+    expect(orch.sends).toEqual([["A", "p", { session: "2", fresh: true }]]);
     close();
   });
 
   it.each(["true", 1, null])(
-    "a fresh that is not literally true goes to send (%s)",
+    "a fresh that is not literally true is a plain send (%s)",
     async (fresh) => {
       const { port, orch, close } = await start(() => {
         /* no-op */
@@ -308,17 +327,34 @@ describe("orchestrate routes", () => {
         JSON.stringify({ workspace: "A", prompt: "p", fresh }),
         { "x-jarvis": "1" },
       );
-      expect(orch.sends).toEqual([["A", "p"]]);
-      expect(orch.freshSends).toEqual([]);
+      expect(orch.sends).toEqual([
+        ["A", "p", { session: undefined, fresh: false }],
+      ]);
       close();
     },
   );
 
-  it("a rejected sendFresh comes back as its error", async () => {
+  it("a session that is not a string is left out", async () => {
     const { port, orch, close } = await start(() => {
       /* no-op */
     });
-    orch.freshResult = { ok: false, error: "A is busy (working)" };
+    await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({ workspace: "A", prompt: "p", session: 2 }),
+      { "x-jarvis": "1" },
+    );
+    expect(orch.sends).toEqual([
+      ["A", "p", { session: undefined, fresh: false }],
+    ]);
+    close();
+  });
+
+  it("a rejected send comes back as its error", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    orch.sendResult = { ok: false, error: "A has 4 sessions" };
     const res = await post(
       port,
       "/orchestrate/send",
@@ -328,7 +364,7 @@ describe("orchestrate routes", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       ok: false,
-      error: "A is busy (working)",
+      error: "A has 4 sessions",
     });
     close();
   });
@@ -361,13 +397,13 @@ describe("orchestrate routes", () => {
         list() {
           throw new Error("snapshot exploded");
         },
-        send: () => ({ ok: true as const }),
-        sendFresh: () => Promise.resolve({ ok: true as const }),
+        send: () => Promise.resolve({ ok: true as const }),
         watch: () => Promise.resolve(null),
         say: () => ({ ok: true as const }),
         todos: () => Promise.resolve(null),
-        launch: () => Promise.resolve({ ok: true as const }),
+        launch: () => Promise.resolve({ ok: true as const, session: "1" }),
         trust: () => Promise.resolve({ ok: true as const }),
+        close: () => Promise.resolve({ ok: true as const }),
       },
     );
     await new Promise((r) => server.once("listening", r));
@@ -668,8 +704,21 @@ describe("/orchestrate/launch", () => {
     const res = await call(s.port, JSON.stringify({ workspace: "AeroGraph" }), {
       "x-jarvis": "1",
     });
-    expect(await res.json()).toEqual({ ok: true });
-    expect(s.orch.launches).toEqual(["AeroGraph"]);
+    expect(await res.json()).toEqual({ ok: true, session: "1" });
+    expect(s.orch.launches).toEqual([["AeroGraph", undefined]]);
+    s.close();
+  });
+
+  it("forwards a label", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    await call(
+      s.port,
+      JSON.stringify({ workspace: "Obsidian-vault", label: "AeroGraph" }),
+      { "x-jarvis": "1" },
+    );
+    expect(s.orch.launches).toEqual([["Obsidian-vault", "AeroGraph"]]);
     s.close();
   });
 
@@ -711,7 +760,20 @@ describe("/orchestrate/trust", () => {
       { "x-jarvis": "1" },
     );
     expect(await res.json()).toEqual({ ok: true });
-    expect(s.orch.trusts).toEqual([["New", true]]);
+    expect(s.orch.trusts).toEqual([["New", true, undefined]]);
+    s.close();
+  });
+
+  it("forwards the session", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    await call(
+      s.port,
+      { workspace: "New", accept: true, session: "1" },
+      { "x-jarvis": "1" },
+    );
+    expect(s.orch.trusts).toEqual([["New", true, "1"]]);
     s.close();
   });
 
@@ -724,7 +786,7 @@ describe("/orchestrate/trust", () => {
       { workspace: "New", accept: "yes" },
       { "x-jarvis": "1" },
     );
-    expect(s.orch.trusts).toEqual([["New", false]]);
+    expect(s.orch.trusts).toEqual([["New", false, undefined]]);
     s.close();
   });
 
@@ -734,6 +796,56 @@ describe("/orchestrate/trust", () => {
     });
     await call(s.port, { workspace: "New", accept: true }, {});
     expect(s.orch.trusts).toEqual([]);
+    s.close();
+  });
+});
+
+describe("/orchestrate/close", () => {
+  const call = (port: number, body: string, headers: Record<string, string>) =>
+    fetch(`http://127.0.0.1:${port}/orchestrate/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body,
+    });
+
+  it("forwards the workspace and session and answers the result", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(
+      s.port,
+      JSON.stringify({ workspace: "AeroGraph", session: "1" }),
+      { "x-jarvis": "1" },
+    );
+    expect(await res.json()).toEqual({
+      ok: true,
+      kept: "D:\\a\\.worktrees\\1",
+    });
+    expect(s.orch.closes).toEqual([["AeroGraph", "1"]]);
+    s.close();
+  });
+
+  it("needs the x-jarvis header", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(
+      s.port,
+      JSON.stringify({ workspace: "AeroGraph", session: "1" }),
+      {},
+    );
+    expect(res.status).toBe(403);
+    expect(s.orch.closes).toEqual([]);
+    s.close();
+  });
+
+  it("a malformed body is an error result, not a close", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(s.port, "{not json", { "x-jarvis": "1" });
+    expect((await res.json()).ok).toBe(false);
+    expect(s.orch.closes).toEqual([]);
     s.close();
   });
 });

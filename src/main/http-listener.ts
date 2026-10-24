@@ -2,7 +2,13 @@ import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
 import { mapStatusEvent } from "./status-mapper";
 import { mapAskEvent, type AskPrompt } from "./ask-mapper";
-import type { LaunchResult, SendResult } from "./orchestrate";
+import type {
+  CloseResult,
+  DeliveredResult,
+  LaunchResult,
+  SendOptions,
+  SendResult,
+} from "./orchestrate";
 import type { StatusEvent, ToolEvent, Workspace } from "../shared/types";
 
 export const DEFAULT_PORT = 4599;
@@ -16,10 +22,14 @@ const ORCHESTRATE = [
   "/orchestrate/send",
   "/orchestrate/launch",
   "/orchestrate/trust",
+  "/orchestrate/close",
   "/orchestrate/watch",
   "/orchestrate/say",
   "/orchestrate/todos",
 ];
+
+const optionalString = (v: unknown): string | undefined =>
+  typeof v === "string" ? v : undefined;
 
 // Over the cap we destroy the socket, so "end" never fires and done() never runs.
 function readBody(
@@ -40,13 +50,17 @@ function readBody(
 // structural, not the concrete Orchestrator — lets tests inject stubs
 export interface OrchestratorLike {
   list(): unknown;
-  send(target: string, prompt: string): SendResult;
-  /** Clears the workspace, then sends; refuses a busy one. */
-  sendFresh(target: string, prompt: string): Promise<SendResult>;
+  send(
+    target: string,
+    prompt: string,
+    opts?: SendOptions,
+  ): Promise<DeliveredResult>;
   watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
-  launch(target: string): Promise<LaunchResult>;
-  trust(target: string, accept: boolean): Promise<SendResult>;
+  launch(target: string, label?: string): Promise<LaunchResult>;
+  trust(target: string, accept: boolean, session?: string): Promise<SendResult>;
+  /** Ends the named session; refuses one whose turn is in flight. */
+  close(target: string, session: string): Promise<CloseResult>;
   /** Opens the to-do panel and answers the list file for the agent to edit. */
   todos(): Promise<unknown>;
 }
@@ -178,8 +192,11 @@ export function startListener(
         }
         if (route === "/orchestrate/launch") {
           let target: string;
+          let label: string | undefined;
           try {
-            target = String(parse().workspace ?? "");
+            const p = parse();
+            target = String(p.workspace ?? "");
+            label = optionalString(p.label);
           } catch (err) {
             const out = {
               ok: false,
@@ -189,7 +206,7 @@ export function startListener(
             return;
           }
           orchestrator
-            .launch(target)
+            .launch(target, label)
             .then((out) => {
               if (res.writableEnded || res.destroyed) return;
               res.writeHead(200).end(JSON.stringify(out));
@@ -200,11 +217,13 @@ export function startListener(
         if (route === "/orchestrate/trust") {
           let target: string;
           let accept: boolean;
+          let session: string | undefined;
           try {
             const p = parse();
             target = String(p.workspace ?? "");
             // only a literal true trusts a folder; anything else declines
             accept = p.accept === true;
+            session = optionalString(p.session);
           } catch (err) {
             const out = {
               ok: false,
@@ -214,7 +233,31 @@ export function startListener(
             return;
           }
           orchestrator
-            .trust(target, accept)
+            .trust(target, accept, session)
+            .then((out) => {
+              if (res.writableEnded || res.destroyed) return;
+              res.writeHead(200).end(JSON.stringify(out));
+            })
+            .catch(fail);
+          return;
+        }
+        if (route === "/orchestrate/close") {
+          let target: string;
+          let session: string;
+          try {
+            const p = parse();
+            target = String(p.workspace ?? "");
+            session = String(p.session ?? "");
+          } catch (err) {
+            const out = {
+              ok: false,
+              error: `malformed request: ${String(err)}`,
+            };
+            res.writeHead(200).end(JSON.stringify(out));
+            return;
+          }
+          orchestrator
+            .close(target, session)
             .then((out) => {
               if (res.writableEnded || res.destroyed) return;
               res.writeHead(200).end(JSON.stringify(out));
@@ -240,13 +283,16 @@ export function startListener(
         if (route === "/orchestrate/send") {
           let target: string;
           let prompt: string;
-          let fresh: boolean;
+          let opts: SendOptions;
           try {
             const p = parse();
             target = String(p.workspace ?? "");
             prompt = String(p.prompt ?? "");
-            // only a literal true clears the workspace first, like trust's accept
-            fresh = p.fresh === true;
+            // only a literal true opens a new session, like trust's accept
+            opts = {
+              session: optionalString(p.session),
+              fresh: p.fresh === true,
+            };
           } catch (err) {
             const out = {
               ok: false,
@@ -255,27 +301,18 @@ export function startListener(
             res.writeHead(200).end(JSON.stringify(out));
             return;
           }
-          if (fresh) {
-            orchestrator
-              .sendFresh(target, prompt)
-              .then((out) => {
-                if (res.writableEnded || res.destroyed) return;
-                res.writeHead(200).end(JSON.stringify(out));
-              })
-              .catch(fail);
-            return;
-          }
+          orchestrator
+            .send(target, prompt, opts)
+            .then((out) => {
+              if (res.writableEnded || res.destroyed) return;
+              res.writeHead(200).end(JSON.stringify(out));
+            })
+            .catch(fail);
+          return;
         }
         let out: SendResult;
         try {
-          const parsed = parse();
-          out =
-            route === "/orchestrate/say"
-              ? orchestrator.say(String(parsed.text ?? ""))
-              : orchestrator.send(
-                  String(parsed.workspace ?? ""),
-                  String(parsed.prompt ?? ""),
-                );
+          out = orchestrator.say(String(parse().text ?? ""));
         } catch (err) {
           out = { ok: false, error: `malformed request: ${String(err)}` };
         }

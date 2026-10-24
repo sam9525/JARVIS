@@ -512,49 +512,30 @@ app.whenReady().then(async () => {
     send("status", status.snapshot()),
   );
 
-  // What "a delegate finished" means here: an idle row whose message is new.
-  // Diffing the snapshot is the honest read — the sweep also demotes to idle,
-  // but it carries the same message, so it never fires this. Restoring the
-  // inbox is a display concern — a card reading "idle, last said X" after a
-  // restart — not a queuing one, so every row already on disk is seeded here
-  // as already-announced before any live pushStatus can run. Without this,
-  // the first pushStatus after boot — from any workspace, not necessarily
-  // the restored one — would scan the whole snapshot and hand a fresh
-  // orchestrator session a finish nobody asked it to watch for.
-  const announced = new Map<string, string>();
-  for (const row of status.snapshot()) {
-    const message = row.message?.trim() ?? "";
-    if (row.kind === "idle" && message) announced.set(row.workspaceId, message);
-  }
-
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
-    hasPty: (id) => ptyManager.has(id),
-    write: (id, data) => ptyManager.write(id, data),
+    sessionsOf: (id) => sessions.forWorkspace(id),
+    hasPty: (key) => ptyManager.has(key),
+    write: (key, data) => ptyManager.write(key, data),
     // the terminal's own defaults — Opus, permissions on — at placeholder
-    // geometry the panel resizes when it attaches, as with the main agent
-    // resolves once the new TUI has gone quiet, not at spawn: text written
-    // before raw mode is dropped, and jarvis_send follows this immediately
-    launch: async (ws) => {
-      const settled = settle.wait(ws.id, LAUNCH_SETTLE_DEADLINE_MS);
-      const launched = await launchSession(ws, {
-        label: MAIN_LABEL,
+    // geometry the panel resizes when it attaches, as with the main agent.
+    // The orchestrator waits for the new TUI to go quiet itself.
+    launch: (ws, label) =>
+      launchSession(ws, {
+        label,
         cols: 80,
         rows: 24,
         dangerous: false,
         model: "opus",
-      });
-      if (!launched.ok) return false;
-      await settled;
-      return true;
-    },
-    isTrusted: (ws) => isTrusted(ws.rootPath),
-    waitQuiet: (id) => settle.wait(id, LAUNCH_SETTLE_DEADLINE_MS),
-    msSinceOutput: (id) => Date.now() - (lastOutputAt.get(id) ?? -Infinity),
+      }),
+    close: (key) => closeSession(key),
+    isTrusted: (folder) => isTrusted(folder),
+    waitQuiet: (key) => settle.wait(key, LAUNCH_SETTLE_DEADLINE_MS),
+    msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
     // markDelegated is a status change like any other — push it to the rail
-    markDelegated: (id, by) =>
-      pushStatus(status.markDelegated(id, by, Date.now())),
+    markDelegated: (key, by) =>
+      pushStatus(status.markDelegated(key, by, Date.now())),
     // false when the window is gone; say() reports that rather than going
     // silent, so the agent learns its summary was not heard
     say: (text) => {
@@ -574,13 +555,6 @@ app.whenReady().then(async () => {
     if (!changed) return;
     const snap = status.snapshot();
     send("status", snap);
-    for (const row of snap) {
-      const message = row.message?.trim() ?? "";
-      if (row.kind !== "idle" || !message) continue;
-      if (announced.get(row.workspaceId) === message) continue;
-      announced.set(row.workspaceId, message);
-      orchestrator.publishFinish(row.workspaceId, message);
-    }
     // only Stop carries a message, so this writes rarely despite the call site
     const json = JSON.stringify(snap.filter((s) => s.message));
     if (json === savedInbox) return;
@@ -645,7 +619,15 @@ app.whenReady().then(async () => {
       send("tool-event", e);
       pushStatus(status.countTool(e));
     },
-    (s) => pushStatus(status.applyStatus(s)),
+    (s) => {
+      pushStatus(status.applyStatus(s));
+      // A finish is a Stop, and only a Stop carries a message. Read from the
+      // event, not the snapshot: the workspace row is an aggregate, so it can
+      // read working while another session's turn has just ended, and a
+      // restored inbox or a sweep demotion is never mistaken for a finish.
+      if (s.message !== undefined)
+        orchestrator.publishFinish(s.sessionKey, s.message);
+    },
     () => workspaces,
     {
       ...orchestrator,
