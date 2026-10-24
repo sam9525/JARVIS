@@ -23,6 +23,8 @@ import { endId, type LinkObj, type NodeObj } from "./link-ends";
 const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
 // how often a still card checks the store for a new rev
 const IDLE_POLL_MS = 100;
+// duration of the fit transition that follows a settle
+const FIT_MS = 200;
 
 export type GraphHandle = {
   pan(dx: number, dy: number): void; // normalized hand units; content follows the hand
@@ -49,6 +51,8 @@ type GraphProps = {
   // a tight margin, and a refit every tick so the settle stays inside the card
   thumbnail?: boolean;
   handleRef?: React.MutableRefObject<GraphHandle | null>;
+  // called FIT_MS after every settle, once the final fit has finished
+  onSettled?: () => void;
 };
 
 export default function Graph({
@@ -65,12 +69,19 @@ export default function Graph({
   height,
   thumbnail = false,
   handleRef,
+  onSettled,
 }: GraphProps) {
   const fitPadding = thumbnail ? 4 : 40;
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
   const hoverRef = useRef<{ id: string; neighbors: Set<string> } | null>(null);
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const didFit = useRef(false); // fit-to-screen once, not on every re-settle
+  const settledTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const onSettledRef = useRef(onSettled);
+  onSettledRef.current = onSettled;
+  useEffect(() => () => clearTimeout(settledTimer.current), []);
 
   useEffect(() => {
     if (!handleRef) return;
@@ -220,9 +231,16 @@ export default function Graph({
         thumbnail ? () => fgRef.current?.zoomToFit(0, fitPadding) : undefined
       }
       onEngineStop={() => {
-        if (didFit.current) return;
-        didFit.current = true;
-        fgRef.current?.zoomToFit(200, fitPadding);
+        if (!didFit.current) {
+          didFit.current = true;
+          fgRef.current?.zoomToFit(FIT_MS, fitPadding);
+        }
+        // fires once the fit transition has finished, fitted or not
+        if (settledTimer.current) clearTimeout(settledTimer.current);
+        settledTimer.current = setTimeout(
+          () => onSettledRef.current?.(),
+          FIT_MS,
+        );
       }}
       nodeLabel="id"
       nodeVal={(node: NodeObj) =>

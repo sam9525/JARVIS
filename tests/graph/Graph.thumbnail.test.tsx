@@ -18,10 +18,12 @@ const fg = vi.hoisted(() => ({
   d3Force: vi.fn((): unknown => undefined),
   d3ReheatSimulation: vi.fn(),
 }));
+const latest = vi.hoisted(() => ({ props: {} as any }));
 vi.mock("react-force-graph-2d", async () => {
   const { default: React } = await vi.importActual<any>("react");
   return {
     default: React.forwardRef((props: any, ref: any) => {
+      latest.props = props;
       if (ref) ref.current = fg;
       return null;
     }),
@@ -100,5 +102,35 @@ describe("Graph: the parked card's repaint nudge", () => {
     });
 
     expect(fg.zoom).not.toHaveBeenCalled();
+  });
+});
+
+describe("Graph: onSettled", () => {
+  it("calls onSettled once the fit after a settle has finished", () => {
+    const onSettled = vi.fn();
+    render(<Graph {...(props() as any)} thumbnail onSettled={onSettled} />);
+    act(() => latest.props.onEngineStop());
+    act(() => {
+      vi.advanceTimersByTime(199);
+    });
+    expect(onSettled).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onSettled).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onSettled after unmount", () => {
+    const onSettled = vi.fn();
+    render(<Graph {...(props() as any)} thumbnail onSettled={onSettled} />);
+    act(() => latest.props.onEngineStop());
+    act(() => root.unmount());
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onSettled).not.toHaveBeenCalled();
+    act(() => {
+      root = createRoot(container);
+    });
   });
 });
