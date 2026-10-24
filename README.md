@@ -19,7 +19,7 @@ One extra session, the **main agent**, sits above the fleet. It can list every w
 - **Voice (optional).** Say "Jarvis …" and the command is typed into the main agent's terminal. You still press Enter. Replies are read aloud, with a wireframe head and waveform.
 - **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels. See [Gestures](#gestures).
 - **Inbox.** A list at the top of the terminal panel with one row per workspace. Each row shows the status and the last message from Claude, or its current tool call while it runs. It is read-only: you reply in the terminal.
-- **To-do list.** The main agent keeps your tasks in `TODO.md`, grouped by project. Double-click a task to read it in full, then edit or delete it. The main agent checks a task off only when you say it is done, not when a workspace reports it finished.
+- **To-do list.** The main agent keeps your tasks in `TODO.md`, grouped by project. Double-click a task to read it in full, then edit or delete it. A task a workspace is working on is marked `- [/]` and shows in its own WORKING section. The main agent checks a task off when you say it is done, or when a workspace reports its work merged into develop.
 - **Daily briefing (optional).** On the first launch of the day, the main agent asks your vault workspace to summarise your newest daily note, project by project. See [Daily briefing](#daily-briefing).
 - **Floating panels.** The terminal, preview, settings and to-do list are panels that you can drag, resize and collapse.
 
