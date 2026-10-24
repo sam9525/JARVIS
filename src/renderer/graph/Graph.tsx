@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods } from "react-force-graph-2d";
 import type {
+  CardLayout,
   GraphGroup,
   LayoutNode,
   ViewSettings,
@@ -16,10 +17,9 @@ import {
   pulseProgress,
   type HighlightState,
 } from "../session/highlight-store";
-import { baseNodeColor } from "./domain-colors";
 import { displayRadius, graphMetrics } from "./graph-metrics";
 import { COLORS } from "./graph-colors";
-import { paintNode, paintOverlay } from "./graph-paint";
+import { layoutNodeOf, paintNode, paintOverlay } from "./graph-paint";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { nodeLabelColor, nodeLabelText } from "./node-label";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
@@ -29,6 +29,8 @@ const ZOOM = { min: 0.5, thumbnail: 0.01, max: 15 } as const;
 const IDLE_POLL_MS = 100;
 // duration of the fit transition that follows a settle
 const FIT_MS = 200;
+
+const round1 = (v: number) => Math.round(v * 10) / 10;
 
 export type GraphHandle = {
   pan(dx: number, dy: number): void; // normalized hand units; content follows the hand
@@ -57,34 +59,10 @@ type GraphProps = {
   handleRef?: React.MutableRefObject<GraphHandle | null>;
   // called FIT_MS after every settle, once the final fit has finished
   onSettled?: () => void;
+  // while mounted, holds a reader of the drawn layout; it returns null until
+  // the engine has placed a node
+  layoutRef?: React.MutableRefObject<(() => CardLayout | null) | null>;
 };
-
-/**
- * The painter's view of a live node: null until the simulation has placed it.
- * The fill is the colour before highlights, group first, then tag or domain.
- */
-export function layoutNodeOf(
-  node: NodeObj,
-  domains: string[],
-  groups: GraphGroup[],
-  baseHue: number,
-): LayoutNode | null {
-  if (node.x === undefined || node.y === undefined) return null;
-  const id = String(node.id);
-  return {
-    id,
-    hk: hlKey(node),
-    x: node.x,
-    y: node.y,
-    r: node.r ?? 4,
-    fill: baseNodeColor(
-      { id, type: node.type, domain: node.domain },
-      domains,
-      groups,
-      baseHue,
-    ),
-  };
-}
 
 export default function Graph({
   graph,
@@ -101,6 +79,7 @@ export default function Graph({
   thumbnail = false,
   handleRef,
   onSettled,
+  layoutRef,
 }: GraphProps) {
   const fitPadding = thumbnail ? 4 : 40;
   // hover lives in a ref, not state: the canvas repaints every frame anyway (autoPauseRedraw=false)
@@ -209,6 +188,39 @@ export default function Graph({
   useEffect(() => {
     didFit.current = false;
   }, [data]);
+
+  useEffect(() => {
+    if (!layoutRef) return;
+    layoutRef.current = () => {
+      const fg = fgRef.current;
+      if (!fg) return null;
+      const index = new Map<string, number>();
+      const nodes: LayoutNode[] = [];
+      for (const node of data.nodes) {
+        const n = layoutNodeOf(node, domains, groups, baseHue);
+        if (!n) continue;
+        index.set(n.id, nodes.length);
+        nodes.push({ ...n, x: round1(n.x), y: round1(n.y) });
+      }
+      if (nodes.length === 0) return null;
+      const links: [number, number][] = [];
+      for (const l of data.links) {
+        const s = index.get(endId(l.source));
+        const t = index.get(endId(l.target));
+        if (s !== undefined && t !== undefined) links.push([s, t]);
+      }
+      return {
+        width,
+        height,
+        transform: { k: fg.zoom(), ...fg.centerAt() },
+        nodes,
+        links,
+      };
+    };
+    return () => {
+      layoutRef.current = null;
+    };
+  }, [layoutRef, data, domains, groups, baseHue, width, height]);
 
   useForceTuning(
     fgRef as unknown as React.MutableRefObject<ForceHandle | undefined>,

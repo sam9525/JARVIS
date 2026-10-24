@@ -155,3 +155,66 @@ describe("Graph: onSettled", () => {
     });
   });
 });
+
+describe("Graph: layoutRef", () => {
+  const two: VaultGraph = {
+    nodes: [
+      { id: "a", type: "note" },
+      { id: "b", type: "note" },
+      { id: "c", type: "note" },
+    ],
+    edges: [
+      { source: "a", target: "b" },
+      { source: "a", target: "missing" },
+    ],
+  };
+
+  it("returns null until the engine has positions", () => {
+    const layoutRef = { current: null as any };
+    render(<Graph {...(props() as any)} graph={two} layoutRef={layoutRef} />);
+    expect(layoutRef.current()).toBeNull();
+  });
+
+  it("reports transform, rounded positioned nodes and index-pair links", () => {
+    const layoutRef = { current: null as any };
+    render(<Graph {...(props() as any)} graph={two} layoutRef={layoutRef} />);
+    fg.zoom.mockImplementation((k?: number): any => (k === undefined ? 2 : fg));
+    fg.centerAt.mockImplementation(() => ({ x: 10, y: -5 }));
+    const [a, b] = latest.props.graphData.nodes;
+    a.x = 1.26;
+    a.y = -3.04;
+    b.x = 7;
+    b.y = 0.04;
+    for (const l of latest.props.graphData.links) {
+      if (l.target === "b") {
+        l.source = a;
+        l.target = b;
+      }
+    }
+
+    const layout = layoutRef.current();
+    expect(layout.width).toBe(220);
+    expect(layout.height).toBe(130);
+    expect(layout.transform).toEqual({ k: 2, x: 10, y: -5 });
+    expect(layout.nodes.map((n: any) => [n.id, n.x, n.y])).toEqual([
+      ["a", 1.3, -3],
+      ["b", 7, 0],
+    ]);
+    expect(layout.nodes[0]).toMatchObject({ hk: "a", r: expect.any(Number) });
+    expect(layout.nodes[0].fill).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(layout.links).toEqual([[0, 1]]);
+    fg.zoom.mockImplementation((k?: number) => (k === undefined ? 1 : fg));
+    fg.centerAt.mockImplementation((): unknown => undefined);
+  });
+
+  it("clears the ref on unmount", () => {
+    const layoutRef = { current: null as any };
+    render(<Graph {...(props() as any)} layoutRef={layoutRef} />);
+    expect(layoutRef.current).toBeTypeOf("function");
+    act(() => root.unmount());
+    expect(layoutRef.current).toBeNull();
+    act(() => {
+      root = createRoot(container);
+    });
+  });
+});

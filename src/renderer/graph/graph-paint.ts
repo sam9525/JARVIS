@@ -1,6 +1,7 @@
-import type { CardLayout, LayoutNode } from "../../shared/types";
+import type { CardLayout, GraphGroup, LayoutNode } from "../../shared/types";
 import {
   heatOf,
+  hlKey,
   impactDepth,
   isRead,
   matchProgress,
@@ -8,8 +9,37 @@ import {
   pulseProgress,
   type HighlightState,
 } from "../session/highlight-store";
+import { baseNodeColor } from "./domain-colors";
 import { displayRadius } from "./graph-metrics";
+import type { NodeObj } from "./link-ends";
 import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
+
+/**
+ * The painter's view of a live node: null until the simulation has placed it.
+ * The fill is the colour before highlights, group first, then tag or domain.
+ */
+export function layoutNodeOf(
+  node: NodeObj,
+  domains: string[],
+  groups: GraphGroup[],
+  baseHue: number,
+): LayoutNode | null {
+  if (node.x === undefined || node.y === undefined) return null;
+  const id = String(node.id);
+  return {
+    id,
+    hk: hlKey(node),
+    x: node.x,
+    y: node.y,
+    r: node.r ?? 4,
+    fill: baseNodeColor(
+      { id, type: node.type, domain: node.domain },
+      domains,
+      groups,
+      baseHue,
+    ),
+  };
+}
 
 type NodePaint = { nodeSize: number; globalScale: number };
 
