@@ -89,6 +89,9 @@ let generation = 0;
 
 /** Longest one line may hold the queue. A cloud `onended` that never fires
  * would otherwise silence every line behind it for the rest of the session. */
+// Sits above the worst fetch (tts.ts AbortSignal.timeout(8000) plus the
+// edge-tts 8000 ms race, about 16 s) plus a SUMMARY_MAX line (about 35 s);
+// raise it with those timeouts.
 export const TURN_CAP_MS = 60_000;
 
 // Tail of the line chain; each speak() appends one turn to it.
@@ -220,43 +223,48 @@ async function sayOne(
     finish();
   }, TURN_CAP_MS);
 
-  let bytes: Uint8Array<ArrayBuffer> | null = null;
+  // a throw below must not leave the cap armed against a later line
   try {
-    bytes = (await window.jarvis?.ttsSpeak?.(text)) ?? null;
-  } catch {
-    bytes = null; // main unreachable — the local mouth still works
-  }
-  if (myGeneration !== generation) {
-    finish(); // stopped while awaiting — the bytes arrived too late to matter
-    return;
-  }
-  if (!bytes) {
-    localSpeak(text, finish);
+    let bytes: Uint8Array<ArrayBuffer> | null = null;
+    try {
+      bytes = (await window.jarvis?.ttsSpeak?.(text)) ?? null;
+    } catch {
+      bytes = null; // main unreachable — the local mouth still works
+    }
+    if (myGeneration !== generation) {
+      finish(); // stopped while awaiting — the bytes arrived too late to matter
+      return;
+    }
+    if (!bytes) {
+      localSpeak(text, finish);
+      started();
+      await ended;
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+    const audio = new Audio(url);
+    current = audio;
+    wireAnalyser(audio);
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (current === audio) current = null;
+      stoppedSounding();
+      finish();
+    };
+    await audio.play().catch((err) => {
+      if (current !== audio) return; // already stopped or capped — stale text must not speak
+      // the OS voice that follows sounds the same whether main handed back no
+      // bytes or the bytes would not play, and only main logs the first case
+      console.warn("[tts] play rejected:", err);
+      URL.revokeObjectURL(url);
+      current = null;
+      localSpeak(text, finish);
+    });
     started();
     await ended;
-    return;
-  }
-  const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
-  const audio = new Audio(url);
-  current = audio;
-  wireAnalyser(audio);
-  audio.onended = () => {
-    URL.revokeObjectURL(url);
-    if (current === audio) current = null;
-    stoppedSounding();
+  } finally {
     finish();
-  };
-  await audio.play().catch((err) => {
-    if (current !== audio) return; // already stopped or superseded — stale text must not speak
-    // the OS voice that follows sounds the same whether main handed back no
-    // bytes or the bytes would not play, and only main logs the first case
-    console.warn("[tts] play rejected:", err);
-    URL.revokeObjectURL(url);
-    current = null;
-    localSpeak(text, finish);
-  });
-  started();
-  await ended;
+  }
 }
 
 /** Cloud voice first; speechSynthesis whenever main hands back nothing — no
@@ -284,13 +292,14 @@ export function isSounding(): boolean {
   );
 }
 
-/** True while either mouth is talking and for DEAF_TAIL_MS after it stops.
+/** True while either mouth is talking, while a queued line's turn is in flight
+ * (its fetch can outlast the tail), and for DEAF_TAIL_MS after it stops.
  * The ear reads this and drops what it hears: the app must not transcribe its
  * own voice, and a summary naming a workspace called JARVIS says the wake word
  * out loud. The tail is the half that catches the echo — by the time the app's
  * own words come back as text, the mouth has already closed. */
 export function isSpeaking(): boolean {
-  return isSounding() || Date.now() < deafUntil;
+  return isSounding() || endTurn !== null || Date.now() < deafUntil;
 }
 
 // Either mouth may be the one talking, so both are silenced. An interrupted

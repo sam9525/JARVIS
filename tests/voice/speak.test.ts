@@ -132,8 +132,9 @@ describe("speak", () => {
   });
 
   it("moves straight on when there is no mouth at all", async () => {
-    await speak("one");
-    await speak("two");
+    await expect(speak("one")).resolves.toBeUndefined();
+    await expect(speak("two")).resolves.toBeUndefined();
+    expect(isSounding()).toBe(false);
   });
 
   it("does not cancel the line already playing", async () => {
@@ -356,7 +357,58 @@ describe("speak — cloud first, local fallback", () => {
       expect(played).toHaveLength(2);
       expect(pause).toHaveBeenCalled();
     } finally {
+      vi.useRealTimers(); // first, so the deaf tail stopSpeaking starts is not stamped with advanced fake time
       stopSpeaking();
+    }
+  });
+
+  it("a throw mid-turn does not leave the cap armed against a later line", async () => {
+    vi.useFakeTimers();
+    try {
+      (globalThis as any).window.jarvis = {
+        ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
+      };
+      (globalThis as any).URL.createObjectURL = vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error("boom");
+        })
+        .mockImplementation(() => "blob:x");
+      await speak("one"); // throws before the mouth opens
+      vi.advanceTimersByTime(TURN_CAP_MS / 2);
+      await speak("two");
+      expect(played).toHaveLength(1);
+      vi.advanceTimersByTime(TURN_CAP_MS / 2); // the dead turn's cap would fire here
+      await flush();
+      expect(pause).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers(); // first, so the deaf tail stopSpeaking starts is not stamped with advanced fake time
+      stopSpeaking();
+    }
+  });
+
+  it("is deaf while a queued line awaits its bytes", async () => {
+    vi.useFakeTimers();
+    let release!: (bytes: Uint8Array) => void;
+    const stalled = new Promise<Uint8Array>((resolve) => {
+      release = resolve;
+    });
+    try {
+      (globalThis as any).window.jarvis = {
+        ttsSpeak: vi.fn(() => stalled),
+      };
+      void speak("one");
+      await flush();
+      vi.advanceTimersByTime(DEAF_TAIL_MS * 3);
+      expect(isSounding()).toBe(false);
+      expect(isSpeaking()).toBe(true);
+      stopSpeaking();
+      vi.advanceTimersByTime(DEAF_TAIL_MS + 1);
+      expect(isSpeaking()).toBe(false);
+    } finally {
+      stopSpeaking();
+      release(new Uint8Array([1]));
+      await flush();
       vi.useRealTimers();
     }
   });
