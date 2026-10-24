@@ -43,6 +43,19 @@ describe("createSessionRegistry", () => {
     expect(reg.remove("d:/repo#1")).toBeUndefined();
   });
 
+  it("holds a reservation apart from the sessions until it is released", () => {
+    const reg = createSessionRegistry();
+    const pending = { key: "d:/repo#1", workspaceId: "d:/repo", label: "1" };
+    expect(reg.reserve(pending)).toBe(true);
+    expect(reg.reserve(pending)).toBe(false);
+    expect(reg.reserved("d:/repo")).toEqual([pending]);
+    expect(reg.reserved("d:/vault")).toEqual([]);
+    expect(reg.forWorkspace("d:/repo")).toEqual([]);
+    reg.release("d:/repo#1");
+    expect(reg.reserved("d:/repo")).toEqual([]);
+    expect(reg.reserve(pending)).toBe(true);
+  });
+
   it("replaces a session added again under the same key", () => {
     const reg = createSessionRegistry();
     reg.add(main);

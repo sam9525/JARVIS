@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CLAUDE_MODELS,
+  KILL_WAIT_MS,
   claudeCommand,
   createPtyManager,
   type PtyLike,
@@ -157,7 +158,7 @@ describe("pty-manager", () => {
     expect(mgr.keys()).toEqual(["d:/r#2"]);
   });
 
-  it("kill ends one session and forgets it", () => {
+  it("kill ends one session and forgets it", async () => {
     const spawned: ReturnType<typeof fakePty>[] = [];
     const spawn: SpawnFn = () => {
       const p = fakePty();
@@ -167,11 +168,59 @@ describe("pty-manager", () => {
     const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
     mgr.launch("d:/r", "d:/r", 80, 24);
     mgr.launch("d:/r#1", "d:/r/.worktrees/1", 80, 24);
-    expect(mgr.kill("d:/r#1")).toBe(true);
+    const killed = mgr.kill("d:/r#1");
     expect(spawned[1].kill).toHaveBeenCalled();
     expect(spawned[0].kill).not.toHaveBeenCalled();
     expect(mgr.has("d:/r#1")).toBe(false);
-    expect(mgr.kill("d:/r#1")).toBe(false);
+    spawned[1].emitExit(0);
+    await expect(killed).resolves.toBe(true);
+    await expect(mgr.kill("d:/r#1")).resolves.toBe(false);
+  });
+
+  it("kill resolves only once the pty's own exit fires, and stays silent", async () => {
+    const spawned: ReturnType<typeof fakePty>[] = [];
+    const onExit = vi.fn();
+    const mgr = createPtyManager(
+      () => {
+        const p = fakePty();
+        spawned.push(p);
+        return p;
+      },
+      { onData: vi.fn(), onExit },
+    );
+    mgr.launch("d:/r#1", "d:/r/.worktrees/1", 80, 24);
+    let settled = false;
+    const killed = mgr.kill("d:/r#1").then((v) => {
+      settled = true;
+      return v;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    spawned[0].emitExit(0);
+    await expect(killed).resolves.toBe(true);
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it("kill resolves at the deadline when no exit comes", async () => {
+    vi.useFakeTimers();
+    try {
+      const mgr = createPtyManager(() => fakePty(), {
+        onData: vi.fn(),
+        onExit: vi.fn(),
+      });
+      mgr.launch("d:/r#1", "d:/r/.worktrees/1", 80, 24);
+      let settled = false;
+      const killed = mgr.kill("d:/r#1").then((v) => {
+        settled = true;
+        return v;
+      });
+      await vi.advanceTimersByTimeAsync(KILL_WAIT_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(killed).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a killed pty's late exit does not disturb a relaunch of the key", () => {

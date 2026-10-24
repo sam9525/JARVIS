@@ -3,6 +3,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 const WORKTREES_DIR = ".worktrees";
+// ensureHooks writes this into every session folder; untracked, it would make
+// a finished worktree look dirty and keep it on disk at close
+const HOOK_SETTINGS = ".claude/settings.local.json";
 
 function git(cwd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -51,21 +54,24 @@ export async function existingWorktreeFolders(root: string): Promise<string[]> {
   }
 }
 
-async function excludeWorktreesFolder(root: string): Promise<void> {
+async function excludeSessionFiles(root: string): Promise<void> {
   const excludeFile = path.resolve(
     root,
     await git(root, ["rev-parse", "--git-path", "info/exclude"]),
   );
-  const entry = `${WORKTREES_DIR}/`;
   let current = "";
   try {
     current = await fs.readFile(excludeFile, "utf8");
   } catch {
     await fs.mkdir(path.dirname(excludeFile), { recursive: true });
   }
-  if (current.split(/\r?\n/).includes(entry)) return;
+  const lines = current.split(/\r?\n/);
+  const missing = [`${WORKTREES_DIR}/`, HOOK_SETTINGS].filter(
+    (entry) => !lines.includes(entry),
+  );
+  if (missing.length === 0) return;
   const separator = current === "" || current.endsWith("\n") ? "" : "\n";
-  await fs.appendFile(excludeFile, `${separator}${entry}\n`);
+  await fs.appendFile(excludeFile, `${separator}${missing.join("\n")}\n`);
 }
 
 export async function createWorktree(
@@ -73,7 +79,7 @@ export async function createWorktree(
   label: string,
 ): Promise<string> {
   const wtPath = worktreePath(root, label);
-  await excludeWorktreesFolder(root);
+  await excludeSessionFiles(root);
   await git(root, [
     "worktree",
     "add",

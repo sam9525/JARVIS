@@ -30,6 +30,9 @@ export interface PtyManagerEvents {
  * so a renderer bug cannot place arbitrary text on the command line. */
 export const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
 
+/** How long `kill` waits for the process to exit before resolving anyway. */
+export const KILL_WAIT_MS = 3000;
+
 export const isSessionId = (s: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
@@ -55,6 +58,8 @@ export function claudeCommand(
 
 export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
   const ptys = new Map<string, PtyLike>();
+  // a killed pty's exit resolves its kill instead of reaching events.onExit
+  const exitWaiters = new Map<PtyLike, () => void>();
   return {
     launch(
       key: string,
@@ -78,7 +83,10 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
       p.onData((d) => events.onData(key, d));
       p.onExit(({ exitCode }) => {
         // a killed pty's late exit must not remove a relaunch of the same key
-        if (ptys.get(key) !== p) return;
+        if (ptys.get(key) !== p) {
+          exitWaiters.get(p)?.();
+          return;
+        }
         ptys.delete(key);
         events.onExit(key, exitCode);
       });
@@ -98,12 +106,24 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
     resize(key: string, cols: number, rows: number): void {
       ptys.get(key)?.resize(cols, rows);
     },
-    kill(key: string): boolean {
+    /** Resolves once the process has exited — a dying process still holds
+     * its cwd, and Windows refuses to remove that folder — or at
+     * KILL_WAIT_MS if no exit comes. False when no pty has the key. */
+    kill(key: string): Promise<boolean> {
       const p = ptys.get(key);
-      if (!p) return false;
+      if (!p) return Promise.resolve(false);
       ptys.delete(key);
+      const exited = new Promise<boolean>((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          exitWaiters.delete(p);
+          resolve(true);
+        };
+        const timer = setTimeout(done, KILL_WAIT_MS);
+        exitWaiters.set(p, done);
+      });
       p.kill();
-      return true;
+      return exited;
     },
     killAll(): void {
       for (const p of ptys.values()) p.kill();

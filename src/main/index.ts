@@ -675,6 +675,9 @@ app.whenReady().then(async () => {
   const forwardPath = path.join(hookDir, "forward.mjs");
   const mcpPath = path.join(hookDir, "mcp.mjs");
   const sessions = createSessionRegistry();
+  // a resumed session reports no id until its first hook, so the id it was
+  // resumed with stands in — otherwise a close before any prompt forgets it
+  const resumedWith = new Map<string, string>();
   // one launch path for the terminal's button, the tab bar's `+` and
   // jarvis_launch. No label means the next free number.
   async function launchSession(
@@ -696,28 +699,49 @@ app.whenReady().then(async () => {
     error?: string;
   }> {
     const gitRepo = ws.kind === "code" && (await isGitRepo(ws.rootPath));
-    const taken = sessions.forWorkspace(ws.id).map((s) => s.label);
-    const label =
-      cleanLabel(opts.label ?? "") ||
-      nextLabel(
-        taken,
-        gitRepo ? await existingWorktreeFolders(ws.rootPath) : [],
-      );
+    const folders = gitRepo ? await existingWorktreeFolders(ws.rootPath) : [];
+    // From here to the reservation nothing awaits, so a launch running
+    // concurrently either sees this one's reservation or has already made its
+    // own: labels stay distinct and the cap holds.
+    const reserved = sessions.reserved(ws.id);
+    const registered = sessions.forWorkspace(ws.id);
+    const taken = [...registered, ...reserved].map((s) => s.label);
+    const label = cleanLabel(opts.label ?? "") || nextLabel(taken, folders);
     const key = sessionKey(ws.id, label);
+    // a key already launching is the same no-op as relaunching a live one
+    if (reserved.some((r) => r.key === key))
+      return { ok: true, hooksOk: true, key, label };
+    const live =
+      registered.filter((s) => ptyManager.has(s.key)).length + reserved.length;
     // relaunching a live key is a no-op in the pty manager, never a refusal
-    const live = sessions
-      .forWorkspace(ws.id)
-      .filter((s) => ptyManager.has(s.key));
-    if (!ptyManager.has(key) && live.length >= MAX_SESSIONS)
+    if (!ptyManager.has(key) && live >= MAX_SESSIONS)
       return { ok: false, hooksOk: false, key, label, error: "cap" };
+    sessions.reserve({ key, workspaceId: ws.id, label });
+    try {
+      return await startSession(ws, key, label, gitRepo, opts);
+    } finally {
+      sessions.release(key);
+    }
+  }
 
+  async function startSession(
+    ws: Workspace,
+    key: string,
+    label: string,
+    gitRepo: boolean,
+    opts: Parameters<typeof launchSession>[1],
+  ): ReturnType<typeof launchSession> {
     const useWorktree = label !== MAIN_LABEL && gitRepo;
     let cwd = ws.rootPath;
+    let created = false;
     if (useWorktree) {
       cwd = worktreePath(ws.rootPath, label);
       try {
         // a folder kept at an earlier close is reopened, not recreated
-        if (!(await isDirectory(cwd))) await createWorktree(ws.rootPath, label);
+        if (!(await isDirectory(cwd))) {
+          await createWorktree(ws.rootPath, label);
+          created = true;
+        }
       } catch (err) {
         console.error(`worktree create failed in ${ws.rootPath}:`, err);
         return {
@@ -761,6 +785,11 @@ app.whenReady().then(async () => {
     } catch (err) {
       // native load or spawn failure — the terminal reports it, app lives on
       console.error("pty launch failed:", err);
+      // a worktree made for this launch holds nothing yet, so it goes too
+      if (created)
+        await removeWorktreeIfDone(ws.rootPath, cwd).catch((e) =>
+          console.error(`worktree remove failed in ${ws.rootPath}:`, e),
+        );
       return { ok: false, ...result, error: (err as Error).message };
     }
     sessions.add({
@@ -776,12 +805,14 @@ app.whenReady().then(async () => {
   // Ends a session and forgets it. A worktree is removed only when nothing in
   // it would be lost; otherwise `kept` names the folder and why it stays. A
   // killed pty's exit is never reported by the pty manager, so the status and
-  // the renderer hear about it here.
+  // the renderer hear about it here. The removal waits for the process to
+  // exit, because a live cwd cannot be deleted on Windows.
   async function closeSession(
     key: string,
   ): Promise<{ ok: boolean; kept?: string }> {
     const info = sessions.remove(key);
-    const killed = ptyManager.kill(key);
+    resumedWith.delete(key);
+    const killed = await ptyManager.kill(key);
     if (killed) {
       pushStatus(status.ptyExited(key, Date.now(), 0));
       send("pty-exit", key, 0);
@@ -925,9 +956,6 @@ app.whenReady().then(async () => {
     Date.now(),
     (id) => workspaces.find((w) => w.id === id)?.rootPath,
   );
-  // a resumed session reports no id until its first hook, so the id it was
-  // resumed with stands in — otherwise a close before any prompt forgets it
-  const resumedWith = new Map<string, string>();
   const saveSessions = () => {
     const live: Record<string, SavedSession> = {};
     for (const key of ptyManager.keys()) {

@@ -51,6 +51,19 @@ describe("worktrees", () => {
     expect(await existingWorktreeFolders(root)).toEqual(["1", "2"]);
   });
 
+  it("removes a worktree holding only the JARVIS hook settings, excluded once", async () => {
+    const wt = await createWorktree(root, "1");
+    await createWorktree(root, "2");
+    await fs.mkdir(path.join(wt, ".claude"));
+    await fs.writeFile(path.join(wt, ".claude", "settings.local.json"), "{}");
+    const exclude = await fs.readFile(
+      path.join(root, ".git", "info", "exclude"),
+      "utf8",
+    );
+    expect(exclude.split(".claude/settings.local.json").length - 1).toBe(1);
+    expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+  });
+
   it("lists no folders when .worktrees is missing", async () => {
     expect(await existingWorktreeFolders(root)).toEqual([]);
   });
