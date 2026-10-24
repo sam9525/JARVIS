@@ -102,7 +102,7 @@ beforeEach(() => {
 // re-runs the component against the persisted state array
 function render(props: any = {}): any {
   idx = 0;
-  return TerminalPanel({ workspace, ...props });
+  return TerminalPanel({ workspace, sessionKey: workspace.id, ...props });
 }
 
 function find(node: any, pred: (n: any) => boolean): any {
@@ -186,6 +186,40 @@ describe("TerminalPanel attaching to a session it did not launch", () => {
     states[1] = { [workspace.id]: { kind: "exited", code: 0 } };
     expect(overlay(render())).toBeDefined();
     expect(overlay(render({ live: true }))).toBeUndefined();
+  });
+});
+
+describe("TerminalPanel sessions", () => {
+  const overlay = (tree: any) =>
+    find(tree, (n) => String(n.props?.className ?? "").includes("bg-panel/80"));
+
+  it("launches the main-folder session from the main key", () => {
+    findButton(render(), /Launch Claude/).onClick();
+    expect(ptyLaunch.mock.calls[0].slice(0, 2)).toEqual([workspace.id, "main"]);
+  });
+
+  // a numbered tab only exists while its session is live; its launch button
+  // would start the main session instead
+  it("offers no launch on a numbered session's tab", () => {
+    expect(overlay(render({ sessionKey: "w1#1" }))).toBeUndefined();
+  });
+
+  it("shows a notice with a dismiss control", () => {
+    const onDismissNotice = vi.fn();
+    const tree = render({
+      notice: "Worktree kept: D:/r/.worktrees/1 (dirty)",
+      onDismissNotice,
+    });
+    const notice = find(
+      tree,
+      (n) => n.props?.["data-testid"] === "terminal-notice",
+    );
+    expect(text(notice)).toContain("Worktree kept");
+    findButton(notice, /✕/).onClick();
+    expect(onDismissNotice).toHaveBeenCalled();
+    expect(
+      find(render(), (n) => n.props?.["data-testid"] === "terminal-notice"),
+    ).toBeUndefined();
   });
 });
 

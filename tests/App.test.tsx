@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { vi, describe, it, expect, beforeAll } from "vitest";
+import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 
 // Mock React hooks so the App function component can be invoked directly,
 // without a renderer. useCallback returns the fn without calling it — but its
@@ -12,7 +12,17 @@ vi.mock("react", async () => {
   const actual = (await vi.importActual("react")) as any;
   return {
     ...actual,
-    useState: (init: any) => [typeof init === "function" ? init() : init, noop],
+    useState: (init: any) => {
+      const i = stateCall++;
+      return [
+        i in stateOverrides
+          ? stateOverrides[i]
+          : typeof init === "function"
+            ? init()
+            : init,
+        noop,
+      ];
+    },
     useRef: (initial: any) => ({ current: initial }),
     useMemo: (fn: any, deps: any) => {
       memoDeps.push(deps);
@@ -31,6 +41,11 @@ const noop = () => {
 
 // every dependency array App hands to useMemo, in render order
 const memoDeps: any[][] = [];
+
+// useState values by call order for the next render; App declares
+// workspaces first and statuses third
+let stateOverrides: Record<number, any> = {};
+let stateCall = 0;
 
 // depth-first, source order — this file invokes App() directly, so the tree
 // is element objects rather than HTML
@@ -60,6 +75,11 @@ const walk = (n: any): any[] =>
 };
 
 describe("App shell", () => {
+  beforeEach(() => {
+    stateOverrides = {};
+    stateCall = 0;
+  });
+
   // the first import loads the whole renderer, three included, which runs
   // past a test timeout while the full suite shares the CPU; every test
   // below reads the cached module
@@ -144,5 +164,99 @@ describe("App shell", () => {
     expect(
       nodes.some((n: any) => n.props?.["data-testid"] === "clear-deck"),
     ).toBe(true);
+  });
+
+  describe("home terminal tabs", () => {
+    const self = {
+      id: "self",
+      name: "Main agent",
+      rootPath: "/u/main-agent",
+      kind: "vault",
+      sourceId: "unknown",
+      isSelf: true,
+    };
+    const scratch = {
+      id: "scr",
+      name: "Scratch",
+      rootPath: "/u/scratch",
+      kind: "vault",
+      sourceId: "unknown",
+      isScratch: true,
+    };
+    const session = (key: string, label: string, live = true) => ({
+      key,
+      label,
+      kind: live ? "idle" : "none",
+      live,
+      call: "",
+      since: 0,
+      worktree: false,
+    });
+    const row = (workspaceId: string, sessions: any[]) => ({
+      workspaceId,
+      kind: "idle",
+      call: "",
+      since: 0,
+      reads: 0,
+      edits: 0,
+      sessions,
+    });
+
+    const terminalPanel = async (scratchSessions: any[]) => {
+      const { default: App } = await import("../src/renderer/App");
+      const { defaultSettings } = await import("../src/shared/types");
+      const settings = defaultSettings();
+      stateOverrides = {
+        0: [self, scratch],
+        // expanded: home collapses to the inbox strip, which shows no tabs
+        4: {
+          ...settings,
+          panels: {
+            ...settings.panels,
+            home: {
+              ...settings.panels.home,
+              terminal: { x: 0, y: 0, w: 600, h: 400, z: 1, collapsed: false },
+            },
+          },
+        },
+        2: [
+          row("self", [session("self", "main")]),
+          row("scr", scratchSessions),
+        ],
+      };
+      stateCall = 0;
+      return walk((App as any)({})).find(
+        (n: any) => n.props?.id === "terminal",
+      );
+    };
+    const labels = (panel: any) =>
+      walk(panel.props.badge)
+        .find((n: any) => Array.isArray(n.props?.tabs))
+        .props.tabs.map((t: any) => t.label);
+
+    it("shows MAIN AGENT alone while scratch has no live session", async () => {
+      const panel = await terminalPanel([session("scr", "main", false)]);
+      expect(labels(panel)).toEqual(["MAIN AGENT"]);
+    });
+
+    it("shows SCRATCH beside MAIN AGENT for one live scratch session", async () => {
+      const panel = await terminalPanel([session("scr#1", "1")]);
+      expect(labels(panel)).toEqual(["MAIN AGENT", "SCRATCH"]);
+    });
+
+    it("numbers several scratch sessions", async () => {
+      const panel = await terminalPanel([
+        session("scr#1", "1"),
+        session("scr#2", "2"),
+      ]);
+      expect(labels(panel)).toEqual(["MAIN AGENT", "SCRATCH 1", "SCRATCH 2"]);
+    });
+
+    it("keeps the role word in the title and drops the name", async () => {
+      const panel = await terminalPanel([]);
+      expect(panel.props.title.startsWith("ORCHESTRATOR")).toBe(true);
+      expect(panel.props.title).not.toContain("// MAIN AGENT");
+      expect(panel.props.title).not.toContain("//");
+    });
   });
 });

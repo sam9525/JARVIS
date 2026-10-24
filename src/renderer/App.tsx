@@ -16,7 +16,14 @@ import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
-import TerminalPanel, { onTerminalTyped } from "./terminal/TerminalPanel";
+import TerminalPanel, {
+  disposeTerminal,
+  onTerminalTyped,
+  terminalSize,
+} from "./terminal/TerminalPanel";
+import SessionTabs from "./terminal/SessionTabs";
+import { homeTabs, pickTab, projectTabs } from "./terminal/session-tabs";
+import { MAX_SESSIONS } from "../shared/session-key";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
@@ -186,6 +193,16 @@ export default function App() {
     seq: number;
   }>({ open: false, todo: null, project: "", seq: 0 });
   const [deckCleared, setDeckCleared] = useState(false);
+  // the terminal tab each panel owner shows, keyed by the owner's workspace id
+  // (home is the main agent's); a key that is no longer a tab reads as main
+  const [selectedTabs, setSelectedTabs] = useState<Map<string, string>>(
+    new Map(),
+  );
+  // a tab action's one-line result, shown only in the owner it came from
+  const [terminalNotice, setTerminalNotice] = useState<{
+    ownerId: string;
+    text: string;
+  } | null>(null);
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
   // than a visible failure
@@ -1346,15 +1363,62 @@ export default function App() {
       )}
 
       {(() => {
-        const ws = showHome ? orchestrator : active;
-        if (!ws) return null;
+        const owner = showHome ? orchestrator : active;
+        if (!owner) return null;
         // home's terminal collapses to an inbox strip rather than to its title
         // bar — the fleet's state is what you want while the session is parked
         const inboxOnly = showHome && panelState("terminal").collapsed;
+        const tabs = showHome
+          ? homeTabs(
+              owner,
+              workspaces.find((w) => w.isScratch),
+              statuses,
+            )
+          : projectTabs(owner, statuses);
+        const tab = pickTab(tabs, selectedTabs.get(owner.id));
+        const ws = workspaces.find((w) => w.id === tab.workspaceId) ?? owner;
+        const select = (key: string) =>
+          setSelectedTabs((m) => new Map(m).set(owner.id, key));
+        const notify = (text: string) =>
+          setTerminalNotice({ ownerId: owner.id, text });
+        const closeTab = (key: string) => {
+          window.jarvis
+            .ptyClose(key)
+            .then(({ kept }) => {
+              disposeTerminal(key);
+              if (kept) notify(`Worktree kept: ${kept}`);
+            })
+            .catch((err) => notify(`Could not close the session: ${err}`));
+        };
+        const newTab = () => {
+          const { cols, rows } = terminalSize(tab.key);
+          window.jarvis
+            .ptyLaunch(owner.id, null, cols, rows)
+            .then((r) => {
+              if (r.ok && r.key) return select(r.key);
+              notify(
+                r.error === "cap"
+                  ? `${MAX_SESSIONS} sessions are already open`
+                  : `Could not open a session${r.error ? `: ${r.error}` : ""}`,
+              );
+            })
+            .catch((err) => notify(`Could not open a session: ${err}`));
+        };
         return (
           <Panel
             id="terminal"
-            title={`${showHome ? "ORCHESTRATOR" : "SESSION"} // ${ws.name.toUpperCase()}`}
+            title={showHome ? "ORCHESTRATOR" : "SESSION"}
+            badge={
+              inboxOnly ? undefined : (
+                <SessionTabs
+                  tabs={tabs}
+                  value={tab.key}
+                  onSelect={select}
+                  onNew={showHome ? undefined : newTab}
+                  onClose={closeTab}
+                />
+              )
+            }
             compactWidth={
               showHome ? Math.round(viewport.width * 0.22) : undefined
             }
@@ -1367,7 +1431,16 @@ export default function App() {
           >
             <TerminalPanel
               workspace={ws}
-              live={statuses.some((s) => s.workspaceId === ws.id && s.live)}
+              sessionKey={tab.key}
+              live={statuses.some((s) =>
+                s.sessions.some((x) => x.key === tab.key && x.live),
+              )}
+              notice={
+                terminalNotice?.ownerId === owner.id
+                  ? terminalNotice.text
+                  : null
+              }
+              onDismissNotice={() => setTerminalNotice(null)}
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
               visible={stage >= 3}

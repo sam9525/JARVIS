@@ -5,6 +5,8 @@ import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
 import { LBL_AM } from "../ui/hud";
+import { PILL } from "./status-colours";
+import { MAIN_LABEL, sessionKey as keyOf } from "../../shared/session-key";
 import type {
   StatusKind,
   Workspace,
@@ -18,16 +20,6 @@ type Status =
 
 type Entry = { term: Terminal; fit: FitAddon; el: HTMLDivElement };
 
-// same state colors the rail badges and inbox dots use — amber is waiting on
-// you (asking or blocked), red is a session that died
-const PILL: Record<StatusKind, string> = {
-  working: "border-accent/30 bg-accent/10 text-accent",
-  asking: "border-warm/30 bg-warm/10 text-warm",
-  blocked: "border-warm/30 bg-warm/10 text-warm",
-  idle: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
-  crashed: "border-alarm/30 bg-alarm/10 text-alarm",
-  none: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
-};
 const PILL_LABEL: Record<StatusKind, string> = {
   working: "working",
   asking: "asking you",
@@ -77,15 +69,17 @@ const BAR: Record<StatusKind, string> = {
   none: "from-ink-dim",
 };
 
-// Module-level so terminals (and their scrollback) survive workspace
-// switches and panel collapse/expand — the component only attaches them.
+// Module-level and keyed by session key, so terminals (and their scrollback)
+// survive tab and workspace switches and panel collapse/expand — the component
+// only attaches them.
 const entries = new Map<string, Entry>();
 const exitListeners = new Set<(id: string, code: number) => void>();
 const typedListeners = new Set<(id: string) => void>();
 let subscribed = false;
 
-/** Fires when a person types text or Enter into a workspace's terminal.
- *  Escape sequences (arrows, xterm's own focus reports) do not count. */
+/** Fires with the session key when a person types text or Enter into a
+ *  session's terminal. Escape sequences (arrows, xterm's own focus reports)
+ *  do not count. */
 export function onTerminalTyped(fn: (id: string) => void): () => void {
   typedListeners.add(fn);
   return () => typedListeners.delete(fn);
@@ -96,7 +90,9 @@ export function onTerminalTyped(fn: (id: string) => void): () => void {
 function ensureSubscribed() {
   if (subscribed) return;
   subscribed = true;
-  window.jarvis.onPtyData((id, data) => entries.get(id)?.term.write(data));
+  // a session starts writing before its tab is first shown, so its terminal
+  // is made on its first output rather than on first attach
+  window.jarvis.onPtyData((id, data) => entryFor(id).term.write(data));
   window.jarvis.onPtyExit((id, code) => {
     for (const l of exitListeners) l(id, code);
   });
@@ -129,18 +125,39 @@ function entryFor(id: string): Entry {
   return e;
 }
 
+/** Drops a closed session's terminal, so a later session reusing its label
+ *  starts on an empty screen. */
+export function disposeTerminal(key: string): void {
+  entries.get(key)?.term.dispose();
+  entries.delete(key);
+}
+
+/** The size a new session should start at: that of the terminal on screen. */
+export function terminalSize(key: string): { cols: number; rows: number } {
+  const e = entries.get(key);
+  return e ? { cols: e.term.cols, rows: e.term.rows } : { cols: 80, rows: 24 };
+}
+
 export default function TerminalPanel({
   workspace,
+  sessionKey,
   live,
+  notice,
+  onDismissNotice,
   inbox,
   inboxOnly,
   visible,
 }: {
   workspace: Workspace;
+  // which of the workspace's sessions this panel shows
+  sessionKey: string;
   // main spawns the main agent's pty at boot, so this panel never saw that
   // launch. WorkspaceStatus.live is the renderer's only record of it — without
   // it the launch overlay covers a session that is already running.
   live?: boolean;
+  // a one-line message from a tab action, such as a worktree kept on close
+  notice?: string | null;
+  onDismissNotice?: () => void;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
   inbox?: { workspaces: Workspace[]; statuses: WorkspaceStatus[] };
@@ -170,13 +187,16 @@ export default function TerminalPanel({
   // this panel did not make still ends here rather than staying "running".
   // main clears `live` on every exit, so live beside a remembered exit means a
   // later launch this panel did not make (jarvis_launch) — the exit is stale.
-  const local = localStatuses[workspace.id];
+  const local = localStatuses[sessionKey];
   const status: Status =
     local && !(local.kind === "exited" && live)
       ? local
       : live
         ? { kind: "running", hooksOk: true }
         : { kind: "idle" };
+  // the launch button starts the main-folder session; a numbered session's tab
+  // exists only while it is live, so it never offers one
+  const isMain = sessionKey === keyOf(workspace.id, MAIN_LABEL);
   // the reindex command comes from the workspace's own graph source — the
   // panel never names gitnexus, so a graphify workspace gets `/graphify .`
   const [reindexCommand, setReindexCommand] = useState<string | null>(null);
@@ -249,28 +269,28 @@ export default function TerminalPanel({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const e = entryFor(workspace.id);
+    const e = entryFor(sessionKey);
     host.replaceChildren(e.el);
     const refit = () => {
       e.fit.fit();
-      window.jarvis.ptyResize(workspace.id, e.term.cols, e.term.rows);
+      window.jarvis.ptyResize(sessionKey, e.term.cols, e.term.rows);
     };
     refit();
     const observer = new ResizeObserver(refit);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [workspace.id]);
+  }, [sessionKey]);
 
   // Separate from the mount effect above, and keyed on visibility: the boot
   // sequence holds this panel behind `visibility: hidden` until its stage, and
   // a focus call inside a hidden subtree is a silent no-op.
   useEffect(() => {
     if (visible === false) return;
-    entryFor(workspace.id).term.focus();
-  }, [workspace.id, visible]);
+    entryFor(sessionKey).term.focus();
+  }, [sessionKey, visible]);
 
   const launch = (dangerous = false) => {
-    const e = entryFor(workspace.id);
+    const e = entryFor(sessionKey);
     e.fit.fit();
     window.jarvis
       .ptyLaunch(
@@ -294,7 +314,7 @@ export default function TerminalPanel({
           );
         setLocalStatuses((m) => ({
           ...m,
-          [workspace.id]: { kind: "running", hooksOk },
+          [sessionKey]: { kind: "running", hooksOk },
         }));
       })
       .catch((err) => {
@@ -375,6 +395,21 @@ export default function TerminalPanel({
           </div>
         </div>
       )}
+      {notice && !inboxOnly && (
+        <div
+          className="flex flex-none items-center gap-2 border-b border-edge px-3 py-1 text-[12px] text-warm"
+          data-testid="terminal-notice"
+        >
+          <span className="min-w-0 flex-1 break-words">{notice}</span>
+          <button
+            className="flex-none cursor-pointer text-[10px] text-ink-dim hover:text-accent"
+            title="Dismiss"
+            onClick={onDismissNotice}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div
         className="relative min-h-0 flex-1"
         data-testid="terminal-body"
@@ -384,13 +419,13 @@ export default function TerminalPanel({
           <button
             className={LBL_AM + " absolute top-1 right-2 z-10 cursor-pointer"}
             title={`Graph is behind HEAD — type \`${reindexCommand}\``}
-            onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
+            onClick={() => window.jarvis.ptyInput(sessionKey, reindexCommand)}
           >
             index stale
           </button>
         )}
         <div ref={hostRef} className="h-full w-full" />
-        {status.kind !== "running" && (
+        {isMain && status.kind !== "running" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
             <div className="flex gap-1.5" data-testid="launch-model">
               {MODELS.map(({ value, label }) => (

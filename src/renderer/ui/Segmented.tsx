@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from "react";
 import { LBL_CY, LBL_DIM } from "./hud";
 
 type Props<T extends string> = {
-  options: { value: T; label: string }[];
+  options: { value: T; label: React.ReactNode }[];
   value: T;
   onChange: (v: T) => void;
 };
