@@ -46,6 +46,27 @@ describe("parseSessionKey", () => {
       label: "c",
     });
   });
+
+  it("reads a main key whose workspace id holds a # as the main session", () => {
+    expect(parseSessionKey("d:/code/c#-app", ["d:/code/c#-app"])).toEqual({
+      workspaceId: "d:/code/c#-app",
+      label: "main",
+    });
+  });
+
+  it("splits a labelled key whose workspace id holds a # at the last #", () => {
+    expect(parseSessionKey("d:/code/c#-app#2", ["d:/code/c#-app"])).toEqual({
+      workspaceId: "d:/code/c#-app",
+      label: "2",
+    });
+  });
+
+  it("round-trips a main key through sessionKey for a workspace id holding a #", () => {
+    const workspaceId = "d:/code/c#-app";
+    expect(
+      parseSessionKey(sessionKey(workspaceId, "main"), [workspaceId]),
+    ).toEqual({ workspaceId, label: "main" });
+  });
 });
 
 describe("cleanLabel", () => {
@@ -59,6 +80,10 @@ describe("cleanLabel", () => {
 
   it("returns an empty string for an all-blank label", () => {
     expect(cleanLabel("   ")).toBe("");
+  });
+
+  it("drops a trailing space left by the 20-character cut", () => {
+    expect(cleanLabel("a".repeat(19) + " b")).toBe("a".repeat(19));
   });
 });
 

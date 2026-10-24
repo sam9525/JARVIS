@@ -10,10 +10,19 @@ export function sessionKey(workspaceId: string, label: string): string {
     : `${workspaceId}${KEY_SEPARATOR}${label}`;
 }
 
-export function parseSessionKey(key: string): {
+/**
+ * Callers that know the workspace list must pass it: a workspace id may hold
+ * a `#` itself, and a bare key matching one of those ids is its main session.
+ */
+export function parseSessionKey(
+  key: string,
+  workspaceIds: Iterable<string> = [],
+): {
   workspaceId: string;
   label: string;
 } {
+  if (new Set(workspaceIds).has(key))
+    return { workspaceId: key, label: MAIN_LABEL };
   const separatorAt = key.lastIndexOf(KEY_SEPARATOR);
   if (separatorAt === -1) return { workspaceId: key, label: MAIN_LABEL };
   return {
