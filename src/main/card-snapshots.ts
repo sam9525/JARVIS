@@ -137,13 +137,27 @@ export async function saveSnapshot(
   const file = snapshotFile(dir, ws.id);
   // one tmp name per save, so two saves in flight never share a file
   const tmp = `${file}.${randomUUID()}.tmp`;
-  await fs.mkdir(dir, { recursive: true });
-  try {
-    await fs.writeFile(tmp, json, "utf8");
-    await fs.rename(tmp, file);
-  } catch (err) {
-    await fs.rm(tmp, { force: true });
-    throw err;
-  }
+  // Windows refuses a rename onto a file another rename is still replacing
+  // (EPERM), so saves of one file queue behind each other in call order and
+  // the last wins. Nothing is awaited before the save joins the queue.
+  const run = (saving.get(file) ?? Promise.resolve()).then(async () => {
+    await fs.mkdir(dir, { recursive: true });
+    try {
+      await fs.writeFile(tmp, json, "utf8");
+      await fs.rename(tmp, file);
+    } catch (err) {
+      await fs.rm(tmp, { force: true });
+      throw err;
+    }
+  });
+  const tail = run.catch(() => undefined);
+  saving.set(file, tail);
+  void tail.then(() => {
+    if (saving.get(file) === tail) saving.delete(file);
+  });
+  await run;
   return true;
 }
+
+// the newest save of each snapshot file, which the next save waits for
+const saving = new Map<string, Promise<void>>();

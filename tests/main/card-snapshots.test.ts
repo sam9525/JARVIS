@@ -97,6 +97,18 @@ describe("saveSnapshot", () => {
     ]);
   });
 
+  it("keeps the last of many saves in flight for one card", async () => {
+    const saves = Array.from({ length: 20 }, (_, i) =>
+      saveSnapshot(dir, wsA, { ...body, look: String(i) }),
+    );
+    expect(await Promise.all(saves)).toEqual(Array(20).fill(true));
+    const stored = JSON.parse(
+      await fs.readFile(snapshotFile(dir, "a"), "utf8"),
+    );
+    expect(stored.look).toBe("19");
+    expect(await fs.readdir(dir)).toHaveLength(1);
+  });
+
   it("writes a valid body", async () => {
     expect(await saveSnapshot(dir, wsA, body)).toBe(true);
     const stored = JSON.parse(
