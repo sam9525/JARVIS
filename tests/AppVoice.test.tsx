@@ -183,6 +183,7 @@ describe("App: voice restored-message race", () => {
           since: Date.now(),
           reads: 0,
           edits: 0,
+          sessions: [],
         },
       ]);
     });
@@ -206,6 +207,7 @@ describe("App: voice restored-message race", () => {
           since: Date.now(),
           reads: 0,
           edits: 0,
+          sessions: [],
         },
       ]);
     });
@@ -236,6 +238,7 @@ describe("App: voice restored-message race", () => {
           since: Date.now(),
           reads: 0,
           edits: 0,
+          sessions: [],
         },
       ]);
     });
@@ -255,6 +258,7 @@ describe("App: voice restored-message race", () => {
           since: Date.now(),
           reads: 0,
           edits: 0,
+          sessions: [],
         },
       ]);
     });
@@ -403,6 +407,7 @@ describe("App: a long message is spoken as a summary", () => {
             since: Date.now(),
             reads: 0,
             edits: 0,
+            sessions: [],
           },
         ]);
       });
@@ -434,6 +439,7 @@ describe("App: a long message is spoken as a summary", () => {
           since: Date.now(),
           reads: 0,
           edits: 0,
+          sessions: [],
         },
       ]);
     });
@@ -461,6 +467,7 @@ describe("App: a main-agent question is spoken", () => {
           since: Date.now(),
           reads: 0,
           edits: 0,
+          sessions: [],
         },
       ]);
     }); // spend the restore swallow
@@ -506,6 +513,7 @@ describe("App: a main-agent question is spoken", () => {
       since: Date.now(),
       reads: 0,
       edits: 0,
+      sessions: [],
     });
     await act(async () => statusListener!([row("", 0)])); // spend the restore swallow
     const open = {

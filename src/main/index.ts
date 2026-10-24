@@ -659,7 +659,15 @@ app.whenReady().then(async () => {
       ? await hasTranscript(transcriptDir(os.homedir(), ws.rootPath))
       : (resumeId ?? false);
     try {
-      ptyManager.launch(ws, cols, rows, dangerous, model, resume);
+      ptyManager.launch(
+        ws.id,
+        ws.rootPath,
+        cols,
+        rows,
+        dangerous,
+        model,
+        resume,
+      );
       pushStatus(status.ptyLaunched(ws.id, Date.now()));
     } catch (err) {
       // native load or spawn failure — the terminal reports it, app lives on
@@ -741,7 +749,15 @@ app.whenReady().then(async () => {
     const pulled = due && notesDir ? pullNotes(notesDir) : Promise.resolve();
     // placeholder geometry — the terminal panel resizes the pty the moment it
     // attaches, so this size never reaches the screen
-    ptyManager.launch(mainAgent, 80, 24, false, MAIN_AGENT_MODEL, resume);
+    ptyManager.launch(
+      mainAgent.id,
+      mainAgent.rootPath,
+      80,
+      24,
+      false,
+      MAIN_AGENT_MODEL,
+      resume,
+    );
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
     void Promise.all([settled, pulled]).then(async ([ready]) => {
       if (!ready || !notesDir || !briefTo) return;

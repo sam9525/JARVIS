@@ -1,4 +1,6 @@
+import { MAIN_LABEL, parseSessionKey } from "../shared/session-key";
 import type {
+  SessionStatus,
   StatusEvent,
   StatusKind,
   ToolEvent,
@@ -14,6 +16,9 @@ export const STALE_MS = 60000;
 export const EXPIRE_MS = 6 * 60 * 60 * 1000;
 
 interface Entry {
+  workspaceId: string;
+  label: string;
+  worktree: boolean;
   kind: StatusKind;
   call: string;
   message: string;
@@ -36,21 +41,54 @@ export interface StatusStore {
   restore(saved: unknown): void;
   applyStatus(e: StatusEvent): boolean;
   countTool(e: ToolEvent): boolean;
-  markDelegated(workspaceId: string, by: string, now: number): boolean;
-  ptyLaunched(workspaceId: string, now: number): boolean;
-  ptyExited(workspaceId: string, now: number, exitCode: number): boolean;
+  markDelegated(key: string, by: string, now: number): boolean;
+  ptyLaunched(key: string, now: number): boolean;
+  sessionOpened(key: string, worktree: boolean, now: number): boolean;
+  ptyExited(key: string, now: number, exitCode: number): boolean;
   sweep(now: number): boolean;
   snapshot(): WorkspaceStatus[];
-  sessionId(workspaceId: string): string;
+  sessionId(key: string): string;
 }
+
+// asking and blocked share a rank: both wait on the user
+const URGENCY: Record<StatusKind, number> = {
+  asking: 0,
+  blocked: 0,
+  working: 1,
+  crashed: 2,
+  idle: 3,
+  none: 4,
+};
+
+const bySessionOrder = (a: Entry, b: Entry): number =>
+  a.label === b.label
+    ? 0
+    : a.label === MAIN_LABEL
+      ? -1
+      : b.label === MAIN_LABEL
+        ? 1
+        : a.label < b.label
+          ? -1
+          : 1;
 
 export function createStatusStore(): StatusStore {
   const entries = new Map<string, Entry>();
 
-  const entry = (id: string, now: number): Entry => {
-    let e = entries.get(id);
+  // The store does not know the workspace list, so an entry records its own
+  // workspace id and label: from the event when there is one, else parsed from
+  // the key.
+  const entry = (
+    key: string,
+    now: number,
+    owner?: { workspaceId: string; label: string },
+  ): Entry => {
+    let e = entries.get(key);
     if (!e) {
+      const { workspaceId, label } = owner ?? parseSessionKey(key);
       e = {
+        workspaceId,
+        label,
+        worktree: false,
         kind: "none",
         call: "",
         message: "",
@@ -65,10 +103,18 @@ export function createStatusStore(): StatusStore {
         ptyAlive: false,
         ptyOwned: false,
       };
-      entries.set(id, e);
+      entries.set(key, e);
     }
     return e;
   };
+
+  const ownerOf = (ev: {
+    workspaceId: string;
+    sessionKey: string;
+  }): { workspaceId: string; label: string } => ({
+    workspaceId: ev.workspaceId,
+    label: parseSessionKey(ev.sessionKey, [ev.workspaceId]).label,
+  });
 
   const resetCounts = (e: Entry) => {
     e.reads.clear();
@@ -94,7 +140,7 @@ export function createStatusStore(): StatusStore {
     },
 
     applyStatus(ev) {
-      const e = entry(ev.workspaceId, ev.ts);
+      const e = entry(ev.sessionKey, ev.ts, ownerOf(ev));
       // A new session's inbox starts empty — but only work takes a workspace
       // over. Claude's ~60s idle Notification, and every event from a second
       // `claude` in the same folder (a CLI window resolves to the same
@@ -138,7 +184,7 @@ export function createStatusStore(): StatusStore {
     },
 
     countTool(ev) {
-      const e = entry(ev.workspaceId, ev.ts);
+      const e = entry(ev.sessionKey, ev.ts, ownerOf(ev));
       let changed = false;
       // a new session clears the counts but must NOT swallow the event that
       // announced it — that event is itself the session's first activity
@@ -196,6 +242,13 @@ export function createStatusStore(): StatusStore {
     // session. A non-zero exit is a different fact and gets its own word —
     // and keeps the message, because what Claude last said still matters
     // when the session dies.
+    sessionOpened(key, worktree, now) {
+      const e = entry(key, now);
+      const changed = e.worktree !== worktree;
+      e.worktree = worktree;
+      return changed;
+    },
+
     ptyExited(id, now, exitCode) {
       const e = entries.get(id);
       if (!e) return false;
@@ -243,21 +296,48 @@ export function createStatusStore(): StatusStore {
     },
 
     snapshot() {
-      return [...entries.entries()].map(([workspaceId, e]) => ({
-        workspaceId,
-        kind: e.kind,
-        call: e.call,
-        message: e.message,
-        messageAt: e.messageAt,
-        delegatedBy: e.delegatedBy,
-        live: e.ptyOwned,
-        since: e.since,
-        reads: e.reads.size,
-        edits: e.edits.size,
-      }));
+      const byWorkspace = new Map<string, [string, Entry][]>();
+      for (const pair of entries) {
+        const group = byWorkspace.get(pair[1].workspaceId) ?? [];
+        group.push(pair);
+        byWorkspace.set(pair[1].workspaceId, group);
+      }
+      return [...byWorkspace].map(([workspaceId, group]) => {
+        group.sort((x, y) => bySessionOrder(x[1], y[1]));
+        const all = group.map(([, e]) => e);
+        // the sort is stable, so ties keep the main-first order
+        const urgent = all.reduce((best, e) =>
+          URGENCY[e.kind] < URGENCY[best.kind] ? e : best,
+        );
+        const latest = all.reduce((best, e) =>
+          e.messageAt > best.messageAt ? e : best,
+        );
+        const sessions: SessionStatus[] = group.map(([key, e]) => ({
+          key,
+          label: e.label,
+          kind: e.kind,
+          live: e.ptyOwned,
+          call: e.call,
+          since: e.since,
+          worktree: e.worktree,
+        }));
+        return {
+          workspaceId,
+          kind: urgent.kind,
+          call: urgent.call,
+          message: latest.message,
+          messageAt: latest.messageAt,
+          delegatedBy: urgent.delegatedBy,
+          live: all.some((e) => e.ptyOwned),
+          since: urgent.since,
+          reads: all.reduce((n, e) => n + e.reads.size, 0),
+          edits: all.reduce((n, e) => n + e.edits.size, 0),
+          sessions,
+        };
+      });
     },
 
-    // "" until a hook has spoken for this workspace
+    // "" until a hook has spoken for this session
     sessionId(id) {
       return entries.get(id)?.sessionId ?? "";
     },

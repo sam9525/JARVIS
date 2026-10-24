@@ -192,7 +192,7 @@ describe("status store", () => {
   it("keeps workspaces independent", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ workspaceId: "w1", kind: "blocked" }));
-    s.applyStatus(ev({ workspaceId: "w2", kind: "working" }));
+    s.applyStatus(ev({ workspaceId: "w2", sessionKey: "w2", kind: "working" }));
     expect(kindOf(s, "w1")).toBe("blocked");
     expect(kindOf(s, "w2")).toBe("working");
   });
@@ -475,5 +475,80 @@ describe("crashed", () => {
     s.sweep(1000 + STALE_MS);
     const row = s.snapshot().find((r) => r.workspaceId === "w1");
     expect(row?.kind).toBe("idle");
+  });
+
+  describe("sessions", () => {
+    const sess = (label: string) => ({
+      sessionKey: label === "main" ? "d:/r" : `d:/r#${label}`,
+      workspaceId: "d:/r",
+    });
+
+    it("one row per workspace: the most urgent session sets the kind", () => {
+      const s = createStatusStore();
+      s.applyStatus(ev({ ...sess("main"), kind: "working" }));
+      s.applyStatus(ev({ ...sess("1"), kind: "asking", call: "Ask(x)" }));
+      const rows = s.snapshot();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        workspaceId: "d:/r",
+        kind: "asking",
+        call: "Ask(x)",
+      });
+      expect(rows[0].sessions.map((x) => [x.key, x.label, x.kind])).toEqual([
+        ["d:/r", "main", "working"],
+        ["d:/r#1", "1", "asking"],
+      ]);
+    });
+
+    it("the message comes from the session that spoke last", () => {
+      const s = createStatusStore();
+      s.applyStatus(
+        ev({ ...sess("main"), kind: "idle", message: "old", ts: 1000 }),
+      );
+      s.applyStatus(
+        ev({ ...sess("1"), kind: "idle", message: "new", ts: 2000 }),
+      );
+      expect(s.snapshot()[0]).toMatchObject({
+        message: "new",
+        messageAt: 2000,
+      });
+    });
+
+    it("sums counts, and is live if any session is", () => {
+      const s = createStatusStore();
+      s.countTool(tool({ ...sess("main"), nodeIds: ["a"] }));
+      s.countTool(tool({ ...sess("1"), nodeIds: ["b", "c"] }));
+      s.ptyLaunched("d:/r#1", 1000);
+      const row = s.snapshot()[0];
+      expect(row.reads).toBe(3);
+      expect(row.live).toBe(true);
+      expect(row.sessions.find((x) => x.label === "main")?.live).toBe(false);
+    });
+
+    it("sessionOpened records the worktree flag", () => {
+      const s = createStatusStore();
+      s.ptyLaunched("d:/r#2", 1000);
+      expect(s.sessionOpened("d:/r#2", true, 1000)).toBe(true);
+      expect(s.snapshot()[0].sessions[0]).toMatchObject({
+        label: "2",
+        worktree: true,
+      });
+    });
+
+    it("sessionId is per session", () => {
+      const s = createStatusStore();
+      s.applyStatus(ev({ ...sess("main"), sessionId: "a" }));
+      s.applyStatus(ev({ ...sess("1"), sessionId: "b" }));
+      expect(s.sessionId("d:/r")).toBe("a");
+      expect(s.sessionId("d:/r#1")).toBe("b");
+    });
+
+    it("restore puts a saved row on the workspace's main session", () => {
+      const s = createStatusStore();
+      s.restore([{ workspaceId: "d:/r", message: "hi", since: 500 }]);
+      const row = s.snapshot()[0];
+      expect(row).toMatchObject({ workspaceId: "d:/r", message: "hi" });
+      expect(row.sessions.map((x) => x.key)).toEqual(["d:/r"]);
+    });
   });
 });

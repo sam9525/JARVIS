@@ -47,6 +47,7 @@ const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
   since: 0,
   reads: 0,
   edits: 0,
+  sessions: [],
   ...over,
 });
 
@@ -347,6 +348,7 @@ describe("WorkspaceRail source groups", () => {
             since: 0,
             reads: 0,
             edits: 0,
+            sessions: [],
           },
         ],
         homeActive: false,
@@ -367,6 +369,7 @@ describe("WorkspaceRail source groups", () => {
         since: 0,
         reads: 0,
         edits: 0,
+        sessions: [],
       },
     ];
     const live = renderToStaticMarkup(

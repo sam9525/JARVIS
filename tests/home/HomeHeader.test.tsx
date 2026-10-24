@@ -12,6 +12,7 @@ const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
   since: 0,
   reads: 0,
   edits: 0,
+  sessions: [],
   ...over,
 });
 
@@ -80,6 +81,7 @@ describe("summary over six kinds", () => {
     since: 0,
     reads: 0,
     edits: 0,
+    sessions: [],
   });
 
   it("counts the two stopped states separately", () => {

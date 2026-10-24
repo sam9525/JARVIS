@@ -29,7 +29,19 @@ export type StatusKind =
   | "crashed" // the PTY exited non-zero
   | "none"; // no session
 
-// what the rail badge and the mission-control cards read
+// one Claude Code session of a workspace; `main` is the one in the folder itself
+export interface SessionStatus {
+  key: string;
+  label: string;
+  kind: StatusKind;
+  live: boolean; // this app's own pty is attached right now
+  call: string;
+  since: number; // ms epoch of the last kind change
+  worktree: boolean; // runs in its own git worktree rather than the folder
+}
+
+// what the rail badge and the mission-control cards read: the aggregate of the
+// workspace's sessions, plus the sessions themselves
 export interface WorkspaceStatus {
   workspaceId: string;
   kind: StatusKind;
@@ -41,6 +53,7 @@ export interface WorkspaceStatus {
   since: number; // ms epoch of the last kind change — drives "40s ago"
   reads: number; // distinct files read this session
   edits: number; // distinct files edited this session
+  sessions: SessionStatus[]; // `main` first, then by label
 }
 
 // emitted by the status mapper; "none" is never a hook outcome, only a PTY one

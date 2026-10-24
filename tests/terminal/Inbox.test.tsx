@@ -35,6 +35,7 @@ const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
   since: 0,
   reads: 0,
   edits: 0,
+  sessions: [],
   ...over,
 });
 

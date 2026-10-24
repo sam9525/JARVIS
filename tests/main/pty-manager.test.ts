@@ -5,6 +5,7 @@ import {
   claudeCommand,
   createPtyManager,
   type PtyLike,
+  type SpawnOpts,
   type SpawnFn,
 } from "../../src/main/pty-manager";
 import type { Workspace } from "../../src/shared/types";
@@ -47,8 +48,8 @@ describe("pty-manager", () => {
       return fakePty();
     };
     const mgr = createPtyManager(spawn, { onData: () => {}, onExit: () => {} });
-    mgr.launch(ws("a"), 80, 24);
-    mgr.launch(ws("b"), 80, 24, true);
+    mgr.launch("a", ws("a").rootPath, 80, 24);
+    mgr.launch("b", ws("b").rootPath, 80, 24, true);
     expect(calls[0]).not.toContain("--dangerously-skip-permissions");
     expect(calls[1]).toContain("--dangerously-skip-permissions");
   });
@@ -64,8 +65,8 @@ describe("pty-manager", () => {
     const onExit = vi.fn();
     const mgr = createPtyManager(spawn, { onData, onExit });
 
-    mgr.launch(ws("a"), 80, 24);
-    mgr.launch(ws("a"), 80, 24); // second launch while running = no-op
+    mgr.launch("a", ws("a").rootPath, 80, 24);
+    mgr.launch("a", ws("a").rootPath, 80, 24); // second launch while running = no-op
     expect(spawned).toHaveLength(1);
 
     spawned[0].emitData("hello");
@@ -74,7 +75,7 @@ describe("pty-manager", () => {
     spawned[0].emitExit(0);
     expect(onExit).toHaveBeenCalledWith("a", 0);
 
-    mgr.launch(ws("a"), 80, 24); // relaunch after exit spawns again
+    mgr.launch("a", ws("a").rootPath, 80, 24); // relaunch after exit spawns again
     expect(spawned).toHaveLength(2);
   });
 
@@ -86,8 +87,8 @@ describe("pty-manager", () => {
       return p;
     };
     const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
-    mgr.launch(ws("a"), 80, 24);
-    mgr.launch(ws("b"), 80, 24);
+    mgr.launch("a", ws("a").rootPath, 80, 24);
+    mgr.launch("b", ws("b").rootPath, 80, 24);
 
     mgr.write("a", "ls\r");
     expect(ptys["D:\\proj\\a"].write).toHaveBeenCalledWith("ls\r");
@@ -108,8 +109,8 @@ describe("pty-manager", () => {
       return p;
     };
     const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
-    mgr.launch(ws("a"), 80, 24);
-    mgr.launch(ws("b"), 80, 24);
+    mgr.launch("a", ws("a").rootPath, 80, 24);
+    mgr.launch("b", ws("b").rootPath, 80, 24);
     mgr.killAll();
     expect(ptys[0].kill).toHaveBeenCalled();
     expect(ptys[1].kill).toHaveBeenCalled();
@@ -120,7 +121,7 @@ describe("pty-manager", () => {
       onData: vi.fn(),
       onExit: vi.fn(),
     });
-    mgr.launch(ws("a"), 80, 24);
+    mgr.launch("a", ws("a").rootPath, 80, 24);
     expect(mgr.write("a", "hi")).toBe(true);
     // regression guard: this used to be a silent no-op
     expect(mgr.write("nope", "hi")).toBe(false);
@@ -135,10 +136,58 @@ describe("pty-manager", () => {
     };
     const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
     expect(mgr.has("a")).toBe(false);
-    mgr.launch(ws("a"), 80, 24);
+    mgr.launch("a", ws("a").rootPath, 80, 24);
     expect(mgr.has("a")).toBe(true);
     spawned[0].emitExit(0);
     expect(mgr.has("a")).toBe(false);
+  });
+
+  it("launches a session key in its own cwd with JARVIS_SESSION set", () => {
+    const opts: SpawnOpts[] = [];
+    const spawn: SpawnFn = (_f, _a, o) => {
+      opts.push(o);
+      return fakePty();
+    };
+    const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
+    mgr.launch("d:/r#2", "d:/r/.worktrees/2", 80, 24);
+    expect(opts[0].cwd).toBe("d:/r/.worktrees/2");
+    expect(opts[0].env.JARVIS_SESSION).toBe("d:/r#2");
+    mgr.launch("d:/r#2", "d:/r/.worktrees/2", 80, 24);
+    expect(opts).toHaveLength(1);
+    expect(mgr.keys()).toEqual(["d:/r#2"]);
+  });
+
+  it("kill ends one session and forgets it", () => {
+    const spawned: ReturnType<typeof fakePty>[] = [];
+    const spawn: SpawnFn = () => {
+      const p = fakePty();
+      spawned.push(p);
+      return p;
+    };
+    const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
+    mgr.launch("d:/r", "d:/r", 80, 24);
+    mgr.launch("d:/r#1", "d:/r/.worktrees/1", 80, 24);
+    expect(mgr.kill("d:/r#1")).toBe(true);
+    expect(spawned[1].kill).toHaveBeenCalled();
+    expect(spawned[0].kill).not.toHaveBeenCalled();
+    expect(mgr.has("d:/r#1")).toBe(false);
+    expect(mgr.kill("d:/r#1")).toBe(false);
+  });
+
+  it("onExit reports the session key", () => {
+    const spawned: ReturnType<typeof fakePty>[] = [];
+    const onExit = vi.fn();
+    const mgr = createPtyManager(
+      () => {
+        const p = fakePty();
+        spawned.push(p);
+        return p;
+      },
+      { onData: vi.fn(), onExit },
+    );
+    mgr.launch("d:/r#2", "d:/r/.worktrees/2", 80, 24);
+    spawned[0].emitExit(1);
+    expect(onExit).toHaveBeenCalledWith("d:/r#2", 1);
   });
 
   it("forwards the resume flag to the command line", () => {
@@ -148,8 +197,8 @@ describe("pty-manager", () => {
       return fakePty();
     };
     const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
-    mgr.launch(ws("a"), 80, 24, false, "sonnet");
-    mgr.launch(ws("b"), 80, 24, false, "sonnet", true);
+    mgr.launch("a", ws("a").rootPath, 80, 24, false, "sonnet");
+    mgr.launch("b", ws("b").rootPath, 80, 24, false, "sonnet", true);
     expect(calls[0]).not.toContain("--continue");
     expect(calls[1]).toContain("--continue");
   });
