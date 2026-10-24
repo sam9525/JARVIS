@@ -1,0 +1,38 @@
+export const MAIN_LABEL = "main";
+export const MAX_SESSIONS = 4;
+
+const LABEL_MAX_LENGTH = 20;
+const KEY_SEPARATOR = "#";
+
+export function sessionKey(workspaceId: string, label: string): string {
+  return label === MAIN_LABEL
+    ? workspaceId
+    : `${workspaceId}${KEY_SEPARATOR}${label}`;
+}
+
+export function parseSessionKey(key: string): {
+  workspaceId: string;
+  label: string;
+} {
+  const separatorAt = key.lastIndexOf(KEY_SEPARATOR);
+  if (separatorAt === -1) return { workspaceId: key, label: MAIN_LABEL };
+  return {
+    workspaceId: key.slice(0, separatorAt),
+    label: key.slice(separatorAt + 1),
+  };
+}
+
+export function cleanLabel(raw: string): string {
+  return raw
+    .replace(/[^A-Za-z0-9 -]/g, "-")
+    .trim()
+    .slice(0, LABEL_MAX_LENGTH)
+    .trimEnd();
+}
+
+export function nextLabel(taken: string[], folders: string[]): string {
+  const unavailable = new Set([...taken, ...folders]);
+  let candidate = 1;
+  while (unavailable.has(String(candidate))) candidate += 1;
+  return String(candidate);
+}
