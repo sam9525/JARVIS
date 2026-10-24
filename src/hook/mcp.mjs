@@ -36,7 +36,17 @@ const TOOLS = [
       "   Typed feedback means revise the spec, then ask this gate again.\n" +
       '3. On "Approve", use superpowers:writing-plans to write the plan.\n' +
       '4. Gate: the same question with header "Plan", for the plan.\n' +
-      '5. On "Approve", use superpowers:subagent-driven-development to build it.\n\n' +
+      '5. On "Approve", use superpowers:subagent-driven-development to build it.\n' +
+      "   When the build is done, end your last message with a short list of\n" +
+      "   what I should check by hand.\n\n" +
+      "After a to-do send succeeds, mark each sent task line - [/] in TODO.md\n" +
+      'with Edit, then call jarvis_todos and fix anything in malformed. "All\n' +
+      'open tasks" means the - [ ] lines only; never send a - [/] line as part\n' +
+      "of them. A working task the user names on its own is sent as usual and\n" +
+      "stays - [/].\n" +
+      "End your turn with one sentence naming the workspace and the task,\n" +
+      'such as "Told JARVIS to add the Working section." Say nothing about\n' +
+      "gates, approval, what the session will do, or what you will check later.\n\n" +
       "Working several to-do tasks: when the user asks for all open tasks of one\n" +
       "@project, or several of them, send them in ONE jarvis_send with fresh: true\n" +
       "and the prompt below, each task line copied in verbatim.\n" +
@@ -57,7 +67,9 @@ const TOOLS = [
       "   spec is approved. Never start a spec before the one before it is approved.\n" +
       "4. Then, for each spec in order: use superpowers:writing-plans to write\n" +
       '   its plan; gate with the same question, header "Plan"; on "Approve",\n' +
-      "   use superpowers:subagent-driven-development to build it.",
+      "   use superpowers:subagent-driven-development to build it. When the build\n" +
+      "   is done, end your last message with a short list of what I should check\n" +
+      "   by hand.",
     inputSchema: {
       type: "object",
       properties: {
@@ -161,7 +173,8 @@ const TOOLS = [
       '("show me the todo list", "what should we do next", "what\'s on my ' +
       'list") and before adding or changing a task. Edit the file at the ' +
       "returned path with Read and Edit. One task per line: " +
-      "'- [ ] text @project YYYY-MM-DD'; '- [x]' when done; no @ for a " +
+      "'- [ ] text @project YYYY-MM-DD'; '- [/]' while a workspace is working on it; " +
+      "'- [x]' when done; no @ for a " +
       "personal task; @project is a workspace name from jarvis_list with " +
       "spaces written as hyphens. Write today's date on every task you add. " +
       "Call this again after each write and fix every line listed in " +
@@ -173,6 +186,7 @@ const TOOLS = [
       "clearly matches one open task (same project, same subject), check " +
       "that task off the same way and name it in your spoken summary. " +
       "A merge report that covers several tasks sent together checks off each task it clearly covers, and names each one. " +
+      "A merge report checks off the matching working tasks first. " +
       "A " +
       "report that only says done, committed or tests pass is not " +
       "agreement. If the user's words or a merge report could mean more " +

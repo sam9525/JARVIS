@@ -66,6 +66,8 @@ already finished and its message is waiting for you to take.
    not woken for them, and each was spoken for when it finished.
 3. Reply in as few words as possible: which workspace, and what matters — what
    it did, what it needs, any key considerations. One sentence if it fits, two at most.
+   If it finished a build, say what was built and what the user should check by
+   hand, three sentences at most.
 4. Stop. Do not call \`jarvis_list\` to look for more, and do not watch again.
 
 If watch times out, the finish was already handled. Say nothing and end the
@@ -82,7 +84,8 @@ need to speak without ending a turn.
 The user's own to-do list is \`TODO.md\` in this folder. Call \`jarvis_todos\`
 for any question about it ("show me the todo list", "what should we do next")
 — it opens the list on screen and returns the file's path and text. One task
-per line: \`- [ ] text @project YYYY-MM-DD\`, \`- [x]\` when done, no \`@\` for
+per line: \`- [ ] text @project YYYY-MM-DD\`, \`- [/]\` while a workspace is
+working on it, \`- [x]\` when done, no \`@\` for
 a personal task, and today's date on every task you add. Call
 \`jarvis_todos\` again after each edit and fix any line it reports as
 malformed. Answer with the next open task in one spoken sentence.
@@ -98,8 +101,8 @@ the user tells a workspace to merge it. When such a report clearly matches one
 open task in TODO.md (same project, same subject), check that task off the same
 way in the same turn and name it in your spoken summary. A merge report that
 covers several tasks sent together checks off each task it clearly covers, and
-names each one. A report
-that only says done, committed or tests pass is not agreement. If the user's
+names each one. A merge report checks off the matching working (\`- [/]\`) tasks
+first. A report that only says done, committed or tests pass is not agreement. If the user's
 words or a merge report could mean more than one open task, or none clearly,
 ask which.
 
@@ -117,8 +120,20 @@ send those \`@project\` lines in one \`jarvis_send\` with \`fresh: true\` and th
 batch prompt from that tool's description. The workspace decides whether they
 fit one spec, and writes separate specs one at a time. Use the single-task prompt when only one task is chosen. Tasks for different projects never share a prompt.
 
-The task stays open (\`- [ ]\`) through spec, plan and build. An approved gate
-or a finished build is not agreement, so check it off only as described above.
+After a send succeeds, mark each sent task line \`- [/]\` in \`TODO.md\` with
+Edit, then call \`jarvis_todos\` and fix anything in \`malformed\`. "All open
+tasks" means the \`- [ ]\` lines only; never send a \`- [/]\` line as part of
+them. A working task the user names on its own is sent as usual and stays
+\`- [/]\`.
+
+End your turn with one sentence naming the workspace and the task, such as
+"Told JARVIS to add the Working section." Say nothing about gates, approval,
+what the session will do, or what you will check later.
+
+The task stays working (\`- [/]\`) through spec, plan and build. An approved
+gate or a finished build is not agreement, so check it off only as described
+above. When a build finishes, the session ends its message with a short list of
+what you should check by hand; say it back in the nudge reply.
 
 ## Tools
 
@@ -152,7 +167,8 @@ export const FINISH_NUDGE =
   "returns only the one workspace that just finished. Summarise that one " +
   "alone, in as few words as possible: which workspace, and the single most " +
   "important thing it did or needs. One spoken sentence if it fits, two at " +
-  "most. No preamble, no list, no file names, no markdown. Ignore every other " +
+  "most. If it finished a build, say what was built and what the user " +
+  "should check by hand, three sentences at most. No preamble, no list, no file names, no markdown. Ignore every other " +
   "workspace and do not call jarvis_list.";
 
 /** The hour the daily briefing is allowed to start. A 03:00 restart is still

@@ -171,6 +171,10 @@ describe("mcp.mjs", () => {
       "for each spec in order",
       "Use the single-task prompt when only one task is chosen",
       "never share a prompt",
+      "check by hand",
+      "- [/]",
+      "one sentence naming the workspace and the task",
+      "never send a - [/] line",
     ]) {
       expect(description).toContain(needle);
     }
@@ -393,6 +397,7 @@ describe("mcp.mjs", () => {
     expect(tool.description).toContain("malformed");
     expect(tool.description).toContain("merged into develop also counts");
     expect(tool.description).toContain("each task it clearly covers");
+    expect(tool.description).toContain("- [/]");
     const res = await request({
       jsonrpc: "2.0",
       id: 2,

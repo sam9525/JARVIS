@@ -183,6 +183,11 @@ describe("FINISH_NUDGE", () => {
     expect(FINISH_NUDGE).toContain("do not call jarvis_list");
   });
 
+  it("asks for a hand-off after a build", () => {
+    expect(FINISH_NUDGE).toContain("check by hand");
+    expect(FINISH_NUDGE).toContain("three sentences at most");
+  });
+
   it("fits on one line, since it is typed into a TUI composer", () => {
     expect(FINISH_NUDGE).not.toContain("\n");
   });
@@ -198,6 +203,14 @@ describe("FINISH_NUDGE", () => {
 });
 
 describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
+  it("carries the working mark and the hand-off rules", () => {
+    expect(AGENT_GUIDE).toContain("- [/]");
+    expect(AGENT_GUIDE).toContain("check by hand");
+    expect(AGENT_GUIDE).toContain(
+      "one sentence naming the workspace and the task",
+    );
+  });
+
   it("tells the agent it is started by the app rather than by polling", () => {
     expect(AGENT_GUIDE).toContain("jarvis_watch");
     expect(AGENT_GUIDE).toContain("not poll and you do not wait");
