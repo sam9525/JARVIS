@@ -72,20 +72,41 @@ const api = {
     ipcRenderer.invoke("index-project", workspaceId),
   staleReindexCommand: (workspaceId: string): Promise<string | null> =>
     ipcRenderer.invoke("stale-reindex-command", workspaceId),
+  // label "main" is the main-folder session; null opens the next numbered
+  // one. `error: "cap"` means the workspace already has its maximum.
   ptyLaunch: (
     workspaceId: string,
+    label: string | null,
     cols: number,
     rows: number,
     dangerous = false,
     model?: string,
-  ): Promise<{ ok: boolean; hooksOk: boolean }> =>
-    ipcRenderer.invoke("pty-launch", workspaceId, cols, rows, dangerous, model),
+  ): Promise<{
+    ok: boolean;
+    hooksOk: boolean;
+    key?: string;
+    label?: string;
+    worktree?: string;
+    error?: string;
+  }> =>
+    ipcRenderer.invoke(
+      "pty-launch",
+      workspaceId,
+      label,
+      cols,
+      rows,
+      dangerous,
+      model,
+    ),
+  // `kept` names a worktree folder left on disk, and why
+  ptyClose: (key: string): Promise<{ ok: boolean; kept?: string }> =>
+    ipcRenderer.invoke("pty-close", key),
   // returns whether a live PTY took the write, so a caller that is not a
   // keyboard (voice) can report a send into a dead session
-  ptyInput: (workspaceId: string, data: string): Promise<boolean> =>
-    ipcRenderer.invoke("pty-input", workspaceId, data),
-  ptyResize: (workspaceId: string, cols: number, rows: number): void => {
-    ipcRenderer.send("pty-resize", workspaceId, cols, rows);
+  ptyInput: (key: string, data: string): Promise<boolean> =>
+    ipcRenderer.invoke("pty-input", key, data),
+  ptyResize: (key: string, cols: number, rows: number): void => {
+    ipcRenderer.send("pty-resize", key, cols, rows);
   },
   // the key never crosses this bridge — main reads it from .env
   ttsSpeak: (text: string): Promise<Uint8Array<ArrayBuffer> | null> =>
@@ -107,9 +128,9 @@ const api = {
   clearNotesDir: (): Promise<string | null> =>
     ipcRenderer.invoke("clear-notes-dir"),
   ttsModels: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-models"),
-  onPtyData: (cb: (workspaceId: string, data: string) => void) =>
+  onPtyData: (cb: (key: string, data: string) => void) =>
     subscribe<[string, string]>("pty-data", cb),
-  onPtyExit: (cb: (workspaceId: string, exitCode: number) => void) =>
+  onPtyExit: (cb: (key: string, exitCode: number) => void) =>
     subscribe<[string, number]>("pty-exit", cb),
 };
 

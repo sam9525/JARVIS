@@ -122,6 +122,7 @@ export interface Workspace {
   kind: WorkspaceKind;
   sourceId: string;
   isSelf?: boolean;
+  isScratch?: boolean;
 }
 
 export interface Session {

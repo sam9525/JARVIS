@@ -273,7 +273,14 @@ export default function TerminalPanel({
     const e = entryFor(workspace.id);
     e.fit.fit();
     window.jarvis
-      .ptyLaunch(workspace.id, e.term.cols, e.term.rows, dangerous, model)
+      .ptyLaunch(
+        workspace.id,
+        "main",
+        e.term.cols,
+        e.term.rows,
+        dangerous,
+        model,
+      )
       .then(({ ok, hooksOk }) => {
         if (!ok) {
           e.term.writeln(

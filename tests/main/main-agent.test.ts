@@ -20,6 +20,7 @@ import {
   typeNudge,
   withMainAgent,
 } from "../../src/main/main-agent";
+import { scratchWorkspace } from "../../src/main/scratch";
 import type { Workspace } from "../../src/shared/types";
 
 const repo: Workspace = {
@@ -60,27 +61,45 @@ describe("mainAgentWorkspace", () => {
 });
 
 describe("withMainAgent", () => {
-  it("appends the main agent and leaves the vault first", () => {
-    const list = withMainAgent(
-      [vault, repo],
-      mainAgentWorkspace("D:\\userData\\main-agent"),
-    );
-    expect(list.map((w) => w.name)).toEqual(["vault", "JARVIS", "Main Agent"]);
+  const main = () => mainAgentWorkspace("D:\\userData\\main-agent");
+  const scratch = () => scratchWorkspace("D:\\userData\\scratch");
+
+  it("appends Scratch and the main agent and leaves the vault first", () => {
+    const list = withMainAgent([vault, repo], main(), scratch());
+    expect(list.map((w) => w.name)).toEqual([
+      "vault",
+      "JARVIS",
+      "Scratch",
+      "Main Agent",
+    ]);
   });
 
   it("makes the main agent the only isSelf workspace", () => {
-    const list = withMainAgent(
-      [vault, repo],
-      mainAgentWorkspace("D:\\userData\\main-agent"),
-    );
+    const list = withMainAgent([vault, repo], main(), scratch());
     expect(list.filter((w) => w.isSelf).map((w) => w.name)).toEqual([
       "Main Agent",
     ]);
   });
 
+  it("keeps exactly one isScratch and clears both flags from the others", () => {
+    const stray: Workspace = { ...vault, isScratch: true, isSelf: true };
+    const list = withMainAgent(
+      [stray, repo, scratch(), main()],
+      main(),
+      scratch(),
+    );
+    expect(list.filter((w) => w.isScratch).map((w) => w.name)).toEqual([
+      "Scratch",
+    ]);
+    expect(list.filter((w) => w.isSelf).map((w) => w.name)).toEqual([
+      "Main Agent",
+    ]);
+    expect(list).toHaveLength(4);
+  });
+
   it("does not mutate the workspaces it was handed", () => {
     const input = [vault, repo];
-    withMainAgent(input, mainAgentWorkspace("D:\\userData\\main-agent"));
+    withMainAgent(input, main(), scratch());
     expect(repo.isSelf).toBe(true);
     expect(input).toHaveLength(2);
   });

@@ -1,6 +1,7 @@
-import { promises as fs, writeFileSync } from "node:fs";
+import { existsSync, promises as fs, writeFileSync } from "node:fs";
 import path from "node:path";
 import { isSessionId } from "./pty-manager";
+import { MAIN_LABEL } from "../shared/session-key";
 
 /** A reopen this soon after the last close continues every project session
  * that was live; any later and they start fresh, as a first launch does. */
@@ -15,12 +16,41 @@ export const HEARTBEAT_MS = 60 * 1000;
 export const sessionsPath = (userData: string): string =>
   path.join(userData, "jarvis-sessions.json");
 
-/** workspace id → session id to resume, from what `saved` recorded, or
- * nothing when it is missing, malformed or older than the window. */
+/** What one live session needs to come back: Claude's id to `--resume`, the
+ * label to relaunch it under, and the folder its transcript is filed by. */
+export interface SavedSession {
+  sessionId: string;
+  label: string;
+  cwd: string;
+}
+
+/** A saved entry in either shape. A bare string is the older one-session
+ * format, keyed by workspace id, so it reads as that workspace's main
+ * session in the root `rootOf` names. */
+function readEntry(
+  key: string,
+  raw: unknown,
+  rootOf: (workspaceId: string) => string | undefined,
+): Partial<SavedSession> {
+  if (typeof raw === "string")
+    return { sessionId: raw, label: MAIN_LABEL, cwd: rootOf(key) };
+  if (typeof raw !== "object" || raw === null) return {};
+  const r = raw as Record<string, unknown>;
+  return {
+    sessionId: typeof r.sessionId === "string" ? r.sessionId : undefined,
+    label: typeof r.label === "string" ? r.label : undefined,
+    cwd: typeof r.cwd === "string" ? r.cwd : undefined,
+  };
+}
+
+/** session key → session to resume, from what `saved` recorded, or nothing
+ * when it is missing, malformed or older than the window. A session whose
+ * folder is gone (a removed worktree) is dropped. */
 export function sessionsToResume(
   saved: unknown,
   now: number,
-): Record<string, string> {
+  rootOf: (workspaceId: string) => string | undefined,
+): Record<string, SavedSession> {
   const p = (typeof saved === "object" && saved !== null ? saved : {}) as {
     closedAt?: unknown;
     sessions?: unknown;
@@ -29,11 +59,14 @@ export function sessionsToResume(
   const age = now - p.closedAt;
   // a clock set back reads as a negative age; nothing proves that is recent
   if (age < 0 || age > RESUME_WINDOW_MS) return {};
-  const out: Record<string, string> = {};
+  const out: Record<string, SavedSession> = {};
   if (typeof p.sessions !== "object" || p.sessions === null) return out;
-  for (const [id, sid] of Object.entries(p.sessions)) {
+  for (const [key, raw] of Object.entries(p.sessions)) {
+    const { sessionId, label, cwd } = readEntry(key, raw, rootOf);
     // the id becomes a path segment and a command-line argument
-    if (typeof sid === "string" && isSessionId(sid)) out[id] = sid;
+    if (!sessionId || !isSessionId(sessionId)) continue;
+    if (!label || !cwd || !existsSync(cwd)) continue;
+    out[key] = { sessionId, label, cwd };
   }
   return out;
 }
@@ -50,7 +83,7 @@ export async function readSavedSessions(userData: string): Promise<unknown> {
  * there races the process exit. */
 export function writeSavedSessions(
   userData: string,
-  sessions: Record<string, string>,
+  sessions: Record<string, SavedSession>,
   now: number,
 ): void {
   try {

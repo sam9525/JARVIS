@@ -156,14 +156,14 @@ describe("TerminalPanel dangerous launch", () => {
 
     confirmButton.onClick();
     expect(ptyLaunch).toHaveBeenCalledTimes(1);
-    // 4th arg is `dangerous`
-    expect(ptyLaunch.mock.calls[0][3]).toBe(true);
+    // 5th arg is `dangerous`, after the label
+    expect(ptyLaunch.mock.calls[0][4]).toBe(true);
   });
 
   it("leaves the safe launch a single click", () => {
     findButton(render(), /Launch Claude/).onClick();
     expect(ptyLaunch).toHaveBeenCalledTimes(1);
-    expect(ptyLaunch.mock.calls[0][3]).toBe(false);
+    expect(ptyLaunch.mock.calls[0][4]).toBe(false);
   });
 });
 

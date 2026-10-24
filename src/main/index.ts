@@ -52,6 +52,23 @@ import {
   withMainAgent,
 } from "./main-agent";
 import { createStatusStore, STALE_MS } from "./workspace-status";
+import { ensureScratch, scratchWorkspace } from "./scratch";
+import { createSessionRegistry } from "./sessions";
+import {
+  createWorktree,
+  existingWorktreeFolders,
+  isGitRepo,
+  removeWorktreeIfDone,
+  worktreePath,
+} from "./worktrees";
+import {
+  MAIN_LABEL,
+  MAX_SESSIONS,
+  cleanLabel,
+  nextLabel,
+  parseSessionKey,
+  sessionKey,
+} from "../shared/session-key";
 import { createTts } from "./tts";
 import { MsEdgeTTS } from "msedge-tts";
 import { createEdgeTts } from "./edge-tts";
@@ -71,6 +88,7 @@ import {
   readSavedSessions,
   sessionsToResume,
   writeSavedSessions,
+  type SavedSession,
 } from "./session-restore";
 import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
@@ -149,7 +167,14 @@ app.whenReady().then(async () => {
   const mainAgent = mainAgentWorkspace(
     path.join(app.getPath("userData"), "main-agent"),
   );
-  const workspaces = withMainAgent(loaded, mainAgent);
+  // Scratch sits beside it: the place for jobs that belong to no project.
+  const scratch = scratchWorkspace(
+    path.join(app.getPath("userData"), "scratch"),
+  );
+  await ensureScratch(scratch.rootPath).catch((err) =>
+    console.error("[jarvis] scratch folder failed:", err),
+  );
+  const workspaces = withMainAgent(loaded, mainAgent, scratch);
 
   // The agent writes TODO.md with its own tools; the panel writes it only
   // through this store.
@@ -513,7 +538,14 @@ app.whenReady().then(async () => {
     // before raw mode is dropped, and jarvis_send follows this immediately
     launch: async (ws) => {
       const settled = settle.wait(ws.id, LAUNCH_SETTLE_DEADLINE_MS);
-      if (!(await launchSession(ws, 80, 24, false, "opus")).ok) return false;
+      const launched = await launchSession(ws, {
+        label: MAIN_LABEL,
+        cols: 80,
+        rows: 24,
+        dangerous: false,
+        model: "opus",
+      });
+      if (!launched.ok) return false;
       await settled;
       return true;
     },
@@ -642,45 +674,139 @@ app.whenReady().then(async () => {
     : path.join(app.getAppPath(), "src", "hook");
   const forwardPath = path.join(hookDir, "forward.mjs");
   const mcpPath = path.join(hookDir, "mcp.mjs");
-  // one launch path for the terminal's button and jarvis_launch
+  const sessions = createSessionRegistry();
+  // one launch path for the terminal's button, the tab bar's `+` and
+  // jarvis_launch. No label means the next free number.
   async function launchSession(
     ws: Workspace,
-    cols: number,
-    rows: number,
-    dangerous: boolean,
-    model: string | undefined,
-    resumeId?: string,
-  ): Promise<{ ok: boolean; hooksOk: boolean }> {
-    const hooksOk = await ensureHooks(ws.rootPath, forwardPath);
+    opts: {
+      label?: string;
+      cols: number;
+      rows: number;
+      dangerous: boolean;
+      model?: string;
+      resumeId?: string;
+    },
+  ): Promise<{
+    ok: boolean;
+    hooksOk: boolean;
+    key?: string;
+    label?: string;
+    worktree?: string;
+    error?: string;
+  }> {
+    const gitRepo = ws.kind === "code" && (await isGitRepo(ws.rootPath));
+    const taken = sessions.forWorkspace(ws.id).map((s) => s.label);
+    const label =
+      cleanLabel(opts.label ?? "") ||
+      nextLabel(
+        taken,
+        gitRepo ? await existingWorktreeFolders(ws.rootPath) : [],
+      );
+    const key = sessionKey(ws.id, label);
+    // relaunching a live key is a no-op in the pty manager, never a refusal
+    const live = sessions
+      .forWorkspace(ws.id)
+      .filter((s) => ptyManager.has(s.key));
+    if (!ptyManager.has(key) && live.length >= MAX_SESSIONS)
+      return { ok: false, hooksOk: false, key, label, error: "cap" };
+
+    const useWorktree = label !== MAIN_LABEL && gitRepo;
+    let cwd = ws.rootPath;
+    if (useWorktree) {
+      cwd = worktreePath(ws.rootPath, label);
+      try {
+        // a folder kept at an earlier close is reopened, not recreated
+        if (!(await isDirectory(cwd))) await createWorktree(ws.rootPath, label);
+      } catch (err) {
+        console.error(`worktree create failed in ${ws.rootPath}:`, err);
+        return {
+          ok: false,
+          hooksOk: false,
+          key,
+          label,
+          error: (err as Error).message,
+        };
+      }
+    }
+    // hooks go in the session's own folder: settings.local.json is untracked,
+    // so a worktree does not inherit the main folder's
+    const hooksOk = await ensureHooks(cwd, forwardPath);
     const mcpOk = await ensureMcp(ws, mcpPath);
     // a relaunched main agent continues its conversation like the boot
     // launch does — /clear is the only reset, and it is the user's
     const resume = ws.isSelf
       ? await hasTranscript(transcriptDir(os.homedir(), ws.rootPath))
-      : (resumeId ?? false);
+      : (opts.resumeId ?? false);
+    const result = {
+      hooksOk: hooksOk && mcpOk,
+      key,
+      label,
+      ...(useWorktree ? { worktree: cwd } : {}),
+    };
     try {
       ptyManager.launch(
-        ws.id,
-        ws.rootPath,
-        cols,
-        rows,
-        dangerous,
-        model,
+        key,
+        cwd,
+        opts.cols,
+        opts.rows,
+        opts.dangerous,
+        opts.model,
         resume,
       );
-      pushStatus(status.ptyLaunched(ws.id, Date.now()));
+      const now = Date.now();
+      const launched = status.ptyLaunched(key, now);
+      const opened = status.sessionOpened(key, useWorktree, now);
+      pushStatus(launched || opened);
     } catch (err) {
       // native load or spawn failure — the terminal reports it, app lives on
       console.error("pty launch failed:", err);
-      return { ok: false, hooksOk: hooksOk && mcpOk };
+      return { ok: false, ...result, error: (err as Error).message };
     }
-    return { ok: true, hooksOk: hooksOk && mcpOk };
+    sessions.add({
+      key,
+      workspaceId: ws.id,
+      label,
+      cwd,
+      worktree: useWorktree,
+    });
+    return { ok: true, ...result };
   }
+
+  // Ends a session and forgets it. A worktree is removed only when nothing in
+  // it would be lost; otherwise `kept` names the folder and why it stays. A
+  // killed pty's exit is never reported by the pty manager, so the status and
+  // the renderer hear about it here.
+  async function closeSession(
+    key: string,
+  ): Promise<{ ok: boolean; kept?: string }> {
+    const info = sessions.remove(key);
+    const killed = ptyManager.kill(key);
+    if (killed) {
+      pushStatus(status.ptyExited(key, Date.now(), 0));
+      send("pty-exit", key, 0);
+    }
+    if (!info) return { ok: killed };
+    if (!info.worktree) return { ok: true };
+    const ws = workspaces.find((w) => w.id === info.workspaceId);
+    if (!ws) return { ok: true, kept: `${info.cwd} (unknown workspace)` };
+    try {
+      const removed = await removeWorktreeIfDone(ws.rootPath, info.cwd);
+      return removed.removed
+        ? { ok: true }
+        : { ok: true, kept: `${info.cwd} (${removed.reason})` };
+    } catch (err) {
+      console.error(`worktree remove failed in ${ws.rootPath}:`, err);
+      return { ok: true, kept: `${info.cwd} (${(err as Error).message})` };
+    }
+  }
+
   ipcMain.handle(
     "pty-launch",
     (
       _e,
       workspaceId: string,
+      label: string | null,
       cols: number,
       rows: number,
       dangerous: boolean,
@@ -688,9 +814,16 @@ app.whenReady().then(async () => {
     ) => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
-      return launchSession(ws, cols, rows, dangerous, model);
+      return launchSession(ws, {
+        label: label ?? undefined,
+        cols,
+        rows,
+        dangerous,
+        model,
+      });
     },
   );
+  ipcMain.handle("pty-close", (_e, key: string) => closeSession(String(key)));
   ipcMain.handle("pty-input", (_e, id: string, data: string) =>
     ptyManager.write(id, data),
   );
@@ -728,7 +861,9 @@ app.whenReady().then(async () => {
     const briefing = await readBriefing(userData);
     const notesDir = briefing.notesDir;
     // the vault workspace reads the note; without one there is no one to ask
-    const briefTo = workspaces.find((w) => w.kind === "vault" && !w.isSelf);
+    const briefTo = workspaces.find(
+      (w) => w.kind === "vault" && !w.isSelf && !w.isScratch,
+    );
     // lastBriefed is the briefing's own record, not a transcript mtime: an
     // mtime gate is cancelled by any overnight write, and the morning
     // briefing would silently never fire.
@@ -788,30 +923,44 @@ app.whenReady().then(async () => {
   const toResume = sessionsToResume(
     await readSavedSessions(userData),
     Date.now(),
+    (id) => workspaces.find((w) => w.id === id)?.rootPath,
   );
   // a resumed session reports no id until its first hook, so the id it was
   // resumed with stands in — otherwise a close before any prompt forgets it
   const resumedWith = new Map<string, string>();
   const saveSessions = () => {
-    const live: Record<string, string> = {};
-    for (const ws of workspaces) {
-      if (ws.isSelf || !ptyManager.has(ws.id)) continue;
-      const sid = status.sessionId(ws.id) || resumedWith.get(ws.id);
-      if (sid) live[ws.id] = sid;
+    const live: Record<string, SavedSession> = {};
+    for (const key of ptyManager.keys()) {
+      if (key === mainAgent.id) continue;
+      const info = sessions.get(key);
+      const sid = status.sessionId(key) || resumedWith.get(key);
+      if (info && sid)
+        live[key] = { sessionId: sid, label: info.label, cwd: info.cwd };
     }
     writeSavedSessions(userData, live, Date.now());
   };
   const heartbeat = setInterval(saveSessions, HEARTBEAT_MS);
   // the terminal's defaults (Opus, permissions on), as jarvis_launch uses.
-  // A workspace with no session id, or whose transcript is gone, is left for
-  // a manual launch as before rather than started fresh.
-  for (const [id, sid] of Object.entries(toResume)) {
-    const ws = workspaces.find((w) => w.id === id && !w.isSelf);
+  // A session with no id, or whose transcript is gone, is left for a manual
+  // launch rather than started fresh. Scratch comes back by the same rule: only
+  // when it was live at the last close.
+  const workspaceIds = workspaces.map((w) => w.id);
+  for (const [key, saved] of Object.entries(toResume)) {
+    const { workspaceId } = parseSessionKey(key, workspaceIds);
+    const ws = workspaces.find((w) => w.id === workspaceId && !w.isSelf);
     if (!ws) continue;
-    const dir = transcriptDir(os.homedir(), ws.rootPath);
-    if (!(await hasSessionTranscript(dir, sid))) continue;
-    resumedWith.set(ws.id, sid);
-    void launchSession(ws, 80, 24, false, "opus", sid);
+    // transcripts are filed by folder, so a worktree session's is its own
+    const dir = transcriptDir(os.homedir(), saved.cwd);
+    if (!(await hasSessionTranscript(dir, saved.sessionId))) continue;
+    resumedWith.set(key, saved.sessionId);
+    void launchSession(ws, {
+      label: saved.label,
+      cols: 80,
+      rows: 24,
+      dangerous: false,
+      model: "opus",
+      resumeId: saved.sessionId,
+    });
   }
 
   app.on("before-quit", () => {
