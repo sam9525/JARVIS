@@ -5,7 +5,7 @@ import type {
   ViewSettings,
   Workspace,
 } from "../../shared/types";
-import type { HighlightState } from "../session/highlight-store";
+import { expireMatches, type HighlightState } from "../session/highlight-store";
 import Graph from "./Graph";
 import { domainsOf } from "./domain-colors";
 import { busiest, filterGraph, type GraphFilters } from "./graph-filter";
@@ -94,7 +94,15 @@ export default function MiniGraph({
   );
 
   // the unfiltered graph is the identity: a reload yields a new object
-  const look = lookKey({ baseHue, groups, view, filters, width, height });
+  const look = lookKey({
+    baseHue,
+    groups,
+    view,
+    filters,
+    width,
+    height,
+    dpr: window.devicePixelRatio,
+  });
   const inputs = inputsOf(graph, state, look);
   const snapshot = snapshots.get(workspaceId);
   const showImage =
@@ -129,6 +137,9 @@ export default function MiniGraph({
     let seenRev = latest.current.state.rev;
     const check = () => {
       const now = latest.current;
+      // an expiring match bumps the rev here, so the revHeld gate absorbs it
+      // instead of Graph's own tick moving the rev after a capture
+      expireMatches(now.state, performance.now());
       const current = inputsOf(now.graph, now.state, now.look);
       // the canvas repaints a new rev on Graph's next poll, so a capture waits
       // for one tick in which the rev has held

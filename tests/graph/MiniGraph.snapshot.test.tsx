@@ -22,7 +22,10 @@ vi.mock("../../src/renderer/graph/Graph", async () => {
 
 import MiniGraph from "../../src/renderer/graph/MiniGraph";
 import { snapshots } from "../../src/renderer/graph/card-snapshot";
-import { emptyState } from "../../src/renderer/session/highlight-store";
+import {
+  emptyState,
+  MATCH_MS,
+} from "../../src/renderer/session/highlight-store";
 import { defaultSettings } from "../../src/shared/types";
 import type { VaultGraph } from "../../src/shared/types";
 
@@ -164,6 +167,32 @@ describe("MiniGraph: live or snapshot", () => {
     advance(500);
     expect(img()).not.toBeNull();
     expect(snapshots.get("w1")?.inputs.rev).toBe(state.rev);
+  });
+
+  it("matches that expire between ticks bump the rev before a capture", () => {
+    const state = emptyState();
+    state.matched.add("a");
+    state.matchAt = performance.now() - MATCH_MS - 10;
+    render(props({ state }));
+    settle();
+    advance(500);
+    expect(img()).toBeNull();
+    expect(state.matched.size).toBe(0);
+    advance(500);
+    expect(img()).not.toBeNull();
+    expect(snapshots.get("w1")?.inputs.rev).toBe(state.rev);
+  });
+
+  it("a remount with the same graph, state and look shows the image at once", () => {
+    const state = emptyState();
+    reachImage(props({ state }));
+    act(() => root.unmount());
+    act(() => {
+      root = createRoot(container);
+    });
+    render(props({ state }));
+    expect(img()?.getAttribute("src")).toBe(URL);
+    expect(liveCanvas()).toBeNull();
   });
 
   it("a new graph object while live waits for the new settle", () => {

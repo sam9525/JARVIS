@@ -26,6 +26,7 @@ const partsOf = (baseHue: number) => ({
   },
   width: 320,
   height: 200,
+  dpr: 1,
 });
 
 function defaultView() {
@@ -47,6 +48,9 @@ describe("lookKey", () => {
   it("is equal for equal-but-fresh objects and differs when a value changes", () => {
     expect(lookKey(partsOf(200))).toBe(lookKey(partsOf(200)));
     expect(lookKey(partsOf(201))).not.toBe(lookKey(partsOf(200)));
+    expect(lookKey({ ...partsOf(200), dpr: 2 })).not.toBe(
+      lookKey(partsOf(200)),
+    );
   });
 });
 

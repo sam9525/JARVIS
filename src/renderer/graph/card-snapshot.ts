@@ -24,6 +24,7 @@ export function lookKey(parts: {
   filters: Omit<GraphFilters, "search">;
   width: number;
   height: number;
+  dpr: number; // the canvas backing store scales with it
 }): string {
   return JSON.stringify(parts);
 }
