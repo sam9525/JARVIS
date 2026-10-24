@@ -69,7 +69,8 @@ const TOOLS = [
       "stays - [/].\n" +
       "End your turn with one sentence naming the workspace and the task,\n" +
       'such as "Told JARVIS to add the Working section." Say nothing about\n' +
-      "gates, approval, what the session will do, or what you will check later.",
+      "gates, approval, what the session will do, or what you will check later. " +
+      "That one sentence replaces the next-open-task sentence.",
     inputSchema: {
       type: "object",
       properties: {
@@ -178,7 +179,7 @@ const TOOLS = [
       "personal task; @project is a workspace name from jarvis_list with " +
       "spaces written as hyphens. Write today's date on every task you add. " +
       "Call this again after each write and fix every line listed in " +
-      "malformed. Then say the next open task in one spoken sentence. " +
+      "malformed. When the user asked about the list, say the next open task in one spoken sentence. " +
       "Check a task off (change '- [ ]' or '- [/]' to '- [x]') in the same turn the user agrees it is " +
       "done — they said so or approved the result. A workspace finish report " +
       "saying its work was merged into develop also counts, because nothing " +
@@ -186,11 +187,11 @@ const TOOLS = [
       "clearly matches one open or working task (same project, same subject), check " +
       "that task off the same way and name it in your spoken summary. " +
       "A merge report that covers several tasks sent together checks off each task it clearly covers, and names each one. " +
-      "A merge report checks off the matching working tasks first. " +
+      "If an open and a working task both match, check off the working one. " +
       "A " +
       "report that only says done, committed or tests pass is not " +
-      "agreement. If the user's words or a merge report could mean more " +
-      "than one open task, or none clearly, ask which.",
+      "agreement. If the user's words or a merge report could match several " +
+      "working tasks, or none clearly, ask which.",
     inputSchema: { type: "object", properties: {} },
   },
 ];

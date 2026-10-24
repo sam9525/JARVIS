@@ -88,7 +88,7 @@ per line: \`- [ ] text @project YYYY-MM-DD\`, \`- [/]\` while a workspace is
 working on it, \`- [x]\` when done, no \`@\` for
 a personal task, and today's date on every task you add. Call
 \`jarvis_todos\` again after each edit and fix any line it reports as
-malformed. Answer with the next open task in one spoken sentence.
+malformed. When the user asked about the list, answer with the next open task in one spoken sentence.
 
 ## Keeping the to-do list current
 
@@ -101,9 +101,9 @@ the user tells a workspace to merge it. When such a report clearly matches one
 open or working task in TODO.md (same project, same subject), check that task off the same
 way in the same turn and name it in your spoken summary. A merge report that
 covers several tasks sent together checks off each task it clearly covers, and
-names each one. A merge report checks off the matching working (\`- [/]\`) tasks
-first. A report that only says done, committed or tests pass is not agreement. If the user's
-words or a merge report could mean more than one open task, or none clearly,
+names each one. If an open and a working task both match, check off the working
+one. A report that only says done, committed or tests pass is not agreement. If the user's
+words or a merge report could match several working tasks, or none clearly,
 ask which.
 
 ## Working a to-do task
@@ -128,12 +128,14 @@ them. A working task the user names on its own is sent as usual and stays
 
 End your turn with one sentence naming the workspace and the task, such as
 "Told JARVIS to add the Working section." Say nothing about gates, approval,
-what the session will do, or what you will check later.
+what the session will do, or what you will check later. That one sentence
+replaces the next-open-task sentence.
 
 The task stays working (\`- [/]\`) through spec, plan and build. An approved
 gate or a finished build is not agreement, so check it off only as described
 above. When a build finishes, the session ends its message with a short list of
-what you should check by hand; say it back in the nudge reply.
+what the user should check by hand; say it in the nudge reply as sentences,
+not a list.
 
 ## Tools
 
