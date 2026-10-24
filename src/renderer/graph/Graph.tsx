@@ -1,21 +1,25 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods } from "react-force-graph-2d";
-import type { GraphGroup, ViewSettings, VaultGraph } from "../../shared/types";
+import type {
+  GraphGroup,
+  LayoutNode,
+  ViewSettings,
+  VaultGraph,
+} from "../../shared/types";
 import {
   expireMatches,
   heatOf,
   hlKey,
-  impactDepth,
-  isRead,
   matchProgress,
   nodeDisplay,
   pulseProgress,
   type HighlightState,
 } from "../session/highlight-store";
-import { colorFor, groupColor } from "./domain-colors";
+import { baseNodeColor } from "./domain-colors";
 import { displayRadius, graphMetrics } from "./graph-metrics";
-import { brighten, COLORS, RADIUS_COLOR, radiusColor } from "./graph-colors";
+import { COLORS } from "./graph-colors";
+import { paintNode, paintOverlay } from "./graph-paint";
 import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { nodeLabelColor, nodeLabelText } from "./node-label";
 import { endId, type LinkObj, type NodeObj } from "./link-ends";
@@ -54,6 +58,33 @@ type GraphProps = {
   // called FIT_MS after every settle, once the final fit has finished
   onSettled?: () => void;
 };
+
+/**
+ * The painter's view of a live node: null until the simulation has placed it.
+ * The fill is the colour before highlights, group first, then tag or domain.
+ */
+export function layoutNodeOf(
+  node: NodeObj,
+  domains: string[],
+  groups: GraphGroup[],
+  baseHue: number,
+): LayoutNode | null {
+  if (node.x === undefined || node.y === undefined) return null;
+  const id = String(node.id);
+  return {
+    id,
+    hk: hlKey(node),
+    x: node.x,
+    y: node.y,
+    r: node.r ?? 4,
+    fill: baseNodeColor(
+      { id, type: node.type, domain: node.domain },
+      domains,
+      groups,
+      baseHue,
+    ),
+  };
+}
 
 export default function Graph({
   graph,
@@ -257,55 +288,24 @@ export default function Graph({
         ctx: CanvasRenderingContext2D,
         globalScale: number,
       ) => {
-        if (node.x === undefined || node.y === undefined) return;
-        const id = String(node.id);
-        const hk = hlKey(node);
-        const t = heatOf(stateRef.current, hk);
-        const r = displayRadius(node.r ?? 4, display.nodeSize, t);
-        const d = nodeDisplay(stateRef.current, hk);
-        const base =
-          node.type === "tag"
-            ? COLORS.tag
-            : colorFor(node.domain, domains, baseHue);
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-        // group color, then domain palette; reads and edits keep their base
-        // color and get rings instead. heat brightens whichever won.
-        const depth = impactDepth(stateRef.current, hk);
-        ctx.fillStyle = brighten(
-          depth !== null
-            ? radiusColor(depth, groupColor(id, groups) ?? base)
-            : (groupColor(id, groups) ?? base),
-          t,
+        const n = layoutNodeOf(node, domains, groups, baseHue);
+        if (!n) return;
+        const id = n.id;
+        const r = displayRadius(
+          n.r,
+          display.nodeSize,
+          heatOf(stateRef.current, n.hk),
         );
-        ctx.fill();
-
-        const modified = d === "modified";
-        if (modified) {
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 2.5 / globalScale, 0, 2 * Math.PI);
-          ctx.strokeStyle = COLORS.modified;
-          ctx.lineWidth = 1.5 / globalScale;
-          ctx.stroke();
-        }
-        if (
-          d === "ring" ||
-          (modified && isRead(stateRef.current, hk)) ||
-          (d === "impact" && (impactDepth(stateRef.current, hk) ?? 2) <= 1)
-        ) {
-          ctx.beginPath();
-          // outside the modified ring when a node wears both
-          const gap = modified ? 4.5 : 2.5;
-          ctx.arc(node.x, node.y, r + gap / globalScale, 0, 2 * Math.PI);
-          ctx.strokeStyle = d === "impact" ? RADIUS_COLOR : COLORS.ring;
-          ctx.lineWidth = 1.5 / globalScale;
-          ctx.stroke();
-        }
+        const d = nodeDisplay(stateRef.current, n.hk);
+        paintNode(ctx, n, stateRef.current, {
+          nodeSize: display.nodeSize,
+          globalScale,
+        });
 
         // the node whose preview is open
         if (id === focusNode) {
           ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 3 / globalScale, 0, 2 * Math.PI);
+          ctx.arc(n.x, n.y, r + 3 / globalScale, 0, 2 * Math.PI);
           ctx.strokeStyle = COLORS.hover;
           ctx.lineWidth = 2 / globalScale;
           ctx.stroke();
@@ -315,7 +315,7 @@ export default function Graph({
         const inHover = h !== null && (id === h.id || h.neighbors.has(id));
         if (inHover) {
           ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 1.5 / globalScale, 0, 2 * Math.PI);
+          ctx.arc(n.x, n.y, r + 1.5 / globalScale, 0, 2 * Math.PI);
           ctx.strokeStyle = COLORS.hover;
           ctx.lineWidth = 1 / globalScale;
           ctx.stroke();
@@ -329,7 +329,7 @@ export default function Graph({
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
         ctx.fillStyle = nodeLabelColor(d);
-        ctx.fillText(label, node.x, node.y + r + 2 / globalScale);
+        ctx.fillText(label, n.x, n.y + r + 2 / globalScale);
       }}
       linkColor={(l: LinkObj) => (linkHovered(l) ? COLORS.hover : COLORS.link)}
       linkWidth={(l: LinkObj) =>
@@ -351,97 +351,37 @@ export default function Graph({
         ctx: CanvasRenderingContext2D,
         globalScale: number,
       ) => {
-        const t = pulseProgress(stateRef.current, performance.now());
-        if (t !== null) {
-          // searching pulse: ring expanding from the graph origin, fading out.
-          // A card's capped graph spans far fewer than 600 units, so there the
-          // ring stops at the card's corner instead of leaving in a few frames.
-          const reach = thumbnail
-            ? Math.hypot(width, height) / 2 / globalScale
-            : 600;
-          ctx.beginPath();
-          ctx.arc(0, 0, t * reach, 0, 2 * Math.PI);
-          ctx.strokeStyle = `rgba(126, 249, 255, ${1 - t})`;
-          ctx.lineWidth = 3 / globalScale;
-          ctx.stroke();
-        }
-
-        // matched files: a soft ring that fades over MATCH_MS. Drawn here
-        // rather than in nodeCanvasObject so the alpha is a per-frame value
-        // instead of something baked into each node.
-        const mt = matchProgress(stateRef.current, performance.now());
-        if (mt !== null) {
-          ctx.strokeStyle = COLORS.match;
-          ctx.globalAlpha = 1 - mt;
-          ctx.lineWidth = 2 / globalScale;
-          for (const n of data.nodes) {
-            if (!stateRef.current.matched.has(hlKey(n))) continue;
-            // filtered-out nodes have no live position — skip
-            if (n.x === undefined || n.y === undefined) continue;
-            // heat included: a hot node is drawn larger, and a ring sized off
-            // the cold radius would be painted over by the node itself
-            const r = displayRadius(
-              n.r ?? 4,
-              display.nodeSize,
-              heatOf(stateRef.current, hlKey(n)),
-            );
-            ctx.beginPath();
-            ctx.arc(n.x, n.y, r + 4 / globalScale, 0, 2 * Math.PI);
-            ctx.stroke();
+        const s = stateRef.current;
+        const now = performance.now();
+        // the overlay reads only matched nodes and trail nodes, so only those
+        // get a layout view this frame
+        const matched: LayoutNode[] = [];
+        if (s.matched.size > 0) {
+          for (const node of data.nodes) {
+            if (!s.matched.has(hlKey(node))) continue;
+            const n = layoutNodeOf(node, domains, groups, baseHue);
+            if (n) matched.push(n);
           }
-          ctx.globalAlpha = 1;
-        } else {
-          expireMatches(stateRef.current, performance.now());
         }
-
-        // ponytail: trail entries are file-path ids; in symbol mode no symbol node
-        // carries that id, so trail arrows simply don't resolve here. Structure-first.
-        // read-order trail: arrows between consecutively read nodes
-        const trail = stateRef.current.trail;
-        if (trail.length < 2) return;
-        ctx.strokeStyle = `${COLORS.trail}99`; // 99 hex = 60% alpha
-        ctx.fillStyle = `${COLORS.trail}99`;
-        ctx.lineWidth = 1.5 / globalScale;
-        for (let i = 0; i < trail.length - 1; i++) {
-          const a = nodeById.get(trail[i]);
-          const b = nodeById.get(trail[i + 1]);
-          // filtered-out nodes have no live position — skip the hop
-          if (!a || !b || a.x === undefined || b.x === undefined) continue;
-          const dx = (b.x ?? 0) - (a.x ?? 0);
-          const dy = (b.y ?? 0) - (a.y ?? 0);
-          const len = Math.hypot(dx, dy);
-          // heat included: trail nodes are read nodes, so they are exactly the
-          // ones that grow — offsets off the cold radius start inside the node
-          const ra = displayRadius(
-            a.r ?? 4,
-            display.nodeSize,
-            heatOf(stateRef.current, trail[i]),
-          );
-          const rb = displayRadius(
-            b.r ?? 4,
-            display.nodeSize,
-            heatOf(stateRef.current, trail[i + 1]),
-          );
-          if (len < ra + rb + 2) continue; // nodes touching — no room
-          const ux = dx / len;
-          const uy = dy / len;
-          const sx = (a.x ?? 0) + ux * (ra + 1);
-          const sy = (a.y ?? 0) + uy * (ra + 1);
-          const ex = (b.x ?? 0) - ux * (rb + 1);
-          const ey = (b.y ?? 0) - uy * (rb + 1);
-          ctx.beginPath();
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(ex, ey);
-          ctx.stroke();
-          // arrowhead at the target end
-          const h = 6 / globalScale;
-          ctx.beginPath();
-          ctx.moveTo(ex, ey);
-          ctx.lineTo(ex - ux * h - uy * (h / 2), ey - uy * h + ux * (h / 2));
-          ctx.lineTo(ex - ux * h + uy * (h / 2), ey - uy * h - ux * (h / 2));
-          ctx.closePath();
-          ctx.fill();
+        const byId = new Map<string, LayoutNode>();
+        if (s.trail.length >= 2) {
+          for (const id of s.trail) {
+            const node = nodeById.get(id);
+            const n = node && layoutNodeOf(node, domains, groups, baseHue);
+            if (n) byId.set(id, n);
+          }
         }
+        paintOverlay(ctx, matched, byId, s, {
+          nodeSize: display.nodeSize,
+          globalScale,
+          now,
+          // A card's capped graph spans far fewer than 600 units, so there the
+          // pulse stops at the card's corner instead of leaving in a few frames.
+          pulseReach: thumbnail
+            ? Math.hypot(width, height) / 2 / globalScale
+            : 600,
+        });
+        if (matchProgress(s, now) === null) expireMatches(s, now);
       }}
     />
   );

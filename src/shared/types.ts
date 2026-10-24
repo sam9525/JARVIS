@@ -362,3 +362,24 @@ export function defaultSettings(): Settings {
     panels: { home: {}, workspace: {} },
   };
 }
+
+// A graph as drawn: graph-space positions plus the zoom/pan that framed them.
+// `r` is the base radius before displayRadius; `fill` is the colour before
+// highlights (group, then tag or domain). `hk` is the node's highlight key.
+export type LayoutNode = {
+  id: string;
+  hk: string;
+  x: number;
+  y: number;
+  r: number;
+  fill: string;
+};
+
+export type CardLayout = {
+  width: number;
+  height: number;
+  // zoom k, and the graph-space point at the canvas centre
+  transform: { k: number; x: number; y: number };
+  nodes: LayoutNode[];
+  links: [number, number][]; // indices into nodes
+};
