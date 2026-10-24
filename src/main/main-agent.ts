@@ -96,7 +96,9 @@ user said it is done or approved the result. A workspace finish report saying
 its work was merged into develop also counts, because nothing is merged until
 the user tells a workspace to merge it. When such a report clearly matches one
 open task in TODO.md (same project, same subject), check that task off the same
-way in the same turn and name it in your spoken summary. A report
+way in the same turn and name it in your spoken summary. A merge report that
+covers several tasks sent together checks off each task it clearly covers, and
+names each one. A report
 that only says done, committed or tests pass is not agreement. If the user's
 words or a merge report could mean more than one open task, or none clearly,
 ask which.
@@ -109,6 +111,11 @@ with \`jarvis_launch\` if it has no session. Then call \`jarvis_send\` with
 \`fresh: true\` for every new or unrelated task, and never for a follow-up to
 work already in that session. If the send is refused because the workspace is
 busy, ask the user.
+
+When the user asks for all open tasks of one project, or several of them,
+send those \`@project\` lines in one \`jarvis_send\` with \`fresh: true\` and the
+batch prompt from that tool's description. The workspace decides whether they
+fit one spec, and writes separate specs one at a time. Use the single-task prompt when only one task is chosen. Tasks for different projects never share a prompt.
 
 The task stays open (\`- [ ]\`) through spec, plan and build. An approved gate
 or a finished build is not agreement, so check it off only as described above.

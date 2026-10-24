@@ -118,6 +118,7 @@ describe("ensureMainAgent", () => {
       "only says done, committed or tests pass is not agreement",
     );
     expect(AGENT_GUIDE).toContain("or none clearly");
+    expect(AGENT_GUIDE).toContain("each task it clearly covers");
   });
 
   it("the guide tells the agent how to work a to-do task", () => {
@@ -125,6 +126,11 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("fresh: true");
     expect(AGENT_GUIDE).toContain("jarvis_send");
     expect(AGENT_GUIDE).toContain("never for a follow-up");
+    expect(AGENT_GUIDE).toContain("in one `jarvis_send`");
+    expect(AGENT_GUIDE).toContain(
+      "Use the single-task prompt when only one task is chosen",
+    );
+    expect(AGENT_GUIDE).toContain("never share a prompt");
   });
 
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
