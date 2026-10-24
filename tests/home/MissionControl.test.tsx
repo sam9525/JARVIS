@@ -8,6 +8,7 @@ vi.mock("../../src/renderer/graph/MiniGraph", () => ({ default: () => null }));
 
 import { renderToStaticMarkup } from "react-dom/server";
 import MissionControl from "../../src/renderer/home/MissionControl";
+import MiniGraph from "../../src/renderer/graph/MiniGraph";
 import { emptyState } from "../../src/renderer/session/highlight-store";
 import { defaultSettings } from "../../src/shared/types";
 import type {
@@ -63,11 +64,12 @@ function walk(node: any, fn: (n: any) => boolean): any {
     }
     return null;
   }
+  // matched before it renders, so a test can find a component element itself
+  if (fn(node)) return node;
   if (typeof node.type === "function") {
     const rendered = node.type(node.props);
     return walk(rendered, fn);
   }
-  if (fn(node)) return node;
   const children = node.props?.children;
   if (Array.isArray(children)) {
     for (const child of children) {
@@ -365,6 +367,26 @@ describe("MissionControl", () => {
       />,
     );
     expect(screen.byTestId("call-w1").props.title).toBe(call);
+  });
+
+  it("tells a card's thumbnail whether its project is working", () => {
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [
+            status({ workspaceId: "w1", kind: "working" }),
+            status({ workspaceId: "w2", kind: "idle" }),
+          ],
+        }) as any)}
+      />,
+    );
+    const mini = (id: string) =>
+      walk(
+        currentTree,
+        (n) => n.type === MiniGraph && n.props.workspaceId === id,
+      );
+    expect(mini("w1").props.working).toBe(true);
+    expect(mini("w2").props.working).toBe(false);
   });
 
   it("has no tooltip when there is no call", () => {

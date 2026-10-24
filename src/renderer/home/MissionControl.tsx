@@ -194,6 +194,8 @@ export default function MissionControl({
                 </div>
               ) : (
                 <MiniGraph
+                  workspaceId={ws.id}
+                  working={kind === "working"}
                   graph={g ?? null}
                   kind={ws.kind}
                   baseHue={hueOfWorkspace(ws, workspaces, mainColors)}
