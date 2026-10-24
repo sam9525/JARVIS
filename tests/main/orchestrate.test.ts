@@ -738,6 +738,23 @@ describe("orchestrate.launch", () => {
     expect(launched).toEqual([["d:/vault", "AeroGraph"]]);
   });
 
+  it.each(["main", "MAIN", "Main"])(
+    "refuses the main-folder label %s in a code workspace, launching nothing",
+    async (label) => {
+      const { orch, launched } = setup({ sessions: [] });
+      const out = await orch.launch("FinPulse", label);
+      expect(out.ok).toBe(false);
+      if (!out.ok) expect(out.error).toContain("the user's own");
+      expect(launched).toEqual([]);
+    },
+  );
+
+  it("passes the main label through for a vault workspace", async () => {
+    const { orch, launched } = setup({ sessions: [] });
+    expect((await orch.launch("Obsidian-vault", "main")).ok).toBe(true);
+    expect(launched).toEqual([["d:/vault", "main"]]);
+  });
+
   it("refuses a label whose session is already live", async () => {
     const { orch, launched } = setup({
       sessions: [mainOf("d:/aero"), worktreeOf("d:/aero", "docs")],

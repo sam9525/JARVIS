@@ -1,4 +1,4 @@
-import { cleanLabel, parseSessionKey } from "../shared/session-key";
+import { cleanLabel, MAIN_LABEL, parseSessionKey } from "../shared/session-key";
 import type {
   StatusKind,
   Workspace,
@@ -348,6 +348,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       const ws = delegate(target);
       if ("ok" in ws) return ws;
       const wanted = cleanLabel(String(label ?? "")) || undefined;
+      // a code workspace's main folder belongs to the user; every session the
+      // agent opens there runs in its own worktree
+      if (ws.kind === "code" && wanted && sameLabel(MAIN_LABEL, wanted)) {
+        return {
+          ok: false,
+          error: `refused: ${ws.name}'s main-folder session is the user's own — JARVIS tasks get their own sessions, so omit the label or pick another`,
+        };
+      }
       if (wanted && liveSessions(ws).some((s) => sameLabel(s.label, wanted))) {
         return {
           ok: false,
