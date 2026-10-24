@@ -130,18 +130,23 @@ export default function MiniGraph({
   const layoutRef = useRef<(() => CardLayout | null) | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const paintedRev = useRef<number | null>(null);
+  // a fade's last tick lands before it ends, so the frame after it still
+  // holds a faint ring; this marks that one more paint is owed
+  const paintedFading = useRef(false);
   const paintStored = useRef(() => {
     const now = latest.current;
     const s = snapshots.get(now.workspaceId);
     const ctx = canvasRef.current?.getContext("2d");
     if (!s || !ctx) return;
+    const t = performance.now();
     paintLayout(ctx, s.layout, now.state, {
       nodeSize: now.display.nodeSize,
       linkThickness: now.display.linkThickness,
       dpr: now.dpr,
-      now: performance.now(),
+      now: t,
     });
     paintedRev.current = now.state.rev;
+    paintedFading.current = isFading(now.state, t);
   }).current;
   useEffect(() => {
     if (showStored) paintStored();
@@ -182,8 +187,8 @@ export default function MiniGraph({
         if (!valid) setChecks((n) => n + 1);
         else if (
           now.state.rev !== paintedRev.current ||
-          pulseProgress(now.state, t) !== null ||
-          matchProgress(now.state, t) !== null
+          paintedFading.current ||
+          isFading(now.state, t)
         )
           paintStored();
       } else if (
@@ -252,6 +257,12 @@ export default function MiniGraph({
         )
       )}
     </div>
+  );
+}
+
+function isFading(state: HighlightState, now: number): boolean {
+  return (
+    pulseProgress(state, now) !== null || matchProgress(state, now) !== null
   );
 }
 

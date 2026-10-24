@@ -129,7 +129,7 @@ describe("MiniGraph: stored layout or live graph", () => {
     render(p);
     const canvas = stored() as HTMLCanvasElement | null;
     expect(canvas).not.toBeNull();
-    expect(canvas?.width).toBe(220 * window.devicePixelRatio);
+    expect(canvas?.width).toBe(Math.round(220 * window.devicePixelRatio));
     expect(canvas?.style.width).toBe("220px");
     expect(liveCanvas()).toBeNull();
     expect(p.onNeedGraph).not.toHaveBeenCalled();
@@ -147,9 +147,12 @@ describe("MiniGraph: stored layout or live graph", () => {
     render(p);
     expect(p.onNeedGraph).toHaveBeenCalledTimes(1);
     expect(stored()).toBeNull();
-    render({ ...p });
+    // MissionControl hands a fresh callback each render
+    const again = vi.fn();
+    render({ ...p, onNeedGraph: again });
     advance(1000);
     expect(p.onNeedGraph).toHaveBeenCalledTimes(1);
+    expect(again).not.toHaveBeenCalled();
   });
 
   it("a stored snapshot with another look goes live and saves the new look", () => {
@@ -214,15 +217,29 @@ describe("MiniGraph: stored layout or live graph", () => {
     expect(p.onNeedGraph).not.toHaveBeenCalled();
   });
 
-  it("a fading match repaints the stored layout on every tick", () => {
+  it("a fading match repaints on every tick, then once more when it ends", () => {
+    let clock = 1100;
+    const now = vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const tick = () => {
+      clock += 500;
+      advance(500);
+    };
     const state = emptyState();
-    state.matchAt = performance.now();
+    state.matchAt = 1000;
     const p = props({ graph: null, state });
     snapshots.set("w1", { look: lookOf(p), layout: live.layout });
     render(p);
-    advance(500);
-    advance(500);
-    expect(paint.paintLayout).toHaveBeenCalledTimes(3);
+    expect(paint.paintLayout).toHaveBeenCalledTimes(1);
+    // ticks at 1600..3600 all fall inside the 3000 ms fade
+    for (let i = 0; i < 5; i++) tick();
+    expect(paint.paintLayout).toHaveBeenCalledTimes(6);
+    // at 4100 the fade has ended; the ring painted at 3600 is cleared once
+    tick();
+    expect(paint.paintLayout).toHaveBeenCalledTimes(7);
+    tick();
+    tick();
+    expect(paint.paintLayout).toHaveBeenCalledTimes(7);
+    now.mockRestore();
   });
 
   it("a failed graph is never saved and drops the map entry", () => {
