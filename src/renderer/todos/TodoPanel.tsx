@@ -50,6 +50,7 @@ export default function TodoPanel({
   onOverflow?(px: number): void;
 }) {
   const [openFolded, setOpenFolded] = useState(false);
+  const [workingFolded, setWorkingFolded] = useState(false);
   const [doneFolded, setDoneFolded] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // a ref, not dataTransfer: the drop only needs to know which row left, and
@@ -70,7 +71,7 @@ export default function TodoPanel({
     if (!el || !grow || el.clientHeight === 0) return;
     const over = el.scrollHeight - el.clientHeight;
     if (over > 0) grow(over);
-  }, [list, openFolded, doneFolded, error]);
+  }, [list, openFolded, workingFolded, doneFolded, error]);
 
   // the box height before DONE unfolded; folding it again shrinks back to it,
   // but never grows a box the user made smaller meanwhile
@@ -158,6 +159,17 @@ export default function TodoPanel({
         >
           {t.text}
         </span>
+        {!t.done && (
+          <button
+            title={t.working ? "Back to to do" : "Start working"}
+            className={ICON_BTN}
+            onClick={() =>
+              void send({ kind: "work", line: t.line, raw: t.raw })
+            }
+          >
+            {t.working ? "⏸" : "▶"}
+          </button>
+        )}
         <button
           title="Edit"
           className={ICON_BTN}
@@ -216,7 +228,7 @@ export default function TodoPanel({
   };
 
   const section = (
-    id: "open" | "done",
+    id: "open" | "working" | "done",
     title: string,
     items: Todo[],
     folded: boolean,
@@ -241,7 +253,8 @@ export default function TodoPanel({
     </section>
   );
 
-  const open = list.todos.filter((t) => !t.done);
+  const open = list.todos.filter((t) => !t.done && !t.working);
+  const working = list.todos.filter((t) => t.working);
   const done = list.todos.filter((t) => t.done);
 
   return (
@@ -261,6 +274,9 @@ export default function TodoPanel({
         <div ref={scroller} className="h-full overflow-y-auto">
           {section("open", "TO DO", open, openFolded, () =>
             setOpenFolded((v) => !v),
+          )}
+          {section("working", "WORKING", working, workingFolded, () =>
+            setWorkingFolded((v) => !v),
           )}
           {section("done", "DONE", done, doneFolded, toggleDone)}
         </div>

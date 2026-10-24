@@ -47,7 +47,7 @@ export default function TodoView({
           {project || "Personal"}
         </span>
         {todo.created && <span className="tabular-nums">{todo.created}</span>}
-        <span>{todo.done ? "Done" : "Open"}</span>
+        <span>{todo.done ? "Done" : todo.working ? "Working" : "Open"}</span>
       </div>
       {error && (
         <div
