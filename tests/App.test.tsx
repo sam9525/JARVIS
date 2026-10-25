@@ -293,14 +293,14 @@ describe("App shell", () => {
         .find((n: any) => Array.isArray(n.props?.tabs))
         .props.tabs.map((t: any) => t.label);
 
-    it("shows MAIN AGENT alone while scratch has no live session", async () => {
+    it("shows MAIN alone while scratch has no live session", async () => {
       const panel = await terminalPanel([session("scr", "main", false)]);
-      expect(labels(panel)).toEqual(["MAIN AGENT"]);
+      expect(labels(panel)).toEqual(["MAIN"]);
     });
 
-    it("shows SCRATCH beside MAIN AGENT for one live scratch session", async () => {
+    it("shows SCRATCH beside MAIN for one live scratch session", async () => {
       const panel = await terminalPanel([session("scr#1", "1")]);
-      expect(labels(panel)).toEqual(["MAIN AGENT", "SCRATCH"]);
+      expect(labels(panel)).toEqual(["MAIN", "SCRATCH"]);
     });
 
     it("numbers several scratch sessions", async () => {
@@ -308,7 +308,7 @@ describe("App shell", () => {
         session("scr#1", "1"),
         session("scr#2", "2"),
       ]);
-      expect(labels(panel)).toEqual(["MAIN AGENT", "SCRATCH 1", "SCRATCH 2"]);
+      expect(labels(panel)).toEqual(["MAIN", "SCRATCH 1", "SCRATCH 2"]);
     });
 
     it("keeps the role word in the title and drops the name", async () => {

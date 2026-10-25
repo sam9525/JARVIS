@@ -140,6 +140,41 @@ describe("SessionTabs", () => {
     expect(container.textContent).not.toContain("· working");
   });
 
+  it("marks a tab opened while selected as new until another is selected", () => {
+    render({ tabs: [tab("w", "main")], value: "w" });
+    render({ tabs: [tab("w", "main"), tab("w#1", "1")], value: "w#1" });
+    expect(container.textContent).toContain("· new");
+    render({ tabs: [tab("w", "main"), tab("w#1", "1")], value: "w" });
+    render({ tabs: [tab("w", "main"), tab("w#1", "1")], value: "w#1" });
+    expect(container.textContent).not.toContain("· new");
+  });
+
+  it("marks nothing new on the first render", () => {
+    render({ tabs: [tab("w", "main"), tab("w#1", "1")], value: "w#1" });
+    expect(container.textContent).not.toContain("· new");
+  });
+
+  it("colours an unselected asking tab warm", () => {
+    render({
+      tabs: [tab("w", "main"), tab("w#1", "1", { kind: "asking" })],
+      value: "w",
+    });
+    expect(tabButtons()[1].className).toContain("text-warm");
+    expect(tabButtons()[0].className).not.toContain("text-warm");
+  });
+
+  it("drops hints at the cap", () => {
+    render({
+      tabs: [
+        tab("w", "main"),
+        tab("w#1", "1", { hint: "worktree" }),
+        tab("w#2", "2"),
+        tab("w#3", "3"),
+      ],
+    });
+    expect(container.textContent).not.toContain("worktree");
+  });
+
   it("shows a status dot per tab and a tab's hint", () => {
     render({
       tabs: [

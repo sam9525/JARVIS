@@ -70,7 +70,7 @@ describe("homeTabs", () => {
       row("self", [session("self", "main", { kind: "working" })]),
       row("scr", [session("scr", "main", { live: false, kind: "none" })]),
     ]);
-    expect(tabs.map((t) => t.label)).toEqual(["MAIN AGENT"]);
+    expect(tabs.map((t) => t.label)).toEqual(["MAIN"]);
     expect(tabs[0]).toMatchObject({
       key: "self",
       workspaceId: "self",
@@ -81,7 +81,7 @@ describe("homeTabs", () => {
 
   it("names a single live scratch session SCRATCH", () => {
     const tabs = homeTabs(SELF, SCRATCH, [row("scr", [session("scr#1", "1")])]);
-    expect(tabs.map((t) => t.label)).toEqual(["MAIN AGENT", "SCRATCH"]);
+    expect(tabs.map((t) => t.label)).toEqual(["MAIN", "SCRATCH"]);
     expect(tabs[1]).toMatchObject({ key: "scr#1", workspaceId: "scr" });
     expect(tabs[1].main).toBeFalsy();
   });
@@ -95,7 +95,7 @@ describe("homeTabs", () => {
       ]),
     ]);
     expect(tabs.map((t) => t.label)).toEqual([
-      "MAIN AGENT",
+      "MAIN",
       "SCRATCH 1",
       "SCRATCH 2",
     ]);
@@ -103,9 +103,7 @@ describe("homeTabs", () => {
   });
 
   it("works without a scratch workspace", () => {
-    expect(homeTabs(SELF, undefined, []).map((t) => t.label)).toEqual([
-      "MAIN AGENT",
-    ]);
+    expect(homeTabs(SELF, undefined, []).map((t) => t.label)).toEqual(["MAIN"]);
   });
 });
 
@@ -148,6 +146,16 @@ describe("projectTabs", () => {
       ]),
     ]);
     expect(tabs.map((t) => t.key)).toEqual(["repo", "repo#1"]);
+  });
+
+  it("hints a worktree session as a worktree", () => {
+    const tabs = projectTabs(REPO, [
+      row("repo", [
+        session("repo", "main"),
+        session("repo#1", "1", { worktree: true }),
+      ]),
+    ]);
+    expect(tabs[1].hint).toBe("worktree");
   });
 
   it("hints a shared folder on a code session without a worktree", () => {

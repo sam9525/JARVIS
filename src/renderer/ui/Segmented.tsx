@@ -52,8 +52,13 @@ export default function Segmented<T extends string>({
   return (
     <div
       ref={wrap}
+      // stretched, it is a tab strip: dividers instead of a frame, and the
+      // fill marks the active tab with an underline
       className={
-        "relative flex border border-accent/35" + (stretch ? " flex-1" : "")
+        "relative flex " +
+        (stretch
+          ? "flex-1 border-l border-accent/20"
+          : "border border-accent/35")
       }
     >
       {/* Before paint, so the first fill lands with its geometry already set
@@ -64,18 +69,26 @@ export default function Segmented<T extends string>({
           data-testid="segmented-fill"
           // segmented-fill, not a transition utility: the reduced-motion block
           // in index.css can only name classes it owns
-          className="segmented-fill pointer-events-none absolute inset-y-0 bg-accent/15"
+          className={
+            "segmented-fill pointer-events-none absolute inset-y-0 " +
+            (stretch
+              ? "border-b-2 border-accent bg-accent/[0.07]"
+              : "bg-accent/15")
+          }
           style={fillStyle}
         />
       )}
-      {options.map((o) => (
+      {options.map((o, i) => (
         <button
           key={o.value}
           data-on={o.value === value ? "1" : undefined}
           // relative, so the label sits over the fill rather than under it
           className={
-            "relative cursor-pointer px-2.5 py-1 transition-colors " +
-            (stretch ? "min-w-0 flex-1 " : "") +
+            "relative cursor-pointer transition-colors " +
+            (stretch
+              ? "min-w-0 flex-1 px-3.5 py-2 text-left " +
+                (i > 0 ? "border-l border-accent/20 " : "")
+              : "px-2.5 py-1 ") +
             (o.value === value ? LBL_CY : LBL_DIM + " hover:text-ink-muted")
           }
           onClick={() => onChange(o.value)}

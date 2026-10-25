@@ -1472,10 +1472,12 @@ export default function App() {
         return (
           <Panel
             id="terminal"
-            title={showHome ? "ORCHESTRATOR" : "SESSION"}
+            title={showHome ? "ORCHESTRATOR" : owner.name}
             badge={
               inboxOnly ? undefined : (
                 <SessionTabs
+                  // per owner, so another owner's tabs never read as new
+                  key={owner.id}
                   tabs={tabs}
                   value={tab.key}
                   onSelect={select}

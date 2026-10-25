@@ -40,7 +40,7 @@ export function homeTabs(
   scratch: Workspace | undefined,
   statuses: WorkspaceStatus[],
 ): SessionTab[] {
-  const tabs = [mainTab(orchestrator, "MAIN AGENT", statuses)];
+  const tabs = [mainTab(orchestrator, "MAIN", statuses)];
   if (!scratch) return tabs;
   const live = sessionsOf(scratch.id, statuses).filter((s) => s.live);
   return [
@@ -75,7 +75,11 @@ export function projectTabs(
       workspaceId: ws.id,
       // a code folder that is not a git repo gets no worktree, so this session
       // edits the same files as main
-      ...(ws.kind === "code" && !s.worktree ? { hint: "shared folder" } : {}),
+      ...(s.worktree
+        ? { hint: "worktree" }
+        : ws.kind === "code"
+          ? { hint: "shared folder" }
+          : {}),
     })),
   ];
 }
