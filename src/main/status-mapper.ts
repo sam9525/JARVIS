@@ -86,6 +86,9 @@ export function mapStatusEvent(
           typeof raw.last_assistant_message === "string"
             ? raw.last_assistant_message
             : undefined,
+        ...(typeof raw.transcript_path === "string"
+          ? { transcriptPath: raw.transcript_path }
+          : {}),
       };
     case "UserPromptSubmit":
       return {

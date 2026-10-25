@@ -35,6 +35,7 @@ interface Entry {
   // sets — a `claude` run by hand in the same folder resolves to the same
   // workspace, and the terminal panel must not read that as its own session.
   ptyOwned: boolean;
+  topic: string;
 }
 
 export interface StatusStore {
@@ -44,6 +45,7 @@ export interface StatusStore {
   markDelegated(key: string, by: string, now: number): boolean;
   ptyLaunched(key: string, now: number): boolean;
   sessionOpened(key: string, worktree: boolean, now: number): boolean;
+  setTopic(key: string, topic: string): boolean;
   ptyExited(key: string, now: number, exitCode: number): boolean;
   sweep(now: number): boolean;
   snapshot(): WorkspaceStatus[];
@@ -106,6 +108,7 @@ export function createStatusStore(
         edits: new Set(),
         ptyAlive: false,
         ptyOwned: false,
+        topic: "",
       };
       entries.set(key, e);
     }
@@ -251,9 +254,18 @@ export function createStatusStore(
 
     sessionOpened(key, worktree, now) {
       const e = entry(key, now);
-      const changed = e.worktree !== worktree;
+      // a reopened label is a new conversation, so the old topic is dropped
+      const changed = e.worktree !== worktree || e.topic !== "";
       e.worktree = worktree;
+      e.topic = "";
       return changed;
+    },
+
+    setTopic(key, topic) {
+      const e = entries.get(key);
+      if (!e || e.topic === topic) return false;
+      e.topic = topic;
+      return true;
     },
 
     // A clean exit is what closing a terminal looks like, so it reads as no
@@ -331,6 +343,7 @@ export function createStatusStore(
           call: e.call,
           since: e.since,
           worktree: e.worktree,
+          ...(e.topic ? { topic: e.topic } : {}),
         }));
         return {
           workspaceId,

@@ -131,6 +131,19 @@ describe("mapStatusEvent", () => {
     expect(e?.kind).toBe("idle");
   });
 
+  it("Stop carries the transcript path when the payload has one", () => {
+    const e = mapStatusEvent(
+      { ...base, hook_event_name: "Stop", transcript_path: "C:\\t\\a.jsonl" },
+      workspaces,
+    );
+    expect(e?.transcriptPath).toBe("C:\\t\\a.jsonl");
+    const bare = mapStatusEvent(
+      { ...base, hook_event_name: "Stop" },
+      workspaces,
+    );
+    expect(bare).not.toHaveProperty("transcriptPath");
+  });
+
   it("UserPromptSubmit is 'working' with no call yet", () => {
     const e = mapStatusEvent(
       { ...base, hook_event_name: "UserPromptSubmit" },

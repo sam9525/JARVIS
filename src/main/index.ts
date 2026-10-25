@@ -71,6 +71,7 @@ import {
   parseSessionKey,
   sessionKey,
 } from "../shared/session-key";
+import { readAiTitle, topicWord } from "./transcript-title";
 import { createTts } from "./tts";
 import { MsEdgeTTS } from "msedge-tts";
 import { createEdgeTts } from "./edge-tts";
@@ -100,6 +101,7 @@ import type {
   CardLayout,
   LineChanges,
   Settings,
+  StatusEvent,
   TodoOp,
   VaultGraph,
   Workspace,
@@ -617,6 +619,29 @@ app.whenReady().then(async () => {
     },
   );
 
+  // The topic is stored before the finish is published: the spoken summary and
+  // the tab both read it from the snapshot. A failed read still finishes.
+  async function onStop(s: StatusEvent, message: string): Promise<void> {
+    const ws = workspaces.find((w) => w.id === s.workspaceId);
+    const { label } = parseSessionKey(s.sessionKey, [s.workspaceId]);
+    if (
+      ws &&
+      !ws.isSelf &&
+      !ws.isScratch &&
+      label !== MAIN_LABEL &&
+      s.transcriptPath
+    ) {
+      try {
+        const title = await readAiTitle(s.transcriptPath);
+        const word = topicWord(title ?? "", ws.name);
+        if (word) pushStatus(status.setTopic(s.sessionKey, word));
+      } catch {
+        // no topic this turn; the finish below is still owed
+      }
+    }
+    orchestrator.publishFinish(s.sessionKey, message);
+  }
+
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
     (e) => {
@@ -629,8 +654,7 @@ app.whenReady().then(async () => {
       // event, not the snapshot: the workspace row is an aggregate, so it can
       // read working while another session's turn has just ended, and a
       // restored inbox or a sweep demotion is never mistaken for a finish.
-      if (s.message !== undefined)
-        orchestrator.publishFinish(s.sessionKey, s.message);
+      if (s.message !== undefined) void onStop(s, s.message);
       if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
         onMainPrompt?.(s.prompt);
     },

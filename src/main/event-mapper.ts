@@ -16,6 +16,7 @@ export interface RawHookEvent {
   notification_type?: string; // Notification only; read by status-mapper.ts
   last_assistant_message?: string; // Stop only; the final assistant text of the turn
   prompt?: string; // UserPromptSubmit only; read by status-mapper.ts
+  transcript_path?: string; // Stop only; read by status-mapper.ts for the topic
 }
 
 // A broad search can match hundreds of files; past this the graph is a white

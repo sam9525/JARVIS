@@ -38,6 +38,7 @@ export interface SessionStatus {
   call: string;
   since: number; // ms epoch of the last kind change
   worktree: boolean; // runs in its own git worktree rather than the folder
+  topic?: string; // one word for what the last turn was about; absent until a Stop sets it
 }
 
 // what the rail badge and the mission-control cards read: the aggregate of the
@@ -66,6 +67,7 @@ export interface StatusEvent {
   call: string;
   message?: string; // Stop only: the last thing Claude said, for the inbox
   prompt?: string; // UserPromptSubmit only: what was submitted
+  transcriptPath?: string; // Stop only: where the session transcript lives
   ts: number;
 }
 

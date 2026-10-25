@@ -595,6 +595,22 @@ describe("crashed", () => {
       expect(s.sessionId("d:/r#1")).toBe("b");
     });
 
+    it("shows a set topic on the session row", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      expect(s.setTopic("w#first", "review")).toBe(true);
+      expect(s.snapshot()[0].sessions[0].topic).toBe("review");
+      expect(s.setTopic("w#first", "review")).toBe(false);
+    });
+
+    it("forgets the topic when the label is opened again", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      s.setTopic("w#first", "review");
+      s.sessionOpened("w#first", true, 2);
+      expect(s.snapshot()[0].sessions[0]).not.toHaveProperty("topic");
+    });
+
     it("restore puts a saved row on the workspace's main session", () => {
       const s = createStatusStore();
       s.restore([{ workspaceId: "d:/r", message: "hi", since: 500 }]);
