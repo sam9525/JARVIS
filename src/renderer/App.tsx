@@ -1451,13 +1451,16 @@ export default function App() {
         const inboxOnly = showHome && panelState("terminal").collapsed;
         const { tabs, tab } = shownTabs(owner, showHome);
         const ws = workspaces.find((w) => w.id === tab.workspaceId) ?? owner;
-        const select = (key: string) =>
+        const select = (key: string) => {
+          // an action notice (Close anyway) targets the tab it came from
+          setTerminalNotice((n) => (n?.action ? null : n));
           setSelectedTabs((m) =>
             new Map(m).set(owner.id, {
               key,
               seen: tabs.some((t) => t.key === key),
             }),
           );
+        };
         const notify = (text: string, action?: NoticeAction) =>
           setTerminalNotice({ ownerId: owner.id, text, action });
         const closeTab = (key: string) =>

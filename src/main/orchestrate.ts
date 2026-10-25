@@ -154,8 +154,15 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       })
       .join(", ");
 
-  // a label wins; otherwise the one session whose topic matches, so a topic two
-  // sessions share names neither
+  // the live non-main sessions a tab name is judged against: the same set the
+  // tab strip uses, so a spoken name and a shown name agree
+  const tabSiblings = (workspaceId: string) =>
+    (
+      deps.snapshot().find((r) => r.workspaceId === workspaceId)?.sessions ?? []
+    ).filter((s) => s.live && s.label !== MAIN_LABEL);
+
+  // a label wins; then the name a tab shows (topic, or topic + label when
+  // another tab shares it); then the one session whose bare topic matches
   function findSession(
     list: SessionInfo[],
     name: string,
@@ -163,6 +170,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
   ): SessionInfo | undefined {
     const byLabel = list.find((s) => sameLabel(s.label, name));
     if (byLabel) return byLabel;
+    const siblings = tabSiblings(ws.id);
+    const byShown = list.find((s) => {
+      const row = siblings.find((r) => r.key === s.key);
+      return row !== undefined && sameLabel(shownName(row, siblings), name);
+    });
+    if (byShown) return byShown;
     const byTopic = list.filter((s) => {
       const topic = topicOf(ws.id, s.key);
       return topic !== "" && sameLabel(topic, name);
@@ -501,8 +514,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       const ws = all.find((w) => w.id === workspaceId);
       // the orchestrator waking on its own turn ending is a loop with itself
       if (!ws || ws.isSelf) return;
-      const siblings =
-        deps.snapshot().find((r) => r.workspaceId === ws.id)?.sessions ?? [];
+      const siblings = tabSiblings(ws.id);
       const own = siblings.find((r) => r.key === sessionKey);
       const finish: Finish = {
         workspace: ws.name,

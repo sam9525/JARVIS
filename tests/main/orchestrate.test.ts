@@ -640,6 +640,69 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       expect(out.ok).toBe(false);
     });
 
+    const twinSessions = [
+      worktreeOf("d:/aero", "first"),
+      worktreeOf("d:/aero", "second"),
+    ];
+
+    it("sends to the name a finish speaks for a shared topic", async () => {
+      const { orch, writes } = setup({
+        sessions: twinSessions,
+        statuses: topicStatus({ first: "review", second: "review" }),
+      });
+      const out = await orch.send("AeroGraph", "go", {
+        session: "review first",
+      });
+      expect(out.ok).toBe(true);
+      expect(writes[0][0]).toBe("d:/aero#first");
+    });
+
+    it("closes the session its spoken name picks", async () => {
+      const { orch, closed } = setup({
+        sessions: twinSessions,
+        statuses: topicStatus({ first: "review", second: "review" }),
+      });
+      const out = await orch.close("AeroGraph", "review second");
+      expect(out.ok).toBe(true);
+      expect(closed).toEqual(["d:/aero#second"]);
+    });
+
+    it("closes a session named by its unique topic", async () => {
+      const { orch, closed } = setup({
+        sessions: aeroSessions,
+        statuses: topicStatus({ first: "review" }),
+      });
+      const out = await orch.close("AeroGraph", "review");
+      expect(out.ok).toBe(true);
+      expect(closed).toEqual(["d:/aero#first"]);
+    });
+
+    it("names a finish against live sessions only, as the tab does", async () => {
+      const { orch } = setup({
+        sessions: [worktreeOf("d:/aero", "second")],
+        statuses: [
+          status({
+            workspaceId: "d:/aero",
+            sessions: [
+              sessionRow({
+                key: "d:/aero#first",
+                label: "first",
+                topic: "review",
+                live: false,
+              }),
+              sessionRow({
+                key: "d:/aero#second",
+                label: "second",
+                topic: "review",
+              }),
+            ],
+          }),
+        ],
+      });
+      orch.publishFinish("d:/aero#second", "done");
+      await expect(orch.watch(1)).resolves.toMatchObject({ topic: "review" });
+    });
+
     it("lists the topic", () => {
       const { orch } = setup({
         sessions: aeroSessions,

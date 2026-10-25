@@ -13,6 +13,7 @@ export async function readAiTitle(
   }
   let title: string | null = null;
   for (const line of text.split("\n")) {
+    if (!line.includes('"ai-title"')) continue;
     try {
       const parsed = JSON.parse(line) as { type?: unknown; aiTitle?: unknown };
       if (parsed.type === "ai-title" && typeof parsed.aiTitle === "string") {
