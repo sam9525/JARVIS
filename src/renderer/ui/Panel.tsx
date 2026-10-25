@@ -223,8 +223,12 @@ export default function Panel({
         {/* title and frame stay lit whatever has focus — a dimmed preview or
             settings panel read as disabled next to the terminal you were just
             typing in. Focus is still legible in the body fill (panelClass). */}
-        <span className={LBL_CY}>⣿&nbsp;&nbsp;{title}</span>
-        <span className="ml-3 flex items-center gap-2">
+        <span className={LBL_CY + " whitespace-nowrap"}>
+          ⣿&nbsp;&nbsp;{title}
+        </span>
+        {/* grows so a badge can stretch across the bar; end-aligned so a
+            small one still sits by the buttons */}
+        <span className="ml-3 flex min-w-0 flex-1 items-center justify-end gap-2">
           {badge}
           <button
             data-testid={`panel-collapse-${id}`}

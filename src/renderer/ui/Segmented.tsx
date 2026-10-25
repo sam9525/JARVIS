@@ -5,6 +5,8 @@ type Props<T extends string> = {
   options: { value: T; label: React.ReactNode }[];
   value: T;
   onChange: (v: T) => void;
+  // fill the parent's width with equal-width options
+  stretch?: boolean;
 };
 
 // The app's one segmented control. Every pill toggle — section filter, graph
@@ -13,6 +15,7 @@ export default function Segmented<T extends string>({
   options,
   value,
   onChange,
+  stretch,
 }: Props<T>) {
   // The fill travels between options instead of jumping, so the control reads
   // as one moving part. It has to be measured: the labels are different widths,
@@ -36,19 +39,33 @@ export default function Segmented<T extends string>({
         : { left: on.offsetLeft, width: on.offsetWidth },
     );
   }, [value, options]);
+  // Stretched options are equal by construction, so the fill is a fraction of
+  // the width and follows a resize that no measurement would see.
+  const at = options.findIndex((o) => o.value === value);
+  const fillStyle = !stretch
+    ? fill
+    : fill && {
+        left: `${(at * 100) / options.length}%`,
+        width: `${100 / options.length}%`,
+      };
 
   return (
-    <div ref={wrap} className="relative flex border border-accent/35">
+    <div
+      ref={wrap}
+      className={
+        "relative flex border border-accent/35" + (stretch ? " flex-1" : "")
+      }
+    >
       {/* Before paint, so the first fill lands with its geometry already set
           and the control does not slide in from the left edge on mount. */}
-      {fill && (
+      {fillStyle && (
         <span
           aria-hidden
           data-testid="segmented-fill"
           // segmented-fill, not a transition utility: the reduced-motion block
           // in index.css can only name classes it owns
           className="segmented-fill pointer-events-none absolute inset-y-0 bg-accent/15"
-          style={fill}
+          style={fillStyle}
         />
       )}
       {options.map((o) => (
@@ -58,6 +75,7 @@ export default function Segmented<T extends string>({
           // relative, so the label sits over the fill rather than under it
           className={
             "relative cursor-pointer px-2.5 py-1 transition-colors " +
+            (stretch ? "min-w-0 flex-1 " : "") +
             (o.value === value ? LBL_CY : LBL_DIM + " hover:text-ink-muted")
           }
           onClick={() => onChange(o.value)}

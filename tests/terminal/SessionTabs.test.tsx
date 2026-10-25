@@ -118,6 +118,28 @@ describe("SessionTabs", () => {
     expect(closeControl("s#1")).not.toBeNull();
   });
 
+  it("shows no tabs for a lone session, only its status dot", () => {
+    render({ tabs: [tab("w", "main", { kind: "working" })], onNew: vi.fn() });
+    expect(tabButtons()).toHaveLength(0);
+    expect(
+      container.querySelectorAll('[data-testid="session-dot"]'),
+    ).toHaveLength(1);
+    expect(newButton()).not.toBeNull();
+  });
+
+  it("spells out the state with two tabs and drops it with three", () => {
+    render({ tabs: [tab("w", "main", { kind: "working" }), tab("w#1", "1")] });
+    expect(container.textContent).toContain("· working");
+    render({
+      tabs: [
+        tab("w", "main", { kind: "working" }),
+        tab("w#1", "1"),
+        tab("w#2", "2"),
+      ],
+    });
+    expect(container.textContent).not.toContain("· working");
+  });
+
   it("shows a status dot per tab and a tab's hint", () => {
     render({
       tabs: [

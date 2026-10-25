@@ -102,6 +102,25 @@ describe("Segmented", () => {
     expect(fill.style.width).toBe("55px");
   });
 
+  it("places a stretched fill by fraction, so a resize keeps it aligned", () => {
+    act(() => {
+      root.render(
+        <Segmented
+          options={OPTIONS}
+          value="fleet"
+          onChange={vi.fn()}
+          stretch
+        />,
+      );
+    });
+    const fill = container.querySelector(
+      '[data-testid="segmented-fill"]',
+    ) as HTMLElement;
+    expect(fill.style.left).toBe("50%");
+    expect(fill.style.width).toBe("50%");
+    for (const b of buttons()) expect(b.className).toContain("flex-1");
+  });
+
   it("renders on the server, where nothing can be measured", () => {
     const html = renderToStaticMarkup(
       <Segmented options={OPTIONS} value="cards" onChange={vi.fn()} />,
