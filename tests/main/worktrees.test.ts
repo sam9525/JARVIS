@@ -8,6 +8,7 @@ import {
   existingWorktreeFolders,
   isGitRepo,
   removeWorktreeIfDone,
+  worktreeCheck,
   worktreePath,
 } from "../../src/main/worktrees";
 
@@ -134,5 +135,49 @@ describe("removeWorktreeIfDone on a missing folder", () => {
     const result = await removeWorktreeIfDone(root, worktreePath(root, "9"));
     expect(result.removed).toBe(false);
     expect(!result.removed && result.reason).toContain("missing");
+  });
+});
+
+describe("worktreeCheck", () => {
+  it("reports a clean worktree as clean", async () => {
+    const wt = await createWorktree(root, "1");
+    expect(await worktreeCheck(root, wt)).toEqual({ clean: true });
+  });
+
+  it("reports uncommitted changes", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.writeFile(path.join(wt, "new.txt"), "x");
+    expect(await worktreeCheck(root, wt)).toEqual({
+      clean: false,
+      reason: "uncommitted changes",
+    });
+  });
+
+  it("reports unmerged commits", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.writeFile(path.join(wt, "b.txt"), "b");
+    git(wt, "add", "b.txt");
+    git(wt, "commit", "-m", "work");
+    expect(await worktreeCheck(root, wt)).toEqual({
+      clean: false,
+      reason: "commits not merged into the start point",
+    });
+  });
+
+  it("reads a missing folder as clean", async () => {
+    expect(
+      await worktreeCheck(root, path.join(root, ".worktrees", "gone")),
+    ).toEqual({ clean: true });
+  });
+
+  it("reads a git failure as dirty with its message", async () => {
+    const plain = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-plain-"));
+    try {
+      const result = await worktreeCheck(root, plain);
+      expect(result.clean).toBe(false);
+      expect(!result.clean && result.reason).not.toBe("");
+    } finally {
+      await fs.rm(plain, { recursive: true, force: true });
+    }
   });
 });

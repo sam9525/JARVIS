@@ -90,6 +90,47 @@ export async function createWorktree(
   return wtPath;
 }
 
+/** Whether closing the worktree would lose work: uncommitted changes, or
+ *  commits not yet in the start point. A missing folder has nothing to lose;
+ *  a git failure counts as not clean so a close never discards on a guess. */
+export async function worktreeCheck(
+  root: string,
+  wtPath: string,
+): Promise<{ clean: true } | { clean: false; reason: string }> {
+  try {
+    await fs.stat(wtPath);
+  } catch {
+    return { clean: true };
+  }
+  try {
+    if ((await git(wtPath, ["status", "--porcelain"])) !== "") {
+      return { clean: false, reason: "uncommitted changes" };
+    }
+    const start = await startPoint(root);
+    const merged = await succeeds(wtPath, [
+      "merge-base",
+      "--is-ancestor",
+      "HEAD",
+      start,
+    ]);
+    if (!merged) {
+      const ahead = await git(wtPath, [
+        "rev-list",
+        "--count",
+        `${start}..HEAD`,
+      ]);
+      if (ahead !== "0")
+        return {
+          clean: false,
+          reason: "commits not merged into the start point",
+        };
+    }
+    return { clean: true };
+  } catch (err) {
+    return { clean: false, reason: (err as Error).message };
+  }
+}
+
 /** Removes the worktree only when nothing would be lost: no uncommitted
  *  changes, and its commits are already in the start point (or it has none). */
 export async function removeWorktreeIfDone(
@@ -101,24 +142,8 @@ export async function removeWorktreeIfDone(
   } catch {
     return { removed: false, reason: "worktree folder is missing" };
   }
-  if ((await git(wtPath, ["status", "--porcelain"])) !== "") {
-    return { removed: false, reason: "uncommitted changes" };
-  }
-  const start = await startPoint(root);
-  const merged = await succeeds(wtPath, [
-    "merge-base",
-    "--is-ancestor",
-    "HEAD",
-    start,
-  ]);
-  if (!merged) {
-    const ahead = await git(wtPath, ["rev-list", "--count", `${start}..HEAD`]);
-    if (ahead !== "0")
-      return {
-        removed: false,
-        reason: "commits not merged into the start point",
-      };
-  }
+  const check = await worktreeCheck(root, wtPath);
+  if (!check.clean) return { removed: false, reason: check.reason };
   await git(root, ["worktree", "remove", wtPath]);
   return { removed: true };
 }

@@ -60,6 +60,7 @@ import {
   existingWorktreeFolders,
   isGitRepo,
   removeWorktreeIfDone,
+  worktreeCheck,
   worktreePath,
 } from "./worktrees";
 import {
@@ -530,7 +531,7 @@ app.whenReady().then(async () => {
         dangerous: false,
         model: "opus",
       }),
-    close: (key) => closeSession(key),
+    close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
     waitQuiet: (key) => settle.wait(key, LAUNCH_SETTLE_DEADLINE_MS),
     msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
@@ -793,10 +794,21 @@ app.whenReady().then(async () => {
   // it would be lost; otherwise `kept` names the folder and why it stays. A
   // killed pty's exit is never reported by the pty manager, so the status and
   // the renderer hear about it here. The removal waits for the process to
-  // exit, because a live cwd cannot be deleted on Windows.
+  // exit, because a live cwd cannot be deleted on Windows. Unless `force`, a
+  // worktree holding work stops the close before anything changes and `dirty`
+  // says why.
   async function closeSession(
     key: string,
-  ): Promise<{ ok: boolean; kept?: string }> {
+    force = false,
+  ): Promise<{ ok: boolean; kept?: string; dirty?: string }> {
+    const pending = sessions.get(key);
+    if (!force && pending?.worktree) {
+      const ws = workspaces.find((w) => w.id === pending.workspaceId);
+      if (ws) {
+        const check = await worktreeCheck(ws.rootPath, pending.cwd);
+        if (!check.clean) return { ok: false, dirty: check.reason };
+      }
+    }
     const info = sessions.remove(key);
     resumedWith.delete(key);
     const killed = await ptyManager.kill(key);
@@ -841,7 +853,9 @@ app.whenReady().then(async () => {
       });
     },
   );
-  ipcMain.handle("pty-close", (_e, key: string) => closeSession(String(key)));
+  ipcMain.handle("pty-close", (_e, key: string, force?: boolean) =>
+    closeSession(String(key), force === true),
+  );
   ipcMain.handle("pty-input", (_e, id: string, data: string) =>
     ptyManager.write(id, data),
   );
