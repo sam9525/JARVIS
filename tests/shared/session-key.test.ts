@@ -6,6 +6,7 @@ import {
   parseSessionKey,
   cleanLabel,
   nextLabel,
+  shownName,
 } from "../../src/shared/session-key";
 
 describe("session key constants", () => {
@@ -114,5 +115,29 @@ describe("nextLabel", () => {
       "tenth",
     ];
     expect(nextLabel(all, ["1"])).toBe("2");
+  });
+});
+
+describe("shownName", () => {
+  const a = { label: "first", topic: "review" };
+
+  it("falls back to the label without a topic", () => {
+    expect(shownName({ label: "first" }, [])).toBe("first");
+  });
+
+  it("shows a unique topic alone", () => {
+    expect(shownName(a, [a, { label: "second", topic: "build" }])).toBe(
+      "review",
+    );
+  });
+
+  it("appends the label when a sibling shares the topic", () => {
+    expect(shownName(a, [a, { label: "second", topic: "review" }])).toBe(
+      "review first",
+    );
+  });
+
+  it("appends the label when a sibling is labelled with the topic", () => {
+    expect(shownName(a, [a, { label: "review" }])).toBe("review first");
   });
 });

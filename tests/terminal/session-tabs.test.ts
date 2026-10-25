@@ -138,6 +138,17 @@ describe("projectTabs", () => {
     ]);
   });
 
+  it("labels a tab with its topic", () => {
+    const tabs = projectTabs(REPO, [
+      row("repo", [
+        session("repo", "main"),
+        session("repo#first", "first", { topic: "review" }),
+        session("repo#second", "second"),
+      ]),
+    ]);
+    expect(tabs.map((t) => t.label)).toEqual(["main", "review", "second"]);
+  });
+
   it("keeps the main tab even when only other sessions are live", () => {
     const tabs = projectTabs(REPO, [
       row("repo", [

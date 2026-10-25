@@ -1,4 +1,4 @@
-import { MAIN_LABEL, sessionKey } from "../../shared/session-key";
+import { MAIN_LABEL, sessionKey, shownName } from "../../shared/session-key";
 import type {
   SessionStatus,
   StatusKind,
@@ -70,7 +70,7 @@ export function projectTabs(
     main,
     ...others.map((s) => ({
       key: s.key,
-      label: s.label,
+      label: shownName(s, others),
       kind: s.kind,
       workspaceId: ws.id,
       // a code folder that is not a git repo gets no worktree, so this session

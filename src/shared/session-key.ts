@@ -60,3 +60,19 @@ export function nextLabel(taken: string[], folders: string[]): string {
   while (unavailable.has(String(candidate))) candidate += 1;
   return String(candidate);
 }
+
+type Nameable = { label: string; topic?: string };
+
+/**
+ * The name a tab shows: the topic, or the label when there is none. A topic
+ * that another session also uses (as topic or label) keeps the label after it.
+ */
+export function shownName(s: Nameable, siblings: Nameable[]): string {
+  if (!s.topic) return s.label;
+  const clashes = siblings.some(
+    (other) =>
+      other.label !== s.label &&
+      (other.topic === s.topic || other.label === s.topic),
+  );
+  return clashes ? `${s.topic} ${s.label}` : s.topic;
+}
