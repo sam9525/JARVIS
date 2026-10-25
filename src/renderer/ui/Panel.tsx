@@ -225,7 +225,12 @@ export default function Panel({
       // the panel on a body press but not on the grip you actually reach for
       onPointerDownCapture={onFocus}
     >
-      <div className={CAPBAR} onPointerDown={drag.onTitlePointerDown}>
+      <div
+        data-testid={`panel-title-${id}`}
+        className={CAPBAR}
+        style={{ height: TITLE_BAR_H }}
+        onPointerDown={drag.onTitlePointerDown}
+      >
         {/* title and frame stay lit whatever has focus — a dimmed preview or
             settings panel read as disabled next to the terminal you were just
             typing in. Focus is still legible in the body fill (panelClass). */}

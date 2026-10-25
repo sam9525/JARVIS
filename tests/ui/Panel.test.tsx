@@ -105,6 +105,15 @@ describe("Panel", () => {
     expect(el.props.style.width).toBe("max-content");
   });
 
+  it("gives every title bar the same fixed height", () => {
+    const html = renderToStaticMarkup(<Panel {...base} />);
+    expect(html).toMatch(
+      new RegExp(
+        `data-testid="panel-title-terminal"[^>]*height:${TITLE_BAR_H}px`,
+      ),
+    );
+  });
+
   it("collapses to compactWidth with its body intact when one is given", () => {
     const state = { ...STATE, collapsed: true };
     const el = Panel({
