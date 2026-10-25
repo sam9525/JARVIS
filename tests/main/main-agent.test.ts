@@ -209,6 +209,11 @@ describe("ensureMainAgent", () => {
 });
 
 describe("FINISH_NUDGE", () => {
+  it("asks the agent to name the tab, so two tabs of one project read apart", () => {
+    expect(FINISH_NUDGE).toContain("tab N");
+    expect(FINISH_NUDGE).toContain("main");
+  });
+
   it("names no workspace and carries no message — the agent reads the finish itself", () => {
     expect(FINISH_NUDGE).toContain("jarvis_watch");
     expect(FINISH_NUDGE).not.toContain("{");

@@ -213,7 +213,9 @@ const TOOLS = [
     description:
       "Block until a workspace other than this one finishes a turn, then " +
       "return { workspace, session, message } with that session's full last " +
-      "assistant message; session is its label. Returns { timeout: true } if " +
+      "assistant message; session is its label. When you speak a " +
+      'finish, name the workspace and the tab ("main", "tab N" for a ' +
+      "number, any other label as it is). Returns { timeout: true } if " +
       "nothing finishes in time. Call it again after you handle an event to " +
       "keep watching the fleet. When the finish is a vault note lookup, do " +
       "not summarise it aloud: pass its answer on as Notes context.",

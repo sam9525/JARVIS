@@ -219,7 +219,9 @@ workspace.
 export const FINISH_NUDGE =
   "A workspace just finished. Call jarvis_watch with timeout_seconds 1 — it " +
   "returns only the one workspace that just finished. Summarise that one " +
-  "alone, in as few words as possible: which workspace, and the single most " +
+  "alone, in as few words as possible: start with the workspace name and its " +
+  'tab, read from the session field (say "main" for the main tab, "tab N" ' +
+  "for a number, any other label as it is), then the single most " +
   "important thing it did or needs. One spoken sentence if it fits, two at " +
   "most. If it finished a build, say what was built and what the user " +
   "should check by hand, three sentences at most. No preamble, no list, no file names, no markdown. Ignore every other " +

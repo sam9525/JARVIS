@@ -546,6 +546,22 @@ describe("orchestrate.send with fresh", () => {
 });
 
 describe("orchestrate.publishFinish nudges the main agent", () => {
+  it("keeps two tabs of one workspace apart, first finish first", async () => {
+    const { orch } = setup();
+    orch.publishFinish("d:/aero", "built the panel");
+    orch.publishFinish("d:/aero#1", "fixed the test");
+    await expect(orch.watch(1)).resolves.toEqual({
+      workspace: "AeroGraph",
+      session: "main",
+      message: "built the panel",
+    });
+    await expect(orch.watch(1)).resolves.toEqual({
+      workspace: "AeroGraph",
+      session: "1",
+      message: "fixed the test",
+    });
+  });
+
   it("nudges when nobody is parked, since a queue nobody reads wakes no one", () => {
     const { orch, nudges } = setup();
     orch.publishFinish("d:/aero", "tests are green");
