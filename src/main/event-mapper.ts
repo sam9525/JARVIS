@@ -15,6 +15,7 @@ export interface RawHookEvent {
   tool_response?: unknown; // PostToolUse only; read solely for the Grep/Glob match highlight
   notification_type?: string; // Notification only; read by status-mapper.ts
   last_assistant_message?: string; // Stop only; the final assistant text of the turn
+  prompt?: string; // UserPromptSubmit only; read by status-mapper.ts
 }
 
 // A broad search can match hundreds of files; past this the graph is a white

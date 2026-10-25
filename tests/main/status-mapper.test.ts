@@ -139,6 +139,18 @@ describe("mapStatusEvent", () => {
     expect(e).toMatchObject({ kind: "working", call: "" });
   });
 
+  it("UserPromptSubmit carries the submitted prompt", () => {
+    const e = mapStatusEvent(
+      {
+        ...base,
+        hook_event_name: "UserPromptSubmit",
+        prompt: "Daily briefing.",
+      },
+      workspaces,
+    );
+    expect(e?.prompt).toBe("Daily briefing.");
+  });
+
   it("PreToolUse is 'working' and carries the call signature", () => {
     const e = mapStatusEvent(
       {

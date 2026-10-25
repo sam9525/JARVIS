@@ -36,6 +36,7 @@ import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
 import { createSettle } from "./settle";
+import { deliverBriefing } from "./brief-delivery";
 import { isTrusted } from "./folder-trust";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import {
@@ -598,6 +599,8 @@ app.whenReady().then(async () => {
   const settle = createSettle(SETTLE_MS);
   // a fresh send reads this to tell a quiet terminal from one mid-command
   const lastOutputAt = new Map<string, number>();
+  // set only while a typed briefing waits for its UserPromptSubmit
+  let onMainPrompt: ((prompt: string) => void) | null = null;
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
@@ -627,6 +630,8 @@ app.whenReady().then(async () => {
       // restored inbox or a sweep demotion is never mistaken for a finish.
       if (s.message !== undefined)
         orchestrator.publishFinish(s.sessionKey, s.message);
+      if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
+        onMainPrompt?.(s.prompt);
     },
     () => workspaces,
     {
@@ -913,11 +918,22 @@ app.whenReady().then(async () => {
       if (notes.length === 0) return;
       const nudge = dailyBriefNudge(notes, briefTo.name);
       const write = (data: string) => ptyManager.write(mainAgent.id, data);
-      if (!typeNudge(write, nudge)) return;
-      // re-read: the folder may have been picked since boot, and the date is
-      // written when the nudge is typed — a failed turn costs that day's
-      // briefing, which is cheaper than a nudge that retries into a live
-      // session
+      const outcome = new Promise<boolean>((resolve) => {
+        onMainPrompt = (prompt) => {
+          onMainPrompt = null;
+          resolve(prompt.startsWith("Daily briefing."));
+        };
+      });
+      const landed = await deliverBriefing({
+        type: () => typeNudge(write, nudge),
+        msSinceOutput: () =>
+          Date.now() - (lastOutputAt.get(mainAgent.id) ?? -Infinity),
+        outcome,
+      });
+      onMainPrompt = null;
+      // unconfirmed leaves the day unstamped, so the next boot briefs again
+      if (!landed) return;
+      // re-read: the folder may have been picked since boot
       void readBriefing(userData)
         .then((b) =>
           writeBriefing(userData, { ...b, lastBriefed: todayLocal() }),

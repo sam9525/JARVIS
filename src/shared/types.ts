@@ -65,6 +65,7 @@ export interface StatusEvent {
   kind: "working" | "asking" | "blocked" | "idle";
   call: string;
   message?: string; // Stop only: the last thing Claude said, for the inbox
+  prompt?: string; // UserPromptSubmit only: what was submitted
   ts: number;
 }
 

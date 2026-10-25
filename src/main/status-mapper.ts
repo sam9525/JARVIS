@@ -88,7 +88,12 @@ export function mapStatusEvent(
             : undefined,
       };
     case "UserPromptSubmit":
-      return { ...common, kind: "working", call: "" };
+      return {
+        ...common,
+        kind: "working",
+        call: "",
+        prompt: typeof raw.prompt === "string" ? raw.prompt : undefined,
+      };
     case "PreToolUse":
       // asking is ordered before the generic branch: it is the one tool call
       // whose meaning is "stopped", not "working"
