@@ -30,7 +30,11 @@ import {
   pruneSelections,
   type TabSelection,
 } from "./terminal/session-tabs";
-import { closeSessionTab, openSessionTab } from "./terminal/tab-actions";
+import {
+  closeSessionTab,
+  openSessionTab,
+  type NoticeAction,
+} from "./terminal/tab-actions";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
@@ -209,6 +213,7 @@ export default function App() {
   const [terminalNotice, setTerminalNotice] = useState<{
     ownerId: string;
     text: string;
+    action?: NoticeAction;
   } | null>(null);
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
@@ -1453,8 +1458,8 @@ export default function App() {
               seen: tabs.some((t) => t.key === key),
             }),
           );
-        const notify = (text: string) =>
-          setTerminalNotice({ ownerId: owner.id, text });
+        const notify = (text: string, action?: NoticeAction) =>
+          setTerminalNotice({ ownerId: owner.id, text, action });
         const closeTab = (key: string) =>
           closeSessionTab(key, {
             deselect: (closed) =>
@@ -1507,6 +1512,11 @@ export default function App() {
                 terminalNotice?.ownerId === owner.id
                   ? terminalNotice.text
                   : null
+              }
+              noticeAction={
+                terminalNotice?.ownerId === owner.id
+                  ? terminalNotice.action
+                  : undefined
               }
               onDismissNotice={() => setTerminalNotice(null)}
               inbox={showHome ? { workspaces, statuses } : undefined}

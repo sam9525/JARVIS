@@ -29,9 +29,29 @@ describe("closeSessionTab", () => {
     ptyClose.mockResolvedValue({ ok: true });
     const d = deps();
     await closeSessionTab("w#1", d);
-    expect(ptyClose).toHaveBeenCalledWith("w#1");
+    expect(ptyClose).toHaveBeenCalledWith("w#1", false);
     expect(d.order).toEqual(["deselect w#1", "dispose w#1"]);
     expect(d.notify).not.toHaveBeenCalled();
+  });
+
+  it("keeps a dirty tab open and offers Close anyway", async () => {
+    ptyClose.mockResolvedValueOnce({ ok: false, dirty: "uncommitted changes" });
+    const d = deps();
+    await closeSessionTab("w#first", d);
+    expect(ptyClose).toHaveBeenCalledWith("w#first", false);
+    expect(d.dispose).not.toHaveBeenCalled();
+    const [text, action] = d.notify.mock.calls[0];
+    expect(text).toBe(
+      "This worktree has uncommitted changes. Commit or merge them first.",
+    );
+    expect(action.label).toBe("Close anyway");
+    ptyClose.mockResolvedValueOnce({
+      ok: true,
+      kept: "D:/r/.worktrees/first (uncommitted changes)",
+    });
+    action.run();
+    await vi.waitFor(() => expect(d.dispose).toHaveBeenCalledWith("w#first"));
+    expect(ptyClose).toHaveBeenLastCalledWith("w#first", true);
   });
 
   it("names a kept worktree", async () => {

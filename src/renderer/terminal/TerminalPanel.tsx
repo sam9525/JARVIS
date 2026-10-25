@@ -4,6 +4,7 @@ import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
 import { LBL_AM } from "../ui/hud";
 import { PILL } from "./status-colours";
+import type { NoticeAction } from "./tab-actions";
 import {
   ensureSubscribed,
   entryFor,
@@ -82,6 +83,7 @@ export default function TerminalPanel({
   sessionKey,
   live,
   notice,
+  noticeAction,
   onDismissNotice,
   inbox,
   inboxOnly,
@@ -96,6 +98,7 @@ export default function TerminalPanel({
   live?: boolean;
   // a one-line message from a tab action, such as a worktree kept on close
   notice?: string | null;
+  noticeAction?: NoticeAction;
   onDismissNotice?: () => void;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
@@ -340,6 +343,17 @@ export default function TerminalPanel({
           data-testid="terminal-notice"
         >
           <span className="min-w-0 flex-1 break-words">{notice}</span>
+          {noticeAction && (
+            <button
+              className="flex-none cursor-pointer text-[10px] text-ink-dim hover:text-accent"
+              onClick={() => {
+                noticeAction.run();
+                onDismissNotice?.();
+              }}
+            >
+              {noticeAction.label}
+            </button>
+          )}
           <button
             className="flex-none cursor-pointer text-[10px] text-ink-dim hover:text-accent"
             title="Dismiss"
