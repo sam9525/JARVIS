@@ -31,12 +31,15 @@ export default function SessionTabs({
   onSelect,
   onNew,
   onClose,
+  fit,
 }: {
   tabs: Tab[];
   value: string;
   onSelect(key: string): void;
   onNew?(): void;
   onClose?(key: string): void;
+  // size each tab to its label, for a minimized panel with no width to fill
+  fit?: boolean;
 }) {
   // A key that joins the tabs already selected was opened from `+`; it reads
   // "new" until the user selects another tab. Refs, not state: this is derived
@@ -131,7 +134,7 @@ export default function SessionTabs({
           options={options}
           value={value}
           onChange={onSelect}
-          stretch
+          strip={fit ? "fit" : "fill"}
         />
       )}
       {onNew && tabs.length < MAX_SESSIONS && (

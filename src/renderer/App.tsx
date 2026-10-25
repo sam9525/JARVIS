@@ -1483,6 +1483,7 @@ export default function App() {
                   onSelect={select}
                   onNew={showHome ? undefined : newTab}
                   onClose={closeTab}
+                  fit={panelState("terminal").collapsed}
                 />
               )
             }

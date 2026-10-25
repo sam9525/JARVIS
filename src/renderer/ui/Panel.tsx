@@ -157,7 +157,13 @@ export default function Panel({
   }, [folding, foldSeq]);
 
   const compact = state.collapsed && compactWidth !== undefined;
-  const width = compact ? compactWidth : state.collapsed ? undefined : state.w;
+  // max-content, not auto: a minimized panel near the right edge would
+  // otherwise shrink to the room left and squeeze its title bar's labels
+  const width = compact
+    ? compactWidth
+    : state.collapsed
+      ? "max-content"
+      : state.w;
   // A minimized panel shrink-wraps to its title bar, so it is the only thing
   // that knows its own width. Everything else in the folded box is analytic:
   // compact is `compactWidth` wide, and a minimized panel is exactly one title

@@ -5,8 +5,9 @@ type Props<T extends string> = {
   options: { value: T; label: React.ReactNode }[];
   value: T;
   onChange: (v: T) => void;
-  // fill the parent's width with equal-width options
-  stretch?: boolean;
+  // A tab strip: "fill" spreads equal-width options across the parent, "fit"
+  // sizes each option to its label.
+  strip?: "fill" | "fit";
 };
 
 // The app's one segmented control. Every pill toggle — section filter, graph
@@ -15,7 +16,7 @@ export default function Segmented<T extends string>({
   options,
   value,
   onChange,
-  stretch,
+  strip,
 }: Props<T>) {
   // The fill travels between options instead of jumping, so the control reads
   // as one moving part. It has to be measured: the labels are different widths,
@@ -38,27 +39,30 @@ export default function Segmented<T extends string>({
         ? f
         : { left: on.offsetLeft, width: on.offsetWidth },
     );
-  }, [value, options]);
-  // Stretched options are equal by construction, so the fill is a fraction of
+  }, [value, options, strip]);
+  // Filled options are equal by construction, so the fill is a fraction of
   // the width and follows a resize that no measurement would see.
   const at = options.findIndex((o) => o.value === value);
-  const fillStyle = !stretch
-    ? fill
-    : fill && {
-        left: `${(at * 100) / options.length}%`,
-        width: `${100 / options.length}%`,
-      };
+  const fillStyle =
+    strip !== "fill"
+      ? fill
+      : fill && {
+          left: `${(at * 100) / options.length}%`,
+          width: `${100 / options.length}%`,
+        };
 
   return (
     <div
       ref={wrap}
-      // stretched, it is a tab strip: dividers instead of a frame, and the
-      // fill marks the active tab with an underline
+      // a strip has dividers instead of a frame, and the fill marks the
+      // active tab with an underline
       className={
         "relative flex " +
-        (stretch
+        (strip === "fill"
           ? "flex-1 border-l border-accent/20"
-          : "border border-accent/35")
+          : strip === "fit"
+            ? "border-l border-accent/20"
+            : "border border-accent/35")
       }
     >
       {/* Before paint, so the first fill lands with its geometry already set
@@ -71,7 +75,7 @@ export default function Segmented<T extends string>({
           // in index.css can only name classes it owns
           className={
             "segmented-fill pointer-events-none absolute inset-y-0 " +
-            (stretch
+            (strip
               ? "border-b-2 border-accent bg-accent/[0.07]"
               : "bg-accent/15")
           }
@@ -85,8 +89,9 @@ export default function Segmented<T extends string>({
           // relative, so the label sits over the fill rather than under it
           className={
             "relative cursor-pointer transition-colors " +
-            (stretch
-              ? "min-w-0 flex-1 px-3.5 py-2 text-left " +
+            (strip
+              ? (strip === "fill" ? "min-w-0 flex-1 " : "") +
+                "px-3.5 py-2 text-left " +
                 (i > 0 ? "border-l border-accent/20 " : "")
               : "px-2.5 py-1 ") +
             (o.value === value ? LBL_CY : LBL_DIM + " hover:text-ink-muted")
