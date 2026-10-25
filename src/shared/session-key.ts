@@ -39,8 +39,23 @@ export function cleanLabel(raw: string): string {
     .trimEnd();
 }
 
+const ORDER_WORDS = [
+  "first",
+  "second",
+  "third",
+  "fourth",
+  "fifth",
+  "sixth",
+  "seventh",
+  "eighth",
+  "ninth",
+  "tenth",
+];
+
 export function nextLabel(taken: string[], folders: string[]): string {
   const unavailable = new Set([...taken, ...folders]);
+  const freeWord = ORDER_WORDS.find((word) => !unavailable.has(word));
+  if (freeWord !== undefined) return freeWord;
   let candidate = 1;
   while (unavailable.has(String(candidate))) candidate += 1;
   return String(candidate);

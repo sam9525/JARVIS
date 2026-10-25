@@ -88,15 +88,31 @@ describe("cleanLabel", () => {
 });
 
 describe("nextLabel", () => {
-  it("skips numbers taken by sessions or folders", () => {
-    expect(nextLabel(["main", "1"], ["2"])).toBe("3");
+  it("starts at first when nothing is taken", () => {
+    expect(nextLabel([], [])).toBe("first");
   });
 
-  it("starts at 1 when nothing is taken", () => {
-    expect(nextLabel([], [])).toBe("1");
+  it("skips words taken by sessions or folders", () => {
+    expect(nextLabel(["main", "first"], ["second"])).toBe("third");
   });
 
   it("fills the lowest gap", () => {
-    expect(nextLabel(["1", "3"], [])).toBe("2");
+    expect(nextLabel(["first", "third"], [])).toBe("second");
+  });
+
+  it("falls back to numbers past tenth", () => {
+    const all = [
+      "first",
+      "second",
+      "third",
+      "fourth",
+      "fifth",
+      "sixth",
+      "seventh",
+      "eighth",
+      "ninth",
+      "tenth",
+    ];
+    expect(nextLabel(all, ["1"])).toBe("2");
   });
 });
