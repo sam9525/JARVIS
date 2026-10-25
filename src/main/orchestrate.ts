@@ -1,4 +1,9 @@
-import { cleanLabel, MAIN_LABEL, parseSessionKey } from "../shared/session-key";
+import {
+  cleanLabel,
+  MAIN_LABEL,
+  parseSessionKey,
+  shownName,
+} from "../shared/session-key";
 import type {
   StatusKind,
   Workspace,
@@ -51,6 +56,7 @@ export interface FleetEntry {
   name: string;
   session: string; // "" when the workspace has no live session
   worktree: string; // "" when the session shares the workspace folder
+  topic: string; // "" when the session has none
   kind: WorkspaceKind;
   status: StatusKind;
   call: string;
@@ -101,10 +107,14 @@ export const WATCH_MAX_S = 300;
  * watching. Past the cap the oldest goes. */
 export const QUEUE_MAX = 50;
 
-export type WatchResult =
-  { workspace: string; session: string; message: string } | { timeout: true };
+type Finish = {
+  workspace: string;
+  session: string;
+  topic?: string;
+  message: string;
+};
 
-type Finish = { workspace: string; session: string; message: string };
+export type WatchResult = Finish | { timeout: true };
 
 function findWorkspace(all: Workspace[], target: string) {
   const q = String(target ?? "")
@@ -124,13 +134,42 @@ function unknownWorkspace(all: Workspace[], target: string): Failure {
 const sameLabel = (a: string, b: string) =>
   a.toLowerCase() === b.trim().toLowerCase();
 
-const labels = (list: SessionInfo[]) => list.map((s) => s.label).join(", ");
-
 const worktreeOf = (s: SessionInfo) => (s.worktree ? s.cwd : "");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function createOrchestrator(deps: OrchestrateDeps) {
+  const topicOf = (workspaceId: string, key: string) =>
+    deps
+      .snapshot()
+      .find((r) => r.workspaceId === workspaceId)
+      ?.sessions.find((s) => s.key === key)?.topic ?? "";
+
+  // "label (topic)" for a session that has a topic, else the bare label
+  const labels = (list: SessionInfo[], ws: Workspace) =>
+    list
+      .map((s) => {
+        const topic = topicOf(ws.id, s.key);
+        return topic ? `${s.label} (${topic})` : s.label;
+      })
+      .join(", ");
+
+  // a label wins; otherwise the one session whose topic matches, so a topic two
+  // sessions share names neither
+  function findSession(
+    list: SessionInfo[],
+    name: string,
+    ws: Workspace,
+  ): SessionInfo | undefined {
+    const byLabel = list.find((s) => sameLabel(s.label, name));
+    if (byLabel) return byLabel;
+    const byTopic = list.filter((s) => {
+      const topic = topicOf(ws.id, s.key);
+      return topic !== "" && sameLabel(topic, name);
+    });
+    return byTopic.length === 1 ? byTopic[0] : undefined;
+  }
+
   // A Claude Code session cannot act on its own, so jarvis_watch parks until a
   // delegate finishes. One shared queue is correct because the topology
   // guarantees one watcher: mcp-install writes .mcp.json into the isSelf
@@ -170,18 +209,18 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       };
     }
     if (session !== undefined && session.trim()) {
-      const named = live.find((s) => sameLabel(s.label, session));
+      const named = findSession(live, session, ws);
       return (
         named ?? {
           ok: false,
-          error: `${ws.name} has no live session "${session}" — sessions: ${labels(live)}`,
+          error: `${ws.name} has no live session "${session}" — sessions: ${labels(live, ws)}`,
         }
       );
     }
     if (live.length > 1) {
       return {
         ok: false,
-        error: `${ws.name} has several sessions — pass session: ${labels(live)}`,
+        error: `${ws.name} has several sessions — pass session: ${labels(live, ws)}`,
       };
     }
     return live[0];
@@ -271,6 +310,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
               ...base,
               session: "",
               worktree: "",
+              topic: "",
               status: row?.kind ?? "none",
               call: row?.call ?? "",
               // the main agent's own pty is keyed by its workspace id and is
@@ -285,6 +325,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             ...base,
             session: s.label,
             worktree: worktreeOf(s),
+            topic: own?.topic ?? "",
             status: own?.kind ?? "none",
             call: own?.call ?? "",
             live: true,
@@ -378,11 +419,11 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       const ws = delegate(target);
       if ("ok" in ws) return ws;
       const known = deps.sessionsOf(ws.id);
-      const s = known.find((x) => sameLabel(x.label, String(session ?? "")));
+      const s = findSession(known, String(session ?? ""), ws);
       if (!s) {
         return {
           ok: false,
-          error: `${ws.name} has no session "${session}" — sessions: ${labels(known) || "none"}`,
+          error: `${ws.name} has no session "${session}" — sessions: ${labels(known, ws) || "none"}`,
         };
       }
       const kind = sessionKind(s.key, ws.id);
@@ -460,9 +501,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       const ws = all.find((w) => w.id === workspaceId);
       // the orchestrator waking on its own turn ending is a loop with itself
       if (!ws || ws.isSelf) return;
+      const siblings =
+        deps.snapshot().find((r) => r.workspaceId === ws.id)?.sessions ?? [];
+      const own = siblings.find((r) => r.key === sessionKey);
       const finish: Finish = {
         workspace: ws.name,
         session: label,
+        ...(own?.topic ? { topic: shownName(own, siblings) } : {}),
         message: text,
       };
       if (waiter) {

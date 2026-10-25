@@ -215,6 +215,7 @@ describe("orchestrate.list", () => {
       name: "FinPulse",
       session: "",
       worktree: "",
+      topic: "",
       kind: "code",
       status: "none",
       call: "",
@@ -252,6 +253,7 @@ describe("orchestrate.list", () => {
         name: "AeroGraph",
         session: "main",
         worktree: "",
+        topic: "",
         kind: "code",
         status: "idle",
         call: "",
@@ -263,6 +265,7 @@ describe("orchestrate.list", () => {
         name: "AeroGraph",
         session: "1",
         worktree: "D:\\aero\\.worktrees\\1",
+        topic: "",
         kind: "code",
         status: "working",
         call: "Edit(a.ts)",
@@ -587,6 +590,64 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       workspace: "AeroGraph",
       session: "2",
       message: "merged",
+    });
+  });
+
+  describe("topics", () => {
+    const aeroSessions = [mainOf("d:/aero"), worktreeOf("d:/aero", "first")];
+    const topicStatus = (topics: Record<string, string>) => [
+      status({
+        workspaceId: "d:/aero",
+        sessions: Object.entries(topics).map(([label, topic]) =>
+          sessionRow({ key: `d:/aero#${label}`, label, topic }),
+        ),
+      }),
+    ];
+
+    it("carries the topic on a finish", async () => {
+      const { orch } = setup({
+        sessions: aeroSessions,
+        statuses: topicStatus({ first: "review" }),
+      });
+      orch.publishFinish("d:/aero#first", "done");
+      await expect(orch.watch(1)).resolves.toEqual({
+        workspace: "AeroGraph",
+        session: "first",
+        topic: "review",
+        message: "done",
+      });
+    });
+
+    it("sends to a session named by its topic", async () => {
+      const { orch, writes } = setup({
+        sessions: aeroSessions,
+        statuses: topicStatus({ first: "review" }),
+      });
+      const out = await orch.send("AeroGraph", "go", { session: "Review" });
+      expect(out.ok).toBe(true);
+      expect(writes[0][0]).toBe("d:/aero#first");
+    });
+
+    it("refuses a topic two sessions share", async () => {
+      const { orch } = setup({
+        sessions: [
+          worktreeOf("d:/aero", "first"),
+          worktreeOf("d:/aero", "second"),
+        ],
+        statuses: topicStatus({ first: "review", second: "review" }),
+      });
+      const out = await orch.send("AeroGraph", "go", { session: "review" });
+      expect(out.ok).toBe(false);
+    });
+
+    it("lists the topic", () => {
+      const { orch } = setup({
+        sessions: aeroSessions,
+        statuses: topicStatus({ first: "review" }),
+      });
+      const rows = orch.list().filter((r) => r.name === "AeroGraph");
+      expect(rows.find((r) => r.session === "first")?.topic).toBe("review");
+      expect(rows.find((r) => r.session === "main")?.topic).toBe("");
     });
   });
 

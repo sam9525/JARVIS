@@ -13,8 +13,8 @@ const TOOLS = [
       "each workspace that has none. A row has the workspace name, kind " +
       "(vault/code), status (waiting/running/idle/none), current tool call, " +
       "last assistant message, whether a live Claude Code session exists, who " +
-      'delegated its current turn, the session label ("" when none), and the ' +
-      'worktree folder of that session ("" when it shares the workspace ' +
+      'delegated its current turn, the session label ("" when none), the ' +
+      'session topic ("" when none), and the worktree folder of that session ("" when it shares the workspace ' +
       "folder). The vault workspace is the one with kind vault, never found " +
       "by name. Poll this after jarvis_send to watch a delegate work.",
     inputSchema: { type: "object", properties: {} },
@@ -117,7 +117,7 @@ const TOOLS = [
         session: {
           type: "string",
           description:
-            "Label of the live session to send to, as shown by jarvis_list. Needed when the workspace has more than one; ignored with fresh.",
+            "Label or topic of the live session to send to, as shown by jarvis_list. Needed when the workspace has more than one; ignored with fresh.",
         },
         fresh: {
           type: "boolean",
@@ -180,7 +180,7 @@ const TOOLS = [
         session: {
           type: "string",
           description:
-            "Label of the session showing the prompt. Needed when the workspace has more than one.",
+            "Label or topic of the session showing the prompt. Needed when the workspace has more than one.",
         },
       },
       required: ["workspace", "accept"],
@@ -202,7 +202,7 @@ const TOOLS = [
         },
         session: {
           type: "string",
-          description: "Session label, as shown by jarvis_list",
+          description: "Session label or topic, as shown by jarvis_list",
         },
       },
       required: ["workspace", "session"],
@@ -212,10 +212,10 @@ const TOOLS = [
     name: "jarvis_watch",
     description:
       "Block until a workspace other than this one finishes a turn, then " +
-      "return { workspace, session, message } with that session's full last " +
-      "assistant message; session is its label. When you speak a " +
-      'finish, name the workspace and the tab ("main", "tab N" for a ' +
-      "number, any other label as it is). Returns { timeout: true } if " +
+      "return { workspace, session, topic?, message } with that session's " +
+      "full last assistant message; session is its label. When you speak a " +
+      "finish, name the workspace and the tab: the topic when there is one, " +
+      'else the session ("main" for the main tab). Returns { timeout: true } if ' +
       "nothing finishes in time. Call it again after you handle an event to " +
       "keep watching the fleet. When the finish is a vault note lookup, do " +
       "not summarise it aloud: pass its answer on as Notes context.",

@@ -210,7 +210,8 @@ describe("ensureMainAgent", () => {
 
 describe("FINISH_NUDGE", () => {
   it("asks the agent to name the tab, so two tabs of one project read apart", () => {
-    expect(FINISH_NUDGE).toContain("tab N");
+    expect(FINISH_NUDGE).toContain("JARVIS review");
+    expect(FINISH_NUDGE).not.toContain("tab N");
     expect(FINISH_NUDGE).toContain("main");
   });
 
