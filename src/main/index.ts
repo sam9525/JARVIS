@@ -540,6 +540,7 @@ app.whenReady().then(async () => {
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (key, by) =>
       pushStatus(status.markDelegated(key, by, Date.now())),
+    nameSession: (key, word) => pushStatus(status.setTopic(key, word, true)),
     // false when the window is gone; say() reports that rather than going
     // silent, so the agent learns its summary was not heard
     say: (text) => {

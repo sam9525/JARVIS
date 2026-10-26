@@ -11,6 +11,7 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 import type { SessionInfo } from "./sessions";
+import { topicWord } from "./transcript-title";
 
 // The orchestrator feature's logic, pure over injected deps — no HTTP, no
 // Electron. http-listener exposes it on /orchestrate/*; index.ts wires the
@@ -44,6 +45,8 @@ export interface OrchestrateDeps {
   // ms since the PTY last printed anything; Infinity = no output seen
   msSinceOutput: (key: string) => number;
   markDelegated: (key: string, by: string) => void;
+  // pins the tab's topic so the session's own title cannot replace it
+  nameSession: (key: string, word: string) => void;
   // false = no renderer listening; say() reports that rather than going silent
   say: (text: string) => boolean;
   // types the fixed nudge into the main agent's own session, so a finish
@@ -88,6 +91,8 @@ export type CloseResult = { ok: true; kept?: string } | Failure;
 export interface SendOptions {
   session?: string;
   fresh?: boolean;
+  // names a fresh session's tab; ignored without `fresh`
+  label?: string;
 }
 
 // the trust prompt opens on "No, exit": Down moves to "Yes", Enter confirms
@@ -259,7 +264,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
   // Opens a session and waits for its TUI to go quiet, since text written
   // before raw mode is dropped. Trust is read for the session's own folder,
   // which for a worktree is not the workspace root.
-  async function open(ws: Workspace, label: string | undefined) {
+  async function open(ws: Workspace, label: string | undefined, topic = "") {
     const out = await deps.launch(ws, label);
     if (!out.ok || !out.key) {
       return out.error === "cap"
@@ -269,6 +274,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             error: `${ws.name}'s session failed to start — is the claude CLI on PATH? (${out.error ?? "unknown error"})`,
           };
     }
+    if (topic) deps.nameSession(out.key, topic);
     // The spawn is synchronous and PTY output arrives as I/O callbacks, which
     // cannot run before this continuation: the waiter exists before the first
     // chunk, as the settle needs.
@@ -360,7 +366,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         return { ok: false, error: "empty prompt" };
       }
       if (opts.fresh) {
-        const opened = await open(ws, undefined);
+        // the key keeps the next free number; the label only titles the tab
+        const word = ws.isScratch ? "" : topicWord(opts.label ?? "", ws.name);
+        const opened = await open(
+          ws,
+          undefined,
+          word === MAIN_LABEL ? "" : word,
+        );
         if (!opened.ok) return opened;
         const where = {
           session: opened.session,

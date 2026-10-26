@@ -43,6 +43,14 @@ const workspaces: Workspace[] = [
   },
 ];
 
+// a code workspace flagged as the Scratch folder; kept out of the default list
+const scratchWorkspace: Workspace = {
+  ...workspaces[1],
+  id: "d:/scratch",
+  name: "Scratch",
+  isScratch: true,
+};
+
 interface Sess {
   key: string;
   workspaceId: string;
@@ -52,7 +60,9 @@ interface Sess {
 }
 
 const mainOf = (id: string): Sess => {
-  const ws = workspaces.find((w) => w.id === id) as Workspace;
+  const ws = [...workspaces, scratchWorkspace].find(
+    (w) => w.id === id,
+  ) as Workspace;
   return {
     key: id,
     workspaceId: id,
@@ -63,7 +73,9 @@ const mainOf = (id: string): Sess => {
 };
 
 const worktreeOf = (id: string, label: string): Sess => {
-  const ws = workspaces.find((w) => w.id === id) as Workspace;
+  const ws = [...workspaces, scratchWorkspace].find(
+    (w) => w.id === id,
+  ) as Workspace;
   return {
     key: `${id}#${label}`,
     workspaceId: id,
@@ -108,6 +120,7 @@ function setup(
     settles?: boolean; // waitQuiet's result; false = the deadline passed
     outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
     kept?: string; // the folder close leaves on disk
+    workspaces?: Workspace[]; // the registry; defaults to the module's list
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -115,6 +128,8 @@ function setup(
   const delegated: Array<[string, string]> = [];
   const said: string[] = [];
   const nudges: number[] = [];
+  const named: Array<[string, string]> = [];
+  const namedAtWrites: number[] = [];
   const launched: Array<[string, string | undefined]> = [];
   const closed: string[] = [];
   const trustChecked: string[] = [];
@@ -123,7 +138,7 @@ function setup(
     registered.map((s) => s.key).filter((k) => !over.dead?.includes(k)),
   );
   const orch = createOrchestrator({
-    getWorkspaces: () => workspaces,
+    getWorkspaces: () => over.workspaces ?? workspaces,
     snapshot: () => over.statuses ?? [],
     sessionsOf: (id) => registered.filter((s) => s.workspaceId === id),
     hasPty: (key) => live.has(key),
@@ -135,6 +150,11 @@ function setup(
     },
     markDelegated: (key, by) => {
       delegated.push([key, by]);
+    },
+    nameSession: (key, word) => {
+      // the write count pins that naming precedes the wait marker
+      named.push([key, word]);
+      namedAtWrites.push(writes.length);
     },
     say: (text: string) => {
       if (over.sayFails) return false;
@@ -198,6 +218,8 @@ function setup(
     writes,
     attempted,
     delegated,
+    named,
+    namedAtWrites,
     said,
     nudges,
     launched,
@@ -432,6 +454,72 @@ describe("orchestrate.send with fresh", () => {
       ["d:/aero#1", "<wait>"],
       ["d:/aero#1", "To-do task: x"],
       ["d:/aero#1", "\r"],
+    ]);
+  });
+
+  it("names the new tab with the cleaned label before the wait", async () => {
+    const { orch, named, namedAtWrites, writes, launched } = setup();
+    const out = orch.send("AeroGraph", "x", { fresh: true, label: "Tabs now" });
+    await vi.runAllTimersAsync();
+    expect((await out).ok).toBe(true);
+    expect(launched).toEqual([["d:/aero", undefined]]); // key keeps the number
+    expect(named).toEqual([["d:/aero#1", "tabs"]]);
+    expect(namedAtWrites).toEqual([0]);
+    expect(writes[0]).toEqual(["d:/aero#1", "<wait>"]);
+  });
+
+  it.each([
+    ["the workspace name only", "AeroGraph"],
+    ["main", "main"],
+    ["blank", "  "],
+  ])("names nothing for a label that is %s", async (_why, label) => {
+    const { orch, named } = setup();
+    const out = orch.send("AeroGraph", "x", { fresh: true, label });
+    await vi.runAllTimersAsync();
+    expect((await out).ok).toBe(true);
+    expect(named).toEqual([]);
+  });
+
+  it("names nothing on a plain send to the main session", async () => {
+    const { orch, named } = setup();
+    const out = orch.send("AeroGraph", "x", { label: "tabs" });
+    await vi.runAllTimersAsync();
+    expect((await out).ok).toBe(true);
+    expect(named).toEqual([]);
+  });
+
+  it("names nothing in the Scratch workspace", async () => {
+    const { orch, named } = setup({
+      workspaces: [...workspaces, scratchWorkspace],
+      sessions: [],
+    });
+    const out = orch.send("Scratch", "x", { fresh: true, label: "tabs" });
+    await vi.runAllTimersAsync();
+    expect((await out).ok).toBe(true);
+    expect(named).toEqual([]);
+  });
+
+  it("names the tab even when the folder is untrusted", async () => {
+    const { orch, named } = setup({ trusted: false });
+    const out = orch.send("AeroGraph", "x", { fresh: true, label: "tabs" });
+    await vi.runAllTimersAsync();
+    expect(await out).toMatchObject({
+      ok: true,
+      trustPrompt: expect.any(String),
+    });
+    expect(named).toEqual([["d:/aero#1", "tabs"]]);
+  });
+
+  it("names two fresh sessions with the same word under different keys", async () => {
+    const { orch, named } = setup();
+    for (let i = 0; i < 2; i++) {
+      const out = orch.send("AeroGraph", "x", { fresh: true, label: "auth" });
+      await vi.runAllTimersAsync();
+      await out;
+    }
+    expect(named).toEqual([
+      ["d:/aero#1", "auth"],
+      ["d:/aero#2", "auth"],
     ]);
   });
 
