@@ -155,14 +155,10 @@ export default function SessionScreen({
           {items.map((item, i) => (
             <Item key={item.id || i} item={item} onShowRaw={onShowRaw} />
           ))}
-          {status.kind === "blocked" && (
-            <PermissionCard
-              calls={openCalls(items)}
-              onWrite={onWrite}
-              onShowRaw={onShowRaw}
-            />
-          )}
-          {status.kind === "asking" && ask && (
+          {/* whatever the status: a Notification can move it off "asking"
+              while the question is open, and the hook clears the ask when
+              the tool ends */}
+          {ask && (
             <div className="hud-glow-warm rounded-md border border-warm p-2">
               <AskPanel
                 prompt={ask}
@@ -170,6 +166,13 @@ export default function SessionScreen({
                 onAnswer={onAskAnswer}
               />
             </div>
+          )}
+          {status.kind === "blocked" && (
+            <PermissionCard
+              calls={openCalls(items)}
+              onWrite={onWrite}
+              onShowRaw={onShowRaw}
+            />
           )}
         </div>
       </div>

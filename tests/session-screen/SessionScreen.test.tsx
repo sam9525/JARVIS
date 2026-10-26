@@ -42,6 +42,48 @@ describe("SessionScreen", () => {
     expect(html).toContain("waiting on you · Bash(npm test)");
   });
 
+  // a Notification can move the status off "asking" while the question is
+  // still open; the hook clears the ask itself when the tool ends
+  it("shows the question card whenever an ask is open", () => {
+    const ask = {
+      workspaceId: "w",
+      sessionKey: "s",
+      sessionId: "x",
+      ts: 0,
+      questions: [
+        {
+          question: "Which close signal?",
+          header: "Close signal",
+          multiSelect: false,
+          options: [{ label: "Stop", description: "" }],
+        },
+      ],
+    };
+    const withAsk = (kind: StatusKind, items: ScreenItem[] = []) =>
+      renderToStaticMarkup(
+        <SessionScreen
+          sessionKey="s"
+          items={items}
+          status={{ kind, call: "Bash(npm test)" }}
+          ask={ask}
+          onAskAnswer={noop}
+          onWrite={noop}
+          onShowRaw={noop}
+          footer={null}
+        />,
+      );
+    expect(withAsk("idle")).toContain("Which close signal?");
+
+    const both = withAsk("blocked", [
+      { kind: "tool", id: "t", name: "Bash", input: { command: "npm test" } },
+    ]);
+    expect(both).toContain("Which close signal?");
+    expect(both).toContain("Permission");
+    expect(both.indexOf("Which close signal?")).toBeLessThan(
+      both.indexOf("Permission"),
+    );
+  });
+
   it("shows the live line while working", () => {
     const html = render([], "working", "Read(a.ts)");
     expect(html).toContain("working · Read(a.ts)");
