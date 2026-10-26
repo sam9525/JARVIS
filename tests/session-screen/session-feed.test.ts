@@ -8,7 +8,7 @@ const pushTranscript = vi.hoisted(() => ({
     null | ((key: string, entries: ScreenEntry[], reset: boolean) => void),
 }));
 const pushStatus = vi.hoisted(() => ({
-  cb: null as null | ((key: string, view: StatusLineView) => void),
+  cb: null as null | ((key: string, view: StatusLineView | null) => void),
 }));
 const getTranscript = vi.fn(async (_key: string): Promise<ScreenEntry[]> => [
   { kind: "prompt", id: "p1", text: "hi" },
@@ -82,6 +82,23 @@ describe("session feed", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(statusLineFor("k2")?.model).toBe("Sonnet");
+  });
+
+  it("forgets a stopped session so a reused key reloads", async () => {
+    loadSession("k3");
+    await Promise.resolve();
+    await Promise.resolve();
+    pushStatus.cb!("k3", view("Opus"));
+    expect(itemsFor("k3")).toHaveLength(1);
+
+    pushTranscript.cb!("k3", [], true);
+    pushStatus.cb!("k3", null);
+    expect(itemsFor("k3")).toEqual([]);
+    expect(statusLineFor("k3")).toBeNull();
+
+    const calls = getTranscript.mock.calls.length;
+    loadSession("k3");
+    expect(getTranscript).toHaveBeenCalledTimes(calls + 1);
   });
 
   it("reads the picker's model value from the status line", () => {

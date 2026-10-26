@@ -23,10 +23,15 @@ function ensureSubscribed(): void {
   subscribed = true;
   window.jarvis.onTranscript((key, entries, reset) => {
     items.set(key, applyEntries(items.get(key) ?? [], entries, reset));
+    // An empty reset is main dropping the session (closed, exited or switched
+    // to a file not written yet), so its next showing fetches afresh.
+    if (reset && entries.length === 0) loaded.delete(key);
     emit(key);
   });
+  // null is main forgetting the session's status line.
   window.jarvis.onStatusLine((key, view) => {
-    views.set(key, view);
+    if (view === null) views.delete(key);
+    else views.set(key, view);
     emit(key);
   });
 }

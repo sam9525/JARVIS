@@ -143,8 +143,9 @@ const api = {
   ) => subscribe<[string, ScreenEntry[], boolean]>("transcript", cb),
   getStatusLine: (key: string): Promise<StatusLineView | null> =>
     ipcRenderer.invoke("get-statusline", key),
-  onStatusLine: (cb: (key: string, view: StatusLineView) => void) =>
-    subscribe<[string, StatusLineView]>("statusline", cb),
+  // null: the session closed or exited, so its status line is gone
+  onStatusLine: (cb: (key: string, view: StatusLineView | null) => void) =>
+    subscribe<[string, StatusLineView | null]>("statusline", cb),
   onPromptSubmitted: (cb: (key: string) => void) =>
     subscribe<[string]>("prompt-submitted", cb),
   listTranscripts: (key: string): Promise<TranscriptSummary[]> =>

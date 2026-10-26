@@ -616,6 +616,13 @@ app.whenReady().then(async () => {
     send("transcript", key, entries, reset),
   );
   const lastStatusLine = new Map<string, StatusLineView>();
+  // the renderer caches per key, so a key that may be reused is cleared there too
+  function stopFeed(key: string): void {
+    feed.stop(key);
+    lastStatusLine.delete(key);
+    send("transcript", key, [], true);
+    send("statusline", key, null);
+  }
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
@@ -626,7 +633,7 @@ app.whenReady().then(async () => {
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
-        if (id.includes("#")) feed.stop(id);
+        if (id.includes("#")) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
       },
     },
@@ -872,7 +879,7 @@ app.whenReady().then(async () => {
     }
     const info = sessions.remove(key);
     resumedWith.delete(key);
-    feed.stop(key);
+    stopFeed(key);
     const killed = await ptyManager.kill(key);
     if (killed) {
       pushStatus(status.ptyExited(key, Date.now(), 0));
