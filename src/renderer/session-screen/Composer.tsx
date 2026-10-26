@@ -29,13 +29,6 @@ const IMAGE_EXT: Record<string, "png" | "jpg" | "gif" | "webp"> = {
   "image/webp": "webp",
 };
 
-const KEY_HINTS: [string, string][] = [
-  ["Enter", "send"],
-  ["Shift+Enter", "new line"],
-  ["Esc", "stop Claude"],
-  ["Ctrl+V", "paste image"],
-];
-
 function highlight(path: string, query: string): React.ReactNode {
   const at = query ? path.toLowerCase().indexOf(query.toLowerCase()) : -1;
   if (at < 0) return path;
@@ -264,16 +257,6 @@ export default function Composer({
         onPaste={onPaste}
         className="block min-h-9 w-full resize-none border border-accent bg-transparent px-2.5 py-2 font-sans text-[12.5px] text-ink outline-none placeholder:text-ink-dim"
       />
-      <div className="mt-1 flex flex-wrap gap-3">
-        {KEY_HINTS.map(([key, label]) => (
-          <span key={key} className="text-[10.5px] text-ink-dim">
-            <kbd className="rounded-sm border border-edge px-1 font-mono text-[10px] text-ink-muted">
-              {key}
-            </kbd>{" "}
-            {label}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
