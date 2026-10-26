@@ -603,6 +603,23 @@ describe("crashed", () => {
       expect(s.setTopic("w#first", "review")).toBe(false);
     });
 
+    it("a pinned topic outlives a later unpinned one", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      expect(s.setTopic("w#first", "tabs", true)).toBe(true);
+      expect(s.setTopic("w#first", "review")).toBe(false);
+      expect(s.snapshot()[0].sessions[0].topic).toBe("tabs");
+    });
+
+    it("reopening the label drops the pin with the topic", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      s.setTopic("w#first", "tabs", true);
+      s.sessionOpened("w#first", true, 2);
+      expect(s.setTopic("w#first", "review")).toBe(true);
+      expect(s.snapshot()[0].sessions[0].topic).toBe("review");
+    });
+
     it("forgets the topic when the label is opened again", () => {
       const s = createStatusStore(() => ["w"]);
       s.sessionOpened("w#first", true, 1);

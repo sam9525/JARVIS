@@ -36,6 +36,8 @@ interface Entry {
   // workspace, and the terminal panel must not read that as its own session.
   ptyOwned: boolean;
   topic: string;
+  // a topic named by the sender; a later title word does not replace it
+  topicPinned: boolean;
 }
 
 export interface StatusStore {
@@ -45,7 +47,7 @@ export interface StatusStore {
   markDelegated(key: string, by: string, now: number): boolean;
   ptyLaunched(key: string, now: number): boolean;
   sessionOpened(key: string, worktree: boolean, now: number): boolean;
-  setTopic(key: string, topic: string): boolean;
+  setTopic(key: string, topic: string, pinned?: boolean): boolean;
   ptyExited(key: string, now: number, exitCode: number): boolean;
   sweep(now: number): boolean;
   snapshot(): WorkspaceStatus[];
@@ -109,6 +111,7 @@ export function createStatusStore(
         ptyAlive: false,
         ptyOwned: false,
         topic: "",
+        topicPinned: false,
       };
       entries.set(key, e);
     }
@@ -258,14 +261,17 @@ export function createStatusStore(
       const changed = e.worktree !== worktree || e.topic !== "";
       e.worktree = worktree;
       e.topic = "";
+      e.topicPinned = false;
       return changed;
     },
 
-    setTopic(key, topic) {
+    setTopic(key, topic, pinned = false) {
       const e = entries.get(key);
-      if (!e || e.topic === topic) return false;
+      if (!e || (e.topicPinned && !pinned)) return false;
+      const changed = e.topic !== topic;
       e.topic = topic;
-      return true;
+      e.topicPinned = pinned;
+      return changed;
     },
 
     // A clean exit is what closing a terminal looks like, so it reads as no
