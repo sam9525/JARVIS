@@ -41,6 +41,7 @@ import { isTrusted } from "./folder-trust";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
 import { createTranscriptFeed, newestTranscript } from "./transcript-feed";
 import { gitHead, toStatusLineView, userStatusLine } from "./status-line";
+import { feedStatusEvent } from "./feed-follow";
 import { listTranscripts } from "./transcript-list";
 import { savePastedImage } from "./pasted-images";
 import {
@@ -662,8 +663,7 @@ app.whenReady().then(async () => {
     },
     (s) => {
       pushStatus(status.applyStatus(s));
-      if (s.transcriptPath) void feed.follow(s.sessionKey, s.transcriptPath);
-      else void feed.poke(s.sessionKey);
+      feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
       if (s.prompt !== undefined) send("prompt-submitted", s.sessionKey);
       // A finish is a Stop, and only a Stop carries a message. Read from the
       // event, not the snapshot: the workspace row is an aggregate, so it can
@@ -696,7 +696,8 @@ app.whenReady().then(async () => {
         (raw.workspace as { current_dir?: string } | undefined)?.current_dir ??
         sessions.get(key)?.cwd ??
         (key === mainAgent.id ? mainAgent.rootPath : "");
-      const view = toStatusLineView(raw, await gitHead(cwd));
+      const git = cwd ? await gitHead(cwd) : { branch: "", commit: "" };
+      const view = toStatusLineView(raw, git);
       lastStatusLine.set(key, view);
       send("statusline", key, view);
     },
