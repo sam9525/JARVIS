@@ -195,6 +195,7 @@ workspace.
   whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into a session of another workspace. With
   \`fresh: true\` it opens a new session and sends there, for a new task.
+  Confirm a send in a few words: the finish turn reports the result.
 - \`jarvis_launch\` — open a new session for a workspace, with an optional
   \`label\`. The label \`main\` is refused for a code workspace.
 - \`jarvis_close\` — close a session the user named. Refused while it is

@@ -5,6 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
+import { AGENT_GUIDE } from "../../src/main/main-agent";
 
 const MCP = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -316,6 +317,17 @@ describe("mcp.mjs", () => {
     expect(description.split(impactLine)).toHaveLength(3);
     expect(description).toContain("implementer or fix subagent");
     expect(description).not.toContain("repo: JARVIS");
+  });
+
+  it("jarvis_send tells the agent to confirm a send in a few words, like the guide", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 42, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    expect(description).toContain("After a send, confirm it in a few words");
+    expect(description).toContain("the finish turn reports the result");
+    expect(AGENT_GUIDE).toContain(
+      "Confirm a send in a few words: the finish turn reports the result.",
+    );
   });
 
   it("jarvis_send's description carries the session, Scratch, worktree and lookup rules", async () => {

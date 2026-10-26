@@ -25,6 +25,9 @@ const TOOLS = [
       "Send a prompt into a Claude Code session of another workspace, as if " +
       "typed there. Returns as soon as the prompt is submitted — it does NOT " +
       "wait for the delegate to finish; poll jarvis_list to follow progress.\n\n" +
+      'After a send, confirm it in a few words, such as "Sent to JARVIS ' +
+      'main.": the user hears your reply, and the finish turn reports the ' +
+      "result, so a longer reply says the same thing twice.\n\n" +
       "Without fresh, the prompt goes to the session named by session, or to " +
       "the only live one; with several live and none named it is refused and " +
       "the answer lists their labels. With fresh: true it opens a NEW session " +

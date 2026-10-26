@@ -6,7 +6,10 @@
 export const EDGE_VOICE = "en-US-AvaMultilingualNeural";
 // MP3, because the renderer wraps the bytes as audio/mpeg.
 const FORMAT = "audio-24khz-48kbitrate-mono-mp3";
-const TIMEOUT_MS = 8000;
+// Edge sends audio at about real time, so a long sentence is still arriving
+// after 8 s. The cap is on silence: a socket that sends nothing for this long
+// is dead, however long the sentence.
+const IDLE_MS = 8000;
 // Eight sentences take about 4.8 s over 2 sockets, 2.4 s over 4 and 1.5 s
 // over 8. 4 keeps a 500-char line under 3 s without a socket per sentence.
 const PARALLEL = 4;
@@ -35,25 +38,45 @@ export function createEdgeTts(deps: EdgeTtsDeps) {
   async function speakSentence(text: string): Promise<Uint8Array | null> {
     let client: EdgeClient | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // The reason only, never the sentence: the log must not carry the line.
+    const fail = (reason: string) => {
+      console.warn(`[edge] sentence failed: ${reason.slice(0, 160)}`);
+      return null;
+    };
     try {
       const c = (client = new deps.Client());
+      let quiet!: () => void;
+      const timeout = new Promise<"quiet">((resolve) => {
+        quiet = () => resolve("quiet");
+      });
+      const rearm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(quiet, IDLE_MS);
+      };
       const collect = async () => {
+        rearm();
         await c.setMetadata(EDGE_VOICE, FORMAT);
+        rearm();
         const chunks: Buffer[] = [];
         for await (const chunk of c.toStream(text).audioStream) {
+          rearm();
           chunks.push(Buffer.from(chunk as Buffer));
         }
         return new Uint8Array(Buffer.concat(chunks));
       };
-      const timeout = new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), TIMEOUT_MS);
-      });
       // The loser of the race still settles later; its catch keeps a late
       // stream error from surfacing as an unhandled rejection.
-      const bytes = await Promise.race([collect().catch(() => null), timeout]);
-      return bytes?.length ? bytes : null;
-    } catch {
-      return null;
+      const result = await Promise.race([
+        collect().catch((err: unknown) =>
+          err instanceof Error ? err : new Error(String(err)),
+        ),
+        timeout,
+      ]);
+      if (result === "quiet") return fail(`no audio for ${IDLE_MS} ms`);
+      if (result instanceof Error) return fail(result.message);
+      return result.length ? result : fail("empty stream");
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
     } finally {
       clearTimeout(timer);
       client?.close();
@@ -62,8 +85,9 @@ export function createEdgeTts(deps: EdgeTtsDeps) {
 
   return {
     // Edge sends audio at about real time, so one request for a long line
-    // outlasts TIMEOUT_MS. Each sentence is its own request under its own
-    // cap, and MP3 frames join byte for byte.
+    // keeps the renderer waiting about as long as the line plays. Each
+    // sentence is its own request, fetched in parallel, and MP3 frames join
+    // byte for byte.
     async speak(text: string): Promise<Uint8Array | null> {
       const parts = sentences(text);
       if (!parts.length) return null;

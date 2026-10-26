@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { PassThrough, Readable } from "node:stream";
 import {
   createEdgeTts,
@@ -29,7 +29,15 @@ function fakeClient(opts: {
   return { Client, made };
 }
 
-afterEach(() => vi.useRealTimers());
+// every failure logs one line; keep the test output clean and checkable
+let warn: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("edge.speak", () => {
   it("returns the concatenated stream bytes and closes the client", async () => {
@@ -162,5 +170,53 @@ describe("edge.speak", () => {
     await vi.advanceTimersByTimeAsync(8000);
     expect(await pending).toBe(null);
     expect(made[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a slow sentence that is still sending past 8 s", async () => {
+    vi.useFakeTimers();
+    // four chunks 5 s apart: 20 s in all, never 8 s without data
+    const { Client } = fakeClient({
+      stream: () =>
+        Readable.from(
+          (async function* () {
+            for (let i = 1; i <= 4; i++) {
+              await new Promise((r) => setTimeout(r, 5000));
+              yield Buffer.from([i]);
+            }
+          })(),
+        ),
+    });
+    const pending = createEdgeTts({ Client }).speak("A long sentence.");
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await pending).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("fails a silent sentence at 8 s with no chunk, not before", async () => {
+    vi.useFakeTimers();
+    const { Client } = fakeClient({ stream: () => new PassThrough() });
+    let settled = false;
+    const pending = createEdgeTts({ Client })
+      .speak("Never answered.")
+      .finally(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await pending).toBe(null);
+    expect(warn).toHaveBeenCalledWith(
+      "[edge] sentence failed: no audio for 8000 ms",
+    );
+  });
+
+  it("logs the reason of a failed sentence but never its text", async () => {
+    const { Client } = fakeClient({
+      setMetadata: () =>
+        Promise.reject(new Error("Unexpected server response: 403")),
+    });
+    await createEdgeTts({ Client }).speak("Secret plan for Tuesday.");
+    expect(warn).toHaveBeenCalledWith(
+      "[edge] sentence failed: Unexpected server response: 403",
+    );
+    expect(String(warn.mock.calls)).not.toContain("Secret plan");
   });
 });
