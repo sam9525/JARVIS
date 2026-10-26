@@ -24,13 +24,25 @@ const NOTE_DEPS = { resolveLink: () => null, loadNote: async () => null };
 
 function NoteText({ markdown }: { markdown: string }) {
   const [html, setHtml] = useState("");
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let stale = false;
-    renderNote(markdown, NOTE_DEPS).then((h) => !stale && setHtml(h));
+    setFailed(false);
+    renderNote(markdown, NOTE_DEPS).then(
+      (h) => !stale && setHtml(h),
+      () => !stale && setFailed(true),
+    );
     return () => {
       stale = true;
     };
   }, [markdown]);
+  if (failed) {
+    return (
+      <div className="max-w-[92%] whitespace-pre-wrap font-sans text-sm leading-relaxed text-ink">
+        {markdown}
+      </div>
+    );
+  }
   return (
     <div
       className="preview-body max-w-[92%] font-sans text-sm leading-relaxed text-ink"
@@ -89,6 +101,7 @@ type SessionScreenProps = {
 };
 
 export default function SessionScreen({
+  sessionKey,
   items,
   status,
   ask,
@@ -98,6 +111,7 @@ export default function SessionScreen({
   footer,
 }: SessionScreenProps) {
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
 
   const onScroll = () => {
@@ -107,39 +121,57 @@ export default function SessionScreen({
     }
   };
 
+  // Async-rendered text grows after the parent has rendered, so the pin
+  // follows the content element's size, not React renders. A new session
+  // remounts the scroller and starts pinned.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && pinned.current) el.scrollTop = el.scrollHeight;
-  });
+    const inner = content.current;
+    if (!el || !inner) return;
+    pinned.current = true;
+    const pin = () => {
+      if (pinned.current) el.scrollTop = el.scrollHeight;
+    };
+    pin();
+    const observer = new ResizeObserver(pin);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [sessionKey]);
 
   const liveLabel = LIVE_LABEL[status.kind];
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
+        key={sessionKey}
         ref={scroller}
         onScroll={onScroll}
-        className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3.5 pb-1.5 pt-3.5"
+        className="min-h-0 flex-1 overflow-y-auto"
       >
-        {items.map((item, i) => (
-          <Item key={item.id || i} item={item} onShowRaw={onShowRaw} />
-        ))}
-        {status.kind === "blocked" && (
-          <PermissionCard
-            calls={openCalls(items)}
-            onWrite={onWrite}
-            onShowRaw={onShowRaw}
-          />
-        )}
-        {status.kind === "asking" && ask && (
-          <div className="hud-glow-warm rounded-md border border-warm p-2">
-            <AskPanel
-              prompt={ask}
-              workspaceName="Question"
-              onAnswer={onAskAnswer}
+        <div
+          ref={content}
+          className="flex flex-col gap-2.5 px-3.5 pb-1.5 pt-3.5"
+        >
+          {items.map((item, i) => (
+            <Item key={item.id || i} item={item} onShowRaw={onShowRaw} />
+          ))}
+          {status.kind === "blocked" && (
+            <PermissionCard
+              calls={openCalls(items)}
+              onWrite={onWrite}
+              onShowRaw={onShowRaw}
             />
-          </div>
-        )}
+          )}
+          {status.kind === "asking" && ask && (
+            <div className="hud-glow-warm rounded-md border border-warm p-2">
+              <AskPanel
+                prompt={ask}
+                workspaceName="Question"
+                onAnswer={onAskAnswer}
+              />
+            </div>
+          )}
+        </div>
       </div>
       {liveLabel && (
         <div className="flex items-center gap-2 px-3.5 pb-2.5 pt-1 font-mono text-xs text-accent">
