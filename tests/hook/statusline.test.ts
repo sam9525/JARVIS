@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,6 +93,58 @@ describe("statusline.mjs", () => {
       });
       expect(out.code).toBe(0);
       expect(out.stdout).toBe("");
+    });
+  });
+
+  describe("outside a JARVIS terminal", () => {
+    let home: string;
+    let project: string;
+    const settle = (dir: string, command: string) => {
+      mkdirSync(path.join(dir, ".claude"), { recursive: true });
+      writeFileSync(
+        path.join(dir, ".claude", "settings.json"),
+        JSON.stringify({ statusLine: { type: "command", command } }),
+      );
+    };
+    const say = (word: string) => `node -e "process.stdout.write('${word}')"`;
+    const runIn = (port: number) =>
+      run(port, JSON.stringify({ workspace: { current_dir: project } }), {
+        HOME: home,
+        USERPROFILE: home,
+      });
+
+    beforeEach(() => {
+      home = mkdtempSync(path.join(tmpdir(), "jarvis-sl-home-"));
+      project = mkdtempSync(path.join(tmpdir(), "jarvis-sl-proj-"));
+    });
+    afterEach(() => {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    });
+
+    it("runs the project's own status line", async () => {
+      settle(project, say("project"));
+      settle(home, say("home"));
+      await withServer(async (port) => {
+        expect((await runIn(port)).stdout).toBe("project");
+      });
+    });
+
+    it("falls back to the user's status line", async () => {
+      settle(home, say("home"));
+      await withServer(async (port) => {
+        expect((await runIn(port)).stdout).toBe("home");
+      });
+    });
+
+    it("never runs itself", async () => {
+      settle(project, `node "${SCRIPT}"`);
+      settle(home, say("home"));
+      await withServer(async (port) => {
+        const out = await runIn(port);
+        expect(out.code).toBe(0);
+        expect(out.stdout).toBe("home");
+      });
     });
   });
 
