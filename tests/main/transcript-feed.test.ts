@@ -15,12 +15,12 @@ const prompt = (id: string): string =>
   }) + "\n";
 
 function fakeFile(initial = ""): {
-  readFrom: (path: string, offset: number) => Promise<string>;
-  append: (text: string) => void;
+  readFrom: (path: string, offset: number) => Promise<Buffer>;
+  append: (text: string | Buffer) => void;
 } {
   let content = Buffer.from(initial);
   return {
-    readFrom: async (_p, offset) => content.subarray(offset).toString("utf8"),
+    readFrom: async (_p, offset) => content.subarray(offset),
     append: (text) => {
       content = Buffer.concat([content, Buffer.from(text)]);
     },
@@ -115,6 +115,71 @@ describe("createTranscriptFeed", () => {
     file.append(prompt("b"));
     await Promise.all([feed.poke("k"), feed.poke("k")]);
     expect(ids(feed.snapshot("k"))).toEqual(["a", "b"]);
+    feed.stopAll();
+  });
+
+  it("emit throwing once does not stop later pokes", async () => {
+    const file = fakeFile(prompt("a"));
+    const emit = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("window destroyed");
+      })
+      .mockImplementation(() => undefined);
+    const feed = createTranscriptFeed(emit, file.readFrom);
+    await expect(feed.follow("k", "/t.jsonl")).resolves.toBeUndefined();
+    file.append(prompt("b"));
+    await feed.poke("k");
+    expect(ids(emit.mock.calls[1][1])).toEqual(["b"]);
+    feed.stopAll();
+  });
+
+  it("a read that ends mid-character keeps the character whole", async () => {
+    const line = Buffer.from(prompt("é漢🙂"));
+    const split = line.indexOf(Buffer.from("漢")) + 1;
+    const file = fakeFile();
+    file.append(line.subarray(0, split));
+    const feed = createTranscriptFeed(vi.fn(), file.readFrom);
+    await feed.follow("k", "/t.jsonl");
+    file.append(line.subarray(split));
+    await feed.poke("k");
+    expect(ids(feed.snapshot("k"))).toEqual(["é漢🙂"]);
+    feed.stopAll();
+  });
+
+  it("starts watching once the file appears", async () => {
+    let exists = false;
+    const watchFile = vi.fn(() => {
+      if (!exists) throw new Error("ENOENT");
+      return { close: vi.fn(), on: vi.fn() };
+    });
+    const file = fakeFile(prompt("a"));
+    const readFrom = async (p: string, o: number): Promise<Buffer> => {
+      if (!exists) throw new Error("ENOENT");
+      return file.readFrom(p, o);
+    };
+    const feed = createTranscriptFeed(vi.fn(), readFrom, watchFile as never);
+    await feed.follow("k", "/t.jsonl");
+    exists = true;
+    await feed.poke("k");
+    expect(watchFile).toHaveBeenCalledTimes(2);
+    await feed.poke("k");
+    expect(watchFile).toHaveBeenCalledTimes(2);
+    feed.stopAll();
+  });
+
+  it("follow to a new missing path emits an empty reset", async () => {
+    const file = fakeFile(prompt("a"));
+    const readFrom = async (p: string, o: number): Promise<Buffer> => {
+      if (p === "/gone.jsonl") throw new Error("ENOENT");
+      return file.readFrom(p, o);
+    };
+    const emit = vi.fn();
+    const feed = createTranscriptFeed(emit, readFrom);
+    await feed.follow("k", "/t.jsonl");
+    await feed.follow("k", "/gone.jsonl");
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[1]).toEqual(["k", [], true]);
     feed.stopAll();
   });
 

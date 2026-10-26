@@ -9,26 +9,28 @@ export type FeedEmit = (
   entries: ScreenEntry[],
   reset: boolean,
 ) => void;
-type ReadFrom = (path: string, offset: number) => Promise<string>;
+type ReadFrom = (path: string, offset: number) => Promise<Buffer>;
+type WatchFile = typeof watch;
 
 interface Followed {
   path: string;
   offset: number;
-  rest: string;
+  rest: Buffer;
   entries: ScreenEntry[];
   watcher: FSWatcher | null;
   chain: Promise<void>;
   resetPending: boolean;
+  switched: boolean;
 }
 
-async function readFileFrom(path: string, offset: number): Promise<string> {
+async function readFileFrom(path: string, offset: number): Promise<Buffer> {
   const handle = await open(path, "r");
   try {
     const { size } = await handle.stat();
-    if (size <= offset) return "";
+    if (size <= offset) return Buffer.alloc(0);
     const buffer = Buffer.alloc(size - offset);
     await handle.read(buffer, 0, buffer.length, offset);
-    return buffer.toString("utf8");
+    return buffer;
   } finally {
     await handle.close();
   }
@@ -37,13 +39,15 @@ async function readFileFrom(path: string, offset: number): Promise<string> {
 export function createTranscriptFeed(
   emit: FeedEmit,
   readFrom: ReadFrom = readFileFrom,
+  watchFile: WatchFile = watch,
 ) {
   const followed = new Map<string, Followed>();
 
   // Watching is best-effort: a missing or deleted file only means no pokes arrive.
+  // Every read retries it, so a file that appears later gets watched.
   function watchPath(key: string, state: Followed): void {
     try {
-      state.watcher = watch(state.path, () => void poke(key));
+      state.watcher = watchFile(state.path, () => void poke(key));
       state.watcher.on("error", () => closeWatcher(state));
     } catch {
       state.watcher = null;
@@ -56,20 +60,27 @@ export function createTranscriptFeed(
   }
 
   async function readOnce(key: string, state: Followed): Promise<void> {
-    let text: string;
+    if (!state.watcher) watchPath(key, state);
+    let chunk: Buffer;
     try {
-      text = await readFrom(state.path, state.offset);
+      chunk = await readFrom(state.path, state.offset);
     } catch {
+      // A path switch to a file that is not there yet still clears the old entries.
+      if (followed.get(key) === state && state.switched && state.resetPending) {
+        state.resetPending = false;
+        emit(key, [], true);
+      }
       return;
     }
     if (followed.get(key) !== state) return;
-    // The offset counts bytes; `rest` is carried as text and already counted.
-    state.offset += Buffer.byteLength(text);
-    const joined = state.rest + text;
-    const cut = joined.lastIndexOf("\n");
-    state.rest = joined.slice(cut + 1);
+    state.offset += chunk.length;
+    // Only whole lines are decoded, so a character split across reads stays intact.
+    const joined = Buffer.concat([state.rest, chunk]);
+    const cut = joined.lastIndexOf(0x0a);
+    state.rest = joined.subarray(cut + 1);
     const entries = joined
-      .slice(0, cut + 1)
+      .subarray(0, cut + 1)
+      .toString("utf8")
       .split("\n")
       .filter((line) => line !== "")
       .flatMap(parseTranscriptLine);
@@ -78,13 +89,15 @@ export function createTranscriptFeed(
     state.resetPending = false;
     state.entries.push(...entries);
     emit(key, entries, reset);
-    if (!state.watcher) watchPath(key, state);
   }
 
+  // A failed read or emit must not leave the chain rejected, or every later poke would fail too.
   function poke(key: string): Promise<void> {
     const state = followed.get(key);
     if (!state) return Promise.resolve();
-    state.chain = state.chain.then(() => readOnce(key, state));
+    state.chain = state.chain
+      .then(() => readOnce(key, state))
+      .catch(() => undefined);
     return state.chain;
   }
 
@@ -92,17 +105,16 @@ export function createTranscriptFeed(
     const current = followed.get(key);
     if (current?.path === path) return poke(key);
     if (current) closeWatcher(current);
-    const state: Followed = {
+    followed.set(key, {
       path,
       offset: 0,
-      rest: "",
+      rest: Buffer.alloc(0),
       entries: [],
       watcher: null,
       chain: Promise.resolve(),
       resetPending: true,
-    };
-    followed.set(key, state);
-    watchPath(key, state);
+      switched: current !== undefined,
+    });
     return poke(key);
   }
 
