@@ -870,3 +870,56 @@ describe("/orchestrate/close", () => {
     s.close();
   });
 });
+
+describe("statusline route", () => {
+  async function startWithStatusLine(
+    onStatusLine: (key: string, raw: Record<string, unknown>) => void,
+  ) {
+    const server = startListener(
+      0,
+      () => undefined,
+      () => undefined,
+      () => workspaces,
+      stubOrchestrator(),
+      undefined,
+      onStatusLine,
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return { port, close: () => server.close() };
+  }
+  const postStatus = (port: number, body: unknown, type = "application/json") =>
+    fetch(`http://127.0.0.1:${port}/statusline`, {
+      method: "POST",
+      headers: { "Content-Type": type },
+      body: JSON.stringify(body),
+    });
+
+  it("statusline route passes the session key and body", async () => {
+    const calls: Array<[string, Record<string, unknown>]> = [];
+    const { port, close } = await startWithStatusLine((k, r) =>
+      calls.push([k, r]),
+    );
+    const res = await postStatus(port, {
+      model: { display_name: "Opus" },
+      jarvis_session: "s1",
+    });
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0][0]).toBe("s1");
+    expect(calls[0][1].model).toEqual({ display_name: "Opus" });
+    await postStatus(port, { model: {} }); // no key: ignored
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toHaveLength(1);
+    close();
+  });
+
+  it("statusline route refuses a non-JSON content type with 415", async () => {
+    const calls: unknown[] = [];
+    const { port, close } = await startWithStatusLine((k) => calls.push(k));
+    const res = await postStatus(port, { jarvis_session: "s1" }, "text/plain");
+    expect(res.status).toBe(415);
+    expect(calls).toHaveLength(0);
+    close();
+  });
+});

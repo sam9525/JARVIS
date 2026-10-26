@@ -418,3 +418,16 @@ export type StoredSnapshot = {
   look: string;
   layout: CardLayout;
 };
+
+export interface StatusLineView {
+  model: string;
+  effort: string;
+  folder: string;
+  branch: string;
+  commit: string;
+  contextPct: number | null;
+  fiveHourPct: number | null;
+  fiveHourResetsAt: number | null; // epoch seconds
+  sevenDayPct: number | null;
+  sevenDayResetsAt: number | null;
+}

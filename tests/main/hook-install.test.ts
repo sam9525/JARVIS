@@ -162,3 +162,26 @@ describe("mergeHooks", () => {
     expect(out.hooks.Stop).toHaveLength(2); // theirs + ours
   });
 });
+
+describe("ensureHooks status line", () => {
+  it("installs the status line next to the hooks", async () => {
+    dir = tmp();
+    await ensureHooks(dir, path.join("C:", "app", "hook", "forward.mjs"));
+    const s = JSON.parse(readFileSync(localPath(dir), "utf8"));
+    expect(s.statusLine.type).toBe("command");
+    expect(s.statusLine.command).toContain("statusline.mjs");
+    expect(s.statusLine.command).not.toContain("forward.mjs");
+    expect(s.hooks.Stop).toBeDefined();
+  });
+
+  it("keeps a foreign status line", async () => {
+    dir = tmp();
+    mkdirSync(path.dirname(localPath(dir)), { recursive: true });
+    const foreign = { type: "command", command: "bash mine.sh" };
+    writeFileSync(localPath(dir), JSON.stringify({ statusLine: foreign }));
+    await ensureHooks(dir, "C:\\app\\forward.mjs");
+    const s = JSON.parse(readFileSync(localPath(dir), "utf8"));
+    expect(s.statusLine).toEqual(foreign);
+    expect(JSON.stringify(s.hooks.Stop)).toContain("forward.mjs");
+  });
+});

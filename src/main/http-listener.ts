@@ -74,6 +74,7 @@ export function startListener(
   // optional so existing callers and tests keep compiling; a build without a
   // renderer simply drops questions on the floor
   onAsk?: (p: AskPrompt) => void,
+  onStatusLine?: (sessionKey: string, raw: Record<string, unknown>) => void,
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -125,6 +126,28 @@ export function startListener(
           if (a !== undefined) onAsk?.(a);
         } catch {
           /* ask mapping failed — highlights and status already went out */
+        }
+      });
+      return;
+    }
+    if (req.url === "/statusline") {
+      // same trust rules as /event: JSON-only forces a preflight we never answer
+      if (
+        !String(req.headers["content-type"] ?? "").startsWith(
+          "application/json",
+        )
+      ) {
+        res.writeHead(415).end();
+        return;
+      }
+      readBody(req, (body) => {
+        res.writeHead(200).end(); // ack immediately — never make Claude Code wait
+        try {
+          const raw = JSON.parse(body) as Record<string, unknown>;
+          const key = raw.jarvis_session;
+          if (typeof key === "string" && key) onStatusLine?.(key, raw);
+        } catch {
+          /* malformed body or failing handler — the status line is best effort */
         }
       });
       return;
