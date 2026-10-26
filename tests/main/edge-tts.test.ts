@@ -9,7 +9,7 @@ import {
 // A fake MsEdgeTTS: each test decides what the stream does, and every
 // instance is recorded so the test can check close() was called.
 function fakeClient(opts: {
-  stream?: () => NodeJS.ReadableStream;
+  stream?: (text: string) => NodeJS.ReadableStream;
   setMetadata?: () => Promise<void>;
 }) {
   const made: {
@@ -22,8 +22,8 @@ function fakeClient(opts: {
     constructor() {
       made.push(this);
     }
-    toStream() {
-      return { audioStream: (opts.stream ?? (() => Readable.from([])))() };
+    toStream(text: string) {
+      return { audioStream: (opts.stream ?? (() => Readable.from([])))(text) };
     }
   }
   return { Client, made };
@@ -76,6 +76,83 @@ describe("edge.speak", () => {
     });
     expect(await createEdgeTts({ Client }).speak("hi")).toBe(null);
     expect(made[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches each sentence on its own and joins the bytes in line order", async () => {
+    // the first sentence finishes last, so arrival order is not line order
+    const delays: Record<string, number> = {
+      "One.": 30,
+      "Two!": 0,
+      "Three?": 10,
+    };
+    const codes: Record<string, number> = { "One.": 1, "Two!": 2, "Three?": 3 };
+    const { Client, made } = fakeClient({
+      stream: (text) =>
+        Readable.from(
+          (async function* () {
+            await new Promise((r) => setTimeout(r, delays[text]));
+            yield Buffer.from([codes[text]]);
+          })(),
+        ),
+    });
+    const out = await createEdgeTts({ Client }).speak("One. Two! Three?");
+    expect(out).toEqual(new Uint8Array([1, 2, 3]));
+    expect(made).toHaveLength(3);
+    for (const c of made) expect(c.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a version number whole instead of splitting at its dots", async () => {
+    const seen: string[] = [];
+    const { Client } = fakeClient({
+      stream: (text) => {
+        seen.push(text);
+        return Readable.from([Buffer.from([1])]);
+      },
+    });
+    await createEdgeTts({ Client }).speak("Updated to 2.1.1 today. Done.");
+    expect(seen).toEqual(["Updated to 2.1.1 today.", "Done."]);
+  });
+
+  it("is null for the whole line when one sentence fails", async () => {
+    const { Client } = fakeClient({
+      stream: (text) =>
+        text === "Bad."
+          ? new Readable({
+              read() {
+                this.destroy(new Error("403"));
+              },
+            })
+          : Readable.from([Buffer.from([1])]),
+    });
+    expect(await createEdgeTts({ Client }).speak("Good. Bad. Good.")).toBe(
+      null,
+    );
+  });
+
+  it("holds at most four sockets open at once", async () => {
+    let open = 0;
+    let peak = 0;
+    const { Client } = fakeClient({
+      stream: () =>
+        Readable.from(
+          (async function* () {
+            peak = Math.max(peak, ++open);
+            await new Promise((r) => setTimeout(r, 5));
+            open--;
+            yield Buffer.from([1]);
+          })(),
+        ),
+    });
+    const line = Array.from({ length: 9 }, (_, i) => `Part ${i}.`).join(" ");
+    const out = await createEdgeTts({ Client }).speak(line);
+    expect(out).toHaveLength(9);
+    expect(peak).toBe(4);
+  });
+
+  it("is null for whitespace-only text and makes no client", async () => {
+    const { Client, made } = fakeClient({});
+    expect(await createEdgeTts({ Client }).speak("  \n ")).toBe(null);
+    expect(made).toHaveLength(0);
   });
 
   it("is null and closes when the stream never ends within the timeout", async () => {
