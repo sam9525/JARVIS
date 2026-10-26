@@ -2,6 +2,7 @@ import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
 import { mapStatusEvent } from "./status-mapper";
 import { mapAskEvent, type AskPrompt } from "./ask-mapper";
+import { mapSessionStart, type SessionStart } from "./session-start";
 import type {
   CloseResult,
   DeliveredResult,
@@ -75,6 +76,7 @@ export function startListener(
   // renderer simply drops questions on the floor
   onAsk?: (p: AskPrompt) => void,
   onStatusLine?: (sessionKey: string, raw: Record<string, unknown>) => void,
+  onSessionStart?: (s: SessionStart) => void,
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -118,14 +120,20 @@ export function startListener(
         } catch {
           /* status mapping failed — highlights already went out */
         }
-        // three independent mappers, three try blocks: one rejecting must
-        // never take another's output with it
+        // independent mappers, a try block each: one rejecting must never
+        // take another's output with it
         try {
           const a = mapAskEvent(raw, ws);
           // undefined = not about questions; no questions = that one is over
           if (a !== undefined) onAsk?.(a);
         } catch {
           /* ask mapping failed — highlights and status already went out */
+        }
+        try {
+          const started = mapSessionStart(raw, ws);
+          if (started) onSessionStart?.(started);
+        } catch {
+          /* a missed switch is caught up by the session's next hook */
         }
       });
       return;

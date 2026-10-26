@@ -698,16 +698,22 @@ app.whenReady().then(async () => {
       else asks.set(p.workspaceId, p);
       send("ask", p);
     },
-    async (key, raw) => {
+    (key, raw) => {
       const cwd =
         (raw.workspace as { current_dir?: string } | undefined)?.current_dir ??
         sessions.get(key)?.cwd ??
         (key === mainAgent.id ? mainAgent.rootPath : "");
-      const git = cwd ? await gitHead(cwd) : { branch: "", commit: "" };
-      const view = toStatusLineView(raw, git);
-      lastStatusLine.set(key, view);
-      send("statusline", key, view);
+      // the listener's try sees only synchronous throws
+      void (cwd ? gitHead(cwd) : Promise.resolve({ branch: "", commit: "" }))
+        .then((git) => {
+          const view = toStatusLineView(raw, git);
+          lastStatusLine.set(key, view);
+          send("statusline", key, view);
+        })
+        .catch((): void => undefined);
     },
+    // a /resume or /clear switches files before the session's next hook
+    (s) => feedStatusEvent(feed, s, ptyManager.has(s.sessionKey)),
   );
 
   // Claude Code spawns both of these as its own child processes, so they must

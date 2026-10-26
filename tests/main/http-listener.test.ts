@@ -923,3 +923,36 @@ describe("statusline route", () => {
     close();
   });
 });
+
+describe("SessionStart on /event", () => {
+  it("hands the new transcript to onSessionStart and reports no status", async () => {
+    const started: unknown[] = [];
+    const statuses: unknown[] = [];
+    const server = startListener(
+      0,
+      () => undefined,
+      (s) => statuses.push(s),
+      () => workspaces,
+      stubOrchestrator(),
+      undefined,
+      undefined,
+      (s) => started.push(s),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    await post(port, {
+      hook_event_name: "SessionStart",
+      session_id: "s-new",
+      cwd: "D:\\vault",
+      transcript_path: "C:/t/s-new.jsonl",
+      source: "resume",
+    });
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+    expect(started[0]).toEqual({
+      sessionKey: workspaces[0].id,
+      transcriptPath: "C:/t/s-new.jsonl",
+    });
+    expect(statuses).toEqual([]);
+    server.close();
+  });
+});

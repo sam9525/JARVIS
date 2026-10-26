@@ -85,6 +85,7 @@ describe("install.mjs", () => {
     expect(settings.hooks.PreToolUse).toHaveLength(1);
     expect(settings.hooks.PostToolUse).toHaveLength(1);
     expect(settings.hooks.UserPromptSubmit).toHaveLength(1);
+    expect(settings.hooks.SessionStart).toHaveLength(1);
   });
 
   it("preserves existing user settings and unrelated hooks", () => {
