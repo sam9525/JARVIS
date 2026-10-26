@@ -90,6 +90,12 @@ describe("SessionScreen", () => {
     expect(html).toContain("hud-breathe");
   });
 
+  it("drops the separator when there is no call", () => {
+    const html = render([], "working");
+    expect(html).toContain("<span>working</span>");
+    expect(html).not.toContain("working ·");
+  });
+
   it("draws prompts, thinking and notices", () => {
     const html = render(
       [

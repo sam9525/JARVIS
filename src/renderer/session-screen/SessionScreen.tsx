@@ -161,6 +161,8 @@ export default function SessionScreen({
           {ask && (
             <div className="hud-glow-warm rounded-md border border-warm p-2">
               <AskPanel
+                // a different question starts at its own first page
+                key={`${ask.sessionKey}:${ask.ts}`}
                 prompt={ask}
                 workspaceName="Question"
                 onAnswer={onAskAnswer}
@@ -180,7 +182,7 @@ export default function SessionScreen({
         <div className="flex items-center gap-2 px-3.5 pb-2.5 pt-1 font-mono text-xs text-accent">
           <i className="hud-breathe h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
           <span>
-            {liveLabel} · {status.call}
+            {status.call ? `${liveLabel} · ${status.call}` : liveLabel}
           </span>
           <span
             className="cursor-help text-ink-dim"
