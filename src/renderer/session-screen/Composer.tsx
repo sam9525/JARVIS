@@ -62,6 +62,8 @@ export default function Composer({
   const [sessions, setSessions] = useState<TranscriptSummary[]>([]);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   useEffect(() => {
     setText(getDraft(sessionKey));
@@ -83,9 +85,12 @@ export default function Composer({
   useEffect(() => {
     if (picker !== "resume") return;
     let live = true;
-    window.jarvis.listTranscripts(sessionKey).then((list) => {
-      if (live) setSessions(list);
-    });
+    window.jarvis
+      .listTranscripts(sessionKey)
+      .then((list) => {
+        if (live) setSessions(list);
+      })
+      .catch(() => onErrorRef.current("could not list past sessions"));
     return () => {
       live = false;
     };
@@ -145,6 +150,7 @@ export default function Composer({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (popup && itemCount > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -180,17 +186,25 @@ export default function Composer({
     const file = item?.getAsFile();
     if (!item || !file) return;
     e.preventDefault();
-    const { selectionStart: start, selectionEnd: end } = e.currentTarget;
-    const path = await window.jarvis.savePastedImage(
-      new Uint8Array(await file.arrayBuffer()),
-      IMAGE_EXT[item.type],
-    );
-    const inserted = `${path} `;
-    pendingCaret.current = start + inserted.length;
-    edit(
-      text.slice(0, start) + inserted + text.slice(end),
-      pendingCaret.current,
-    );
+    const { selectionStart, selectionEnd } = e.currentTarget;
+    try {
+      const path = await window.jarvis.savePastedImage(
+        new Uint8Array(await file.arrayBuffer()),
+        IMAGE_EXT[item.type],
+      );
+      // the draft may have changed (typing, dictation) while the image saved
+      const latest = getDraft(sessionKey);
+      const start = Math.min(selectionStart, latest.length);
+      const end = Math.min(Math.max(selectionEnd, start), latest.length);
+      const inserted = `${path} `;
+      pendingCaret.current = start + inserted.length;
+      edit(
+        latest.slice(0, start) + inserted + latest.slice(end),
+        pendingCaret.current,
+      );
+    } catch {
+      onError("could not save the pasted image");
+    }
   }
 
   return (

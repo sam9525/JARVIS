@@ -93,6 +93,14 @@ describe("sendPrompt", () => {
   });
 });
 
+describe("sendPrompt without a terminal", () => {
+  it("sends no CR after a failed text write", async () => {
+    const write = vi.fn().mockResolvedValue(false);
+    expect(await sendPrompt("k", "hello", write)).toBe(false);
+    expect(write.mock.calls).toEqual([["k", "hello"]]);
+  });
+});
+
 describe("fileList", () => {
   it("adds .md to vault ids", () => {
     expect(fileList(["a/b", "c"], "vault")).toEqual(["a/b.md", "c.md"]);

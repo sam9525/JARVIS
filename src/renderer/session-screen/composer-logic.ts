@@ -86,10 +86,9 @@ export async function sendPrompt(
   text: string,
   write: (k: string, d: string) => Promise<boolean>,
 ): Promise<boolean> {
-  const textLanded = await write(key, text);
+  if (!(await write(key, text))) return false;
   await new Promise((resolve) => setTimeout(resolve, SUBMIT_GAP_MS));
-  const submitLanded = await write(key, "\r");
-  return textLanded && submitLanded;
+  return write(key, "\r");
 }
 
 export function fileList(nodeIds: string[], kind: "vault" | "code"): string[] {
