@@ -42,6 +42,8 @@ const stripTags = (text: string): string => text.replace(/<[^>]+>/g, "").trim();
 
 function parsePromptText(id: string, text: string): ScreenEntry[] {
   if (text.includes("<local-command-caveat>")) return [];
+  if (text.startsWith("[Request interrupted by user"))
+    return [{ kind: "notice", id, text: "Interrupted" }];
   const stdout = tagBody(text, "local-command-stdout");
   if (stdout !== null) {
     const body = stdout.trim();
@@ -81,7 +83,7 @@ function patchOf(toolUseResult: unknown): string[] | undefined {
       const hunkLines = asRecord(hunk)?.lines;
       return Array.isArray(hunkLines) ? hunkLines.map(String) : [];
     });
-    return lines.slice(0, PATCH_LINE_LIMIT);
+    return lines.length === 0 ? undefined : lines.slice(0, PATCH_LINE_LIMIT);
   }
   if (result.type === "create" && typeof result.content === "string") {
     return result.content
@@ -105,6 +107,8 @@ function arrayPromptText(content: unknown[]): string {
 
 function parseUser(line: Json, id: string): ScreenEntry[] {
   if (line.isMeta === true || line.isSidechain === true) return [];
+  if (line.isCompactSummary === true)
+    return [{ kind: "notice", id, text: "Conversation compacted" }];
   const content = asRecord(line.message)?.content;
   if (typeof content === "string") return parsePromptText(id, content);
   if (!Array.isArray(content)) return [];
@@ -179,9 +183,47 @@ function parseSystem(line: Json, id: string): ScreenEntry[] {
   return [{ kind: "unknown", id, label: subtype }];
 }
 
+const skipString = (line: string, quote: number): number => {
+  let i = quote + 1;
+  while (i < line.length && line[i] !== '"') i += line[i] === "\\" ? 2 : 1;
+  return i;
+};
+
+const skipSpace = (line: string, from: number): number => {
+  let i = from;
+  while (i < line.length && /\s/.test(line[i])) i++;
+  return i;
+};
+
+// Nested objects (an assistant `message`, an `attachment`) carry their own
+// "type" ahead of the line's, so only a key at depth 1 counts.
+function topLevelType(line: string): string | undefined {
+  let depth = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") depth--;
+    else if (ch === '"') {
+      const end = skipString(line, i);
+      const colon = skipSpace(line, end + 1);
+      if (
+        depth === 1 &&
+        line.slice(i, end + 1) === '"type"' &&
+        line[colon] === ":"
+      ) {
+        const value = skipSpace(line, colon + 1);
+        if (line[value] !== '"') return undefined;
+        return line.slice(value + 1, skipString(line, value));
+      }
+      i = end;
+    }
+  }
+  return undefined;
+}
+
 /** Turns one transcript `.jsonl` line into zero or more screen entries; a broken line yields none. */
 export function parseTranscriptLine(line: string): ScreenEntry[] {
-  const type = /"type":"([^"]+)"/.exec(line)?.[1];
+  const type = topLevelType(line);
   if (type === undefined || SKIPPED_TYPES.includes(type)) return [];
   let parsed: Json | null;
   try {

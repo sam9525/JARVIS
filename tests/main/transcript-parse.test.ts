@@ -177,3 +177,70 @@ describe("parseTranscriptLine", () => {
     expect(parseTranscriptLine("")).toEqual([]);
   });
 });
+
+describe("parseTranscriptLine on real Claude Code lines", () => {
+  const real = readFileSync(
+    "tests/fixtures/transcript/real-shape.jsonl",
+    "utf8",
+  )
+    .split("\n")
+    .filter((l) => l !== "");
+  const entries = real.flatMap((l) => parseTranscriptLine(l));
+
+  it("reads the top-level type past nested ones", () => {
+    expect(entries.filter((e) => e.kind === "text")).toHaveLength(1);
+    expect(entries.find((e) => e.kind === "tool")).toMatchObject({
+      id: "toolu_01SSB74e8M6PNMu1eZ8WwoJL",
+      name: "Edit",
+    });
+    expect(entries.find((e) => e.kind === "result")).toMatchObject({
+      toolUseId: "toolu_01SSB74e8M6PNMu1eZ8WwoJL",
+      patch: [" redacted line", " redacted line", " redacted line"],
+    });
+    expect(entries.some((e) => e.kind === "unknown")).toBe(false);
+  });
+
+  it("skips attachment lines without parsing them", () => {
+    const parse = vi.spyOn(JSON, "parse");
+    for (const line of real.filter((l) => l.includes('"type":"attachment"')))
+      expect(parseTranscriptLine(line)).toEqual([]);
+    expect(parse).not.toHaveBeenCalled();
+  });
+
+  it("turns a compact summary and an interrupt into notices", () => {
+    expect(entries.filter((e) => e.kind === "prompt")).toEqual([]);
+    expect(
+      entries.flatMap((e) => (e.kind === "notice" ? [e.text] : [])),
+    ).toEqual(["Conversation compacted", "Interrupted"]);
+  });
+});
+
+describe("top-level type scan", () => {
+  it("ignores a type inside strings and nested values", () => {
+    const line = JSON.stringify({
+      a: '"type":"assistant"',
+      b: { type: "message" },
+      c: [{ type: "x" }],
+      type: "user",
+      uuid: "u-scan",
+      message: { content: "hi" },
+    });
+    expect(parseTranscriptLine(line)).toEqual([
+      { kind: "prompt", id: "u-scan", text: "hi" },
+    ]);
+  });
+
+  it("gives no patch for an empty structuredPatch", () => {
+    const line = JSON.stringify({
+      type: "user",
+      uuid: "u-empty",
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "t", content: "ok" }],
+      },
+      toolUseResult: { structuredPatch: [] },
+    });
+    expect(parseTranscriptLine(line)).toEqual([
+      { kind: "result", toolUseId: "t", isError: false, text: "ok" },
+    ]);
+  });
+});
