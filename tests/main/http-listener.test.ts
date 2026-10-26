@@ -315,6 +315,27 @@ describe("orchestrate routes", () => {
     close();
   });
 
+  it("send forwards the label of a fresh send", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({
+        workspace: "AeroGraph",
+        prompt: "p",
+        fresh: true,
+        label: "tabs",
+      }),
+      { "x-jarvis": "1" },
+    );
+    expect(orch.sends).toEqual([
+      ["AeroGraph", "p", { session: undefined, fresh: true, label: "tabs" }],
+    ]);
+    close();
+  });
+
   it.each(["true", 1, null])(
     "a fresh that is not literally true is a plain send (%s)",
     async (fresh) => {

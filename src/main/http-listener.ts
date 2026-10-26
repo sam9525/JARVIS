@@ -292,6 +292,7 @@ export function startListener(
             opts = {
               session: optionalString(p.session),
               fresh: p.fresh === true,
+              label: optionalString(p.label),
             };
           } catch (err) {
             const out = {

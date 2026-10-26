@@ -39,7 +39,9 @@ const TOOLS = [
       "send again with that session.\n\n" +
       "Working a to-do task: when the user asks you to do an open @project task from\n" +
       "TODO.md, send with fresh: true and this prompt, with the task line copied\n" +
-      "in verbatim. Use fresh: true for any new spec or new task; a follow-up on\n" +
+      "in verbatim. Pass label with every fresh send: one word that names the task, such as\n" +
+      'label: "tabs". The new tab shows it at once.\n' +
+      "Use fresh: true for any new spec or new task; a follow-up on\n" +
       "what a session already did goes to that session, with its session label.\n" +
       "If fresh is refused at the cap of 4 sessions, ask the user which to close.\n\n" +
       "To-do task: <task text, verbatim from TODO.md>\n\n" +
@@ -136,6 +138,11 @@ const TOOLS = [
           type: "boolean",
           description:
             "true to open a new session for the workspace (its own git worktree in a code repo) and send the prompt there. Answers with the new session's label. Refused at 4 sessions.",
+        },
+        label: {
+          type: "string",
+          description:
+            "With fresh: one word naming the task, shown as the new tab's name from the start. The session label stays the order word. Ignored without fresh.",
         },
       },
       required: ["workspace", "prompt"],
@@ -326,6 +333,7 @@ async function callTool(name, args) {
           prompt: args?.prompt,
           fresh,
           session: args?.session,
+          label: args?.label,
         },
         fresh ? 30000 : undefined,
       );

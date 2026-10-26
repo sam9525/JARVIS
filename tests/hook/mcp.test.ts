@@ -163,6 +163,34 @@ describe("mcp.mjs", () => {
     expect(send.inputSchema.required).toEqual(["workspace", "prompt"]);
   });
 
+  it("jarvis_send's schema offers an optional label for a fresh send", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 26, method: "tools/list" });
+    const send = res.result.tools[1];
+    expect(send.inputSchema.properties.label.type).toBe("string");
+    expect(send.inputSchema.properties.label.description).toContain("fresh");
+    expect(send.inputSchema.required).toEqual(["workspace", "prompt"]);
+    expect(send.description).toContain(
+      'Pass label with every fresh send: one word that names the task, such as\nlabel: "tabs". The new tab shows it at once.\n',
+    );
+  });
+
+  it("tools/call jarvis_send forwards label", async () => {
+    const listener = await fakeListener({ ok: true, session: "2" });
+    const { request } = startMcp(listener.port);
+    await request({
+      jsonrpc: "2.0",
+      id: 27,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true, label: "tabs" },
+      },
+    });
+    expect(JSON.parse(listener.hits[0].body).label).toBe("tabs");
+    listener.close();
+  });
+
   it("jarvis_launch takes an optional label and jarvis_trust a session", async () => {
     const { request } = startMcp(1);
     const res = await request({ jsonrpc: "2.0", id: 24, method: "tools/list" });
