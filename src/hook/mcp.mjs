@@ -49,6 +49,11 @@ const TOOLS = [
       '3. On "Approve", use superpowers:writing-plans to write the plan.\n' +
       '4. Gate: the same question with header "Plan", for the plan.\n' +
       '5. On "Approve", use superpowers:subagent-driven-development to build it.\n' +
+      "   Put this in the prompt of every implementer or fix subagent:\n" +
+      "   Before editing any existing function, class or method, run GitNexus\n" +
+      "   impact on it and pass repo: the name list_repos gives for this\n" +
+      "   project's main folder (call list_repos once). New files, tests and\n" +
+      "   docs need no impact. Report each result in your summary.\n" +
       "   When the build is done, end your last message with a short list of\n" +
       "   what I should check by hand.\n\n" +
       "Working several to-do tasks: when the user asks for all open tasks of one\n" +
@@ -71,9 +76,14 @@ const TOOLS = [
       "   spec is approved. Never start a spec before the one before it is approved.\n" +
       "4. Then, for each spec in order: use superpowers:writing-plans to write\n" +
       '   its plan; gate with the same question, header "Plan"; on "Approve",\n' +
-      "   use superpowers:subagent-driven-development to build it. When the build\n" +
-      "   is done, end your last message with a short list of what I should check\n" +
-      "   by hand.\n\n" +
+      "   use superpowers:subagent-driven-development to build it.\n" +
+      "   Put this in the prompt of every implementer or fix subagent:\n" +
+      "   Before editing any existing function, class or method, run GitNexus\n" +
+      "   impact on it and pass repo: the name list_repos gives for this\n" +
+      "   project's main folder (call list_repos once). New files, tests and\n" +
+      "   docs need no impact. Report each result in your summary.\n" +
+      "   When the build is done, end your last message with a short list of\n" +
+      "   what I should check by hand.\n\n" +
       "After a to-do send succeeds, mark each sent task line - [/] in TODO.md\n" +
       'with Edit, then call jarvis_todos and fix anything in malformed. "All\n' +
       'open tasks" means the - [ ] lines only; never send a - [/] line as part\n' +

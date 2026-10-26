@@ -304,6 +304,20 @@ describe("mcp.mjs", () => {
     }
   });
 
+  it("jarvis_send's pipelines tell every build subagent to run impact with repo", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 41, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    const impactLine =
+      "Before editing any existing function, class or method, run GitNexus\n" +
+      "   impact on it and pass repo: the name list_repos gives for this\n" +
+      "   project's main folder (call list_repos once). New files, tests and\n" +
+      "   docs need no impact. Report each result in your summary.";
+    expect(description.split(impactLine)).toHaveLength(3);
+    expect(description).toContain("implementer or fix subagent");
+    expect(description).not.toContain("repo: JARVIS");
+  });
+
   it("jarvis_send's description carries the session, Scratch, worktree and lookup rules", async () => {
     const { request } = startMcp(1);
     const res = await request({ jsonrpc: "2.0", id: 40, method: "tools/list" });
