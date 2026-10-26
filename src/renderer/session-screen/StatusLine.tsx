@@ -33,6 +33,24 @@ function Reset({ at, now }: { at: number | null; now: number }) {
   ) : null;
 }
 
+// Row 1 wears the colours of the user's terminal status line
+// (~/.claude/statusline-command.sh); its plain ANSI yellow is xterm.js's.
+const TERMINAL = {
+  model: "text-[#87d7ff]",
+  folder: "text-[#c4a000]",
+  branch: "text-[#bd93f9]",
+};
+
+/** Border and text classes for the effort pill, per the terminal script. */
+export function effortTone(level: string): string {
+  if (level === "medium") return "border-[#56b6c2] text-[#56b6c2]";
+  if (level === "high") return "border-[#ffb055] text-[#ffb055]";
+  // the script's own red, not the alarm token, which means "crashed"
+  if (level === "xhigh" || level === "max")
+    return "border-[#eb5757] text-[#eb5757]";
+  return "border-edge text-ink-dim";
+}
+
 const SEP = <span className="h-2.5 w-px flex-none bg-edge" />;
 const ROW = "flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap";
 
@@ -48,16 +66,18 @@ export default function StatusLine({
     <div className="mt-2 flex flex-col gap-1.5 border-t border-edge pt-1.5">
       <div className={ROW}>
         <span className={LBL_DIM}>model</span>
-        <span className="text-xs">{view.model}</span>
+        <span className={`text-xs ${TERMINAL.model}`}>{view.model}</span>
         {view.effort && (
-          <span className="rounded-full border border-warm px-1.5 text-[10.5px] text-warm">
+          <span
+            className={`rounded-full border px-1.5 text-[10.5px] ${effortTone(view.effort)}`}
+          >
             {view.effort}
           </span>
         )}
         {SEP}
-        <span className="text-xs text-ink-muted">{view.folder}</span>
+        <span className={`text-xs ${TERMINAL.folder}`}>{view.folder}</span>
         {view.branch && (
-          <span className="text-xs text-accent-soft">{view.branch}</span>
+          <span className={`text-xs ${TERMINAL.branch}`}>{view.branch}</span>
         )}
         {view.contextPct !== null && (
           <>

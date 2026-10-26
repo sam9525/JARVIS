@@ -1,7 +1,9 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import StatusLine from "../../src/renderer/session-screen/StatusLine";
+import StatusLine, {
+  effortTone,
+} from "../../src/renderer/session-screen/StatusLine";
 import type { StatusLineView } from "../../src/shared/types";
 
 const NOW = 1_000_000_000_000;
@@ -44,6 +46,21 @@ describe("StatusLine", () => {
 
   it("renders nothing without data", () => {
     expect(renderToStaticMarkup(<StatusLine view={null} now={NOW} />)).toBe("");
+  });
+
+  it("colours row 1 like the terminal status line", () => {
+    expect(html).toContain("text-[#87d7ff]"); // model
+    expect(html).toContain("text-[#c4a000]"); // folder
+    expect(html).toContain("text-[#bd93f9]"); // branch
+    expect(html).toContain("text-[#ffb055]"); // high effort
+  });
+
+  it("picks the effort colour the terminal script uses", () => {
+    expect(effortTone("medium")).toContain("#56b6c2");
+    expect(effortTone("high")).toContain("#ffb055");
+    expect(effortTone("xhigh")).toContain("#eb5757");
+    expect(effortTone("max")).toContain("#eb5757");
+    expect(effortTone("low")).toContain("text-ink-dim");
   });
 
   it("has no LAST COMMIT label", () => {
