@@ -69,6 +69,7 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
       dangerous = false,
       model?: string,
       resume: boolean | string = false,
+      statusLine?: string,
     ): void {
       if (ptys.has(key)) return; // one live pty per session key
       const { file, args } = claudeCommand(dangerous, model, resume);
@@ -76,8 +77,15 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
         cwd,
         cols,
         rows,
-        // the hook forwarder reads JARVIS_SESSION to tag its events
-        env: { ...process.env, JARVIS_SESSION: key },
+        // the hook forwarder reads JARVIS_SESSION to tag its events; the
+        // status line wrapper reads JARVIS_STATUSLINE for the user's own command
+        env: {
+          ...process.env,
+          JARVIS_SESSION: key,
+          ...(typeof statusLine === "string"
+            ? { JARVIS_STATUSLINE: statusLine }
+            : {}),
+        },
       });
       ptys.set(key, p);
       p.onData((d) => events.onData(key, d));

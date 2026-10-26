@@ -158,6 +158,28 @@ describe("pty-manager", () => {
     expect(mgr.keys()).toEqual(["d:/r#2"]);
   });
 
+  it("passes JARVIS_STATUSLINE to the spawn env", () => {
+    const opts: SpawnOpts[] = [];
+    const spawn: SpawnFn = (_f, _a, o) => {
+      opts.push(o);
+      return fakePty();
+    };
+    const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
+    mgr.launch("a", "D:\\r", 80, 24, false, undefined, false, "my-line");
+    expect(opts[0].env.JARVIS_STATUSLINE).toBe("my-line");
+  });
+
+  it("omits JARVIS_STATUSLINE when not given", () => {
+    const opts: SpawnOpts[] = [];
+    const spawn: SpawnFn = (_f, _a, o) => {
+      opts.push(o);
+      return fakePty();
+    };
+    const mgr = createPtyManager(spawn, { onData: vi.fn(), onExit: vi.fn() });
+    mgr.launch("a", "D:\\r", 80, 24);
+    expect(opts[0].env).not.toHaveProperty("JARVIS_STATUSLINE");
+  });
+
   it("kill ends one session and forgets it", async () => {
     const spawned: ReturnType<typeof fakePty>[] = [];
     const spawn: SpawnFn = () => {

@@ -144,6 +144,20 @@ describe("mapStatusEvent", () => {
     expect(bare).not.toHaveProperty("transcriptPath");
   });
 
+  it("carries transcriptPath on a PreToolUse", () => {
+    const e = mapStatusEvent(
+      {
+        ...base,
+        hook_event_name: "PreToolUse",
+        tool_name: "Read",
+        tool_input: { file_path: "a.md" },
+        transcript_path: "C:\\t\\a.jsonl",
+      },
+      workspaces,
+    );
+    expect(e?.transcriptPath).toBe("C:\\t\\a.jsonl");
+  });
+
   it("UserPromptSubmit is 'working' with no call yet", () => {
     const e = mapStatusEvent(
       { ...base, hook_event_name: "UserPromptSubmit" },

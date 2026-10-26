@@ -67,6 +67,9 @@ export function mapStatusEvent(
     sessionKey: resolveSessionKey(raw, ws),
     sessionId: raw.session_id,
     ts: Date.now(),
+    ...(typeof raw.transcript_path === "string"
+      ? { transcriptPath: raw.transcript_path }
+      : {}),
   };
 
   switch (raw.hook_event_name) {
@@ -86,9 +89,6 @@ export function mapStatusEvent(
           typeof raw.last_assistant_message === "string"
             ? raw.last_assistant_message
             : undefined,
-        ...(typeof raw.transcript_path === "string"
-          ? { transcriptPath: raw.transcript_path }
-          : {}),
       };
     case "UserPromptSubmit":
       return {

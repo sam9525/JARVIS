@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { ScreenEntry } from "../shared/screen-types";
 import type {
   CardLayout,
   LineChanges,
   Settings,
+  StatusLineView,
   StoredSnapshot,
   TodoList,
   TodoOp,
@@ -14,6 +16,7 @@ import type {
 } from "../shared/types";
 import type { AskPrompt } from "./ask-mapper";
 import type { TtsOption } from "./tts";
+import type { TranscriptSummary } from "./transcript-list";
 
 // Every subscription hands back its own disposer. Without one, a second mount
 // (StrictMode, or any remount) silently doubles the listener.
@@ -131,6 +134,25 @@ const api = {
   clearNotesDir: (): Promise<string | null> =>
     ipcRenderer.invoke("clear-notes-dir"),
   ttsModels: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-models"),
+  // the session screen's data: transcript entries (reset = replace, else
+  // append), the status line, and a prompt having been submitted
+  getTranscript: (key: string): Promise<ScreenEntry[]> =>
+    ipcRenderer.invoke("get-transcript", key),
+  onTranscript: (
+    cb: (key: string, entries: ScreenEntry[], reset: boolean) => void,
+  ) => subscribe<[string, ScreenEntry[], boolean]>("transcript", cb),
+  getStatusLine: (key: string): Promise<StatusLineView | null> =>
+    ipcRenderer.invoke("get-statusline", key),
+  onStatusLine: (cb: (key: string, view: StatusLineView) => void) =>
+    subscribe<[string, StatusLineView]>("statusline", cb),
+  onPromptSubmitted: (cb: (key: string) => void) =>
+    subscribe<[string]>("prompt-submitted", cb),
+  listTranscripts: (key: string): Promise<TranscriptSummary[]> =>
+    ipcRenderer.invoke("list-transcripts", key),
+  savePastedImage: (
+    bytes: Uint8Array,
+    ext: "png" | "jpg" | "gif" | "webp",
+  ): Promise<string> => ipcRenderer.invoke("save-pasted-image", bytes, ext),
   onPtyData: (cb: (key: string, data: string) => void) =>
     subscribe<[string, string]>("pty-data", cb),
   onPtyExit: (cb: (key: string, exitCode: number) => void) =>

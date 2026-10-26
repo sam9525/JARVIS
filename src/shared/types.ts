@@ -67,7 +67,7 @@ export interface StatusEvent {
   call: string;
   message?: string; // Stop only: the last thing Claude said, for the inbox
   prompt?: string; // UserPromptSubmit only: what was submitted
-  transcriptPath?: string; // Stop only: where the session transcript lives
+  transcriptPath?: string; // any event: where the session transcript lives
   ts: number;
 }
 

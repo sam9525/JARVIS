@@ -39,6 +39,10 @@ import { createSettle } from "./settle";
 import { deliverBriefing } from "./brief-delivery";
 import { isTrusted } from "./folder-trust";
 import { createPtyManager, type SpawnFn } from "./pty-manager";
+import { createTranscriptFeed, newestTranscript } from "./transcript-feed";
+import { gitHead, toStatusLineView, userStatusLine } from "./status-line";
+import { listTranscripts } from "./transcript-list";
+import { savePastedImage } from "./pasted-images";
 import {
   BRIEF_AFTER_HOUR,
   FINISH_NUDGE,
@@ -102,6 +106,7 @@ import type {
   LineChanges,
   Settings,
   StatusEvent,
+  StatusLineView,
   TodoOp,
   VaultGraph,
   Workspace,
@@ -605,6 +610,11 @@ app.whenReady().then(async () => {
   const lastOutputAt = new Map<string, number>();
   // set only while a typed briefing waits for its UserPromptSubmit
   let onMainPrompt: ((prompt: string) => void) | null = null;
+  // one feed for every session: the screen reads the transcript, never the pty
+  const feed = createTranscriptFeed((key, entries, reset) =>
+    send("transcript", key, entries, reset),
+  );
+  const lastStatusLine = new Map<string, StatusLineView>();
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
@@ -615,6 +625,7 @@ app.whenReady().then(async () => {
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
+        if (id.includes("#")) feed.stop(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
       },
     },
@@ -651,6 +662,9 @@ app.whenReady().then(async () => {
     },
     (s) => {
       pushStatus(status.applyStatus(s));
+      if (s.transcriptPath) void feed.follow(s.sessionKey, s.transcriptPath);
+      else void feed.poke(s.sessionKey);
+      if (s.prompt !== undefined) send("prompt-submitted", s.sessionKey);
       // A finish is a Stop, and only a Stop carries a message. Read from the
       // event, not the snapshot: the workspace row is an aggregate, so it can
       // read working while another session's turn has just ended, and a
@@ -677,6 +691,15 @@ app.whenReady().then(async () => {
       else asks.set(p.workspaceId, p);
       send("ask", p);
     },
+    async (key, raw) => {
+      const cwd =
+        (raw.workspace as { current_dir?: string } | undefined)?.current_dir ??
+        sessions.get(key)?.cwd ??
+        (key === mainAgent.id ? mainAgent.rootPath : "");
+      const view = toStatusLineView(raw, await gitHead(cwd));
+      lastStatusLine.set(key, view);
+      send("statusline", key, view);
+    },
   );
 
   // Claude Code spawns both of these as its own child processes, so they must
@@ -691,6 +714,11 @@ app.whenReady().then(async () => {
   // a resumed session reports no id until its first hook, so the id it was
   // resumed with stands in — otherwise a close before any prompt forgets it
   const resumedWith = new Map<string, string>();
+  // --continue picks the newest conversation in the folder, so the feed does too
+  async function followNewest(key: string, cwd: string): Promise<void> {
+    const file = await newestTranscript(transcriptDir(os.homedir(), cwd));
+    if (file) void feed.follow(key, file);
+  }
   // one launch path for the terminal's button, the tab bar's `+` and
   // jarvis_launch. No label means the next free number.
   async function launchSession(
@@ -790,7 +818,14 @@ app.whenReady().then(async () => {
         opts.dangerous,
         opts.model,
         resume,
+        (await userStatusLine(os.homedir(), cwd)) ?? undefined,
       );
+      if (ws.isSelf && resume === true) void followNewest(key, cwd);
+      if (opts.resumeId)
+        void feed.follow(
+          key,
+          path.join(transcriptDir(os.homedir(), cwd), `${opts.resumeId}.jsonl`),
+        );
       const now = Date.now();
       const launched = status.ptyLaunched(key, now);
       const opened = status.sessionOpened(key, useWorktree, now);
@@ -836,6 +871,7 @@ app.whenReady().then(async () => {
     }
     const info = sessions.remove(key);
     resumedWith.delete(key);
+    feed.stop(key);
     const killed = await ptyManager.kill(key);
     if (killed) {
       pushStatus(status.ptyExited(key, Date.now(), 0));
@@ -881,6 +917,32 @@ app.whenReady().then(async () => {
   ipcMain.handle("pty-close", (_e, key: string, force?: boolean) =>
     closeSession(String(key), force === true),
   );
+  ipcMain.handle("get-transcript", (_e, key: string) =>
+    feed.snapshot(String(key)),
+  );
+  ipcMain.handle(
+    "get-statusline",
+    (_e, key: string) => lastStatusLine.get(String(key)) ?? null,
+  );
+  ipcMain.handle("list-transcripts", (_e, key: string) => {
+    const cwd =
+      String(key) === mainAgent.id
+        ? mainAgent.rootPath
+        : sessions.get(String(key))?.cwd;
+    return cwd
+      ? listTranscripts(transcriptDir(os.homedir(), cwd))
+      : Promise.resolve([]);
+  });
+  ipcMain.handle("save-pasted-image", (_e, bytes: Uint8Array, ext: string) => {
+    if (!["png", "jpg", "gif", "webp"].includes(ext))
+      throw new Error("unsupported image type");
+    return savePastedImage(
+      path.join(userData, "pasted-images"),
+      bytes,
+      ext as "png" | "jpg" | "gif" | "webp",
+      Date.now(),
+    );
+  });
   ipcMain.handle("pty-input", (_e, id: string, data: string) =>
     ptyManager.write(id, data),
   );
@@ -949,7 +1011,9 @@ app.whenReady().then(async () => {
       false,
       MAIN_AGENT_MODEL,
       resume,
+      (await userStatusLine(os.homedir(), mainAgent.rootPath)) ?? undefined,
     );
+    if (resume) void followNewest(mainAgent.id, mainAgent.rootPath);
     pushStatus(status.ptyLaunched(mainAgent.id, Date.now()));
     void Promise.all([settled, pulled]).then(async ([ready]) => {
       if (!ready || !notesDir || !briefTo) return;
@@ -1032,6 +1096,7 @@ app.whenReady().then(async () => {
     clearInterval(heartbeat);
     // before killAll, while every pty still counts as live
     saveSessions();
+    feed.stopAll();
     ptyManager.killAll();
     void todosWatcher?.close();
   });
