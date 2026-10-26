@@ -1,0 +1,161 @@
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { AskPrompt } from "../../main/ask-mapper";
+import type { StatusKind } from "../../shared/types";
+import { renderNote } from "../preview/markdown";
+import AskPanel from "../ui/AskPanel";
+import PermissionCard from "./PermissionCard";
+import ToolRow from "./ToolRow";
+import { openCalls, type ScreenItem } from "./screen-state";
+
+export const KNOWN_GAPS = [
+  "spinner and token counter",
+  "background task panel",
+  "API error banners",
+];
+
+const LIVE_LABEL: Partial<Record<StatusKind, string>> = {
+  working: "working",
+  asking: "asking you",
+  blocked: "waiting on you",
+};
+
+// no vault to link into, so both link deps are dead ends
+const NOTE_DEPS = { resolveLink: () => null, loadNote: async () => null };
+
+function NoteText({ markdown }: { markdown: string }) {
+  const [html, setHtml] = useState("");
+  useEffect(() => {
+    let stale = false;
+    renderNote(markdown, NOTE_DEPS).then((h) => !stale && setHtml(h));
+    return () => {
+      stale = true;
+    };
+  }, [markdown]);
+  return (
+    <div
+      className="preview-body max-w-[92%] font-sans text-sm leading-relaxed text-ink"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+function Item({
+  item,
+  onShowRaw,
+}: {
+  item: ScreenItem;
+  onShowRaw: () => void;
+}) {
+  switch (item.kind) {
+    case "prompt":
+      return (
+        <div className="max-w-[80%] self-end whitespace-pre-wrap rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1.5 text-sm text-ink">
+          {item.text}
+        </div>
+      );
+    case "text":
+      return <NoteText markdown={item.markdown} />;
+    case "thinking":
+      return <div className="text-xs italic text-ink-dim">Thinking…</div>;
+    case "notice":
+      return <div className="text-xs text-ink-dim">{item.text}</div>;
+    case "unknown":
+      return (
+        <div className="flex items-center gap-2 border border-dashed border-edge px-2 py-1 text-xs text-ink-dim">
+          <span>{item.label} — not shown here</span>
+          <button
+            type="button"
+            className="ml-auto cursor-pointer bg-transparent p-0 text-accent-soft"
+            onClick={onShowRaw}
+          >
+            open raw terminal →
+          </button>
+        </div>
+      );
+    case "tool":
+      return <ToolRow item={item} />;
+  }
+}
+
+type SessionScreenProps = {
+  sessionKey: string;
+  items: ScreenItem[];
+  status: { kind: StatusKind; call: string };
+  ask?: AskPrompt;
+  onAskAnswer: (writes: string[]) => void;
+  onWrite: (data: string) => void;
+  onShowRaw: () => void;
+  footer: React.ReactNode;
+};
+
+export default function SessionScreen({
+  items,
+  status,
+  ask,
+  onAskAnswer,
+  onWrite,
+  onShowRaw,
+  footer,
+}: SessionScreenProps) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+
+  const onScroll = () => {
+    const el = scroller.current;
+    if (el) {
+      pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    }
+  };
+
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  });
+
+  const liveLabel = LIVE_LABEL[status.kind];
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div
+        ref={scroller}
+        onScroll={onScroll}
+        className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3.5 pb-1.5 pt-3.5"
+      >
+        {items.map((item, i) => (
+          <Item key={item.id || i} item={item} onShowRaw={onShowRaw} />
+        ))}
+        {status.kind === "blocked" && (
+          <PermissionCard
+            calls={openCalls(items)}
+            onWrite={onWrite}
+            onShowRaw={onShowRaw}
+          />
+        )}
+        {status.kind === "asking" && ask && (
+          <div className="hud-glow-warm rounded-md border border-warm p-2">
+            <AskPanel
+              prompt={ask}
+              workspaceName="Question"
+              onAnswer={onAskAnswer}
+            />
+          </div>
+        )}
+      </div>
+      {liveLabel && (
+        <div className="flex items-center gap-2 px-3.5 pb-2.5 pt-1 font-mono text-xs text-accent">
+          <i className="hud-breathe h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
+          <span>
+            {liveLabel} · {status.call}
+          </span>
+          <span
+            className="cursor-help text-ink-dim"
+            title={`Only in the raw terminal: ${KNOWN_GAPS.join(", ")}`}
+          >
+            ?
+          </span>
+        </div>
+      )}
+      <div className="border-t border-edge px-3 pb-2.5 pt-2">{footer}</div>
+    </div>
+  );
+}

@@ -19,7 +19,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { mapStatusEvent, callSignature } from "../../src/main/status-mapper";
+import { mapStatusEvent } from "../../src/main/status-mapper";
+import { callSignature } from "../../src/shared/call-signature";
 import { buildWorkspaces } from "../../src/main/workspaces";
 import type { Workspace } from "../../src/shared/types";
 
