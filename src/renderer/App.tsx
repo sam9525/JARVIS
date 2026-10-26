@@ -738,18 +738,21 @@ export default function App() {
   );
 
   // the floating question panel and the session screen both answer through
-  // this one queue
-  const answerAsk = (key: string, writes: string[]) => {
-    askWriteRef.current = askWriteRef.current
-      .then(async (): Promise<void> => {
+  // this one queue. Resolves false when the session has no terminal.
+  const answerAsk = (key: string, writes: string[]): Promise<boolean> => {
+    const answered = askWriteRef.current
+      .then(async (): Promise<boolean> => {
         // SEPARATE writes, 80 ms apart — never merge them
         for (const [i, w] of writes.entries()) {
           if (i > 0) await new Promise((r) => setTimeout(r, 80));
-          await window.jarvis.ptyInput(key, w);
+          if (!(await window.jarvis.ptyInput(key, w))) return false;
         }
+        return true;
       })
       // a failed write must not strand every answer behind it
-      .catch((): void => undefined);
+      .catch(() => false);
+    askWriteRef.current = answered.then((): void => undefined);
+    return answered;
   };
 
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
@@ -1748,7 +1751,7 @@ export default function App() {
               key={`${prompt.sessionKey}:${prompt.ts}`}
               prompt={prompt}
               workspaceName={ws.name}
-              onAnswer={(writes) => answerAsk(prompt.sessionKey, writes)}
+              onAnswer={(writes) => void answerAsk(prompt.sessionKey, writes)}
             />
           </Panel>
         );

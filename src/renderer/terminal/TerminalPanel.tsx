@@ -20,6 +20,7 @@ import type {
 import type { AskPrompt } from "../../main/ask-mapper";
 import Segmented from "../ui/Segmented";
 import SessionScreen from "../session-screen/SessionScreen";
+import { NO_TERMINAL } from "../session-screen/composer-logic";
 import Composer from "../session-screen/Composer";
 import StatusLine from "../session-screen/StatusLine";
 import {
@@ -145,7 +146,8 @@ export default function TerminalPanel({
   sessionStatus?: { kind: StatusKind; call: string };
   // what the composer's `@` offers: the workspace's graph files
   files?: string[];
-  onAskAnswer?: (writes: string[]) => void;
+  // resolves false when the session has no terminal to write to
+  onAskAnswer?: (writes: string[]) => Promise<boolean>;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
@@ -200,6 +202,14 @@ export default function TerminalPanel({
   // into, so both link deps are dead ends.
   const [detailHtml, setDetailHtml] = useState("");
   const [composerError, setComposerError] = useState<string | null>(null);
+  // the screen's answers write straight to the pty; a missing one is reported
+  // on the composer's error line, as a failed send is
+  const reportWrite = (written: Promise<boolean> | undefined) =>
+    void written
+      ?.then((ok) => {
+        if (!ok) setComposerError(NO_TERMINAL);
+      })
+      .catch(() => setComposerError(NO_TERMINAL));
   // re-renders on this session's feed or view mode changing; the values
   // themselves are read from their module caches below
   const [, setFeedRev] = useState(0);
@@ -473,8 +483,10 @@ export default function TerminalPanel({
               items={itemsFor(sessionKey)}
               status={sessionStatus}
               ask={ask}
-              onAskAnswer={(writes) => onAskAnswer?.(writes)}
-              onWrite={(data) => void window.jarvis.ptyInput(sessionKey, data)}
+              onAskAnswer={(writes) => reportWrite(onAskAnswer?.(writes))}
+              onWrite={(data) =>
+                reportWrite(window.jarvis.ptyInput(sessionKey, data))
+              }
               onShowRaw={() => setViewMode(sessionKey, "raw")}
               footer={
                 <>

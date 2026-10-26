@@ -394,3 +394,31 @@ describe("TerminalPanel session screen", () => {
     ).toBeDefined();
   });
 });
+
+describe("TerminalPanel writes to a dead terminal", () => {
+  const noticeText = (tree: any) =>
+    text(find(tree, (n) => n.props?.["data-testid"] === "terminal-notice"));
+  const screen = (tree: any) => find(tree, (n) => n.type === SessionScreen);
+
+  beforeEach(() => {
+    setViewMode(workspace.id, "screen");
+    (global as any).window.jarvis.ptyInput = () => Promise.resolve(false);
+  });
+
+  it("says so when a permission answer finds no terminal", async () => {
+    screen(render({ live: true })).props.onWrite("\r");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(noticeText(render({ live: true }))).toContain(
+      "no terminal open in that session",
+    );
+  });
+
+  it("says so when a question answer finds no terminal", async () => {
+    const onAskAnswer = vi.fn(async () => false);
+    screen(render({ live: true, onAskAnswer })).props.onAskAnswer(["1"]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(noticeText(render({ live: true, onAskAnswer }))).toContain(
+      "no terminal open in that session",
+    );
+  });
+});

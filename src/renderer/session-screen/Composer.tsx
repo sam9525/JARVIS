@@ -3,6 +3,7 @@ import type { TranscriptSummary } from "../../main/transcript-list";
 import { relativeTime } from "../home/relative-time";
 import {
   MODELS,
+  NO_TERMINAL,
   atQuery,
   flipsToRaw,
   insertAt,
@@ -62,6 +63,7 @@ export default function Composer({
   const [sessions, setSessions] = useState<TranscriptSummary[]>([]);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
+  const sending = useRef(false);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
@@ -119,23 +121,36 @@ export default function Composer({
   const itemCount = popup === "files" ? matches.length : pickerItems.length;
 
   function edit(next: string, nextCaret: number): void {
-    setIndex(0);
+    // the model picker opens on the model in use, so Enter keeps it
+    setIndex(
+      pickerFor(next) === "model" && current ? MODELS.indexOf(current) : 0,
+    );
     setClosedFor(null);
     setCaret(nextCaret);
     setDraft(sessionKey, next);
   }
 
+  // The draft clears before the writes, so a second Enter finds nothing to
+  // send and typing during the gap is kept; a failed send puts the prompt back.
   async function submit(prompt: string): Promise<void> {
-    if (!prompt.trim()) return;
-    const sent = await sendPrompt(sessionKey, prompt, window.jarvis.ptyInput);
+    if (!prompt.trim() || sending.current) return;
+    sending.current = true;
+    setDraft(sessionKey, "");
+    setCaret(0);
+    const sent = await sendPrompt(
+      sessionKey,
+      prompt,
+      window.jarvis.ptyInput,
+    ).catch(() => false);
+    sending.current = false;
     if (!sent) {
-      onError("no terminal open in that session");
+      const typed = getDraft(sessionKey);
+      setDraft(sessionKey, typed ? `${prompt} ${typed}` : prompt);
+      onError(NO_TERMINAL);
       return;
     }
     onError(null);
     if (flipsToRaw(prompt)) setViewMode(sessionKey, "raw", true);
-    setDraft(sessionKey, "");
-    setCaret(0);
   }
 
   function chooseFile(path: string): void {
@@ -168,10 +183,15 @@ export default function Composer({
     if (e.key === "Escape") {
       e.preventDefault();
       if (popup) setClosedFor(text);
-      else void window.jarvis.ptyInput(sessionKey, "\x1b");
+      else
+        void window.jarvis
+          .ptyInput(sessionKey, "\x1b")
+          .then((ok) => onError(ok ? null : NO_TERMINAL))
+          .catch(() => onError(NO_TERMINAL));
       return;
     }
-    if (e.key === "Enter" && !e.shiftKey && !popup) {
+    // an empty popup (no past sessions) leaves Enter to send what was typed
+    if (e.key === "Enter" && !e.shiftKey && (!popup || itemCount === 0)) {
       e.preventDefault();
       void submit(text);
     }
