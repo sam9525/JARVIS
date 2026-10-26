@@ -92,6 +92,7 @@ beforeEach(() => {
       showTodos = cb;
       return () => undefined;
     },
+    onPromptSubmitted: () => () => undefined,
   };
   container = document.createElement("div");
   document.body.appendChild(container);

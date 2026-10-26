@@ -157,6 +157,26 @@ describe("AskPanel", () => {
     expect(pickAsk(asks, "d:/r#2")?.sessionKey).toBe("d:/r#1");
   });
 
+  // the session screen answers its own question inline, so the floating
+  // panel must not show it a second time
+  it("pickAsk skips the excluded session", () => {
+    const at = (sessionKey: string, ts: number) => ({
+      ...prompt(),
+      workspaceId: "d:/r",
+      sessionKey,
+      ts,
+    });
+    const asks = new Map([
+      ["d:/r", at("d:/r", 1)],
+      ["d:/r#1", at("d:/r#1", 5)],
+    ]);
+    expect(pickAsk(asks, "d:/r", "d:/r")?.sessionKey).toBe("d:/r#1");
+    expect(pickAsk(asks, "d:/r#2", "d:/r#1")?.sessionKey).toBe("d:/r");
+    expect(
+      pickAsk(new Map([["d:/r", at("d:/r", 1)]]), "d:/r", "d:/r"),
+    ).toBeUndefined();
+  });
+
   it("gives a multi-select question no click target", () => {
     const tree = (
       <AskPanel

@@ -95,6 +95,7 @@ beforeEach(() => {
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,
     onShowTodos: () => () => undefined,
+    onPromptSubmitted: () => () => undefined,
   };
   container = document.createElement("div");
   document.body.appendChild(container);

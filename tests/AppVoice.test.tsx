@@ -18,6 +18,7 @@ const captured = vi.hoisted(() => ({
   typed: null as ((key: string) => void) | null,
   preview: null as any,
   cards: null as any,
+  heard: null as ((u: { text: string }) => void) | null,
 }));
 vi.mock("../src/renderer/graph/Graph", () => ({
   default: (p: any) => {
@@ -76,7 +77,10 @@ vi.mock("../src/renderer/hands/hand-tracker", () => ({
   startHandTracker: () => Promise.resolve(() => undefined),
 }));
 vi.mock("../src/renderer/voice/voice-tracker", () => ({
-  startVoiceTracker: () => Promise.resolve(() => undefined),
+  startVoiceTracker: (onUtterance: (u: { text: string }) => void) => {
+    captured.heard = onUtterance;
+    return Promise.resolve(() => undefined);
+  },
 }));
 
 // nextUtterance stays real (it's the thing under test, indirectly); speak
@@ -91,6 +95,9 @@ vi.mock("../src/renderer/voice/speak", async () => {
 });
 
 import App from "../src/renderer/App";
+import { END_MS } from "../src/renderer/voice/use-voice-control";
+import { getDraft, setDraft } from "../src/renderer/session-screen/drafts";
+import { setViewMode } from "../src/renderer/session-screen/view-mode";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -132,6 +139,7 @@ beforeEach(() => {
   captured.typed = null;
   captured.preview = null;
   captured.cards = null;
+  captured.heard = null;
   resolveWorkspaces = null;
   settingsOnDisk = defaultSettings();
   (window as any).jarvis = {
@@ -179,6 +187,7 @@ beforeEach(() => {
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,
     onShowTodos: () => () => undefined,
+    onPromptSubmitted: () => () => undefined,
   };
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -848,5 +857,68 @@ describe("App: a card with no selected tab", () => {
       }),
     );
     expect(captured.cards.getStore("d:/r").nodes.has("src/a.ts")).toBe(true);
+  });
+});
+
+describe("App: dictation goes where the session is shown", () => {
+  const ptyInput = vi.fn((_key: string, _data: string) =>
+    Promise.resolve(true),
+  );
+
+  beforeEach(() => {
+    ptyInput.mockClear();
+    (window as any).jarvis.ptyInput = ptyInput;
+    setDraft(ORCHESTRATOR.id, "");
+    setViewMode(ORCHESTRATOR.id, "screen");
+  });
+
+  const dictate = async (text: string) => {
+    settingsOnDisk = { ...defaultSettings(), voiceControl: true };
+    await mount();
+    await act(async () => {
+      resolveWorkspaces!([ORCHESTRATOR]);
+    });
+    await flush();
+    await hear(text);
+  };
+  // one utterance, then the silence that closes the dictation
+  const hear = async (text: string) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      act(() => captured.heard!({ text }));
+      act(() => {
+        vi.advanceTimersByTime(END_MS);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await flush();
+  };
+  const dictated = () =>
+    ptyInput.mock.calls.filter(([, data]) => data.includes("open the notes"));
+
+  it("dictation fills the draft in screen mode", async () => {
+    await dictate("Jarvis, open the notes");
+    expect(getDraft(ORCHESTRATOR.id)).toBe("open the notes");
+    expect(dictated()).toEqual([]);
+  });
+
+  it("dictation writes to the PTY in raw mode", async () => {
+    setViewMode(ORCHESTRATOR.id, "raw");
+    await dictate("Jarvis, open the notes");
+    expect(dictated()).toEqual([[ORCHESTRATOR.id, "open the notes"]]);
+    expect(getDraft(ORCHESTRATOR.id)).toBe("");
+  });
+
+  it("dictation never writes a carriage return", async () => {
+    setViewMode(ORCHESTRATOR.id, "raw");
+    await dictate("Jarvis, open the notes");
+    setViewMode(ORCHESTRATOR.id, "screen");
+    await hear("Jarvis, open the notes again");
+    expect(getDraft(ORCHESTRATOR.id)).toBe("open the notes again");
+    expect(ptyInput.mock.calls.some(([, data]) => data.includes("\r"))).toBe(
+      false,
+    );
+    expect(getDraft(ORCHESTRATOR.id)).not.toContain("\r");
   });
 });

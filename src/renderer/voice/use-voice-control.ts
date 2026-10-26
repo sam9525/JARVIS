@@ -1,11 +1,14 @@
-// Wires tracker → dictation → the orchestrator's PTY. The microphone belongs
-// to `micOn` (App state, persisted as Settings.voiceControl); a tracker
-// failure surfaces as `error` and stops this session's microphone via
-// onMicFailed — never by rewriting the user's setting.
+// Wires tracker → dictation → the orchestrator's composer or PTY. The
+// microphone belongs to `micOn` (App state, persisted as
+// Settings.voiceControl); a tracker failure surfaces as `error` and stops
+// this session's microphone via onMicFailed — never by rewriting the user's
+// setting.
 import { useEffect, useRef, useState } from "react";
 import { feed, finish, NO_DICTATION, type Dictation } from "./wake";
 import { startVoiceTracker } from "./voice-tracker";
 import { isSpeaking } from "./speak";
+import { appendDraft } from "../session-screen/drafts";
+import { getViewMode } from "../session-screen/view-mode";
 
 /** A dictation closes this long after the last utterance. Long enough to
  * think mid-sentence; short enough that you are not left wondering. */
@@ -52,6 +55,13 @@ export function useVoiceControl(opts: {
       setDictating(false);
       const id = targetRef.current;
       if (!command || !id) return;
+      // the session screen's composer holds the words until Enter, the same
+      // as the terminal's prompt does in raw mode
+      if (getViewMode(id) === "screen") {
+        appendDraft(id, command);
+        setError(null);
+        return;
+      }
       // no carriage return: dictation fills the composer and the human presses
       // Enter. A false wake costs a backspace, never a run.
       void window.jarvis.ptyInput(id, command).then((ok) => {

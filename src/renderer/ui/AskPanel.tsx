@@ -23,13 +23,21 @@ export function answerKeys(index: number, options: number): string {
 
 /** The question to show, from questions keyed by session key: this screen's
  *  own session first, else the newest open one in the fleet — a question must
- *  not hide behind the current view. */
+ *  not hide behind the current view. `exclude` names a session whose question
+ *  is already shown inline elsewhere. */
 export function pickAsk(
   asks: Map<string, AskPrompt>,
   ownKey: string | undefined,
+  exclude?: string,
 ): AskPrompt | undefined {
-  const own = ownKey === undefined ? undefined : asks.get(ownKey);
-  return own ?? [...asks.values()].sort((a, b) => b.ts - a.ts)[0];
+  const own =
+    ownKey === undefined || ownKey === exclude ? undefined : asks.get(ownKey);
+  return (
+    own ??
+    [...asks.values()]
+      .filter((a) => a.sessionKey !== exclude)
+      .sort((a, b) => b.ts - a.ts)[0]
+  );
 }
 
 // Claude Code appends this itself, and it needs typed prose rather than a

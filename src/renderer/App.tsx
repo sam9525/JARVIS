@@ -108,6 +108,13 @@ import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import { useVoiceControl } from "./voice/use-voice-control";
+import { fileList } from "./session-screen/composer-logic";
+import {
+  getViewMode,
+  onViewMode,
+  setViewMode,
+  wasAutoFlipped,
+} from "./session-screen/view-mode";
 import { nextUtterance, speak, stopSpeaking, type Spoken } from "./voice/speak";
 import VoiceToggle from "./voice/VoiceToggle";
 import type { Graph3DHandle } from "./graph/Graph3D";
@@ -694,6 +701,55 @@ export default function App() {
     if (!ws) return storeFor(workspaceId);
     const { tabs } = shownTabs(ws, false);
     return storeFor(cardTab(tabs, selectedTabs.get(ws.id)?.key).key);
+  };
+
+  // The terminal panel's session and workspace. Its `@` picker offers the
+  // workspace's files, read from the card graph cache that the cards and the
+  // open graph already fill, so a workspace's graph loads at most once.
+  const terminalOwner = showHome ? orchestrator : active;
+  const terminalTab = terminalOwner && shownTabs(terminalOwner, showHome).tab;
+  const terminalWs =
+    terminalTab &&
+    (workspaces.find((w) => w.id === terminalTab.workspaceId) ?? terminalOwner);
+  const terminalWsId = terminalWs?.id;
+  const { requestGraph } = graphs;
+  useEffect(() => {
+    if (terminalWsId) requestGraph(terminalWsId);
+  }, [terminalWsId, requestGraph]);
+  const terminalFiles = useMemo(() => {
+    const g = terminalWs && cardGraphs.get(terminalWs.id);
+    if (!terminalWs || !g) return [];
+    const ids = g.nodes.filter((n) => n.type !== "tag").map((n) => n.id);
+    return fileList(ids, terminalWs.kind === "vault" ? "vault" : "code");
+  }, [terminalWs, cardGraphs]);
+
+  // re-renders on a view mode change: the floating question stands down for
+  // the session whose screen shows it inline
+  const [, setViewModeRev] = useState(0);
+  useEffect(() => onViewMode(() => setViewModeRev((n) => n + 1)), []);
+  // a prompt submitted after a command flipped to the raw terminal is the
+  // user done with it, so the screen comes back
+  useEffect(
+    () =>
+      window.jarvis.onPromptSubmitted((key) => {
+        if (wasAutoFlipped(key)) setViewMode(key, "screen");
+      }),
+    [],
+  );
+
+  // the floating question panel and the session screen both answer through
+  // this one queue
+  const answerAsk = (key: string, writes: string[]) => {
+    askWriteRef.current = askWriteRef.current
+      .then(async (): Promise<void> => {
+        // SEPARATE writes, 80 ms apart — never merge them
+        for (const [i, w] of writes.entries()) {
+          if (i > 0) await new Promise((r) => setTimeout(r, 80));
+          await window.jarvis.ptyInput(key, w);
+        }
+      })
+      // a failed write must not strand every answer behind it
+      .catch((): void => undefined);
   };
 
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
@@ -1525,6 +1581,12 @@ export default function App() {
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
               visible={stage >= 3}
+              ask={asks.get(tab.key)}
+              sessionStatus={statuses
+                .flatMap((s) => s.sessions)
+                .find((x) => x.key === tab.key)}
+              files={terminalFiles}
+              onAskAnswer={(writes) => answerAsk(tab.key, writes)}
             />
           </Panel>
         );
@@ -1650,7 +1712,14 @@ export default function App() {
         const ownKey = showHome
           ? orchestrator && shownTabs(orchestrator, true).tab.key
           : activeKey;
-        const prompt = pickAsk(asks, ownKey ?? undefined);
+        // the session screen shows its own question inline while it is up
+        const screenKey =
+          terminalTab &&
+          getViewMode(terminalTab.key) === "screen" &&
+          !panelState("terminal").collapsed
+            ? terminalTab.key
+            : undefined;
+        const prompt = pickAsk(asks, ownKey ?? undefined, screenKey);
         const ws =
           prompt && workspaces.find((w) => w.id === prompt.workspaceId);
         if (!ws || !prompt) return null;
@@ -1679,18 +1748,7 @@ export default function App() {
               key={`${prompt.sessionKey}:${prompt.ts}`}
               prompt={prompt}
               workspaceName={ws.name}
-              onAnswer={(writes) => {
-                askWriteRef.current = askWriteRef.current
-                  .then(async (): Promise<void> => {
-                    // SEPARATE writes, 80 ms apart — never merge them
-                    for (const [i, w] of writes.entries()) {
-                      if (i > 0) await new Promise((r) => setTimeout(r, 80));
-                      await window.jarvis.ptyInput(prompt.sessionKey, w);
-                    }
-                  })
-                  // a failed write must not strand every answer behind it
-                  .catch((): void => undefined);
-              }}
+              onAnswer={(writes) => answerAsk(prompt.sessionKey, writes)}
             />
           </Panel>
         );

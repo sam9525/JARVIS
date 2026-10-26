@@ -48,6 +48,12 @@ import TerminalPanel, {
   detailBox,
 } from "../../src/renderer/terminal/TerminalPanel";
 import type { Workspace } from "../../src/shared/types";
+import SessionScreen from "../../src/renderer/session-screen/SessionScreen";
+import Segmented from "../../src/renderer/ui/Segmented";
+import {
+  getViewMode,
+  setViewMode,
+} from "../../src/renderer/session-screen/view-mode";
 
 const walk = (n: any): any[] =>
   !n || typeof n !== "object"
@@ -332,5 +338,59 @@ describe("TerminalPanel panel shell", () => {
     );
     expect(inbox).toBeGreaterThan(-1);
     expect(body).toBeGreaterThan(inbox);
+  });
+});
+
+describe("TerminalPanel session screen", () => {
+  const byTestId = (tree: any, id: string) =>
+    find(tree, (n) => n.props?.["data-testid"] === id);
+  const live = (props: any = {}) => render({ live: true, ...props });
+
+  beforeEach(() => setViewMode(workspace.id, "screen"));
+
+  it("renders the screen layer by default", () => {
+    const layer = byTestId(live(), "session-screen-layer");
+    expect(layer).toBeDefined();
+    expect(layer.props.className).toContain("absolute inset-0");
+    expect(layer.props.hidden).toBeFalsy();
+    expect(find(layer, (n) => n.type === SessionScreen)).toBeDefined();
+  });
+
+  // the ResizeObserver fits the terminal to its host; a host with no box
+  // would shrink the pty to zero columns
+  it("keeps the xterm host mounted in screen mode", () => {
+    const host = byTestId(live(), "terminal-host");
+    expect(host).toBeDefined();
+    expect(host.props.hidden).toBeFalsy();
+    expect(String(host.props.className)).not.toContain("hidden");
+    expect(host.props.style?.display).not.toBe("none");
+  });
+
+  it("hides only the layer in raw mode", () => {
+    setViewMode(workspace.id, "raw");
+    const tree = live();
+    expect(byTestId(tree, "session-screen-layer").props.hidden).toBe(true);
+    expect(byTestId(tree, "terminal-host").props.hidden).toBeFalsy();
+  });
+
+  it("shows the segmented switch", () => {
+    const seg = find(live(), (n) => n.type === Segmented);
+    expect(seg).toBeDefined();
+    expect(seg.props.options.map((o: any) => o.label)).toEqual([
+      "screen",
+      "raw terminal",
+    ]);
+    expect(seg.props.value).toBe("screen");
+    seg.props.onChange("raw");
+    expect(getViewMode(workspace.id)).toBe("raw");
+  });
+
+  it("keeps the launch overlay over the screen while nothing runs", () => {
+    const tree = render();
+    expect(
+      find(tree, (n) =>
+        String(n.props?.className ?? "").includes("bg-panel/80"),
+      ),
+    ).toBeDefined();
   });
 });

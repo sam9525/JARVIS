@@ -17,6 +17,25 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
+import type { AskPrompt } from "../../main/ask-mapper";
+import Segmented from "../ui/Segmented";
+import SessionScreen from "../session-screen/SessionScreen";
+import Composer from "../session-screen/Composer";
+import StatusLine from "../session-screen/StatusLine";
+import {
+  getViewMode,
+  onViewMode,
+  setViewMode,
+  wasAutoFlipped,
+  type ViewMode,
+} from "../session-screen/view-mode";
+import {
+  itemsFor,
+  loadSession,
+  modelOf,
+  onSessionFeed,
+  statusLineFor,
+} from "../session-screen/session-feed";
 
 type Status =
   | { kind: "idle" }
@@ -63,6 +82,13 @@ const MODELS = [
   { value: "haiku", label: "Haiku" },
 ];
 
+const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
+  { value: "screen", label: "screen" },
+  { value: "raw", label: "raw terminal" },
+];
+
+const NO_STATUS = { kind: "none" as const, call: "" };
+
 const BAR: Record<StatusKind, string> = {
   working: "from-accent",
   asking: "from-warm",
@@ -88,6 +114,10 @@ export default function TerminalPanel({
   inbox,
   inboxOnly,
   visible,
+  ask,
+  sessionStatus = NO_STATUS,
+  files = [],
+  onAskAnswer,
 }: {
   workspace: Workspace;
   // which of the workspace's sessions this panel shows
@@ -110,8 +140,15 @@ export default function TerminalPanel({
   // take focus — so the focus call waits for this rather than firing at mount
   // into a no-op and never running again. Absent means visible.
   visible?: boolean;
+  // the session's open question, answered inline on the screen
+  ask?: AskPrompt;
+  sessionStatus?: { kind: StatusKind; call: string };
+  // what the composer's `@` offers: the workspace's graph files
+  files?: string[];
+  onAskAnswer?: (writes: string[]) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const screenRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -162,6 +199,10 @@ export default function TerminalPanel({
   // preview uses so bold/tables/lists read the same here. No vault to link
   // into, so both link deps are dead ends.
   const [detailHtml, setDetailHtml] = useState("");
+  const [composerError, setComposerError] = useState<string | null>(null);
+  // re-renders on this session's feed or view mode changing; the values
+  // themselves are read from their module caches below
+  const [, setFeedRev] = useState(0);
   const message = detail?.status.message ?? "";
   useEffect(() => {
     let stale = false;
@@ -223,13 +264,32 @@ export default function TerminalPanel({
     };
   }, [sessionKey]);
 
+  useEffect(() => {
+    loadSession(sessionKey);
+    setComposerError(null);
+    const bump = (key: string) => {
+      if (key === sessionKey) setFeedRev((n) => n + 1);
+    };
+    const offFeed = onSessionFeed(bump);
+    const offMode = onViewMode(bump);
+    return () => {
+      offFeed();
+      offMode();
+    };
+  }, [sessionKey]);
+  const mode = getViewMode(sessionKey);
+  const statusLine = statusLineFor(sessionKey);
+
   // Separate from the mount effect above, and keyed on visibility: the boot
   // sequence holds this panel behind `visibility: hidden` until its stage, and
-  // a focus call inside a hidden subtree is a silent no-op.
+  // a focus call inside a hidden subtree is a silent no-op. The screen's
+  // composer takes the keys in screen mode, the xterm in raw mode.
   useEffect(() => {
     if (visible === false) return;
-    entryFor(sessionKey).term.focus();
-  }, [sessionKey, visible]);
+    if (mode === "screen")
+      screenRef.current?.querySelector("textarea")?.focus();
+    else entryFor(sessionKey).term.focus();
+  }, [sessionKey, visible, mode]);
 
   const launch = (dangerous = false) => {
     const e = entryFor(sessionKey);
@@ -337,13 +397,15 @@ export default function TerminalPanel({
           </div>
         </div>
       )}
-      {notice && !inboxOnly && (
+      {(notice || composerError) && !inboxOnly && (
         <div
           className="flex flex-none items-center gap-2 border-b border-edge px-3 py-1 text-[12px] text-warm"
           data-testid="terminal-notice"
         >
-          <span className="min-w-0 flex-1 break-words">{notice}</span>
-          {noticeAction && (
+          <span className="min-w-0 flex-1 break-words">
+            {notice || composerError}
+          </span>
+          {notice && noticeAction && (
             <button
               className="flex-none cursor-pointer text-[10px] text-ink-dim hover:text-accent"
               onClick={() => {
@@ -357,27 +419,77 @@ export default function TerminalPanel({
           <button
             className="flex-none cursor-pointer text-[10px] text-ink-dim hover:text-accent"
             title="Dismiss"
-            onClick={onDismissNotice}
+            onClick={() =>
+              notice ? onDismissNotice?.() : setComposerError(null)
+            }
           >
             ✕
           </button>
         </div>
       )}
       <div
-        className="relative min-h-0 flex-1"
+        className="relative flex min-h-0 flex-1 flex-col"
         data-testid="terminal-body"
         hidden={inboxOnly}
       >
-        {reindexCommand && status.kind === "running" && (
-          <button
-            className={LBL_AM + " absolute top-1 right-2 z-10 cursor-pointer"}
-            title={`Graph is behind HEAD — type \`${reindexCommand}\``}
-            onClick={() => window.jarvis.ptyInput(sessionKey, reindexCommand)}
-          >
-            index stale
-          </button>
+        <div className="flex flex-none items-center justify-end gap-3 border-b border-accent/20 px-2.5 py-1">
+          {reindexCommand && status.kind === "running" && (
+            <button
+              className={LBL_AM + " cursor-pointer"}
+              title={`Graph is behind HEAD — type \`${reindexCommand}\``}
+              onClick={() => window.jarvis.ptyInput(sessionKey, reindexCommand)}
+            >
+              index stale
+            </button>
+          )}
+          <Segmented
+            options={VIEW_OPTIONS}
+            value={mode}
+            onChange={(next) => setViewMode(sessionKey, next)}
+          />
+        </div>
+        {mode === "raw" && wasAutoFlipped(sessionKey) && (
+          <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
+            Close it here, then switch back to screen. Your next prompt also
+            switches back.
+          </div>
         )}
-        <div ref={hostRef} className="h-full w-full" />
+        {/* The xterm host keeps its box in both modes: the ResizeObserver
+            fits the pty to it, and a host with no box is zero columns. */}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={hostRef}
+            className="h-full w-full"
+            data-testid="terminal-host"
+          />
+          <div
+            ref={screenRef}
+            className="absolute inset-0 bg-panel"
+            data-testid="session-screen-layer"
+            hidden={mode === "raw"}
+          >
+            <SessionScreen
+              sessionKey={sessionKey}
+              items={itemsFor(sessionKey)}
+              status={sessionStatus}
+              ask={ask}
+              onAskAnswer={(writes) => onAskAnswer?.(writes)}
+              onWrite={(data) => void window.jarvis.ptyInput(sessionKey, data)}
+              onShowRaw={() => setViewMode(sessionKey, "raw")}
+              footer={
+                <>
+                  <Composer
+                    sessionKey={sessionKey}
+                    files={files}
+                    currentModel={modelOf(statusLine)}
+                    onError={setComposerError}
+                  />
+                  <StatusLine view={statusLine} now={Date.now()} />
+                </>
+              }
+            />
+          </div>
+        </div>
         {isMain && status.kind !== "running" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
             <div className="flex gap-1.5" data-testid="launch-model">
