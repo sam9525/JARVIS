@@ -92,11 +92,25 @@ function patchOf(toolUseResult: unknown): string[] | undefined {
   return undefined;
 }
 
+function arrayPromptText(content: unknown[]): string {
+  return content
+    .map((block) => {
+      const rec = asRecord(block);
+      if (rec?.type === "text") return String(rec.text ?? "");
+      return rec?.type === "image" ? "[image]" : "";
+    })
+    .filter((part) => part !== "")
+    .join("\n");
+}
+
 function parseUser(line: Json, id: string): ScreenEntry[] {
   if (line.isMeta === true || line.isSidechain === true) return [];
   const content = asRecord(line.message)?.content;
   if (typeof content === "string") return parsePromptText(id, content);
   if (!Array.isArray(content)) return [];
+  if (!content.some((block) => asRecord(block)?.type === "tool_result")) {
+    return parsePromptText(id, arrayPromptText(content));
+  }
   const patch = patchOf(line.toolUseResult);
   const entries: ScreenEntry[] = [];
   for (const block of content) {
@@ -141,6 +155,14 @@ function parseAssistant(line: Json, id: string): ScreenEntry[] {
       default:
         entries.push({ kind: "unknown", id, label: String(rec.type ?? "") });
     }
+  }
+  // Entries of one line share its uuid; the index keeps their ids distinct.
+  if (entries.length > 1) {
+    return entries.map((entry, index) =>
+      entry.kind === "tool" || entry.kind === "result"
+        ? entry
+        : { ...entry, id: `${id}#${index}` },
+    );
   }
   return entries;
 }

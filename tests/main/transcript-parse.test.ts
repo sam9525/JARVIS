@@ -37,6 +37,40 @@ describe("parseTranscriptLine", () => {
     ]);
   });
 
+  it("parses an array prompt with an image", () => {
+    const line = JSON.stringify({
+      type: "user",
+      uuid: "u-img",
+      message: {
+        content: [
+          { type: "text", text: "Look at this" },
+          { type: "image", source: {} },
+        ],
+      },
+    });
+    expect(parseTranscriptLine(line)).toEqual([
+      { kind: "prompt", id: "u-img", text: "Look at this\n[image]" },
+    ]);
+  });
+
+  it("gives each block of one line its own id", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      uuid: "a-multi",
+      message: {
+        content: [
+          { type: "thinking", thinking: "t" },
+          { type: "text", text: "hi" },
+          { type: "tool_use", id: "toolu_x", name: "Read", input: {} },
+        ],
+      },
+    });
+    const ids = parseTranscriptLine(line).map((e) =>
+      e.kind === "result" ? "" : e.id,
+    );
+    expect(ids).toEqual(["a-multi#0", "a-multi#1", "toolu_x"]);
+  });
+
   it("parses text, thinking and tool_use blocks", () => {
     expect(parseTranscriptLine(byUuid("a-1"))).toEqual([
       { kind: "text", id: "a-1", markdown: "I will add the retry." },
