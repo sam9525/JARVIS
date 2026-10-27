@@ -73,6 +73,10 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
     ): void {
       if (ptys.has(key)) return; // one live pty per session key
       const { file, args } = claudeCommand(dangerous, model, resume);
+      // an app started from inside a JARVIS terminal inherits that session's
+      // JARVIS_STATUSLINE, so the inherited value is dropped, not passed on
+      const parentEnv = { ...process.env };
+      delete parentEnv.JARVIS_STATUSLINE;
       const p = spawnFn(file, args, {
         cwd,
         cols,
@@ -80,7 +84,7 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
         // the hook forwarder reads JARVIS_SESSION to tag its events; the
         // status line wrapper reads JARVIS_STATUSLINE for the user's own command
         env: {
-          ...process.env,
+          ...parentEnv,
           JARVIS_SESSION: key,
           ...(typeof statusLine === "string"
             ? { JARVIS_STATUSLINE: statusLine }
