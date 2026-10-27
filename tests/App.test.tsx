@@ -71,6 +71,7 @@ const walk = (n: any): any[] =>
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,
     onShowTodos: () => () => undefined,
+    onUserSubmitted: () => () => undefined,
   },
 };
 

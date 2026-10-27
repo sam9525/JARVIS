@@ -88,6 +88,7 @@ beforeEach(() => {
     getTodos: () => Promise.resolve(LIST),
     todoOp,
     onTodos: () => () => undefined,
+    onUserSubmitted: () => () => undefined,
     onShowTodos: (cb: () => void) => {
       showTodos = cb;
       return () => undefined;

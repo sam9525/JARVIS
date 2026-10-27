@@ -52,6 +52,7 @@ import TodoPanel from "./todos/TodoPanel";
 import TodoComposer, { type ComposeRequest } from "./todos/TodoComposer";
 import TodoToggle from "./todos/TodoToggle";
 import TodoView from "./todos/TodoView";
+import { todosGrew } from "./todos/todo-growth";
 import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
   ASK_Z,
@@ -378,18 +379,43 @@ export default function App() {
   // the raise working against the panels map of that moment, not of mount
   const focusPanelRef = useRef(focusPanel);
   focusPanelRef.current = focusPanel;
+  // the registered listeners outlive every render, so they read the panel
+  // state through these mirrors
+  const showTodosRef = useRef(showTodos);
+  showTodosRef.current = showTodos;
+  const composeOpenRef = useRef(compose.open);
+  composeOpenRef.current = compose.open;
+  const taskViewOpenRef = useRef(taskView.open);
+  taskViewOpenRef.current = taskView.open;
+  const lastTodosRef = useRef<TodoList | null>(null);
   useEffect(() => {
-    window.jarvis.getTodos().then(setTodoList).catch(console.error);
-    const offList = window.jarvis.onTodos(setTodoList);
-    // the agent says the list is open, so a cleared deck must not hide it
-    const offShow = window.jarvis.onShowTodos(() => {
+    const openTodos = () => {
       setDeckCleared(false);
       setShowTodos(true);
       focusPanelRef.current("todos");
+    };
+    const receiveTodos = (list: TodoList) => {
+      if (todosGrew(lastTodosRef.current, list) && !showTodosRef.current) {
+        openTodos();
+      }
+      lastTodosRef.current = list;
+      setTodoList(list);
+    };
+    window.jarvis.getTodos().then(receiveTodos).catch(console.error);
+    const offList = window.jarvis.onTodos(receiveTodos);
+    // the agent says the list is open, so a cleared deck must not hide it
+    const offShow = window.jarvis.onShowTodos(openTodos);
+    // the panel gets out of the way of the next prompt, unless the user is
+    // mid-edit in the composer or reading a task
+    const offSubmitted = window.jarvis.onUserSubmitted(() => {
+      if (!composeOpenRef.current && !taskViewOpenRef.current) {
+        setShowTodos(false);
+      }
     });
     return () => {
       offList();
       offShow();
+      offSubmitted();
     };
   }, []);
 
