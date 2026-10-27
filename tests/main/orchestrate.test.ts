@@ -121,6 +121,7 @@ function setup(
     outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
     kept?: string; // the folder close leaves on disk
     workspaces?: Workspace[]; // the registry; defaults to the module's list
+    pendingInput?: string[]; // keys whose composer holds text the user typed
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -142,6 +143,7 @@ function setup(
     snapshot: () => over.statuses ?? [],
     sessionsOf: (id) => registered.filter((s) => s.workspaceId === id),
     hasPty: (key) => live.has(key),
+    hasPendingInput: (key) => over.pendingInput?.includes(key) ?? false,
     write: (key, data) => {
       attempted.push(data);
       if (over.writeFails) return false;
@@ -387,6 +389,14 @@ describe("orchestrate.send", () => {
     if (!out.ok) expect(out.error).toContain("no session");
     expect(writes).toEqual([]);
     expect(delegated).toEqual([]);
+  });
+
+  it("refuses a send while the user has unsent text in that session", async () => {
+    const { orch, attempted } = setup({ pendingInput: ["d:/aero"] });
+    const out = await orch.send("AeroGraph", "do it", { session: "main" });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toContain("fresh: true");
+    expect(attempted).toEqual([]);
   });
 
   it("refuses to send to the orchestrator itself", async () => {

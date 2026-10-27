@@ -23,6 +23,8 @@ export interface OrchestrateDeps {
   // live or exited
   sessionsOf: (workspaceId: string) => SessionInfo[];
   hasPty: (key: string) => boolean;
+  // true while the user has typed into the session's terminal and not sent it
+  hasPendingInput: (key: string) => boolean;
   write: (key: string, data: string) => boolean;
   // the launch the tab bar's `+` makes; no label means the next free number.
   // error "cap" means the workspace already has its four live sessions
@@ -397,6 +399,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       }
       const s = pickSession(ws, opts.session);
       if ("ok" in s) return s;
+      // a send would append to the user's half-typed text
+      if (deps.hasPendingInput(s.key)) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session "${s.label}" has text the user has not sent — send with fresh: true instead`,
+        };
+      }
       if (!deliver(s.key, prompt)) {
         return {
           ok: false,

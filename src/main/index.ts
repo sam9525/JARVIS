@@ -35,6 +35,7 @@ import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
+import { createPendingInput } from "./pending-input";
 import { createSettle } from "./settle";
 import { deliverBriefing } from "./brief-delivery";
 import { isTrusted } from "./folder-trust";
@@ -522,11 +523,14 @@ app.whenReady().then(async () => {
     send("status", status.snapshot()),
   );
 
+  // orchestrator writes bypass this: only the user's own keystrokes are noted
+  const pendingInput = createPendingInput();
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
     sessionsOf: (id) => sessions.forWorkspace(id),
     hasPty: (key) => ptyManager.has(key),
+    hasPendingInput: (key) => pendingInput.has(key),
     write: (key, data) => ptyManager.write(key, data),
     // the terminal's own defaults — Opus, permissions on — at placeholder
     // geometry the panel resizes when it attaches, as with the main agent.
@@ -633,6 +637,7 @@ app.whenReady().then(async () => {
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
+        pendingInput.clear(id);
         if (id.includes("#")) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
       },
@@ -834,6 +839,7 @@ app.whenReady().then(async () => {
         resume,
         (await userStatusLine(os.homedir(), cwd)) ?? undefined,
       );
+      pendingInput.clear(key);
       if (ws.isSelf && resume === true) void followNewest(key, cwd);
       if (opts.resumeId)
         void feed.follow(
@@ -957,9 +963,10 @@ app.whenReady().then(async () => {
       Date.now(),
     );
   });
-  ipcMain.handle("pty-input", (_e, id: string, data: string) =>
-    ptyManager.write(id, data),
-  );
+  ipcMain.handle("pty-input", (_e, id: string, data: string) => {
+    pendingInput.note(id, data);
+    return ptyManager.write(id, data);
+  });
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
     ptyManager.resize(id, cols, rows),
   );
