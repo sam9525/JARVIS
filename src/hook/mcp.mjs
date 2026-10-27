@@ -38,12 +38,24 @@ const TOOLS = [
       "the user, call jarvis_trust with their answer and the session, then " +
       "send again with that session.\n\n" +
       "Working a to-do task: when the user asks you to do an open @project task from\n" +
-      "TODO.md, send with fresh: true and this prompt, with the task line copied\n" +
-      "in verbatim. Pass label with every fresh send: one word that names the task, such as\n" +
+      "TODO.md, send this prompt, with the task line copied in verbatim, as\n" +
+      "routed under Routing a project task below. Pass label with every fresh send: one word that names the task, such as\n" +
       'label: "tabs". The new tab shows it at once.\n' +
-      "Use fresh: true for any new spec or new task; a follow-up on\n" +
-      "what a session already did goes to that session, with its session label.\n" +
+      "A follow-up on what a session already did goes to that session, with its\n" +
+      "session label.\n" +
       "If fresh is refused at the cap of 4 sessions, ask the user which to close.\n\n" +
+      "Routing a project task: this applies to every new project task in a code\n" +
+      "workspace, a single to-do, a batch, or the send after a note lookup, and\n" +
+      "overrides any older guide text that says every task gets a fresh session or\n" +
+      "that main belongs to the user. If the project's main tab is live and not\n" +
+      'working, asking or blocked, jarvis_send with session: "main". If it is not\n' +
+      'live, jarvis_launch with label: "main", then send to main (handle a trust\n' +
+      "prompt as above). If it is busy, or the send is refused because the user\n" +
+      "has typed text there that is not sent, jarvis_send with fresh: true and a\n" +
+      "one-word label.\n" +
+      "When the task relates to the main tab's current conversation, send on top\n" +
+      'of it. When it is unrelated, first jarvis_send /clear to session: "main",\n' +
+      "then the task. A freshly launched main tab needs no /clear.\n\n" +
       "To-do task: <task text, verbatim from TODO.md>\n\n" +
       "Run this pipeline. Stop at each gate and wait for my answer.\n" +
       "1. Use superpowers:brainstorming to write a spec for this task.\n" +
@@ -62,8 +74,8 @@ const TOOLS = [
       "   When the build is done, end your last message with a short list of\n" +
       "   what I should check by hand.\n\n" +
       "Working several to-do tasks: when the user asks for all open tasks of one\n" +
-      "@project, or several of them, send them in ONE jarvis_send with fresh: true\n" +
-      "and the prompt below, each task line copied in verbatim.\n" +
+      "@project, or several of them, send them in ONE jarvis_send, routed as above,\n" +
+      "with the prompt below, each task line copied in verbatim.\n" +
       "Use the single-task prompt when only one task is chosen.\n" +
       "Tasks for different projects never share a prompt.\n\n" +
       "To-do tasks:\n" +
@@ -117,7 +129,7 @@ const TOOLS = [
       'Note lookup for: <task line(s)>. Using your own CLAUDE.md search rules, find the daily notes and wiki pages related to this task. Answer in at most 10 lines, each a fact plus the note path it came from. Answer "nothing relevant" if nothing is.\n\n' +
       'End that turn with one sentence, such as "Asked the vault about the\n' +
       'Working-section task." When its finish wakes you, do not summarise it\n' +
-      "aloud: open the project session with fresh: true and send the pipeline\n" +
+      "aloud: send the project task, routed as above, with the pipeline\n" +
       "prompt followed by a line Notes context: and the vault's answer\n" +
       'verbatim. Skip that block when the answer is "nothing relevant", the\n' +
       "lookup failed, or there is no vault workspace.",
@@ -132,7 +144,7 @@ const TOOLS = [
         session: {
           type: "string",
           description:
-            "Label or topic of the live session to send to, as shown by jarvis_list. Needed when the workspace has more than one; ignored with fresh.",
+            'Label or topic of the live session to send to, as shown by jarvis_list. Needed when the workspace has more than one; ignored with fresh. Use "main" for a code project\'s main tab.',
         },
         fresh: {
           type: "boolean",
@@ -160,8 +172,8 @@ const TOOLS = [
       "whether they trust that folder, then call jarvis_trust with their " +
       "answer and the session. Fails if the name is unknown, the workspace " +
       "already has 4 sessions, or a session with that label is live. The " +
-      "label `main` is refused for a code workspace: its main-folder session " +
-      "is the user's own.",
+      "label `main` opens a code project's main-folder session, with no " +
+      "worktree; if it is already live, send to it instead.",
     inputSchema: {
       type: "object",
       properties: {

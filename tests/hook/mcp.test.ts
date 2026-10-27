@@ -379,7 +379,18 @@ describe("mcp.mjs", () => {
       expect(send).toContain(needle);
     }
     expect(send).not.toContain("refused as busy");
+    for (const needle of [
+      'session: "main"',
+      'jarvis_launch with label: "main"',
+      "/clear",
+      "overrides",
+    ]) {
+      expect(send).toContain(needle);
+    }
+    expect(send).not.toContain("Use fresh: true for any new spec or new task");
     const launch: string = tool("jarvis_launch").description;
+    expect(launch).not.toContain("is refused for a code workspace");
+    expect(launch).toContain("main-folder session");
     expect(launch).not.toContain("a session already exists");
     expect(launch).toContain("`main`");
     expect(launch).toContain("label");

@@ -144,7 +144,9 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("## Working a to-do task");
     expect(AGENT_GUIDE).toContain("fresh: true");
     expect(AGENT_GUIDE).toContain("jarvis_send");
-    expect(AGENT_GUIDE).toContain("never for a follow-up");
+    expect(AGENT_GUIDE).toContain(
+      "A follow-up to what a session already did goes to\nthat session",
+    );
     expect(AGENT_GUIDE).toContain("in one `jarvis_send`");
     expect(AGENT_GUIDE).toContain(
       "Use the single-task prompt when only one task is chosen",
@@ -168,6 +170,15 @@ describe("ensureMainAgent", () => {
     ]) {
       expect(AGENT_GUIDE).toContain(needle);
     }
+    for (const needle of [
+      'session: "main"',
+      'jarvis_launch` with `label: "main"',
+      "/clear",
+    ]) {
+      expect(AGENT_GUIDE).toContain(needle);
+    }
+    expect(AGENT_GUIDE).not.toContain("is the user's own");
+    expect(AGENT_GUIDE).not.toContain("is refused for a code workspace");
     expect(AGENT_GUIDE).not.toContain("clears that session");
     expect(AGENT_GUIDE).not.toContain("refused because the workspace is");
   });

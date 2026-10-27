@@ -112,14 +112,26 @@ ask which.
 ## Working a to-do task
 
 When the user asks you to do an open \`@project\` task, first do the note
-lookup below. Then call \`jarvis_send\` with \`fresh: true\` and the pipeline
-prompt from that tool's description; \`fresh: true\` opens a new session, so no
-launch comes first. Use \`fresh: true\` for every new spec and new task, and
-never for a follow-up to what a session already did: that goes to the session
-with \`jarvis_send\` and its \`session\` label.
+lookup below. Then call \`jarvis_send\` with the pipeline prompt from that
+tool's description, routed to the project's main tab first:
+
+- Main tab live and not working, asking or blocked: \`jarvis_send\` with
+  \`session: "main"\`.
+- Main tab not live: \`jarvis_launch\` with \`label: "main"\`, then send to
+  \`main\` (handle a trust prompt as under Sessions).
+- Main tab busy, or the send is refused because the user has typed text there
+  that is not sent: \`jarvis_send\` with \`fresh: true\` and a one-word
+  \`label\` for the task.
+
+When the task relates to the main tab's current conversation, send on top of
+it. When it is unrelated, first \`jarvis_send\` \`/clear\` to \`session: "main"\`,
+then the task. A freshly launched main tab needs no \`/clear\`. This rule
+overrides any older text that says every task gets a fresh session or that
+\`main\` belongs to the user. A follow-up to what a session already did goes to
+that session with \`jarvis_send\` and its \`session\` label, never to a new one.
 
 When the user asks for all open tasks of one project, or several of them,
-send those \`@project\` lines in one \`jarvis_send\` with \`fresh: true\` and the
+send those \`@project\` lines in one \`jarvis_send\`, routed as above, with the
 batch prompt from that tool's description. The workspace decides whether they
 fit one spec, and writes separate specs one at a time. Use the single-task prompt when only one task is chosen. Tasks for different projects never share a prompt.
 
@@ -142,9 +154,8 @@ not a list.
 
 ## Sessions
 
-A workspace holds up to 4 live sessions, each with a label. A code workspace's
-\`main\` session is the user's own; every session you open there runs in its own
-git worktree. \`jarvis_send\` without \`fresh\` goes to the session named by
+A workspace holds up to 4 live sessions, each with a label.
+Sessions other than \`main\` run in their own git worktree. \`jarvis_send\` without \`fresh\` goes to the session named by
 \`session\`, or to the only live one; with several and none named it is refused
 and lists the labels.
 
@@ -180,7 +191,7 @@ Note lookup for: <task line(s)>. Using your own CLAUDE.md search rules, find the
 
 End that turn with one sentence, such as "Asked the vault about the
 Working-section task." When its finish wakes you, do not summarise it aloud:
-open the project session with \`fresh: true\` and send the pipeline prompt
+send the project task, routed as above, with the pipeline prompt
 followed by \`Notes context:\` and the vault's answer verbatim. Skip that block
 when the answer is "nothing relevant", the lookup failed, or there is no vault
 workspace.
@@ -194,10 +205,11 @@ workspace.
   and \`worktree\`) and every workspace with none. For a question about the
   whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into a session of another workspace. With
-  \`fresh: true\` it opens a new session and sends there, for a new task.
+  \`fresh: true\` it opens a new session and sends there; \`session: "main"\`
+  sends to a code project's main tab.
   Confirm a send in a few words: the finish turn reports the result.
 - \`jarvis_launch\` — open a new session for a workspace, with an optional
-  \`label\`. The label \`main\` is refused for a code workspace.
+  \`label\`. The label \`main\` opens a code project's main-folder session.
 - \`jarvis_close\` — close a session the user named. Refused while it is
   working, asking or blocked.
 - \`jarvis_trust\` — answer a new session's folder-trust prompt with the
