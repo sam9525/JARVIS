@@ -1,4 +1,5 @@
 import type { ScreenEntry } from "../../shared/screen-types";
+import type { StatusKind } from "../../shared/types";
 
 export type ScreenItem =
   | Exclude<ScreenEntry, { kind: "tool" } | { kind: "result" }>
@@ -54,6 +55,17 @@ export function applyEntries(
 
 export function openCalls(items: ScreenItem[]): ToolItem[] {
   return items.filter((i): i is ToolItem => i.kind === "tool" && !i.result);
+}
+
+/** A thinking block carries no text, so it only marks that Claude is thinking
+ *  right now: it is drawn while it is the newest item of a working turn. */
+export function isDrawn(
+  items: ScreenItem[],
+  index: number,
+  status: StatusKind,
+): boolean {
+  if (items[index].kind !== "thinking") return true;
+  return index === items.length - 1 && status === "working";
 }
 
 export function patchCounts(patch: string[]): {

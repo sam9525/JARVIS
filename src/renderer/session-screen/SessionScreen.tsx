@@ -5,7 +5,7 @@ import { renderNote } from "../preview/markdown";
 import AskPanel from "../ui/AskPanel";
 import PermissionCard from "./PermissionCard";
 import ToolRow from "./ToolRow";
-import { openCalls, type ScreenItem } from "./screen-state";
+import { isDrawn, openCalls, type ScreenItem } from "./screen-state";
 
 export const KNOWN_GAPS = [
   "spinner and token counter",
@@ -152,9 +152,11 @@ export default function SessionScreen({
           ref={content}
           className="flex flex-col gap-2.5 px-3.5 pb-1.5 pt-3.5"
         >
-          {items.map((item, i) => (
-            <Item key={item.id || i} item={item} onShowRaw={onShowRaw} />
-          ))}
+          {items.map((item, i) =>
+            isDrawn(items, i, status.kind) ? (
+              <Item key={item.id || i} item={item} onShowRaw={onShowRaw} />
+            ) : null,
+          )}
           {/* whatever the status: a Notification can move it off "asking"
               while the question is open, and the hook clears the ask when
               the tool ends */}

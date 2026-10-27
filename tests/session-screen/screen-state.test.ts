@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applyEntries,
+  isDrawn,
   openCalls,
   patchCounts,
+  type ScreenItem,
 } from "../../src/renderer/session-screen/screen-state";
 import type { ScreenEntry } from "../../src/shared/screen-types";
 
@@ -107,5 +109,26 @@ describe("patchCounts", () => {
       added: 2,
       removed: 1,
     });
+  });
+});
+
+describe("isDrawn", () => {
+  const think: ScreenItem = { kind: "thinking", id: "th" };
+  const text: ScreenItem = { kind: "text", id: "tx", markdown: "hi" };
+  const call: ScreenItem = { kind: "tool", id: "t", name: "Read", input: {} };
+
+  it("draws a last thinking item while working", () => {
+    expect(isDrawn([text, think], 1, "working")).toBe(true);
+  });
+  it("hides a thinking item once anything follows it", () => {
+    expect(isDrawn([think, text], 0, "working")).toBe(false);
+    expect(isDrawn([think, call], 0, "working")).toBe(false);
+  });
+  it("hides a last thinking item when the turn is not working", () => {
+    for (const kind of ["idle", "asking", "blocked"] as const)
+      expect(isDrawn([think], 0, kind)).toBe(false);
+  });
+  it("always draws other items", () => {
+    expect(isDrawn([text, think], 0, "idle")).toBe(true);
   });
 });

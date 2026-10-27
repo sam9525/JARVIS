@@ -22,6 +22,23 @@ const render = (items: ScreenItem[], kind: StatusKind, call = "") =>
   );
 
 describe("SessionScreen", () => {
+  it("drops an earlier Thinking line once output follows it", () => {
+    const html = render(
+      [
+        { kind: "thinking", id: "a" },
+        { kind: "text", id: "b", markdown: "done" },
+      ],
+      "working",
+    );
+    expect(html).not.toContain("Thinking…");
+  });
+
+  it("shows Thinking while it is the newest item of a working turn", () => {
+    expect(render([{ kind: "thinking", id: "a" }], "working")).toContain(
+      "Thinking…",
+    );
+  });
+
   it("renders a not-shown row for an unknown entry", () => {
     const html = render(
       [{ kind: "unknown", id: "u", label: "Hook output" }],
@@ -100,10 +117,10 @@ describe("SessionScreen", () => {
     const html = render(
       [
         { kind: "prompt", id: "1", text: "hello" },
-        { kind: "thinking", id: "2" },
         { kind: "notice", id: "3", text: "compacted" },
+        { kind: "thinking", id: "2" },
       ],
-      "idle",
+      "working",
     );
     expect(html).toContain("hello");
     expect(html).toContain("Thinking…");
