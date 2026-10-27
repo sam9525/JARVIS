@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SessionScreen from "../../src/renderer/session-screen/SessionScreen";
+import type { ScreenItem } from "../../src/renderer/session-screen/screen-state";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -30,19 +31,7 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  await act(async () => {
-    root.render(
-      <SessionScreen
-        sessionKey="s"
-        items={[]}
-        status={{ kind: "working", call: "" }}
-        onAskAnswer={vi.fn()}
-        onWrite={vi.fn()}
-        onShowRaw={vi.fn()}
-        footer={null}
-      />,
-    );
-  });
+  await show([]);
   scroller = host.querySelector(".overflow-y-auto")!;
   contentHeight = 1000;
   Object.defineProperty(scroller, "scrollHeight", {
@@ -60,6 +49,22 @@ afterEach(() => {
   host.remove();
   vi.unstubAllGlobals();
 });
+
+async function show(items: ScreenItem[]): Promise<void> {
+  await act(async () => {
+    root.render(
+      <SessionScreen
+        sessionKey="s"
+        items={items}
+        status={{ kind: "working", call: "" }}
+        onAskAnswer={vi.fn()}
+        onWrite={vi.fn()}
+        onShowRaw={vi.fn()}
+        footer={null}
+      />,
+    );
+  });
+}
 
 function scrollTo(top: number): void {
   scroller.scrollTop = top;
@@ -96,5 +101,26 @@ describe("SessionScreen scroll pin", () => {
     scrollTo(2000 - VIEW);
     grow(2500);
     expect(scroller.scrollTop).toBe(2500);
+  });
+
+  it("jumps to the bottom and follows again when a prompt is sent while scrolled up", async () => {
+    const earlier: ScreenItem = { kind: "prompt", id: "p1", text: "first" };
+    await show([earlier]);
+    scrollTo(1000 - VIEW);
+    scrollTo(400);
+    contentHeight = 1200;
+    await show([earlier, { kind: "prompt", id: "p2", text: "second" }]);
+    expect(scroller.scrollTop).toBe(1200);
+    grow(1800);
+    expect(scroller.scrollTop).toBe(1800);
+  });
+
+  it("stays put when Claude's output, not a prompt, arrives while scrolled up", async () => {
+    const earlier: ScreenItem = { kind: "prompt", id: "p1", text: "first" };
+    await show([earlier]);
+    scrollTo(1000 - VIEW);
+    scrollTo(400);
+    await show([earlier, { kind: "text", id: "t1", markdown: "reply" }]);
+    expect(scroller.scrollTop).toBe(400);
   });
 });

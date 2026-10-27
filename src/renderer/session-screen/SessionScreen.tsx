@@ -147,6 +147,16 @@ export default function SessionScreen({
     return () => observer.disconnect();
   }, [sessionKey]);
 
+  // A new prompt from any source (this composer, the raw terminal, a send
+  // from the main agent) brings the stream back to the bottom and pins it.
+  const lastPromptId = items.findLast((item) => item.kind === "prompt")?.id;
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || !lastPromptId) return;
+    pinned.current = true;
+    el.scrollTop = el.scrollHeight;
+  }, [lastPromptId]);
+
   const liveLabel = LIVE_LABEL[status.kind];
 
   return (
