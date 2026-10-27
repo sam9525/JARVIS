@@ -177,6 +177,22 @@ describe("Composer keys", () => {
     expect(getDraft(KEY)).toBe("second");
   });
 
+  it("recalling a bare /model opens the picker on the model in use", async () => {
+    const box = await mount("sonnet", ["/model"]);
+    await press(box, "ArrowUp");
+    await press(box, "Enter");
+    await settle();
+    expect(ptyInput).toHaveBeenCalledWith(KEY, "/model sonnet");
+  });
+
+  it("recalling the text already in the box leaves no caret jump behind", async () => {
+    const box = await mount("", ["yes"]);
+    await type(box, "yes");
+    await press(box, "ArrowUp");
+    await type(box, "yesX");
+    expect(box.selectionStart).toBe(4);
+  });
+
   it("switching session ends browsing", async () => {
     const other = "w2#1";
     setDraft(other, "");

@@ -198,9 +198,12 @@ export default function Composer({
         );
         if (move) {
           e.preventDefault();
+          const end = move.text.length;
+          edit(move.text, end);
           browsing.current = move.state;
-          pendingCaret.current = move.text.length;
-          setDraft(sessionKey, move.text);
+          // an unchanged text never re-runs the [text] effect, so move the caret now
+          if (move.text !== text) pendingCaret.current = end;
+          else boxRef.current?.setSelectionRange(end, end);
           return;
         }
       }
