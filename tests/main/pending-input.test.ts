@@ -44,3 +44,33 @@ describe("createPendingInput", () => {
     expect(p.has("b")).toBe(false);
   });
 });
+
+describe("note reports a user submit", () => {
+  it("typed text then Enter submits", () => {
+    const p = createPendingInput();
+    expect(p.note("k", "a")).toBe(false);
+    expect(p.note("k", "\r")).toBe(true);
+  });
+  it("a bare Enter with nothing pending does not submit", () => {
+    expect(createPendingInput().note("k", "\r")).toBe(false);
+  });
+  it("an arrow key then Enter does not submit", () => {
+    const p = createPendingInput();
+    expect(p.note("k", "\x1b[A")).toBe(false);
+    expect(p.note("k", "\r")).toBe(false);
+  });
+  it("text and Enter in one chunk submit", () => {
+    expect(createPendingInput().note("k", "hi\r")).toBe(true);
+  });
+  it("a bracketed paste does not submit, the following Enter does", () => {
+    const p = createPendingInput();
+    expect(p.note("k", "\x1b[200~x\ry\x1b[201~")).toBe(false);
+    expect(p.note("k", "\r")).toBe(true);
+  });
+  it("Ctrl+C abandons the text so the next Enter does not submit", () => {
+    const p = createPendingInput();
+    expect(p.note("k", "abc")).toBe(false);
+    expect(p.note("k", "\x03")).toBe(false);
+    expect(p.note("k", "\r")).toBe(false);
+  });
+});

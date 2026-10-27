@@ -148,6 +148,8 @@ const api = {
     subscribe<[string, StatusLineView | null]>("statusline", cb),
   onPromptSubmitted: (cb: (key: string) => void) =>
     subscribe<[string]>("prompt-submitted", cb),
+  onUserSubmitted: (cb: (key: string) => void) =>
+    subscribe<[string]>("user-submitted", cb),
   listTranscripts: (key: string): Promise<TranscriptSummary[]> =>
     ipcRenderer.invoke("list-transcripts", key),
   savePastedImage: (

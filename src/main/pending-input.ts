@@ -3,19 +3,25 @@
 export function createPendingInput() {
   const pending = new Set<string>();
   return {
-    note(key: string, data: string): void {
+    // Returns true when this write submits text the user typed.
+    note(key: string, data: string): boolean {
       // a paste may carry "\r" inside its brackets and does not submit
       if (data.startsWith("\x1b[200~")) {
         pending.add(key);
-        return;
+        return false;
       }
       if (data.includes("\r") || data.includes("\x03")) {
+        const wasPending = pending.has(key);
         pending.delete(key);
-        return;
+        const typedBeforeEnter = data.slice(0, Math.max(data.indexOf("\r"), 0));
+        const typedChars =
+          typedBeforeEnter !== "" && !typedBeforeEnter.startsWith("\x1b");
+        return data.includes("\r") && (wasPending || typedChars);
       }
       // focus reports, arrows and mouse are escape sequences, not typing
-      if (data === "" || data.startsWith("\x1b")) return;
+      if (data === "" || data.startsWith("\x1b")) return false;
       pending.add(key);
+      return false;
     },
     clear(key: string): void {
       pending.delete(key);

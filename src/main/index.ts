@@ -964,7 +964,7 @@ app.whenReady().then(async () => {
     );
   });
   ipcMain.handle("pty-input", (_e, id: string, data: string) => {
-    pendingInput.note(id, data);
+    if (pendingInput.note(id, data)) send("user-submitted", id);
     return ptyManager.write(id, data);
   });
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
