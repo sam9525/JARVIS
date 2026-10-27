@@ -159,6 +159,9 @@ export function createStatusStore(
     },
 
     applyStatus(ev) {
+      // the app's own pty is gone, so this is a late hook from a closed or
+      // crashed tab; applying it would mark a dead session live for good
+      if (ev.fromApp && !entries.get(ev.sessionKey)?.ptyOwned) return false;
       const e = entry(ev.sessionKey, ev.ts, ownerOf(ev));
       // A new session's inbox starts empty — but only work takes a workspace
       // over. Claude's ~60s idle Notification, and every event from a second

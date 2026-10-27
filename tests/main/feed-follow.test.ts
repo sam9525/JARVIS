@@ -8,7 +8,7 @@ describe("feedStatusEvent", () => {
     const feed = fakeFeed();
     feedStatusEvent(
       feed,
-      { sessionKey: "k#1", transcriptPath: "t.jsonl" },
+      { sessionKey: "k#1", transcriptPath: "t.jsonl", fromApp: true },
       true,
     );
     expect(feed.follow).toHaveBeenCalledWith("k#1", "t.jsonl");
@@ -17,9 +17,20 @@ describe("feedStatusEvent", () => {
 
   it("pokes a live session whose event has no path", () => {
     const feed = fakeFeed();
-    feedStatusEvent(feed, { sessionKey: "k#1" }, true);
+    feedStatusEvent(feed, { sessionKey: "k#1", fromApp: true }, true);
     expect(feed.poke).toHaveBeenCalledWith("k#1");
     expect(feed.follow).not.toHaveBeenCalled();
+  });
+
+  it("ignores a claude started by hand in the same folder", () => {
+    const feed = fakeFeed();
+    feedStatusEvent(
+      feed,
+      { sessionKey: "k", transcriptPath: "hand.jsonl" },
+      true,
+    );
+    expect(feed.follow).not.toHaveBeenCalled();
+    expect(feed.poke).not.toHaveBeenCalled();
   });
 
   it("ignores events for a session with no live pty", () => {

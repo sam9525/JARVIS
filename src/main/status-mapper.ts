@@ -23,9 +23,11 @@ export function mapStatusEvent(
   if (!raw.session_id || !raw.cwd) return null;
   const ws = resolveWorkspace(workspaces, raw.cwd);
   if (!ws) return null;
+  const sessionKey = resolveSessionKey(raw, ws);
   const common = {
     workspaceId: ws.id,
-    sessionKey: resolveSessionKey(raw, ws),
+    sessionKey,
+    fromApp: raw.jarvis_session === sessionKey,
     sessionId: raw.session_id,
     ts: Date.now(),
     ...(typeof raw.transcript_path === "string"

@@ -6,13 +6,15 @@ interface FollowTarget {
 }
 
 /** A hook event can land after its session was closed; following then would
- * re-create a watcher nothing stops, so only a live PTY's events reach the feed. */
+ * re-create a watcher nothing stops, so only a live PTY's events reach the feed.
+ * A `claude` run by hand in the same folder shares the main key, so only the
+ * app's own PTY may switch the screen to its transcript. */
 export function feedStatusEvent(
   feed: FollowTarget,
-  s: Pick<StatusEvent, "sessionKey" | "transcriptPath">,
+  s: Pick<StatusEvent, "sessionKey" | "transcriptPath" | "fromApp">,
   isLive: boolean,
 ): void {
-  if (!isLive) return;
+  if (!isLive || !s.fromApp) return;
   if (s.transcriptPath) void feed.follow(s.sessionKey, s.transcriptPath);
   else void feed.poke(s.sessionKey);
 }

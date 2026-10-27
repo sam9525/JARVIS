@@ -68,6 +68,9 @@ export interface StatusEvent {
   message?: string; // Stop only: the last thing Claude said, for the inbox
   prompt?: string; // UserPromptSubmit only: what was submitted
   transcriptPath?: string; // any event: where the session transcript lives
+  // a pty this app spawned sent it; a `claude` run by hand in the same
+  // folder shares the main key but not this
+  fromApp?: boolean;
   ts: number;
 }
 

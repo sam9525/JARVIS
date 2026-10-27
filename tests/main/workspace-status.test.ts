@@ -472,6 +472,22 @@ describe("crashed", () => {
     expect(row?.message).toBe("done");
   });
 
+  it("a late hook from a crashed tab does not bring its row back", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1#2", 1000);
+    s.ptyExited("w1#2", 2000, 1);
+    const late = ev({ sessionKey: "w1#2", kind: "idle", ts: 2100 });
+    expect(s.applyStatus({ ...late, fromApp: true })).toBe(false);
+    s.sweep(2000 + EXPIRE_MS);
+    expect(s.snapshot().flatMap((w) => w.sessions)).toEqual([]);
+  });
+
+  it("a claude started by hand still reports on the main row", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ fromApp: false }));
+    expect(kindOf(s)).toBe("working");
+  });
+
   it("never promotes a stale working session to asking", () => {
     const s = createStatusStore();
     s.applyStatus({

@@ -18,7 +18,13 @@ describe("mapSessionStart", () => {
     expect(mapSessionStart(start, workspaces)).toEqual({
       sessionKey: `${workspaces[0].id}#2`,
       transcriptPath: "C:\\t\\s-new.jsonl",
+      fromApp: true,
     });
+  });
+
+  it("marks a claude started by hand as not the app's", () => {
+    const hand = { ...start, jarvis_session: undefined };
+    expect(mapSessionStart(hand, workspaces)?.fromApp).toBe(false);
   });
 
   it("ignores other events and payloads without a transcript", () => {

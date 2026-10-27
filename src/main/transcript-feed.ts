@@ -60,6 +60,8 @@ export function createTranscriptFeed(
   }
 
   async function readOnce(key: string, state: Followed): Promise<void> {
+    // a read queued before stop() or a path switch must not watch a dead state
+    if (followed.get(key) !== state) return;
     if (!state.watcher) watchPath(key, state);
     let chunk: Buffer;
     try {

@@ -951,6 +951,7 @@ describe("SessionStart on /event", () => {
     expect(started[0]).toEqual({
       sessionKey: workspaces[0].id,
       transcriptPath: "C:/t/s-new.jsonl",
+      fromApp: false,
     });
     expect(statuses).toEqual([]);
     server.close();

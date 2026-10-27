@@ -373,5 +373,14 @@ describe("mapStatusEvent session key", () => {
       workspaces,
     );
     expect(e?.sessionKey).toBe(`${ws.id}#2`);
+    expect(e?.fromApp).toBe(true);
+  });
+
+  it("marks an event from a claude started by hand as not the app's", () => {
+    const e = mapStatusEvent(
+      { session_id: "s1", cwd: "D:\\proj", hook_event_name: "Stop" },
+      workspaces,
+    );
+    expect(e?.fromApp).toBe(false);
   });
 });

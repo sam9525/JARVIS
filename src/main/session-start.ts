@@ -5,6 +5,7 @@ import { resolveWorkspace } from "./workspaces";
 export interface SessionStart {
   sessionKey: string;
   transcriptPath: string;
+  fromApp: boolean; // as on StatusEvent
 }
 
 // A third reader of the hook payload, apart from the status mapper: SessionStart
@@ -20,8 +21,10 @@ export function mapSessionStart(
     return null;
   const ws = resolveWorkspace(workspaces, raw.cwd);
   if (!ws) return null;
+  const sessionKey = resolveSessionKey(raw, ws);
   return {
-    sessionKey: resolveSessionKey(raw, ws),
+    sessionKey,
     transcriptPath: raw.transcript_path,
+    fromApp: raw.jarvis_session === sessionKey,
   };
 }

@@ -168,6 +168,29 @@ describe("createTranscriptFeed", () => {
     feed.stopAll();
   });
 
+  it("a read queued before stop leaves no watcher open", async () => {
+    const open = new Set<object>();
+    const watchFile = vi.fn(() => {
+      const w = { close: () => open.delete(w), on: vi.fn() };
+      open.add(w);
+      return w;
+    });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const file = fakeFile(prompt("a"));
+    const readFrom = async (p: string, o: number): Promise<Buffer> => {
+      await gate;
+      return file.readFrom(p, o);
+    };
+    const feed = createTranscriptFeed(vi.fn(), readFrom, watchFile as never);
+    const first = feed.follow("k", "/t.jsonl");
+    const queued = feed.poke("k");
+    feed.stop("k");
+    release();
+    await Promise.all([first, queued]);
+    expect(open.size).toBe(0);
+  });
+
   it("follow to a new missing path emits an empty reset", async () => {
     const file = fakeFile(prompt("a"));
     const readFrom = async (p: string, o: number): Promise<Buffer> => {
