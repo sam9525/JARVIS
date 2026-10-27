@@ -22,6 +22,7 @@ import Segmented from "../ui/Segmented";
 import SessionScreen from "../session-screen/SessionScreen";
 import { NO_TERMINAL } from "../session-screen/composer-logic";
 import Composer from "../session-screen/Composer";
+import { historyEntries } from "../session-screen/prompt-history";
 import StatusLine from "../session-screen/StatusLine";
 import {
   getViewMode,
@@ -494,6 +495,7 @@ export default function TerminalPanel({
                     sessionKey={sessionKey}
                     files={files}
                     currentModel={modelOf(statusLine)}
+                    history={historyEntries(itemsFor(sessionKey))}
                     onError={setComposerError}
                   />
                   <StatusLine view={statusLine} now={Date.now()} />

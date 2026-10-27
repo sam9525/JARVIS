@@ -13,12 +13,20 @@ import {
 } from "./composer-logic";
 import { getDraft, onDraft, setDraft } from "./drafts";
 import Picker, { type PickerItem } from "./Picker";
+import {
+  NOT_BROWSING,
+  onFirstLine,
+  onLastLine,
+  stepHistory,
+  type HistoryState,
+} from "./prompt-history";
 import { setViewMode } from "./view-mode";
 
 type ComposerProps = {
   sessionKey: string;
   files: string[];
   currentModel: string;
+  history?: string[];
   onError: (msg: string | null) => void;
 };
 
@@ -47,6 +55,7 @@ export default function Composer({
   sessionKey,
   files,
   currentModel,
+  history = [],
   onError,
 }: ComposerProps) {
   const [text, setText] = useState(() => getDraft(sessionKey));
@@ -57,10 +66,12 @@ export default function Composer({
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
   const sending = useRef(false);
+  const browsing = useRef<HistoryState>(NOT_BROWSING);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
   useEffect(() => {
+    browsing.current = NOT_BROWSING;
     setText(getDraft(sessionKey));
     return onDraft((key) => {
       if (key === sessionKey) setText(getDraft(sessionKey));
@@ -114,6 +125,7 @@ export default function Composer({
   const itemCount = popup === "files" ? matches.length : pickerItems.length;
 
   function edit(next: string, nextCaret: number): void {
+    browsing.current = NOT_BROWSING;
     // the model picker opens on the model in use, so Enter keeps it
     setIndex(
       pickerFor(next) === "model" && current ? MODELS.indexOf(current) : 0,
@@ -128,6 +140,7 @@ export default function Composer({
   async function submit(prompt: string): Promise<void> {
     if (!prompt.trim() || sending.current) return;
     sending.current = true;
+    browsing.current = NOT_BROWSING;
     setDraft(sessionKey, "");
     setCaret(0);
     const sent = await sendPrompt(
@@ -171,6 +184,25 @@ export default function Composer({
         if (popup === "files") chooseFile(matches[index]);
         else choosePicker(pickerItems[index].id);
         return;
+      }
+    }
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const caretAt = e.currentTarget.selectionStart;
+      const up = e.key === "ArrowUp";
+      if (up ? onFirstLine(text, caretAt) : onLastLine(text, caretAt)) {
+        const move = stepHistory(
+          history,
+          browsing.current,
+          text,
+          up ? "up" : "down",
+        );
+        if (move) {
+          e.preventDefault();
+          browsing.current = move.state;
+          pendingCaret.current = move.text.length;
+          setDraft(sessionKey, move.text);
+          return;
+        }
       }
     }
     if (e.key === "Escape") {

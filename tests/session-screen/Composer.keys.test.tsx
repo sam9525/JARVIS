@@ -16,7 +16,10 @@ let ptyInput: ReturnType<
 >;
 let onError: ReturnType<typeof vi.fn<(msg: string | null) => void>>;
 
-async function mount(currentModel = ""): Promise<HTMLTextAreaElement> {
+async function mount(
+  currentModel = "",
+  history: string[] = [],
+): Promise<HTMLTextAreaElement> {
   await act(async () => {
     root.render(
       <Composer
@@ -24,6 +27,7 @@ async function mount(currentModel = ""): Promise<HTMLTextAreaElement> {
         files={[]}
         currentModel={currentModel}
         onError={onError}
+        history={history}
       />,
     );
   });
@@ -126,5 +130,71 @@ describe("Composer keys", () => {
     await press(box, "Enter");
     await settle();
     expect(ptyInput).toHaveBeenCalledWith(KEY, "/resume");
+  });
+
+  it("Up recalls the newest prompt and Down brings the draft back", async () => {
+    const box = await mount("", ["first", "second"]);
+    await type(box, "draft");
+    await press(box, "ArrowUp");
+    expect(getDraft(KEY)).toBe("second");
+    await press(box, "ArrowUp");
+    expect(getDraft(KEY)).toBe("first");
+    await press(box, "ArrowDown");
+    await press(box, "ArrowDown");
+    expect(getDraft(KEY)).toBe("draft");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("Up below the first line leaves the text alone", async () => {
+    const box = await mount("", ["first"]);
+    await type(box, "line one\nline two");
+    await press(box, "ArrowUp");
+    expect(getDraft(KEY)).toBe("line one\nline two");
+  });
+
+  it("Up with no history leaves the draft alone", async () => {
+    const box = await mount("", []);
+    await type(box, "draft");
+    await press(box, "ArrowUp");
+    expect(getDraft(KEY)).toBe("draft");
+  });
+
+  it("typing after a recall ends browsing", async () => {
+    const box = await mount("", ["first", "second"]);
+    await press(box, "ArrowUp");
+    await type(box, "second edited");
+    await press(box, "ArrowDown");
+    expect(getDraft(KEY)).toBe("second edited");
+  });
+
+  it("after a send, Up starts again from the newest prompt", async () => {
+    const box = await mount("", ["first", "second"]);
+    await press(box, "ArrowUp");
+    await press(box, "ArrowUp");
+    await press(box, "Enter");
+    await settle();
+    await press(box, "ArrowUp");
+    expect(getDraft(KEY)).toBe("second");
+  });
+
+  it("switching session ends browsing", async () => {
+    const other = "w2#1";
+    setDraft(other, "");
+    const box = await mount("", ["a1", "a2"]);
+    await press(box, "ArrowUp");
+    await press(box, "ArrowUp");
+    await act(async () => {
+      root.render(
+        <Composer
+          sessionKey={other}
+          files={[]}
+          currentModel=""
+          onError={onError}
+          history={["b1", "b2"]}
+        />,
+      );
+    });
+    await press(host.querySelector("textarea")!, "ArrowUp");
+    expect(getDraft(other)).toBe("b2");
   });
 });
