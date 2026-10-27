@@ -967,15 +967,20 @@ describe("orchestrate.launch", () => {
   });
 
   it.each(["main", "MAIN", "Main"])(
-    "refuses the main-folder label %s in a code workspace, launching nothing",
+    "launches the main-folder session for label %s in a code workspace",
     async (label) => {
       const { orch, launched } = setup({ sessions: [] });
-      const out = await orch.launch("FinPulse", label);
-      expect(out.ok).toBe(false);
-      if (!out.ok) expect(out.error).toContain("the user's own");
-      expect(launched).toEqual([]);
+      expect((await orch.launch("FinPulse", label)).ok).toBe(true);
+      expect(launched).toEqual([["d:/fin", "main"]]);
     },
   );
+
+  it("refuses main when the main tab is already live", async () => {
+    const { orch, launched } = setup({ sessions: [mainOf("d:/aero")] });
+    const out = await orch.launch("AeroGraph", "MAIN");
+    expect(!out.ok && out.error).toContain("jarvis_send to it");
+    expect(launched).toEqual([]);
+  });
 
   it("passes the main label through for a vault workspace", async () => {
     const { orch, launched } = setup({ sessions: [] });

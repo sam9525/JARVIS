@@ -413,15 +413,11 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     async launch(target: string, label?: string): Promise<LaunchResult> {
       const ws = delegate(target);
       if ("ok" in ws) return ws;
-      const wanted = cleanLabel(String(label ?? "")) || undefined;
-      // a code workspace's main folder belongs to the user; every session the
-      // agent opens there runs in its own worktree
-      if (ws.kind === "code" && wanted && sameLabel(MAIN_LABEL, wanted)) {
-        return {
-          ok: false,
-          error: `refused: ${ws.name}'s main-folder session is the user's own — JARVIS tasks get their own sessions, so omit the label or pick another`,
-        };
-      }
+      const cleaned = cleanLabel(String(label ?? "")) || undefined;
+      // session keys compare against MAIN_LABEL exactly, so any case of
+      // "main" is normalised before it reaches deps.launch
+      const wanted =
+        cleaned && sameLabel(MAIN_LABEL, cleaned) ? MAIN_LABEL : cleaned;
       if (wanted && liveSessions(ws).some((s) => sameLabel(s.label, wanted))) {
         return {
           ok: false,
