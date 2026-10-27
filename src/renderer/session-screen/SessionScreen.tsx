@@ -95,6 +95,7 @@ type SessionScreenProps = {
   status: { kind: StatusKind; call: string };
   ask?: AskPrompt;
   onAskAnswer: (writes: string[]) => void;
+  onOpenDoc?: (nodeId: string) => void;
   onWrite: (data: string) => void;
   onShowRaw: () => void;
   footer: React.ReactNode;
@@ -106,6 +107,7 @@ export default function SessionScreen({
   status,
   ask,
   onAskAnswer,
+  onOpenDoc,
   onWrite,
   onShowRaw,
   footer,
@@ -187,6 +189,7 @@ export default function SessionScreen({
                 prompt={ask}
                 workspaceName="Question"
                 onAnswer={onAskAnswer}
+                onOpenDoc={onOpenDoc}
               />
             </div>
           )}

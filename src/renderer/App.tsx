@@ -12,6 +12,7 @@ import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
 import AskPanel, { pickAsk } from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
+import { docWriteOf, type AskDocs } from "./ui/ask-doc";
 import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
@@ -497,6 +498,11 @@ export default function App() {
   const previewNodeRef = useRef(previewNode);
   previewNodeRef.current = previewNode;
   const [previewRev, setPreviewRev] = useState(0);
+  // spec and plan paths each session has written, for the question panel's
+  // preview row; read by the once-registered subscribers
+  const askDocsRef = useRef(new Map<string, AskDocs>());
+  const workspacesRef = useRef<Workspace[]>([]);
+  workspacesRef.current = workspaces;
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
@@ -512,6 +518,15 @@ export default function App() {
     },
     [onPreviewEvent],
   );
+
+  const openDoc = (workspaceId: string, nodeId: string) => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return;
+    setShowHome(false);
+    // openWorkspace clears the preview, so the doc is set after it
+    if (active?.id !== workspaceId) openWorkspace(ws);
+    setPreviewNode(nodeId);
+  };
 
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -544,6 +559,16 @@ export default function App() {
             const next = new Map(prev);
             next.delete(e.sessionKey);
             return next;
+          });
+        const docWrite = docWriteOf(
+          e,
+          workspacesRef.current.find((w) => w.id === e.workspaceId)?.kind ===
+            "vault",
+        );
+        if (docWrite)
+          askDocsRef.current.set(e.sessionKey, {
+            ...askDocsRef.current.get(e.sessionKey),
+            [docWrite.kind]: docWrite.nodeId,
           });
         const fresh = appendEvent(logsRef.current, e);
         applyEvent(storeFor(e.sessionKey), e, performance.now());
@@ -579,7 +604,11 @@ export default function App() {
         setAsks((prev) => {
           const next = new Map(prev);
           if (p.questions.length === 0) next.delete(p.sessionKey);
-          else next.set(p.sessionKey, p);
+          else
+            next.set(p.sessionKey, {
+              ...p,
+              docs: askDocsRef.current.get(p.sessionKey),
+            });
           return next;
         });
       }) ?? (() => undefined),
@@ -1590,6 +1619,7 @@ export default function App() {
                 .find((x) => x.key === tab.key)}
               files={terminalFiles}
               onAskAnswer={(writes) => answerAsk(tab.key, writes)}
+              onOpenDoc={(id) => openDoc(ws.id, id)}
             />
           </Panel>
         );
@@ -1752,6 +1782,7 @@ export default function App() {
               prompt={prompt}
               workspaceName={ws.name}
               onAnswer={(writes) => void answerAsk(prompt.sessionKey, writes)}
+              onOpenDoc={(id) => openDoc(prompt.workspaceId, id)}
             />
           </Panel>
         );

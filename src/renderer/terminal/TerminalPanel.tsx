@@ -120,6 +120,7 @@ export default function TerminalPanel({
   sessionStatus = NO_STATUS,
   files = [],
   onAskAnswer,
+  onOpenDoc,
 }: {
   workspace: Workspace;
   // which of the workspace's sessions this panel shows
@@ -149,6 +150,8 @@ export default function TerminalPanel({
   files?: string[];
   // resolves false when the session has no terminal to write to
   onAskAnswer?: (writes: string[]) => Promise<boolean>;
+  // opens a spec or plan the question refers to in the preview panel
+  onOpenDoc?: (nodeId: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
@@ -485,6 +488,7 @@ export default function TerminalPanel({
               status={sessionStatus}
               ask={ask}
               onAskAnswer={(writes) => reportWrite(onAskAnswer?.(writes))}
+              onOpenDoc={onOpenDoc}
               onWrite={(data) =>
                 reportWrite(window.jarvis.ptyInput(sessionKey, data))
               }
