@@ -1148,6 +1148,48 @@ describe("orchestrate.close", () => {
   });
 });
 
+describe("orchestrate.closeIfIdle", () => {
+  const withWorktree = (over: Parameters<typeof setup>[0] = {}) =>
+    setup({
+      sessions: [mainOf("d:/aero"), worktreeOf("d:/aero", "1")],
+      ...over,
+    });
+
+  it("leaves a working session open", async () => {
+    const { orch, closed } = withWorktree({
+      statuses: [
+        status({
+          sessions: [
+            sessionRow({ key: "d:/aero#1", label: "1", kind: "working" }),
+          ],
+        }),
+      ],
+    });
+    expect(await orch.closeIfIdle("d:/aero#1")).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
+  it("leaves a session open that printed 500 ms ago", async () => {
+    const { orch, closed } = withWorktree({ outputAgoMs: 500 });
+    expect(await orch.closeIfIdle("d:/aero#1")).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
+  it("closes an idle, quiet session once", async () => {
+    const { orch, closed } = withWorktree({
+      outputAgoMs: CLOSE_QUIET_MS + 1,
+    });
+    expect(await orch.closeIfIdle("d:/aero#1")).toBe(true);
+    expect(closed).toEqual(["d:/aero#1"]);
+  });
+
+  it("leaves an unknown key alone", async () => {
+    const { orch, closed } = withWorktree();
+    expect(await orch.closeIfIdle("d:/aero#9")).toBe(false);
+    expect(closed).toEqual([]);
+  });
+});
+
 describe("orchestrate.trust", () => {
   it("selects Yes with Down then Enter, as two writes", async () => {
     const { orch, writes } = setup({

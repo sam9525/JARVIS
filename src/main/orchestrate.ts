@@ -252,6 +252,18 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       .find((r) => r.workspaceId === workspaceId)
       ?.sessions.find((s) => s.key === key)?.kind ?? "none";
 
+  /** Why a session cannot close yet, phrased to follow `is `; null when it can. */
+  function closeBlocker(key: string, workspaceId: string): string | null {
+    const kind = sessionKind(key, workspaceId);
+    if (BUSY.has(kind)) {
+      return `busy (${kind}) — it can close once its turn ends`;
+    }
+    if (deps.hasPty(key) && deps.msSinceOutput(key) < CLOSE_QUIET_MS) {
+      return "busy (output in the last 2 s) — it can close once it goes quiet";
+    }
+    return null;
+  }
+
   function capError(ws: Workspace): Failure {
     const live = liveSessions(ws);
     const rows = live
@@ -456,21 +468,26 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name} has no session "${session}" — sessions: ${labels(known, ws) || "none"}`,
         };
       }
-      const kind = sessionKind(s.key, ws.id);
-      if (BUSY.has(kind)) {
+      const blocker = closeBlocker(s.key, ws.id);
+      if (blocker) {
         return {
           ok: false,
-          error: `${ws.name}'s session "${s.label}" is busy (${kind}) — it can close once its turn ends`,
-        };
-      }
-      if (deps.hasPty(s.key) && deps.msSinceOutput(s.key) < CLOSE_QUIET_MS) {
-        return {
-          ok: false,
-          error: `${ws.name}'s session "${s.label}" is busy (output in the last 2 s) — it can close once it goes quiet`,
+          error: `${ws.name}'s session "${s.label}" is ${blocker}`,
         };
       }
       const out = await deps.close(s.key);
       return out.kept ? { ok: true, kept: out.kept } : { ok: true };
+    },
+
+    /** Closes a session by key when it is idle and quiet, under the same busy
+     * rule as `close`. False means it was left open. */
+    async closeIfIdle(key: string): Promise<boolean> {
+      const owner = deps
+        .getWorkspaces()
+        .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
+      if (!owner || closeBlocker(key, owner.id)) return false;
+      await deps.close(key);
+      return true;
     },
 
     /** Answers a new session's folder-trust prompt with the user's choice.

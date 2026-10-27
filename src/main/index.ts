@@ -67,6 +67,7 @@ import {
   isGitRepo,
   removeWorktreeIfDone,
   worktreeCheck,
+  worktreeMerged,
   worktreePath,
 } from "./worktrees";
 import {
@@ -667,6 +668,23 @@ app.whenReady().then(async () => {
     orchestrator.publishFinish(s.sessionKey, message);
   }
 
+  // Any session's turn ending can be the merge that finishes a sibling's
+  // work, so every idle worktree tab of the workspace is checked.
+  async function closeMergedTabs(workspaceId: string): Promise<void> {
+    try {
+      const ws = workspaces.find((w) => w.id === workspaceId);
+      if (!ws || ws.isSelf) return;
+      for (const info of sessions.forWorkspace(workspaceId)) {
+        if (!info.worktree || info.label === MAIN_LABEL) continue;
+        if (await worktreeMerged(ws.rootPath, info.cwd)) {
+          await orchestrator.closeIfIdle(info.key);
+        }
+      }
+    } catch (err) {
+      console.error(`closing merged tabs in ${workspaceId} failed:`, err);
+    }
+  }
+
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
     (e) => {
@@ -681,7 +699,10 @@ app.whenReady().then(async () => {
       // event, not the snapshot: the workspace row is an aggregate, so it can
       // read working while another session's turn has just ended, and a
       // restored inbox or a sweep demotion is never mistaken for a finish.
-      if (s.message !== undefined) void onStop(s, s.message);
+      if (s.message !== undefined) {
+        void onStop(s, s.message);
+        void closeMergedTabs(s.workspaceId);
+      }
       if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
         onMainPrompt?.(s.prompt);
     },
