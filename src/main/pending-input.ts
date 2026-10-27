@@ -4,6 +4,11 @@ export function createPendingInput() {
   const pending = new Set<string>();
   return {
     note(key: string, data: string): void {
+      // a paste may carry "\r" inside its brackets and does not submit
+      if (data.startsWith("\x1b[200~")) {
+        pending.add(key);
+        return;
+      }
       if (data.includes("\r") || data.includes("\x03")) {
         pending.delete(key);
         return;

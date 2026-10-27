@@ -17,6 +17,18 @@ describe("createPendingInput", () => {
     for (const seq of ["\x1b[I", "\x1b[O", "\x1b[A", "\x1b"]) p.note("j", seq);
     expect(p.has("j")).toBe(false);
   });
+  it("a bracketed paste marks pending", () => {
+    p.note("paste", "\x1b[200~hello\x1b[201~");
+    expect(p.has("paste")).toBe(true);
+  });
+  it("a bracketed paste containing a CR still marks pending", () => {
+    p.note("m", "\x1b[200~a\rb\x1b[201~");
+    expect(p.has("m")).toBe(true);
+  });
+  it("a focus report alone does not mark pending", () => {
+    p.note("f", "\x1b[I");
+    expect(p.has("f")).toBe(false);
+  });
   it("Ctrl+C clears", () => {
     p.note("c", "abc");
     p.note("c", "\x03");
