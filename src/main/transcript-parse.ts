@@ -17,6 +17,7 @@ export const SKIPPED_TYPES: readonly string[] = [
   "artifact-comment-monitor",
   "artifact-autoreact-ledger",
   "summary",
+  "bridge-session",
 ];
 
 const RESULT_TEXT_LIMIT = 4000;

@@ -150,6 +150,12 @@ describe("parseTranscriptLine", () => {
     expect(parse).not.toHaveBeenCalled();
   });
 
+  it("skips a bridge-session line", () => {
+    const line =
+      '{"type":"bridge-session","sessionId":"s","bridgeSessionId":"cse_1","lastSequenceNum":1}';
+    expect(parseTranscriptLine(line)).toEqual([]);
+  });
+
   it("maps system subtypes", () => {
     expect(parseTranscriptLine(byUuid("s-2"))).toEqual([
       { kind: "notice", id: "s-2", text: "Conversation compacted" },
