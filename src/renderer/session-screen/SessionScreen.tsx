@@ -113,12 +113,20 @@ export default function SessionScreen({
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
+  const lastTop = useRef(0);
 
+  // A scroll event can be handled after newer output has already grown the
+  // content, so the gap to the bottom alone would unpin a pinned stream.
+  // Growth never moves scrollTop up; only the user scrolling up does.
   const onScroll = () => {
     const el = scroller.current;
-    if (el) {
-      pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 24) {
+      pinned.current = true;
+    } else if (el.scrollTop < lastTop.current) {
+      pinned.current = false;
     }
+    lastTop.current = el.scrollTop;
   };
 
   // Async-rendered text grows after the parent has rendered, so the pin
@@ -129,6 +137,7 @@ export default function SessionScreen({
     const inner = content.current;
     if (!el || !inner) return;
     pinned.current = true;
+    lastTop.current = 0;
     const pin = () => {
       if (pinned.current) el.scrollTop = el.scrollHeight;
     };
