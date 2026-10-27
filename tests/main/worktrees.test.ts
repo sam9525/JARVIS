@@ -153,6 +153,56 @@ describe("worktreeCheck", () => {
     });
   });
 
+  it("ignores untracked tool leftovers and removes the worktree", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.mkdir(path.join(wt, ".playwright-mcp"));
+    await fs.writeFile(path.join(wt, ".playwright-mcp", "console.log"), "x");
+    expect(await worktreeCheck(root, wt)).toEqual({ clean: true });
+    expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+    await expect(fs.stat(wt)).rejects.toThrow();
+    expect(git(root, "worktree", "list")).not.toContain(".worktrees");
+  });
+
+  it("counts another untracked file as work, leftovers or not", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.mkdir(path.join(wt, "src"));
+    await fs.writeFile(path.join(wt, "src", "new.ts"), "x");
+    const dirty = { clean: false, reason: "uncommitted changes" };
+    expect(await worktreeCheck(root, wt)).toEqual(dirty);
+    await fs.mkdir(path.join(wt, ".playwright-mcp"));
+    await fs.writeFile(path.join(wt, ".playwright-mcp", "console.log"), "x");
+    expect(await worktreeCheck(root, wt)).toEqual(dirty);
+  });
+
+  it("counts an untracked file with a space in its name as work", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.writeFile(path.join(wt, "a b.txt"), "x");
+    expect(await worktreeCheck(root, wt)).toEqual({
+      clean: false,
+      reason: "uncommitted changes",
+    });
+  });
+
+  it("ignores a line-ending-only change", async () => {
+    git(root, "config", "core.autocrlf", "false");
+    await fs.writeFile(path.join(root, "a.txt"), "a\n");
+    git(root, "commit", "-am", "lf");
+    const wt = await createWorktree(root, "1");
+    await fs.writeFile(path.join(wt, "a.txt"), "a\r\n");
+    expect(git(wt, "status", "--porcelain")).not.toBe("");
+    expect(await worktreeCheck(root, wt)).toEqual({ clean: true });
+    expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+  });
+
+  it("counts a content change as uncommitted changes", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.writeFile(path.join(wt, "a.txt"), "b");
+    expect(await worktreeCheck(root, wt)).toEqual({
+      clean: false,
+      reason: "uncommitted changes",
+    });
+  });
+
   it("reports unmerged commits", async () => {
     const wt = await createWorktree(root, "1");
     await fs.writeFile(path.join(wt, "b.txt"), "b");

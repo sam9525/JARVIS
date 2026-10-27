@@ -7,6 +7,9 @@ const WORKTREES_DIR = ".worktrees";
 // a finished worktree look dirty and keep it on disk at close
 const HOOK_SETTINGS = ".claude/settings.local.json";
 
+// Folders tools drop into a session's worktree; untracked, they are not work
+const TOOL_LEFTOVERS = [".playwright-mcp/"];
+
 function git(cwd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile("git", args, { cwd, windowsHide: true }, (err, stdout) =>
@@ -90,6 +93,26 @@ export async function createWorktree(
   return wtPath;
 }
 
+/** Any untracked entry outside TOOL_LEFTOVERS is work. Tracked changes count
+ *  only when they differ beyond line endings. */
+async function hasUncommittedWork(wtPath: string): Promise<boolean> {
+  const entries = (await git(wtPath, ["status", "--porcelain", "-z"]))
+    .split("\0")
+    .filter((entry) => entry !== "");
+  const untracked = entries.filter((entry) => entry.startsWith("??"));
+  const isLeftover = (entry: string) =>
+    TOOL_LEFTOVERS.some((prefix) => entry.slice(3).startsWith(prefix));
+  if (untracked.some((entry) => !isLeftover(entry))) return true;
+  if (untracked.length === entries.length) return false;
+  const changed = await git(wtPath, [
+    "diff",
+    "HEAD",
+    "--ignore-cr-at-eol",
+    "--numstat",
+  ]);
+  return changed !== "";
+}
+
 /** Whether closing the worktree would lose work: uncommitted changes, or
  *  commits not yet in the start point. A missing folder has nothing to lose;
  *  a git failure counts as not clean so a close never discards on a guess. */
@@ -103,7 +126,7 @@ export async function worktreeCheck(
     return { clean: true };
   }
   try {
-    if ((await git(wtPath, ["status", "--porcelain"])) !== "") {
+    if (await hasUncommittedWork(wtPath)) {
       return { clean: false, reason: "uncommitted changes" };
     }
     const start = await startPoint(root);
@@ -144,6 +167,9 @@ export async function removeWorktreeIfDone(
   }
   const check = await worktreeCheck(root, wtPath);
   if (!check.clean) return { removed: false, reason: check.reason };
-  await git(root, ["worktree", "remove", wtPath]);
+  // --force is safe here: worktreeCheck passed, so what remains is leftovers
+  // and line-ending noise that a plain remove would refuse
+  await git(root, ["worktree", "remove", "--force", wtPath]);
+  await git(root, ["worktree", "prune"]);
   return { removed: true };
 }
