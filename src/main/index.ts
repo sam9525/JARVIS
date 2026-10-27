@@ -580,11 +580,15 @@ app.whenReady().then(async () => {
     );
   };
 
-  // one sweep for every workspace — Esc leaves "running" with no Stop to end it
-  const sweepTimer = setInterval(
-    () => pushStatus(status.sweep(Date.now())),
-    STALE_MS / 4,
-  );
+  // one sweep for every workspace — Esc leaves "running" with no Stop to end
+  // it, and the TUI goes quiet after Esc while it keeps printing through a
+  // long tool call
+  const sweepTimer = setInterval(() => {
+    const now = Date.now();
+    pushStatus(
+      status.sweep(now, (key) => now - (lastOutputAt.get(key) ?? -Infinity)),
+    );
+  }, STALE_MS / 4);
   app.on("before-quit", () => clearInterval(sweepTimer));
 
   // file-watching stays vault-only; code graphs refresh via rescan
@@ -669,21 +673,29 @@ app.whenReady().then(async () => {
   }
 
   // Any session's turn ending can be the merge that finishes a sibling's
-  // work, so every idle worktree tab of the workspace is checked.
-  async function closeMergedTabs(workspaceId: string): Promise<void> {
+  // work, so every idle worktree tab of the workspace is checked. The tab
+  // whose Stop this is has ended its turn, so its repaint does not hold it.
+  async function closeMergedTabs(
+    workspaceId: string,
+    stoppedKey: string,
+  ): Promise<void> {
     try {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws || ws.isSelf) return;
       for (const info of sessions.forWorkspace(workspaceId)) {
         if (!info.worktree || info.label === MAIN_LABEL) continue;
         if (await worktreeMerged(ws.rootPath, info.cwd)) {
-          await orchestrator.closeIfIdle(info.key);
+          await orchestrator.closeIfIdle(info.key, info.key === stoppedKey);
         }
       }
     } catch (err) {
       console.error(`closing merged tabs in ${workspaceId} failed:`, err);
     }
   }
+
+  // sessions whose hooks have reached the listener: proof that a typed prompt
+  // can be confirmed by its UserPromptSubmit
+  const hooksHeardFrom = new Set<string>();
 
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
@@ -692,6 +704,7 @@ app.whenReady().then(async () => {
       pushStatus(status.countTool(e));
     },
     (s) => {
+      hooksHeardFrom.add(s.sessionKey);
       pushStatus(status.applyStatus(s));
       feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
       if (s.prompt !== undefined) send("prompt-submitted", s.sessionKey);
@@ -701,7 +714,7 @@ app.whenReady().then(async () => {
       // restored inbox or a sweep demotion is never mistaken for a finish.
       if (s.message !== undefined) {
         void onStop(s, s.message);
-        void closeMergedTabs(s.workspaceId);
+        void closeMergedTabs(s.workspaceId, s.sessionKey);
       }
       if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
         onMainPrompt?.(s.prompt);
@@ -739,7 +752,10 @@ app.whenReady().then(async () => {
         .catch((): void => undefined);
     },
     // a /resume or /clear switches files before the session's next hook
-    (s) => feedStatusEvent(feed, s, ptyManager.has(s.sessionKey)),
+    (s) => {
+      hooksHeardFrom.add(s.sessionKey);
+      feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
+    },
   );
 
   // Claude Code spawns both of these as its own child processes, so they must
@@ -985,7 +1001,13 @@ app.whenReady().then(async () => {
     );
   });
   ipcMain.handle("pty-input", (_e, id: string, data: string) => {
-    if (pendingInput.note(id, data)) send("user-submitted", id);
+    // a session asking or blocked shows a picker, where a key is a choice
+    const kind = status
+      .snapshot()
+      .flatMap((w) => w.sessions)
+      .find((s) => s.key === id)?.kind;
+    const pickerOpen = kind === "asking" || kind === "blocked";
+    if (pendingInput.note(id, data, pickerOpen)) send("user-submitted", id);
     return ptyManager.write(id, data);
   });
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
@@ -1073,6 +1095,7 @@ app.whenReady().then(async () => {
         type: () => typeNudge(write, nudge),
         msSinceOutput: () =>
           Date.now() - (lastOutputAt.get(mainAgent.id) ?? -Infinity),
+        hooksHeard: () => hooksHeardFrom.has(mainAgent.id),
         outcome,
       });
       onMainPrompt = null;

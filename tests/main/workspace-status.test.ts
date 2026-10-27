@@ -139,6 +139,16 @@ describe("status store", () => {
     expect(s.sweep(1000 + STALE_MS * 3)).toBe(false); // already demoted
   });
 
+  it("staleness leaves working alone while the terminal still prints", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    expect(s.sweep(1000 + STALE_MS, () => 1000)).toBe(false);
+    expect(kindOf(s)).toBe("working");
+    expect(s.sweep(1000 + STALE_MS * 2, () => STALE_MS)).toBe(true);
+    expect(kindOf(s)).toBe("idle");
+  });
+
   it("staleness never touches blocked — that is the state the user acts on", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 0);

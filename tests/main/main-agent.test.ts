@@ -119,6 +119,11 @@ describe("ensureMainAgent", () => {
     expect(guide).toBe(AGENT_GUIDE);
   });
 
+  it("the worktree merge line names the worktree's commit, not a branch", () => {
+    expect(AGENT_GUIDE).not.toContain("<branch>");
+    expect(AGENT_GUIDE).toContain("git rev-parse HEAD");
+  });
+
   it("tells the agent to re-arm the watch and to keep the summary spoken", () => {
     expect(AGENT_GUIDE).toContain("jarvis_watch");
     expect(AGENT_GUIDE).toContain("jarvis_say");

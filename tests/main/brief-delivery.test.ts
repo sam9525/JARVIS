@@ -15,15 +15,27 @@ describe("deliverBriefing", () => {
     return out;
   };
 
-  const setup = (quietMs = 5000) => {
+  const setup = (quietMs = 5000, hooksHeard = true) => {
     let answer!: (submitted: boolean) => void;
     const outcome = new Promise<boolean>((r) => (answer = r));
     const type = vi.fn(() => true);
     const result = track(
-      deliverBriefing({ type, msSinceOutput: () => quietMs, outcome }),
+      deliverBriefing({
+        type,
+        msSinceOutput: () => quietMs,
+        hooksHeard: () => hooksHeard,
+        outcome,
+      }),
     );
     return { type, answer, result };
   };
+
+  it("types once and never again when no hook from the session was heard", async () => {
+    const { type, result } = setup(5000, false);
+    await vi.advanceTimersByTimeAsync(BRIEF_CONFIRM_MS * 3);
+    expect(type).toHaveBeenCalledTimes(1);
+    expect(result.value).toBe(false);
+  });
 
   it("types once and confirms on the briefing's own submit", async () => {
     const { type, answer, result } = setup();
@@ -70,6 +82,7 @@ describe("deliverBriefing", () => {
       deliverBriefing({
         type: () => false,
         msSinceOutput: () => 5000,
+        hooksHeard: () => true,
         outcome,
       }),
     );

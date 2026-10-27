@@ -49,7 +49,9 @@ export interface StatusStore {
   sessionOpened(key: string, worktree: boolean, now: number): boolean;
   setTopic(key: string, topic: string, pinned?: boolean): boolean;
   ptyExited(key: string, now: number, exitCode: number): boolean;
-  sweep(now: number): boolean;
+  /** `msSinceOutput` reads a session's terminal: one that still prints is
+   * mid-turn (a long tool sends no hook), so it is not demoted. */
+  sweep(now: number, msSinceOutput?: (key: string) => number): boolean;
   snapshot(): WorkspaceStatus[];
   sessionId(key: string): string;
 }
@@ -291,7 +293,7 @@ export function createStatusStore(
       return true;
     },
 
-    sweep(now) {
+    sweep(now, msSinceOutput = () => Infinity) {
       let changed = false;
       // collect, then delete — never delete mid-iteration
       const expired: string[] = [];
@@ -300,7 +302,8 @@ export function createStatusStore(
         if (
           e.kind === "working" &&
           e.ptyAlive &&
-          now - e.lastEventAt >= STALE_MS
+          now - e.lastEventAt >= STALE_MS &&
+          msSinceOutput(id) >= STALE_MS
         ) {
           e.kind = "idle";
           e.since = now;

@@ -12,15 +12,23 @@ export const BRIEF_TRIES = 15;
  * proves nothing; only the submit hook does. `outcome` resolves true for the
  * briefing's submit and false for any other prompt, which ends the retries so
  * a turn the user started is never typed over. Resolves whether it landed.
+ * A session no hook has been heard from cannot confirm anything, so its
+ * briefing is typed once and never again.
  */
 export async function deliverBriefing(deps: {
   type(): boolean;
   msSinceOutput(): number;
+  hooksHeard(): boolean;
   outcome: Promise<boolean>;
 }): Promise<boolean> {
+  let typed = false;
   for (let i = 0; i < BRIEF_TRIES; i++) {
+    if (typed && !deps.hooksHeard()) return false;
     // a terminal still painting is not reading yet; the next round looks again
-    if (deps.msSinceOutput() >= SETTLE_MS && !deps.type()) return false;
+    if (deps.msSinceOutput() >= SETTLE_MS) {
+      if (!deps.type()) return false;
+      typed = true;
+    }
     const answer = await Promise.race([
       deps.outcome,
       new Promise<null>((r) => setTimeout(() => r(null), BRIEF_CONFIRM_MS)),

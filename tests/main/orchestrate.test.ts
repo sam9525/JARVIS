@@ -1192,6 +1192,12 @@ describe("orchestrate.closeIfIdle", () => {
     expect(closed).toEqual(["d:/aero#1"]);
   });
 
+  it("closes the session whose own turn just ended, though it printed 500 ms ago", async () => {
+    const { orch, closed } = withWorktree({ outputAgoMs: 500 });
+    expect(await orch.closeIfIdle("d:/aero#1", true)).toBe(true);
+    expect(closed).toEqual(["d:/aero#1"]);
+  });
+
   it("leaves an unknown key alone", async () => {
     const { orch, closed } = withWorktree();
     expect(await orch.closeIfIdle("d:/aero#9")).toBe(false);

@@ -358,6 +358,14 @@ describe("mcp.mjs", () => {
     );
   });
 
+  it("jarvis_send's worktree merge line names the commit, not a branch", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 43, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    expect(description).not.toContain("<branch>");
+    expect(description).toContain("git rev-parse HEAD");
+  });
+
   it("jarvis_send's description carries the session, Scratch, worktree and lookup rules", async () => {
     const { request } = startMcp(1);
     const res = await request({ jsonrpc: "2.0", id: 40, method: "tools/list" });

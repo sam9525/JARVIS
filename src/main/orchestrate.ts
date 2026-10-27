@@ -252,13 +252,23 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       .find((r) => r.workspaceId === workspaceId)
       ?.sessions.find((s) => s.key === key)?.kind ?? "none";
 
-  /** Why a session cannot close yet, phrased to follow `is `; null when it can. */
-  function closeBlocker(key: string, workspaceId: string): string | null {
+  /** Why a session cannot close yet, phrased to follow `is `; null when it can.
+   * `turnEnded` skips the output-quiet rule: the session's own Stop already
+   * says its turn is over, and its terminal repaints right after. */
+  function closeBlocker(
+    key: string,
+    workspaceId: string,
+    turnEnded = false,
+  ): string | null {
     const kind = sessionKind(key, workspaceId);
     if (BUSY.has(kind)) {
       return `busy (${kind}) — it can close once its turn ends`;
     }
-    if (deps.hasPty(key) && deps.msSinceOutput(key) < CLOSE_QUIET_MS) {
+    if (
+      !turnEnded &&
+      deps.hasPty(key) &&
+      deps.msSinceOutput(key) < CLOSE_QUIET_MS
+    ) {
       return "busy (output in the last 2 s) — it can close once it goes quiet";
     }
     return null;
@@ -480,12 +490,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     },
 
     /** Closes a session by key when it is idle and quiet, under the same busy
-     * rule as `close`, and holds no unsent text. False means it was left open. */
-    async closeIfIdle(key: string): Promise<boolean> {
+     * rule as `close`, and holds no unsent text. False means it was left open.
+     * `turnEnded` is for the session whose own Stop asked for the check. */
+    async closeIfIdle(key: string, turnEnded = false): Promise<boolean> {
       const owner = deps
         .getWorkspaces()
         .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
-      if (!owner || closeBlocker(key, owner.id)) return false;
+      if (!owner || closeBlocker(key, owner.id, turnEnded)) return false;
       if (deps.hasPendingInput(key)) return false;
       await deps.close(key);
       return true;

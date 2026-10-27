@@ -160,10 +160,11 @@ Sessions other than \`main\` run in their own git worktree. \`jarvis_send\` with
 and lists the labels.
 
 When the send answer has a \`worktree\`, add this line to the task prompt, with
-the main folder and the branch filled in: You are in a git worktree of <main
-folder>. Merge into develop from the main folder with git -C <main folder>
-merge --ff-only <branch>. If the main folder is not on develop or the
-fast-forward fails, stop and say the branch is ready to merge.
+the main folder filled in: You are in a git worktree of <main folder>. Merge
+into develop from the main folder with git -C <main folder> merge --ff-only
+<commit>, where <commit> is what git rev-parse HEAD prints in this worktree.
+If the main folder is not on develop or the fast-forward fails, stop and say
+the work is ready to merge.
 
 At the cap of 4, \`fresh: true\` is refused and lists the sessions. Ask the user
 which one to close, and call \`jarvis_close\` only on their word.

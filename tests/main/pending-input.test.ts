@@ -43,6 +43,27 @@ describe("createPendingInput", () => {
     p.note("a", "abc");
     expect(p.has("b")).toBe(false);
   });
+  it("a word typed and deleted leaves nothing pending", () => {
+    const q = createPendingInput();
+    q.note("k", "a");
+    q.note("k", "b");
+    q.note("k", "\x7f");
+    expect(q.has("k")).toBe(true);
+    q.note("k", "\x7f");
+    expect(q.has("k")).toBe(false);
+  });
+  it("Ctrl+U empties the line", () => {
+    const q = createPendingInput();
+    q.note("k", "abc");
+    q.note("k", "\x15");
+    expect(q.has("k")).toBe(false);
+  });
+  it("a key pressed while a picker is open is a choice, not typing", () => {
+    const q = createPendingInput();
+    q.note("k", "1", true);
+    expect(q.has("k")).toBe(false);
+    expect(q.note("k", "\r", true)).toBe(false);
+  });
 });
 
 describe("note reports a user submit", () => {

@@ -111,11 +111,12 @@ const TOOLS = [
       "gates, approval, what the session will do, or what you will check later. " +
       "That one sentence replaces the next-open-task sentence.\n\n" +
       "Worktree line: when the send answer has a worktree, add this line to\n" +
-      "the task prompt, with <main folder> and <branch> filled in:\n" +
+      "the task prompt, with <main folder> filled in:\n" +
       "You are in a git worktree of <main folder>. Merge into develop from the\n" +
-      "main folder with git -C <main folder> merge --ff-only <branch>. If the\n" +
+      "main folder with git -C <main folder> merge --ff-only <commit>, where\n" +
+      "<commit> is what git rev-parse HEAD prints in this worktree. If the\n" +
       "main folder is not on develop or the fast-forward fails, stop and say\n" +
-      "the branch is ready to merge.\n\n" +
+      "the work is ready to merge.\n\n" +
       "Scratch: a short answer you can give from what you already know stays\n" +
       "with you. Anything that needs files, the web, code, or more than a short\n" +
       "spoken answer goes to the Scratch workspace with fresh: true, one fresh\n" +
