@@ -192,6 +192,93 @@ describe("AskPanel", () => {
     for (const r of rows) expect(r.props.onClick).toBeUndefined();
   });
 
+  describe("doc preview row", () => {
+    const docPrompt = (
+      headers: string[],
+      docs: AskPrompt["docs"],
+    ): AskPrompt => {
+      const p = prompt({ header: headers[0] });
+      for (const header of headers.slice(1)) {
+        p.questions.push({ ...p.questions[0], header });
+      }
+      p.docs = docs;
+      return p;
+    };
+    const rowOf = (p: AskPrompt, onOpenDoc?: (id: string) => void) => {
+      const onAnswer = vi.fn();
+      const tree = (
+        <AskPanel
+          prompt={p}
+          workspaceName="jarvis"
+          onAnswer={onAnswer}
+          onOpenDoc={onOpenDoc}
+        />
+      ) as any;
+      const out = tree.type(tree.props);
+      return {
+        onAnswer,
+        row: walk(out).find(
+          (n: any) => n?.props?.["data-testid"] === "ask-doc",
+        ),
+        html: renderToStaticMarkup(
+          <AskPanel
+            prompt={p}
+            workspaceName="jarvis"
+            onAnswer={onAnswer}
+            onOpenDoc={onOpenDoc}
+          />,
+        ),
+        options: walk(out).filter((n: any) =>
+          n?.props?.["data-testid"]?.startsWith?.("ask-option-"),
+        ),
+      };
+    };
+    const path = "docs/superpowers/specs/a.md";
+
+    it("opens the written spec without answering", () => {
+      const onOpenDoc = vi.fn();
+      const { row, html, onAnswer, options } = rowOf(
+        docPrompt(["Spec"], { spec: path }),
+        onOpenDoc,
+      );
+      expect(html).toContain("Preview the spec");
+      expect(html).toContain(path);
+      row.props.onClick();
+      expect(onOpenDoc).toHaveBeenCalledWith(path);
+      expect(onAnswer).not.toHaveBeenCalled();
+      expect(options).toHaveLength(2);
+    });
+
+    it("needs a doc of the header's kind", () => {
+      expect(
+        rowOf(docPrompt(["Plan"], { spec: path }), vi.fn()).row,
+      ).toBeUndefined();
+    });
+
+    it("ignores other headers", () => {
+      expect(
+        rowOf(docPrompt(["Close signal"], { spec: path }), vi.fn()).row,
+      ).toBeUndefined();
+    });
+
+    it("needs onOpenDoc", () => {
+      expect(rowOf(docPrompt(["Spec"], { spec: path })).row).toBeUndefined();
+    });
+
+    it("follows the current question", () => {
+      // rowOf renders twice, each render reads index, sent, typed
+      seeded.push(1, false, "", 1, false, "");
+      const { html } = rowOf(
+        docPrompt(["Spec", "Plan"], {
+          spec: path,
+          plan: "docs/superpowers/plans/b.md",
+        }),
+        vi.fn(),
+      );
+      expect(html).toContain("Preview the plan");
+    });
+  });
+
   it("gives an Other option no click target either", () => {
     const p = prompt();
     p.questions[0].options.push({ label: "Other", description: "" });

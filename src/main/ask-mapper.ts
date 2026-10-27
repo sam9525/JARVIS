@@ -20,6 +20,8 @@ export interface AskPrompt {
   sessionId: string;
   questions: AskQuestion[];
   ts: number;
+  // the renderer fills this from the session's writes; main never sets it
+  docs?: Partial<Record<"spec" | "plan", string>>;
 }
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
