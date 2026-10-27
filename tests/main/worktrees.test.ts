@@ -9,6 +9,7 @@ import {
   isGitRepo,
   removeWorktreeIfDone,
   worktreeCheck,
+  worktreeMerged,
   worktreePath,
 } from "../../src/main/worktrees";
 
@@ -229,5 +230,60 @@ describe("worktreeCheck", () => {
     } finally {
       await fs.rm(plain, { recursive: true, force: true });
     }
+  });
+});
+
+describe("worktreeMerged", () => {
+  async function committedFeature(): Promise<string> {
+    const wt = await createWorktree(root, "1");
+    git(wt, "switch", "-q", "-c", "feature/x");
+    await fs.writeFile(path.join(wt, "b.txt"), "b");
+    git(wt, "add", "b.txt");
+    git(wt, "commit", "-m", "work");
+    return wt;
+  }
+
+  it("is false for a fresh worktree", async () => {
+    const wt = await createWorktree(root, "1");
+    expect(await worktreeMerged(root, wt)).toBe(false);
+  });
+
+  it("is false on a new branch without commits", async () => {
+    const wt = await createWorktree(root, "1");
+    git(wt, "switch", "-q", "-c", "feature/x");
+    expect(await worktreeMerged(root, wt)).toBe(false);
+  });
+
+  it("is false when the commit is not merged", async () => {
+    const wt = await committedFeature();
+    expect(await worktreeMerged(root, wt)).toBe(false);
+  });
+
+  it("is true once develop contains the commit", async () => {
+    const wt = await committedFeature();
+    git(root, "merge", "--ff-only", "feature/x");
+    expect(await worktreeMerged(root, wt)).toBe(true);
+  });
+
+  it("is false when merged but an untracked source file remains", async () => {
+    const wt = await committedFeature();
+    git(root, "merge", "--ff-only", "feature/x");
+    await fs.mkdir(path.join(wt, "src"));
+    await fs.writeFile(path.join(wt, "src", "new.ts"), "x");
+    expect(await worktreeMerged(root, wt)).toBe(false);
+  });
+
+  it("is true when merged with only a tool leftover untracked", async () => {
+    const wt = await committedFeature();
+    git(root, "merge", "--ff-only", "feature/x");
+    await fs.mkdir(path.join(wt, ".playwright-mcp"));
+    await fs.writeFile(path.join(wt, ".playwright-mcp", "x.log"), "x");
+    expect(await worktreeMerged(root, wt)).toBe(true);
+  });
+
+  it("is false for a missing folder", async () => {
+    expect(
+      await worktreeMerged(root, path.join(root, ".worktrees", "gone")),
+    ).toBe(false);
   });
 });

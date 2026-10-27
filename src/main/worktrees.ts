@@ -154,6 +154,31 @@ export async function worktreeCheck(
   }
 }
 
+/** Whether the worktree did work that is now in the start point: HEAD moved
+ *  off the commit `git worktree add` checked out (the oldest HEAD reflog
+ *  entry), is an ancestor of the start point, and nothing is uncommitted. */
+export async function worktreeMerged(
+  root: string,
+  wtPath: string,
+): Promise<boolean> {
+  try {
+    const reflog = await git(wtPath, ["reflog", "--format=%H", "HEAD"]);
+    const created = reflog.split("\n").pop()?.trim();
+    if (!created) return false;
+    if ((await git(wtPath, ["rev-parse", "HEAD"])) === created) return false;
+    const start = await startPoint(root);
+    const inStart = await succeeds(wtPath, [
+      "merge-base",
+      "--is-ancestor",
+      "HEAD",
+      start,
+    ]);
+    return inStart && (await worktreeCheck(root, wtPath)).clean;
+  } catch {
+    return false;
+  }
+}
+
 /** Removes the worktree only when nothing would be lost: no uncommitted
  *  changes, and its commits are already in the start point (or it has none). */
 export async function removeWorktreeIfDone(
