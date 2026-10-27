@@ -12,7 +12,7 @@ import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
 import AskPanel, { pickAsk } from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
-import { docWriteOf, type AskDocs } from "./ui/ask-doc";
+import { docPreviewId, docWriteOf, type AskDocs } from "./ui/ask-doc";
 import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
@@ -103,6 +103,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
+import { parseSessionKey } from "../shared/session-key";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
 import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
@@ -501,8 +502,12 @@ export default function App() {
   // spec and plan paths each session has written, for the question panel's
   // preview row; read by the once-registered subscribers
   const askDocsRef = useRef(new Map<string, AskDocs>());
+  // the Claude session each key last emitted for; a change clears its docs
+  const askDocSessionRef = useRef(new Map<string, string>());
   const workspacesRef = useRef<Workspace[]>([]);
   workspacesRef.current = workspaces;
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
@@ -560,16 +565,27 @@ export default function App() {
             next.delete(e.sessionKey);
             return next;
           });
+        if (askDocSessionRef.current.get(e.sessionKey) !== e.sessionId) {
+          askDocSessionRef.current.set(e.sessionKey, e.sessionId);
+          askDocsRef.current.delete(e.sessionKey);
+        }
         const docWrite = docWriteOf(
           e,
           workspacesRef.current.find((w) => w.id === e.workspaceId)?.kind ===
             "vault",
         );
-        if (docWrite)
+        if (docWrite) {
+          const inWorktree = statusesRef.current
+            .find((w) => w.workspaceId === e.workspaceId)
+            ?.sessions.find((s) => s.key === e.sessionKey)?.worktree;
           askDocsRef.current.set(e.sessionKey, {
             ...askDocsRef.current.get(e.sessionKey),
-            [docWrite.kind]: docWrite.nodeId,
+            [docWrite.kind]: docPreviewId(
+              docWrite.nodeId,
+              inWorktree ? parseSessionKey(e.sessionKey).label : null,
+            ),
           });
+        }
         const fresh = appendEvent(logsRef.current, e);
         applyEvent(storeFor(e.sessionKey), e, performance.now());
         if (e.sessionKey === activeKeyRef.current) {

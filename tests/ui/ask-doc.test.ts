@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { docKindOf, docWriteOf } from "../../src/renderer/ui/ask-doc";
+import {
+  docKindOf,
+  docPreviewId,
+  docWriteOf,
+} from "../../src/renderer/ui/ask-doc";
 import type { ToolEvent } from "../../src/shared/types";
 
 function event(
@@ -42,8 +46,15 @@ describe("docWriteOf in a code workspace", () => {
     });
   });
 
-  it("recognises a post Edit of a plan inside a worktree", () => {
-    const planId = ".worktrees/t1/docs/superpowers/plans/p.md";
+  it("accepts an upper-case .md extension", () => {
+    const upper = "docs/superpowers/specs/A.MD";
+    expect(docWriteOf(event("Write", "post", upper), false)?.nodeId).toBe(
+      upper,
+    );
+  });
+
+  it("recognises a post Edit of a plan", () => {
+    const planId = "docs/superpowers/plans/p.md";
     expect(docWriteOf(event("Edit", "post", planId), false)).toEqual({
       kind: "plan",
       nodeId: planId,
@@ -75,5 +86,19 @@ describe("docWriteOf in a vault workspace", () => {
       kind: "spec",
       nodeId: id,
     });
+  });
+});
+
+describe("docPreviewId", () => {
+  it("re-adds the worktree folder the event id dropped", () => {
+    expect(docPreviewId("docs/superpowers/plans/p.md", "t1")).toBe(
+      ".worktrees/t1/docs/superpowers/plans/p.md",
+    );
+  });
+
+  it("leaves the id alone outside a worktree", () => {
+    expect(docPreviewId("docs/superpowers/plans/p.md", null)).toBe(
+      "docs/superpowers/plans/p.md",
+    );
   });
 });

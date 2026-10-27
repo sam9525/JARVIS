@@ -28,6 +28,17 @@ export function docWriteOf(
   const nodeId = e.nodeIds[0];
   if (!nodeId) return null;
   const match = DOC_PATH.exec(nodeId);
-  if (!match || (!vault && !nodeId.endsWith(".md"))) return null;
+  if (!match || (!vault && !/\.md$/i.test(nodeId))) return null;
   return { kind: match[2] === "specs" ? "spec" : "plan", nodeId };
+}
+
+/**
+ * Event node ids drop the `.worktrees/<label>/` prefix, but a worktree
+ * session's gitignored docs exist only under it, so the preview needs it back.
+ */
+export function docPreviewId(
+  nodeId: string,
+  worktreeLabel: string | null,
+): string {
+  return worktreeLabel ? `.worktrees/${worktreeLabel}/${nodeId}` : nodeId;
 }
