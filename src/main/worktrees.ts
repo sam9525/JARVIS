@@ -7,7 +7,8 @@ const WORKTREES_DIR = ".worktrees";
 // a finished worktree look dirty and keep it on disk at close
 const HOOK_SETTINGS = ".claude/settings.local.json";
 
-// Folders tools drop into a session's worktree; untracked, they are not work
+// Folders whose loose files (directly inside, not in a subfolder) tools drop
+// into a session's worktree; untracked, they are not work
 const TOOL_LEFTOVERS = [".playwright-mcp/"];
 
 function git(cwd: string, args: string[]): Promise<string> {
@@ -93,15 +94,29 @@ export async function createWorktree(
   return wtPath;
 }
 
-/** Any untracked entry outside TOOL_LEFTOVERS is work. Tracked changes count
+/** Any untracked file other than a loose file in a TOOL_LEFTOVERS folder is
+ *  work; status lists each untracked file so a filed subfolder shows up. Tracked changes count
  *  only when they differ beyond line endings. */
 async function hasUncommittedWork(wtPath: string): Promise<boolean> {
-  const entries = (await git(wtPath, ["status", "--porcelain", "-z"]))
+  const entries = (
+    await git(wtPath, [
+      "status",
+      "--porcelain",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ])
+  )
     .split("\0")
     .filter((entry) => entry !== "");
   const untracked = entries.filter((entry) => entry.startsWith("??"));
   const isLeftover = (entry: string) =>
-    TOOL_LEFTOVERS.some((prefix) => entry.slice(3).startsWith(prefix));
+    TOOL_LEFTOVERS.some((prefix) => {
+      const file = entry.slice(3);
+      return (
+        file.startsWith(prefix) && !file.slice(prefix.length).includes("/")
+      );
+    });
   if (untracked.some((entry) => !isLeftover(entry))) return true;
   if (untracked.length === entries.length) return false;
   const changed = await git(wtPath, [

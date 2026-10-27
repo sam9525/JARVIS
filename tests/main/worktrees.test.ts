@@ -164,6 +164,32 @@ describe("worktreeCheck", () => {
     expect(git(root, "worktree", "list")).not.toContain(".worktrees");
   });
 
+  it("counts a file filed in a .playwright-mcp subfolder as work", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.mkdir(path.join(wt, ".playwright-mcp", "review-shots"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(wt, ".playwright-mcp", "review-shots", "a.png"),
+      "x",
+    );
+    expect(await worktreeCheck(root, wt)).toEqual({
+      clean: false,
+      reason: "uncommitted changes",
+    });
+  });
+
+  it("counts an untracked file as work whatever status.showUntrackedFiles says", async () => {
+    git(root, "config", "status.showUntrackedFiles", "no");
+    const wt = await createWorktree(root, "1");
+    await fs.mkdir(path.join(wt, "src"));
+    await fs.writeFile(path.join(wt, "src", "work.ts"), "x");
+    expect(await worktreeCheck(root, wt)).toEqual({
+      clean: false,
+      reason: "uncommitted changes",
+    });
+  });
+
   it("counts another untracked file as work, leftovers or not", async () => {
     const wt = await createWorktree(root, "1");
     await fs.mkdir(path.join(wt, "src"));

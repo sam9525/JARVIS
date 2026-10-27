@@ -480,12 +480,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     },
 
     /** Closes a session by key when it is idle and quiet, under the same busy
-     * rule as `close`. False means it was left open. */
+     * rule as `close`, and holds no unsent text. False means it was left open. */
     async closeIfIdle(key: string): Promise<boolean> {
       const owner = deps
         .getWorkspaces()
         .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
       if (!owner || closeBlocker(key, owner.id)) return false;
+      if (deps.hasPendingInput(key)) return false;
       await deps.close(key);
       return true;
     },

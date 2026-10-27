@@ -1175,6 +1175,15 @@ describe("orchestrate.closeIfIdle", () => {
     expect(closed).toEqual([]);
   });
 
+  it("leaves a session open that holds unsent text", async () => {
+    const { orch, closed } = withWorktree({
+      outputAgoMs: CLOSE_QUIET_MS + 1,
+      pendingInput: ["d:/aero#1"],
+    });
+    expect(await orch.closeIfIdle("d:/aero#1")).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
   it("closes an idle, quiet session once", async () => {
     const { orch, closed } = withWorktree({
       outputAgoMs: CLOSE_QUIET_MS + 1,
