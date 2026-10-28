@@ -25,9 +25,10 @@ export const MAX_CHUNK_CHARS = 100;
 
 // Index just past the last pause mark that fits in a chunk, or -1. A mark
 // counts only before a space, so "1,000" stays whole; a hyphen counts only
-// after a space too, so "well-known" does too.
+// after a space too, so "well-known" does too. Index 0 never counts, so a
+// leading dash is not sent alone.
 function lastPauseEnd(text: string): number {
-  for (let i = MAX_CHUNK_CHARS - 1; i >= 0; i--) {
+  for (let i = MAX_CHUNK_CHARS - 1; i >= 1; i--) {
     const mark = text[i];
     if (text[i + 1] !== " ") continue;
     if (mark === "," || mark === ";" || mark === ":") return i + 1;
@@ -38,11 +39,15 @@ function lastPauseEnd(text: string): number {
 }
 
 /** Sentences, with any over MAX_CHUNK_CHARS cut at a pause mark, else at a
- * space; a single word longer than the cap stays whole. */
+ * space; a single word longer than the cap stays whole. Whitespace runs in a
+ * cut sentence collapse to one space, so a newline breaks like a space. */
 export function speechChunks(text: string): string[] {
   const chunks: string[] = [];
   for (const sentence of sentences(text)) {
-    let rest = sentence;
+    let rest =
+      sentence.length > MAX_CHUNK_CHARS
+        ? sentence.replace(/\s+/g, " ")
+        : sentence;
     while (rest.length > MAX_CHUNK_CHARS) {
       const pause = lastPauseEnd(rest);
       const space = rest.lastIndexOf(" ", MAX_CHUNK_CHARS);

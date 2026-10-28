@@ -85,7 +85,34 @@ describe("speechChunks", () => {
     const s = `${a} cost 1,000 dollars and ${a}.`;
     const parts = speechChunks(s);
     expect(parts.some((p) => p.endsWith("1,"))).toBe(false);
+    expect(parts[0]).toBe(s.slice(0, 100));
+    expect(parts[0]).toContain("1,000");
     expect(parts.join(" ")).toBe(s);
+  });
+
+  it("treats a newline or tab like a space", () => {
+    const list = "item\n".repeat(60) + "end.";
+    const parts = speechChunks(list);
+    for (const p of parts) expect(p.length).toBeLessThanOrEqual(100);
+    expect(parts.join(" ")).toBe(list.replace(/\s+/g, " "));
+    expect(speechChunks(`${a}:\n${a}.`)).toEqual([`${a}:`, `${a}.`]);
+    expect(speechChunks(`${a},\t${a}.`)).toEqual([`${a},`, `${a}.`]);
+  });
+
+  it("never sends a dash alone", () => {
+    const x = "x".repeat(50);
+    const y = "y".repeat(60);
+    expect(speechChunks(`— ${x} ${y}`)).toEqual([`— ${x}`, y]);
+  });
+
+  it("splits at a mark on index 99 but not on index 100", () => {
+    const at99 = "x".repeat(99) + ", tail";
+    expect(speechChunks(at99)).toEqual(["x".repeat(99) + ",", "tail"]);
+    const at100 = "x".repeat(49) + " " + "y".repeat(50) + ", zzz";
+    expect(speechChunks(at100)).toEqual([
+      "x".repeat(49),
+      "y".repeat(50) + ", zzz",
+    ]);
   });
 
   it("splits at spaces when there is no pause mark", () => {
