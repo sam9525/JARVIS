@@ -87,7 +87,14 @@ import {
   hueOfWorkspace,
   hueToHex,
 } from "./graph/workspace-color";
-import { createPreviewOpener, isEditOf } from "./preview/preview-opener";
+import { createPreviewOpener } from "./preview/preview-opener";
+import {
+  focusedPreviewNode,
+  isPreviewEdit,
+  previewNoteIds,
+  previewWorkspace,
+  type PreviewTarget,
+} from "./preview/preview-target";
 import type {
   CodeGraphLevel,
   HomeView,
@@ -136,7 +143,13 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
 ];
 
 // the same box on the home screen and in a workspace
-const SHARED_PANELS = new Set<PanelId>(["todos", "compose", "view", "ask"]);
+const SHARED_PANELS = new Set<PanelId>([
+  "todos",
+  "compose",
+  "view",
+  "ask",
+  "preview",
+]);
 
 const fold = (m: PanelMap): PanelMap =>
   m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
@@ -163,7 +176,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [active, setActive] = useState<Workspace | null>(null);
   const [statuses, setStatuses] = useState<WorkspaceStatus[]>([]);
-  const [previewNode, setPreviewNode] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
   // Mirrors `settings` synchronously (updated every render, below) so the
   // debounced disk-write timer in `setPanel` always captures the latest
@@ -519,11 +532,19 @@ export default function App() {
   }, []);
 
   // debounced auto-open: last-read file after reads go quiet
-  const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
+  // the auto-open and a graph click preview a file of the workspace on screen
+  const openActivePreview = useCallback((nodeId: string | null) => {
+    const workspaceId = activeIdRef.current;
+    setPreview(nodeId && workspaceId ? { workspaceId, nodeId } : null);
+  }, []);
+  const onPreviewEvent = useMemo(
+    () => createPreviewOpener(openActivePreview),
+    [openActivePreview],
+  );
   // read by the event subscription, which is set up once and would otherwise
-  // see only the first render's previewNode
-  const previewNodeRef = useRef(previewNode);
-  previewNodeRef.current = previewNode;
+  // see only the first render's preview
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
   const [previewRev, setPreviewRev] = useState(0);
   // spec and plan paths each session has written, for the question panel's
   // preview row; read by the once-registered subscribers
@@ -538,7 +559,7 @@ export default function App() {
   const openWorkspace = useCallback(
     (ws: Workspace) => {
       onPreviewEvent.cancel(); // pending open from the old workspace must die
-      setPreviewNode(null);
+      setPreview(null);
       setActive(ws);
       activeIdRef.current = ws.id;
       activeKeyRef.current = selectedKeyOfRef.current(ws);
@@ -550,14 +571,18 @@ export default function App() {
     [onPreviewEvent],
   );
 
+  // opens over whatever screen is showing, reading the question's own workspace
   const openDoc = (workspaceId: string, nodeId: string) => {
-    const ws = workspaces.find((w) => w.id === workspaceId);
-    if (!ws) return;
-    setShowHome(false);
-    // openWorkspace clears the preview, so the doc is set after it
-    if (active?.id !== workspaceId) openWorkspace(ws);
-    setPreviewNode(nodeId);
+    setPreview({ workspaceId, nodeId });
   };
+
+  // leaving home and going home both close a preview
+  useEffect(() => {
+    setPreview(null);
+  }, [showHome]);
+
+  const previewWs = previewWorkspace(preview, workspaces);
+  const focusedNode = focusedPreviewNode(preview, active?.id, showHome);
 
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -621,11 +646,7 @@ export default function App() {
         }
         // sessions of one workspace can share its folder, so any of them
         // editing the previewed file makes the preview stale
-        if (
-          e.workspaceId === activeIdRef.current &&
-          isEditOf(e, previewNodeRef.current)
-        )
-          setPreviewRev((n) => n + 1);
+        if (isPreviewEdit(e, previewRef.current)) setPreviewRev((n) => n + 1);
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
@@ -1065,7 +1086,7 @@ export default function App() {
     if (deckCleared) return {};
     const live: PanelMap = {};
     if (active) live.terminal = panelState("terminal");
-    if (previewNode !== null && active) live.preview = panelState("preview");
+    if (preview && previewWs) live.preview = panelState("preview");
     // SETTINGS_Z here as well as at render, so a pinch hit-tests the stack the
     // way it looks rather than the way it is stored
     if (showSettings)
@@ -1078,7 +1099,8 @@ export default function App() {
   }, [
     deckCleared,
     active,
-    previewNode,
+    preview,
+    previewWs,
     showSettings,
     showMouthPicker,
     showTodos,
@@ -1238,9 +1260,11 @@ export default function App() {
   const resolveLink = useMemo(
     () =>
       buildWikilinkResolver(
-        graph.nodes.filter((n) => n.type === "note").map((n) => n.id),
+        preview
+          ? previewNoteIds(preview, active?.id, graph, cardGraphs)
+          : graph.nodes.filter((n) => n.type === "note").map((n) => n.id),
       ),
-    [graph],
+    [graph, cardGraphs, preview, active?.id],
   );
   // code workspaces have no sections; force "both" so nothing vanishes.
   // Deps are the four filter fields, NOT `settings` — panel drags and window
@@ -1432,9 +1456,9 @@ export default function App() {
                     display={view.display}
                     forces={view.forces}
                     stateRef={stateRef}
-                    onNodeClick={setPreviewNode}
-                    focusNode={previewNode}
-                    rotationPaused={previewNode !== null}
+                    onNodeClick={openActivePreview}
+                    focusNode={focusedNode}
+                    rotationPaused={focusedNode !== null}
                     handleRef={graph3dHandle}
                     width={width}
                     height={height}
@@ -1448,8 +1472,8 @@ export default function App() {
                     display={view.display}
                     forces={view.forces}
                     stateRef={stateRef}
-                    onNodeClick={setPreviewNode}
-                    focusNode={previewNode}
+                    onNodeClick={openActivePreview}
+                    focusNode={focusedNode}
                     handleRef={graphHandle}
                     width={width}
                     height={height}
@@ -1550,25 +1574,27 @@ export default function App() {
           }
         />
       </div>
-      {!showHome && previewNode && active && (
+      {preview && previewWs && (
         <Panel
           id="preview"
-          title={`PREVIEW · ${previewNode.toUpperCase()}`}
+          title={`PREVIEW · ${preview.nodeId.toUpperCase()}`}
           state={panelState("preview")}
           focused={focusedPanel === "preview"}
           hidden={deckCleared}
           foldTo="left"
           onChange={(next) => setPanel("preview", next)}
           onFocus={() => focusPanel("preview")}
-          onClose={() => setPreviewNode(null)}
+          onClose={() => setPreview(null)}
         >
           <Preview
-            nodeId={previewNode}
+            nodeId={preview.nodeId}
             revision={previewRev}
-            workspace={active}
+            workspace={previewWs}
             resolveLink={resolveLink}
-            onNavigate={setPreviewNode}
-            onClose={() => setPreviewNode(null)}
+            onNavigate={(nodeId) =>
+              setPreview({ workspaceId: preview.workspaceId, nodeId })
+            }
+            onClose={() => setPreview(null)}
           />
         </Panel>
       )}

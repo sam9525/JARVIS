@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-empty-function */
+import { readFileSync } from "node:fs";
 import { vi, describe, it, expect, beforeAll, beforeEach } from "vitest";
 
 // Mock React hooks so the App function component can be invoked directly,
@@ -165,6 +166,15 @@ describe("App shell", () => {
     expect(
       nodes.some((n: any) => n.props?.["data-testid"] === "clear-deck"),
     ).toBe(true);
+  });
+
+  it("keeps the question panel's doc open from moving the screen", () => {
+    const source = readFileSync("src/renderer/App.tsx", "utf8");
+    const start = source.indexOf("const openDoc");
+    const body = source.slice(start, source.indexOf("};", start));
+    expect(start).toBeGreaterThan(-1);
+    expect(body).not.toContain("setShowHome");
+    expect(body).not.toContain("openWorkspace");
   });
 
   describe("Scratch is hidden", () => {
