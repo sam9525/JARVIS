@@ -1,5 +1,7 @@
 # Project Guide - Vault X-Ray (JARVIS)
 
+**Before editing an existing function, class or method, run GitNexus `impact` on it, passing `repo`.** New files, tests and docs are exempt. Details are in the GitNexus section below.
+
 Electron desktop app — a cockpit for N workspaces (vault + indexed repos), each with its own force-graph and embedded Claude Code terminal (PTY). Live-highlights nodes as Claude Code reads/searches files via hooks. Feature overview, MCP tools, gestures and configuration are in `README.md`; GitNexus rules are in `AGENTS.md`.
 
 ## Commands
@@ -40,7 +42,7 @@ Electron desktop app — a cockpit for N workspaces (vault + indexed repos), eac
 
 - **Fleet view:** node ids are prefixed `<wsId>::`, which breaks the highlight store's keys, so Fleet shows no highlights. Making it live needs a prefix-aware `hlKey`.
 - **Ring view:** the centre graph loads only after rotation rests about 300 ms, so spinning starts one simulation, not eight. Cards stay the default landing view.
-- **Mission-control cards** re-settle on each visit on purpose. Keeping them mounted would hold N simulations alive.
+- **Mission-control cards:** idle cards draw a stored snapshot picture, kept on disk in `userData/card-snapshots/` (`src/main/card-snapshots.ts`) and in memory (`card-snapshot.ts`), so they show instantly even after a restart. Only working cards, or cards with no valid snapshot, mount a live Graph, so N simulations are never held alive.
 - **Never put per-frame values in React state.** A re-render restarts the force simulation underneath. Hand cursor, voice wave and head are written through refs or imperative handles.
 - **Hands:** each view registers actions via `useHandActions` during render, with identity-guarded cleanup. Distances are strictly 2D (MediaPipe `z` is unreliable). Two palms is a mode: while both are up, the one-hand gestures stand down. `armed` is session-only, and disarmed must look different from camera-off.
 - **Layers:** graph z0, bezel z10, scanlines z15 (below panels on purpose), `footLeft` z16, panels in the 20–40 band, sweep z48. The bezel and `footLeft` are pointer-transparent; only the scrubber opts back in.
@@ -82,7 +84,7 @@ tests/         vitest, mirroring src folders + fixtures/
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **JARVIS** (5063 symbols, 11302 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **JARVIS** (5892 symbols, 13350 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
