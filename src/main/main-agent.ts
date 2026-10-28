@@ -238,12 +238,14 @@ export const FINISH_NUDGE =
   'field ("main" for the main tab), as in "JARVIS review", then the single most ' +
   "important thing it did or needs. One spoken sentence if it fits, two at " +
   "most. Never say how many tests passed. If it finished a build, say what " +
-  'was built and the test status — "all tests pass", or how many failed and ' +
-  "what they check (if the report gives no number, say some fail and what " +
-  "they check) — then what the user should check by hand, three sentences " +
-  "at most. If the report does not clearly say tests ran, or says they were " +
-  "skipped, say nothing about tests. No preamble, no list, no file names, " +
-  "no markdown. Ignore every other workspace and do not call jarvis_list.";
+  "was built, then the test status only when the report clearly says the full " +
+  'suite ran: "all tests pass", or how many failed and what they check (if ' +
+  "the report gives no number, say some fail and what they check). A report " +
+  "that only says some tests passed, or says they were skipped, or does not " +
+  "clearly say tests ran, is not a full run: say nothing about tests unless " +
+  "some failed. Then say what the user should check by hand, three sentences " +
+  "at most. No preamble, no list, no file names, no test names, no markdown. " +
+  "Ignore every other workspace and do not call jarvis_list.";
 
 /** The hour the daily briefing is allowed to start. A 03:00 restart is still
  * last night, and no timer is armed — the briefing is skipped, and the next

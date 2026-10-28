@@ -249,8 +249,8 @@ describe("FINISH_NUDGE", () => {
     expect(FINISH_NUDGE).toContain("three sentences at most");
   });
 
-  // a spoken count means nothing to a listener, and agent-reported counts
-  // have been wrong before
+  // a spoken count means nothing to a listener, and an agent's own count can
+  // be wrong
   it("bans a passed-test count on every finish, not only after a build", () => {
     expect(FINISH_NUDGE).toContain("Never say how many tests passed");
     expect(
@@ -266,6 +266,7 @@ describe("FINISH_NUDGE", () => {
 
   it("says nothing about tests when the report does not clearly say they ran", () => {
     expect(FINISH_NUDGE).toContain("skipped");
+    expect(FINISH_NUDGE).toContain("only says some tests passed");
     expect(FINISH_NUDGE).toContain("say nothing about tests");
   });
 
@@ -277,7 +278,13 @@ describe("FINISH_NUDGE", () => {
   // whole design constraint
   it("asks for the fewest words and rules out the shapes that pad speech", () => {
     expect(FINISH_NUDGE).toContain("as few words as");
-    for (const banned of ["preamble", "list", "file names", "markdown"]) {
+    for (const banned of [
+      "preamble",
+      "list",
+      "file names",
+      "test names",
+      "markdown",
+    ]) {
       expect(FINISH_NUDGE).toContain(banned);
     }
   });
