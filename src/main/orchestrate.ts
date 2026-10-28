@@ -447,8 +447,15 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       const cleaned = cleanLabel(String(label ?? "")) || undefined;
       // session keys compare against MAIN_LABEL exactly, so any case of
       // "main" is normalised before it reaches deps.launch
-      const wanted =
+      let wanted =
         cleaned && sameLabel(MAIN_LABEL, cleaned) ? MAIN_LABEL : cleaned;
+      if (!wanted) {
+        // no label: the main tab, or a side tab while main is mid-turn
+        const main = liveSessions(ws).find((s) => s.label === MAIN_LABEL);
+        if (!main || !BUSY.has(sessionKind(main.key, ws.id))) {
+          wanted = MAIN_LABEL;
+        }
+      }
       if (wanted && liveSessions(ws).some((s) => sameLabel(s.label, wanted))) {
         return {
           ok: false,

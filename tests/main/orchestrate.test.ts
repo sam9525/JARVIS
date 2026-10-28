@@ -178,15 +178,17 @@ function setup(
       while (mine.some((s) => s.label === String(n))) n++;
       const name = label ?? String(n);
       const s =
-        ws.kind === "code"
-          ? worktreeOf(ws.id, name)
-          : {
-              key: `${ws.id}#${name}`,
-              workspaceId: ws.id,
-              label: name,
-              cwd: ws.rootPath,
-              worktree: false,
-            };
+        label === "main"
+          ? mainOf(ws.id)
+          : ws.kind === "code"
+            ? worktreeOf(ws.id, name)
+            : {
+                key: `${ws.id}#${name}`,
+                workspaceId: ws.id,
+                label: name,
+                cwd: ws.rootPath,
+                worktree: false,
+              };
       registered.push(s);
       live.add(s.key);
       return {
@@ -955,17 +957,93 @@ describe("orchestrate.say", () => {
 });
 
 describe("orchestrate.launch", () => {
-  it("opens the next numbered session and answers its label", async () => {
+  it("opens main when a code workspace has no session", async () => {
     const { orch, launched, writes } = setup({ sessions: [] });
     expect(await orch.launch("finpulse")).toEqual({
       ok: true,
-      session: "1",
-      worktree: "D:\\fin\\.worktrees\\1",
+      session: "main",
     });
-    expect(launched).toEqual([["d:/fin", undefined]]);
-    // the launch waits for the new TUI to go quiet before answering
-    expect(writes).toEqual([["d:/fin#1", "<wait>"]]);
+    expect(launched).toEqual([["d:/fin", "main"]]);
+    expect(writes).toEqual([["d:/fin", "<wait>"]]);
   });
+
+  it("opens main for the vault when it has no session", async () => {
+    const { orch, launched } = setup({ sessions: [] });
+    expect(await orch.launch("Obsidian-vault")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(launched).toEqual([["d:/vault", "main"]]);
+  });
+
+  it("reopens main when its session has exited", async () => {
+    const { orch, launched } = setup({
+      sessions: [mainOf("d:/fin")],
+      dead: ["d:/fin"],
+    });
+    expect((await orch.launch("FinPulse")).ok).toBe(true);
+    expect(launched).toEqual([["d:/fin", "main"]]);
+  });
+
+  it.each(["", "  "])("treats label %j as no label", async (label) => {
+    const { orch, launched } = setup({ sessions: [] });
+    expect((await orch.launch("FinPulse", label)).ok).toBe(true);
+    expect(launched).toEqual([["d:/fin", "main"]]);
+  });
+
+  it.each(["working", "asking", "blocked"] as const)(
+    "opens a side tab while main is %s",
+    async (kind) => {
+      const { orch, launched } = setup({
+        sessions: [mainOf("d:/fin")],
+        statuses: [
+          status({
+            workspaceId: "d:/fin",
+            sessions: [sessionRow({ key: "d:/fin", kind })],
+          }),
+        ],
+      });
+      const out = await orch.launch("FinPulse");
+      expect(out).toMatchObject({ ok: true, worktree: expect.any(String) });
+      expect(launched).toEqual([["d:/fin", undefined]]);
+    },
+  );
+
+  it("opens a side tab with no worktree in the vault while main is working", async () => {
+    const { orch, launched } = setup({
+      sessions: [mainOf("d:/vault")],
+      statuses: [
+        status({
+          workspaceId: "d:/vault",
+          sessions: [sessionRow({ key: "d:/vault", kind: "working" })],
+        }),
+      ],
+    });
+    const out = await orch.launch("Obsidian-vault");
+    expect(out.ok && "worktree" in out).toBe(false);
+    expect(launched).toEqual([["d:/vault", undefined]]);
+  });
+
+  it.each(["idle", "none"] as const)(
+    "refuses while main is live and %s",
+    async (kind) => {
+      const { orch, launched } = setup({
+        sessions: [mainOf("d:/fin")],
+        statuses: [
+          status({
+            workspaceId: "d:/fin",
+            sessions: [sessionRow({ key: "d:/fin", kind })],
+          }),
+        ],
+      });
+      const out = await orch.launch("FinPulse");
+      expect(out).toEqual({
+        ok: false,
+        error: 'FinPulse already has a live session "main" — jarvis_send to it',
+      });
+      expect(launched).toEqual([]);
+    },
+  );
 
   it("passes a label through", async () => {
     const { orch, launched } = setup({ sessions: [mainOf("d:/vault")] });
@@ -1008,8 +1086,12 @@ describe("orchestrate.launch", () => {
     expect(launched).toEqual([]);
   });
 
-  it("opens another session beside a live one", async () => {
-    const { orch, launched } = setup();
+  it("opens another session beside a busy main", async () => {
+    const { orch, launched } = setup({
+      statuses: [
+        status({ sessions: [sessionRow({ key: "d:/aero", kind: "working" })] }),
+      ],
+    });
     expect(await orch.launch("AeroGraph")).toMatchObject({
       ok: true,
       session: "1",
@@ -1025,12 +1107,15 @@ describe("orchestrate.launch", () => {
         worktreeOf("d:/aero", "2"),
         worktreeOf("d:/aero", "3"),
       ],
+      statuses: [
+        status({ sessions: [sessionRow({ key: "d:/aero", kind: "working" })] }),
+      ],
     });
     const out = await orch.launch("AeroGraph");
     expect(out).toEqual({
       ok: false,
       error:
-        "AeroGraph has 4 sessions: main (none), 1 (none), 2 (none), 3 (none) — ask the user which to close",
+        "AeroGraph has 4 sessions: main (working), 1 (none), 2 (none), 3 (none) — ask the user which to close",
     });
   });
 
@@ -1060,11 +1145,10 @@ describe("orchestrate.launch", () => {
     const out = await orch.launch("FinPulse");
     expect(out).toEqual({
       ok: true,
-      session: "1",
-      worktree: "D:\\fin\\.worktrees\\1",
-      trustPrompt: "D:\\fin\\.worktrees\\1",
+      session: "main",
+      trustPrompt: "D:\\fin",
     });
-    expect(trustChecked).toEqual(["D:\\fin\\.worktrees\\1"]);
+    expect(trustChecked).toEqual(["D:\\fin"]);
   });
 });
 
