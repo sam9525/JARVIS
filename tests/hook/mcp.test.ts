@@ -402,6 +402,9 @@ describe("mcp.mjs", () => {
     expect(launch).not.toContain("a session already exists");
     expect(launch).toContain("`main`");
     expect(launch).toContain("label");
+    expect(launch).not.toContain("next free number");
+    expect(launch).toContain("omit it to open the main tab");
+    expect(launch).toContain("busy");
     const list: string = tool("jarvis_list").description;
     expect(list).toContain("session");
     expect(list).toContain("worktree");

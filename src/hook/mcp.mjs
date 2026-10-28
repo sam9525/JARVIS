@@ -166,13 +166,15 @@ const TOOLS = [
     description:
       "Open a new Claude Code session for a workspace on the rail, in its own " +
       "git worktree for a code repo. Pass label to name it (for the vault " +
-      "workspace, the project name); omit it for the next free number. " +
+      "workspace, the project name); omit it to open the main tab, or a new " +
+      "side tab when the main tab is busy (working, asking or blocked). " +
       "Returns once the session is ready for input, with its session label; " +
       "then jarvis_send to it with that session. If it says the session is " +
       "asking to trust its folder, do not jarvis_send yet: ask the user " +
       "whether they trust that folder, then call jarvis_trust with their " +
       "answer and the session. Fails if the name is unknown, the workspace " +
-      "already has 4 sessions, or a session with that label is live. The " +
+      "already has 4 sessions, a session with that label is live, or you omit " +
+      "the label while the main tab is live and not busy. The " +
       "label `main` opens a code project's main-folder session, with no " +
       "worktree; if it is already live, send to it instead.",
     inputSchema: {
