@@ -3,6 +3,7 @@ import { PassThrough, Readable } from "node:stream";
 import {
   createEdgeTts,
   EDGE_VOICE,
+  speechChunks,
   type EdgeClient,
 } from "../../src/main/edge-tts";
 
@@ -39,7 +40,81 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("speechChunks", () => {
+  const a = "w ".repeat(30).trim();
+
+  it("leaves short sentences as they are", () => {
+    expect(speechChunks("One. Two! Three?")).toEqual([
+      "One.",
+      "Two!",
+      "Three?",
+    ]);
+    expect(speechChunks("Updated to 2.1.1 today. Done.")).toEqual([
+      "Updated to 2.1.1 today.",
+      "Done.",
+    ]);
+  });
+
+  it("keeps a 100-character sentence whole and splits one of 101", () => {
+    const s100 = "x".repeat(49) + " " + "y".repeat(49) + ".";
+    expect(s100).toHaveLength(100);
+    expect(speechChunks(s100)).toEqual([s100]);
+    const s101 = "x".repeat(50) + " " + "y".repeat(49) + ".";
+    expect(speechChunks(s101)).toEqual(["x".repeat(50), "y".repeat(49) + "."]);
+  });
+
+  it.each([",", ";", ":"])(
+    "splits at the last %s that fits, again on the rest",
+    (m) => {
+      expect(speechChunks(`${a}${m} ${a}${m} ${a}.`)).toEqual([
+        `${a}${m}`,
+        `${a}${m}`,
+        `${a}.`,
+      ]);
+    },
+  );
+
+  it.each([" -", "—", "–"])(
+    "splits after a %j dash and keeps it on the left",
+    (d) => {
+      expect(speechChunks(`${a}${d} ${a}.`)).toEqual([`${a}${d}`, `${a}.`]);
+    },
+  );
+
+  it("never splits inside 1,000", () => {
+    const s = `${a} cost 1,000 dollars and ${a}.`;
+    const parts = speechChunks(s);
+    expect(parts.some((p) => p.endsWith("1,"))).toBe(false);
+    expect(parts.join(" ")).toBe(s);
+  });
+
+  it("splits at spaces when there is no pause mark", () => {
+    const s = ("word ".repeat(50) + "end.").trim();
+    const parts = speechChunks(s);
+    for (const p of parts) expect(p.length).toBeLessThanOrEqual(100);
+    expect(parts.join(" ")).toBe(s);
+  });
+
+  it("keeps one word over 100 characters whole and splits what follows", () => {
+    const long = "x".repeat(150);
+    expect(speechChunks(`${long} tail.`)).toEqual([long, "tail."]);
+  });
+});
+
 describe("edge.speak", () => {
+  it("sends a long sentence to Edge in parts", async () => {
+    const seen: string[] = [];
+    const { Client } = fakeClient({
+      stream: (text) => {
+        seen.push(text);
+        return Readable.from([Buffer.from([1])]);
+      },
+    });
+    const a = "w ".repeat(30).trim();
+    await createEdgeTts({ Client }).speak(`${a}, ${a}.`);
+    expect([...seen].sort()).toEqual([`${a},`, `${a}.`].sort());
+  });
+
   it("returns the concatenated stream bytes and closes the client", async () => {
     const { Client, made } = fakeClient({
       stream: () => Readable.from([Buffer.from([1, 2]), Buffer.from([3])]),

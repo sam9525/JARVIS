@@ -20,6 +20,42 @@ const sentences = (text: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+/** The longest text one Edge request carries. */
+export const MAX_CHUNK_CHARS = 100;
+
+// Index just past the last pause mark that fits in a chunk, or -1. A mark
+// counts only before a space, so "1,000" stays whole; a hyphen counts only
+// after a space too, so "well-known" does too.
+function lastPauseEnd(text: string): number {
+  for (let i = MAX_CHUNK_CHARS - 1; i >= 0; i--) {
+    const mark = text[i];
+    if (text[i + 1] !== " ") continue;
+    if (mark === "," || mark === ";" || mark === ":") return i + 1;
+    if (mark === "—" || mark === "–") return i + 1;
+    if (mark === "-" && text[i - 1] === " ") return i + 1;
+  }
+  return -1;
+}
+
+/** Sentences, with any over MAX_CHUNK_CHARS cut at a pause mark, else at a
+ * space; a single word longer than the cap stays whole. */
+export function speechChunks(text: string): string[] {
+  const chunks: string[] = [];
+  for (const sentence of sentences(text)) {
+    let rest = sentence;
+    while (rest.length > MAX_CHUNK_CHARS) {
+      const pause = lastPauseEnd(rest);
+      const space = rest.lastIndexOf(" ", MAX_CHUNK_CHARS);
+      const cut = pause > 0 ? pause : space > 0 ? space : rest.indexOf(" ");
+      if (cut < 0) break;
+      chunks.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    chunks.push(rest);
+  }
+  return chunks;
+}
+
 /** The structural subset of MsEdgeTTS this module uses — the same trick
  * `PtyLike` plays for node-pty, so tests inject a fake and need no network. */
 export interface EdgeClient {
@@ -86,10 +122,10 @@ export function createEdgeTts(deps: EdgeTtsDeps) {
   return {
     // Edge sends audio at about real time, so one request for a long line
     // keeps the renderer waiting about as long as the line plays. Each
-    // sentence is its own request, fetched in parallel, and MP3 frames join
+    // part is its own request, fetched in parallel, and MP3 frames join
     // byte for byte.
     async speak(text: string): Promise<Uint8Array | null> {
-      const parts = sentences(text);
+      const parts = speechChunks(text);
       if (!parts.length) return null;
       const audio: (Uint8Array | null)[] = [];
       let next = 0;
