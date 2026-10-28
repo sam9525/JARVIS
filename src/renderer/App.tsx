@@ -533,8 +533,12 @@ export default function App() {
 
   // debounced auto-open: last-read file after reads go quiet
   // the auto-open and a graph click preview a file of the workspace on screen
+  // on home it only closes: a read there must not cover the command center
+  const showHomeRef = useRef(showHome);
+  showHomeRef.current = showHome;
   const openActivePreview = useCallback((nodeId: string | null) => {
     const workspaceId = activeIdRef.current;
+    if (nodeId && showHomeRef.current) return;
     setPreview(nodeId && workspaceId ? { workspaceId, nodeId } : null);
   }, []);
   const onPreviewEvent = useMemo(
@@ -577,11 +581,17 @@ export default function App() {
   };
 
   // leaving home and going home both close a preview
+  // (end of openDoc)
   useEffect(() => {
     setPreview(null);
   }, [showHome]);
 
   const previewWs = previewWorkspace(preview, workspaces);
+  const previewOrphaned = preview !== null && previewWs === null;
+  // a preview whose workspace was removed closes instead of hiding
+  useEffect(() => {
+    if (previewOrphaned) setPreview(null);
+  }, [previewOrphaned]);
   const focusedNode = focusedPreviewNode(preview, active?.id, showHome);
 
   useEffect(() => {
@@ -1509,7 +1519,10 @@ export default function App() {
           homeActive={showHome}
           stagger={stage >= 1}
           onAddProject={addProject}
-          onHome={() => setShowHome(true)}
+          onHome={() => {
+            setPreview(null); // before paint, so the panel does not flash
+            setShowHome(true);
+          }}
           onSelect={(ws) => {
             setShowHome(false);
             openWorkspace(ws);

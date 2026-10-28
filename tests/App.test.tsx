@@ -171,8 +171,12 @@ describe("App shell", () => {
   it("keeps the question panel's doc open from moving the screen", () => {
     const source = readFileSync("src/renderer/App.tsx", "utf8");
     const start = source.indexOf("const openDoc");
-    const body = source.slice(start, source.indexOf("};", start));
+    const body = source.slice(
+      start,
+      source.indexOf("// (end of openDoc)", start),
+    );
     expect(start).toBeGreaterThan(-1);
+    expect(source.indexOf("// (end of openDoc)", start)).toBeGreaterThan(start);
     expect(body).not.toContain("setShowHome");
     expect(body).not.toContain("openWorkspace");
   });
