@@ -249,6 +249,26 @@ describe("FINISH_NUDGE", () => {
     expect(FINISH_NUDGE).toContain("three sentences at most");
   });
 
+  // a spoken count means nothing to a listener, and agent-reported counts
+  // have been wrong before
+  it("bans a passed-test count on every finish, not only after a build", () => {
+    expect(FINISH_NUDGE).toContain("Never say how many tests passed");
+    expect(
+      FINISH_NUDGE.indexOf("Never say how many tests passed"),
+    ).toBeLessThan(FINISH_NUDGE.indexOf("If it finished a build"));
+  });
+
+  it("asks for a test status after a build: all pass, or what failed", () => {
+    expect(FINISH_NUDGE).toContain("all tests pass");
+    expect(FINISH_NUDGE).toContain("how many failed and what they check");
+    expect(FINISH_NUDGE).toContain("three sentences at most");
+  });
+
+  it("says nothing about tests when the report does not clearly say they ran", () => {
+    expect(FINISH_NUDGE).toContain("skipped");
+    expect(FINISH_NUDGE).toContain("say nothing about tests");
+  });
+
   it("fits on one line, since it is typed into a TUI composer", () => {
     expect(FINISH_NUDGE).not.toContain("\n");
   });
