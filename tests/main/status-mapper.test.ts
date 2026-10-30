@@ -102,6 +102,61 @@ describe("callSignature", () => {
   });
 });
 
+describe("callSignature names", () => {
+  it("shortens an MCP tool and shows its main argument", () => {
+    expect(
+      callSignature("mcp__gitnexus__impact", {
+        target: "mapAskEvent",
+        repo: "JARVIS",
+      }),
+    ).toBe("gitnexus impact(mapAskEvent)");
+  });
+  it("takes the first listed key that holds a string", () => {
+    expect(
+      callSignature("mcp__gitnexus__query", {
+        repo: "J",
+        search_query: "voice",
+      }),
+    ).toBe("gitnexus query(voice)");
+  });
+  it("shows … for an MCP call with none of the keys", () => {
+    expect(callSignature("mcp__gitnexus__list_repos", {})).toBe(
+      "gitnexus list_repos(…)",
+    );
+  });
+  it("keeps the cap for a long MCP name", () => {
+    const s = callSignature("mcp__playwright__browser_take_screenshot", {
+      url: "x",
+    });
+    expect(s.length).toBeLessThanOrEqual(30);
+    expect(s.startsWith("playwright ")).toBe(true);
+  });
+  it.each([
+    ["mcp__x", "x(…)"],
+    ["mcp__", "mcp__(…)"],
+    ["mcp__a__b__c", "a b__c(…)"],
+  ])("names the odd MCP tool %s as %s", (n, want) => {
+    expect(callSignature(n, {})).toBe(want);
+  });
+  it("drops the plugin prefix of a skill", () => {
+    expect(callSignature("Skill", { skill: "superpowers:brainstorming" })).toBe(
+      "Skill(brainstorming)",
+    );
+    expect(callSignature("Skill", { skill: "tdd" })).toBe("Skill(tdd)");
+  });
+  it("names an Agent call by its description, else its type", () => {
+    expect(
+      callSignature("Agent", {
+        description: "Implement Task 2",
+        subagent_type: "general-purpose",
+      }),
+    ).toBe("Agent(Implement Task 2)");
+    expect(callSignature("Agent", { subagent_type: "Explore" })).toBe(
+      "Agent(Explore)",
+    );
+  });
+});
+
 describe("mapStatusEvent", () => {
   it("a permission notification is 'blocked'", () => {
     const e = mapStatusEvent(
