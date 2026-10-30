@@ -727,6 +727,32 @@ describe("step and stage", () => {
     expect(stepOf(s)).toBe("B");
   });
 
+  it("clears the step when the session exits, clean or crashed", () => {
+    for (const code of [0, 1]) {
+      const s = createStatusStore();
+      s.ptyLaunched("w1", 0);
+      s.applyStatus(ev({ step: "A" }));
+      s.ptyExited("w1", 2000, code);
+      expect(stepOf(s)).toBeUndefined();
+    }
+  });
+
+  it("clears the step when staleness demotes working to idle", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ step: "A" }));
+    s.sweep(1000 + STALE_MS);
+    expect(kindOf(s)).toBe("idle");
+    expect(stepOf(s)).toBeUndefined();
+  });
+
+  it("keeps the step a new session's first event carries", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ step: "A" }));
+    s.applyStatus(ev({ sessionId: "s2", step: "B" }));
+    expect(stepOf(s)).toBe("B");
+  });
+
   it("counts a step change as a change", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ call: "Bash(ls)", step: "A" }));

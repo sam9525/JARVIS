@@ -309,6 +309,7 @@ export function createStatusStore(
       e.ptyAlive = false;
       e.kind = exitCode === 0 ? "none" : "crashed";
       e.call = "";
+      e.step = "";
       e.since = now; // types.ts documents since as the last KIND change
       return true;
     },
@@ -326,6 +327,7 @@ export function createStatusStore(
           msSinceOutput(id) >= STALE_MS
         ) {
           e.kind = "idle";
+          e.step = ""; // Stop never fired, so nothing else will clear it
           e.since = now;
           changed = true;
         }
