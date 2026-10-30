@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  approvedDocClose,
   docKindOf,
   docPreviewId,
   docWriteOf,
@@ -100,5 +101,54 @@ describe("docPreviewId", () => {
     expect(docPreviewId("docs/superpowers/plans/p.md", null)).toBe(
       "docs/superpowers/plans/p.md",
     );
+  });
+});
+
+describe("approvedDocClose", () => {
+  const docs = {
+    spec: "docs/superpowers/specs/a.md",
+    plan: "docs/superpowers/plans/a.md",
+  };
+  const spec = { workspaceId: "d:/r", nodeId: docs.spec };
+  const yes = (header: string, label: string) => [{ header, label }];
+
+  it("closes on Spec → Approve for that session's spec", () => {
+    expect(approvedDocClose(yes("Spec", "Approve"), docs, "d:/r", spec)).toBe(
+      true,
+    );
+  });
+
+  it("closes on plan → Approve (Recommended)", () => {
+    expect(
+      approvedDocClose(yes("plan", "Approve (Recommended)"), docs, "d:/r", {
+        workspaceId: "d:/r",
+        nodeId: docs.plan,
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["Review in browser", yes("Spec", "Review in browser"), docs, "d:/r", spec],
+    ["another header", yes("Other", "Approve"), docs, "d:/r", spec],
+    ["no answers", [], docs, "d:/r", spec],
+    ["no preview", yes("Spec", "Approve"), docs, "d:/r", null],
+    [
+      "a different file",
+      yes("Spec", "Approve"),
+      docs,
+      "d:/r",
+      { workspaceId: "d:/r", nodeId: "src/a.ts" },
+    ],
+    ["a different workspace", yes("Spec", "Approve"), docs, "d:/other", spec],
+    [
+      "no doc of that kind",
+      yes("Spec", "Approve"),
+      { plan: docs.plan },
+      "d:/r",
+      spec,
+    ],
+    ["no docs at all", yes("Spec", "Approve"), undefined, "d:/r", spec],
+  ])("keeps it for %s", (_name, answers, d, ws, preview) => {
+    expect(approvedDocClose(answers, d, ws, preview)).toBe(false);
   });
 });

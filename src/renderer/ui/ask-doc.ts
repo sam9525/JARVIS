@@ -1,4 +1,6 @@
+import type { AskAnswer } from "../../main/ask-mapper";
 import type { ToolEvent } from "../../shared/types";
+import type { PreviewTarget } from "../preview/preview-target";
 
 export type DocKind = "spec" | "plan";
 
@@ -41,4 +43,25 @@ export function docPreviewId(
   worktreeLabel: string | null,
 ): string {
   return worktreeLabel ? `.worktrees/${worktreeLabel}/${nodeId}` : nodeId;
+}
+
+/**
+ * True when an answer approves a spec or plan and the open preview is exactly
+ * that session's document of the kind: approving it ends the review, but any
+ * other open file is none of the answer's business.
+ */
+export function approvedDocClose(
+  answers: AskAnswer[],
+  docs: AskDocs | undefined,
+  askWorkspaceId: string,
+  preview: PreviewTarget | null,
+): boolean {
+  if (!preview || preview.workspaceId !== askWorkspaceId) return false;
+  return answers.some((a) => {
+    const kind = docKindOf(a.header);
+    if (!kind || !a.label.trim().toLowerCase().startsWith("approve"))
+      return false;
+    const nodeId = docs?.[kind];
+    return nodeId !== undefined && preview.nodeId === nodeId;
+  });
 }

@@ -59,6 +59,13 @@ vi.mock("../src/renderer/terminal/TerminalPanel", () => ({
 vi.mock("../src/renderer/preview/Preview", () => ({
   default: (p: any) => {
     captured.preview = p;
+    // a closed preview unmounts, which reads as no preview at all
+    React.useEffect(
+      () => () => {
+        captured.preview = null;
+      },
+      [],
+    );
     return null;
   },
 }));
@@ -795,6 +802,58 @@ describe("App: the preview across sessions", () => {
       ),
     );
     expect(captured.preview.revision).toBe(before + 1);
+  });
+
+  describe("an approved document", () => {
+    const SPEC = "docs/superpowers/specs/a.md";
+    // the fixture sessions run in worktrees, so the preview id carries the prefix
+    const SPEC_PREVIEW = `.worktrees/main/${SPEC}`;
+    const specAsk = {
+      workspaceId: "d:/r",
+      sessionKey: "d:/r",
+      sessionId: "s-d:/r",
+      ts: 5,
+      questions: [
+        {
+          question: "Approve the spec?",
+          header: "Spec",
+          multiSelect: false,
+          options: [
+            { label: "Approve", description: "" },
+            { label: "Review in browser", description: "" },
+          ],
+        },
+      ],
+    };
+    const openSpecPreview = async () => {
+      await openRepo();
+      await act(async () =>
+        toolListener!(
+          event("d:/r", { phase: "post", tool: "Write", nodeIds: [SPEC] }),
+        ),
+      );
+      await act(async () => askListener!(specAsk));
+      const open = container.querySelector('[data-testid="ask-doc"]');
+      await act(async () => (open as HTMLButtonElement).click());
+      expect(captured.preview?.nodeId).toBe(SPEC_PREVIEW);
+    };
+    const answered = (label: string) => ({
+      ...specAsk,
+      questions: [],
+      answers: [{ header: "Spec", label }],
+    });
+
+    it("closes the spec preview when the spec is approved", async () => {
+      await openSpecPreview();
+      await act(async () => askListener!(answered("Approve")));
+      expect(captured.preview).toBeNull();
+    });
+
+    it("keeps the spec preview on Review in browser", async () => {
+      await openSpecPreview();
+      await act(async () => askListener!(answered("Review in browser")));
+      expect(captured.preview?.nodeId).toBe(SPEC_PREVIEW);
+    });
   });
 
   describe("a pending open", () => {

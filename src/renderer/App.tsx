@@ -12,7 +12,12 @@ import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
 import AskPanel, { pickAsk } from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
-import { docPreviewId, docWriteOf, type AskDocs } from "./ui/ask-doc";
+import {
+  approvedDocClose,
+  docPreviewId,
+  docWriteOf,
+  type AskDocs,
+} from "./ui/ask-doc";
 import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
@@ -674,6 +679,16 @@ export default function App() {
     );
     offs.push(
       window.jarvis.onAsk?.((p) => {
+        if (
+          p.questions.length === 0 &&
+          approvedDocClose(
+            p.answers ?? [],
+            askDocsRef.current.get(p.sessionKey),
+            p.workspaceId,
+            previewRef.current,
+          )
+        )
+          setPreview(null);
         setAsks((prev) => {
           const next = new Map(prev);
           if (p.questions.length === 0) next.delete(p.sessionKey);
