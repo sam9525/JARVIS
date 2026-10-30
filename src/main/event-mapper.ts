@@ -12,7 +12,7 @@ export interface RawHookEvent {
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: unknown; // PostToolUse only; read solely for the Grep/Glob match highlight
+  tool_response?: unknown; // PostToolUse only; read for Grep/Glob matches, gitnexus impact hits and AskUserQuestion answers
   notification_type?: string; // Notification only; read by status-mapper.ts
   last_assistant_message?: string; // Stop only; the final assistant text of the turn
   prompt?: string; // UserPromptSubmit only; read by status-mapper.ts
