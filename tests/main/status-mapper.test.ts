@@ -439,3 +439,64 @@ describe("mapStatusEvent session key", () => {
     expect(e?.fromApp).toBe(false);
   });
 });
+
+describe("step and stage", () => {
+  const map = (raw: Record<string, unknown>) =>
+    mapStatusEvent(
+      { ...base, ...raw } as Parameters<typeof mapStatusEvent>[0],
+      workspaces,
+    );
+
+  it("takes the step from a call's description", () => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "ls", description: "List the folder" },
+      })!.step,
+    ).toBe("List the folder");
+  });
+
+  it.each([undefined, "", 42])("gives no step for a description of %s", (d) => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "ls", description: d },
+      })!.step,
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["superpowers:brainstorming", "Spec"],
+    ["brainstorming", "Spec"],
+    ["superpowers:writing-plans", "Plan"],
+    ["superpowers:subagent-driven-development", "Build"],
+    ["superpowers:executing-plans", "Build"],
+  ])("maps skill %s to stage %s", (skill, stage) => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Skill",
+        tool_input: { skill },
+      })!.stage,
+    ).toBe(stage);
+  });
+
+  it("gives no stage for another skill", () => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Skill",
+        tool_input: { skill: "tdd" },
+      })!.stage,
+    ).toBeUndefined();
+  });
+
+  it("clears the step on a prompt and on Stop", () => {
+    expect(
+      map({ hook_event_name: "UserPromptSubmit", prompt: "hi" })!.step,
+    ).toBe("");
+    expect(map({ hook_event_name: "Stop" })!.step).toBe("");
+  });
+});

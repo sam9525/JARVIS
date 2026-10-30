@@ -1,5 +1,6 @@
 import { MAIN_LABEL, parseSessionKey } from "../shared/session-key";
 import type {
+  PipelineStage,
   SessionStatus,
   StatusEvent,
   StatusKind,
@@ -21,6 +22,8 @@ interface Entry {
   worktree: boolean;
   kind: StatusKind;
   call: string;
+  step: string;
+  stage: PipelineStage | "";
   message: string;
   messageAt: number;
   delegatedBy: string;
@@ -101,6 +104,8 @@ export function createStatusStore(
         worktree: false,
         kind: "none",
         call: "",
+        step: "",
+        stage: "",
         message: "",
         messageAt: 0,
         delegatedBy: "",
@@ -187,17 +192,23 @@ export function createStatusStore(
       const call = ev.call || e.call;
       // only Stop carries a message; keep the prior one otherwise so a running
       // turn still remembers the last thing Claude said
+      const step = sessionChanged ? (ev.step ?? "") : (ev.step ?? e.step);
+      const stage = sessionChanged ? (ev.stage ?? "") : (ev.stage ?? e.stage);
       const message = ev.message ?? e.message;
       const messageAt = ev.message === undefined ? e.messageAt : ev.ts;
       const changed =
         sessionChanged ||
         e.kind !== ev.kind ||
         e.call !== call ||
+        e.step !== step ||
+        e.stage !== stage ||
         e.message !== message ||
         e.messageAt !== messageAt;
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
       e.call = call;
+      e.step = step;
+      e.stage = stage;
       e.message = message;
       e.messageAt = messageAt;
       e.lastEventAt = ev.ts;
@@ -263,8 +274,14 @@ export function createStatusStore(
     sessionOpened(key, worktree, now) {
       const e = entry(key, now);
       // a reopened label is a new conversation, so the old topic is dropped
-      const changed = e.worktree !== worktree || e.topic !== "";
+      const changed =
+        e.worktree !== worktree ||
+        e.topic !== "" ||
+        e.step !== "" ||
+        e.stage !== "";
       e.worktree = worktree;
+      e.step = "";
+      e.stage = "";
       e.topic = "";
       e.topicPinned = false;
       return changed;
@@ -361,6 +378,8 @@ export function createStatusStore(
           workspaceId,
           kind: urgent.kind,
           call: urgent.call,
+          ...(urgent.step ? { step: urgent.step } : {}),
+          ...(urgent.stage ? { stage: urgent.stage } : {}),
           message: latest.message,
           messageAt: latest.messageAt,
           delegatedBy: urgent.delegatedBy,

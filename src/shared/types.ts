@@ -43,10 +43,14 @@ export interface SessionStatus {
 
 // what the rail badge and the mission-control cards read: the aggregate of the
 // workspace's sessions, plus the sessions themselves
+export type PipelineStage = "Spec" | "Plan" | "Build";
+
 export interface WorkspaceStatus {
   workspaceId: string;
   kind: StatusKind;
   call: string; // compact "Tool(subject)"; "" when there is nothing to show
+  step?: string; // the current call's own description; absent when empty
+  stage?: PipelineStage; // pipeline stage a Skill call entered; absent when none
   message?: string; // idle: the last thing Claude said, for the inbox
   messageAt?: number; // ms epoch of the Stop that set message — tells a repeated reply from the same reply pushed again
   delegatedBy?: string; // orchestrator that submitted the current turn; "" when the user did
@@ -65,6 +69,8 @@ export interface StatusEvent {
   // "none" is never a hook outcome, only a PTY one; "crashed" likewise
   kind: "working" | "asking" | "blocked" | "idle";
   call: string;
+  step?: string; // the call's description; "" clears it, absent keeps it
+  stage?: PipelineStage; // set by a pipeline Skill call; absent keeps it
   message?: string; // Stop only: the last thing Claude said, for the inbox
   prompt?: string; // UserPromptSubmit only: what was submitted
   transcriptPath?: string; // any event: where the session transcript lives

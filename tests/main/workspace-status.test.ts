@@ -663,3 +663,73 @@ describe("crashed", () => {
     });
   });
 });
+
+describe("step and stage", () => {
+  const stepOf = (s: ReturnType<typeof createStatusStore>) =>
+    s.snapshot()[0].step;
+  const stageOf = (s: ReturnType<typeof createStatusStore>) =>
+    s.snapshot()[0].stage;
+
+  it("keeps the step through a call with no description", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ step: "A" }));
+    s.applyStatus(ev({ call: "Read(x)" }));
+    expect(stepOf(s)).toBe("A");
+  });
+
+  it("clears the step on a prompt, on Stop and on a new session", () => {
+    const clearers: Partial<StatusEvent>[] = [
+      { step: "" },
+      { kind: "idle", step: "" },
+      { sessionId: "s2" },
+    ];
+    for (const c of clearers) {
+      const s = createStatusStore();
+      s.applyStatus(ev({ step: "A" }));
+      s.applyStatus(ev(c));
+      expect(stepOf(s)).toBeUndefined();
+    }
+  });
+
+  it("keeps step and stage through a permission prompt", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ call: "Bash(ls)", step: "A", stage: "Build" }));
+    s.applyStatus(ev({ kind: "blocked", call: "" }));
+    expect(stepOf(s)).toBe("A");
+    expect(stageOf(s)).toBe("Build");
+  });
+
+  it("keeps the stage across Stop and a new prompt", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ stage: "Plan" }));
+    s.applyStatus(ev({ kind: "idle", step: "" }));
+    s.applyStatus(ev({ step: "" }));
+    expect(stageOf(s)).toBe("Plan");
+  });
+
+  it("clears the stage on a new session and on sessionOpened", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ stage: "Plan" }));
+    s.applyStatus(ev({ sessionId: "s2" }));
+    expect(stageOf(s)).toBeUndefined();
+    s.applyStatus(ev({ stage: "Spec" }));
+    expect(s.sessionOpened("w1", false, 2000)).toBe(true);
+    expect(stageOf(s)).toBeUndefined();
+  });
+
+  it("takes step and stage from the most urgent session", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", stage: "Build" }));
+    s.applyStatus(
+      ev({ sessionKey: "w1#1", kind: "asking", stage: "Plan", step: "B" }),
+    );
+    expect(stageOf(s)).toBe("Plan");
+    expect(stepOf(s)).toBe("B");
+  });
+
+  it("counts a step change as a change", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ call: "Bash(ls)", step: "A" }));
+    expect(s.applyStatus(ev({ call: "Bash(ls)", step: "B" }))).toBe(true);
+  });
+});

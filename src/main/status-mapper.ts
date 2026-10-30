@@ -1,5 +1,5 @@
 import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
-import type { StatusEvent, Workspace } from "../shared/types";
+import type { PipelineStage, StatusEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 import { callSignature } from "../shared/call-signature";
 
@@ -11,6 +11,27 @@ function askHeader(input: Record<string, unknown>): string {
   if (!Array.isArray(qs) || qs.length === 0) return "AskUserQuestion";
   const h = (qs[0] as Record<string, unknown> | undefined)?.header;
   return typeof h === "string" && h ? h : "AskUserQuestion";
+}
+
+const STAGE_BY_SKILL: Record<string, PipelineStage> = {
+  brainstorming: "Spec",
+  "writing-plans": "Plan",
+  "subagent-driven-development": "Build",
+  "executing-plans": "Build",
+};
+
+function stepOf(input: Record<string, unknown>): { step?: string } {
+  const d = input.description;
+  return typeof d === "string" && d ? { step: d } : {};
+}
+
+function stageOf(
+  tool: unknown,
+  input: Record<string, unknown>,
+): { stage?: PipelineStage } {
+  if (tool !== "Skill" || typeof input.skill !== "string") return {};
+  const stage = STAGE_BY_SKILL[input.skill.split(":").pop() ?? ""];
+  return stage ? { stage } : {};
 }
 
 // Second, independent mapper: same raw payload as mapHookEvent, different
@@ -48,6 +69,7 @@ export function mapStatusEvent(
         ...common,
         kind: "idle",
         call: "",
+        step: "",
         message:
           typeof raw.last_assistant_message === "string"
             ? raw.last_assistant_message
@@ -58,6 +80,7 @@ export function mapStatusEvent(
         ...common,
         kind: "working",
         call: "",
+        step: "",
         prompt: typeof raw.prompt === "string" ? raw.prompt : undefined,
       };
     case "PreToolUse":
@@ -68,11 +91,14 @@ export function mapStatusEvent(
           ...common,
           kind: "asking",
           call: askHeader(raw.tool_input ?? {}),
+          ...stepOf(raw.tool_input ?? {}),
         };
       return {
         ...common,
         kind: "working",
         call: callSignature(String(raw.tool_name ?? ""), raw.tool_input ?? {}),
+        ...stepOf(raw.tool_input ?? {}),
+        ...stageOf(raw.tool_name, raw.tool_input ?? {}),
       };
     default:
       return null; // PostToolUse included — Pre already reported the call
