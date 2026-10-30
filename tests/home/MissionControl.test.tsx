@@ -426,6 +426,43 @@ describe("MissionControl", () => {
   });
 });
 
+describe("step line and stage chip", () => {
+  const renderWith = (s: Partial<WorkspaceStatus>) =>
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [status({ workspaceId: "w1", ...s })],
+        }) as any)}
+      />,
+    );
+
+  it("shows the stage chip while working and asking", () => {
+    for (const kind of ["working", "asking"] as const) {
+      renderWith({ kind, stage: "Plan" });
+      expect(screen.byTestId("stage-w1").text).toBe("Plan");
+    }
+  });
+
+  it("hides the stage chip on an idle card", () => {
+    renderWith({ kind: "idle", stage: "Build" });
+    expect(() => screen.byTestId("stage-w1")).toThrow();
+  });
+
+  it("shows the step line with its full text as title", () => {
+    renderWith({ kind: "working", step: "Task 3: Draw the step line" });
+    expect(screen.byTestId("step-w1").text).toBe("Task 3: Draw the step line");
+    expect(screen.byTestId("step-w1").props.title).toBe(
+      "Task 3: Draw the step line",
+    );
+  });
+
+  it("keeps the step line when there is no step", () => {
+    renderWith({ kind: "working" });
+    expect(screen.byTestId("step-w1").text).toBe(" ");
+    expect(screen.byTestId("step-w1").props.title).toBeUndefined();
+  });
+});
+
 describe("six status kinds on a card", () => {
   const renderCard = (s: WorkspaceStatus) =>
     renderToStaticMarkup(

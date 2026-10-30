@@ -36,6 +36,9 @@ export const DOT: Record<StatusKind, string> = {
   none: "border border-ink-dim",
 };
 
+// the pipeline stage only means something while a session is mid-task
+const STAGE_KINDS: StatusKind[] = ["working", "asking", "blocked"];
+
 const TEXT: Record<StatusKind, string> = {
   working: "text-accent",
   asking: "text-warm",
@@ -173,9 +176,18 @@ export default function MissionControl({
                     ↳ delegated by {st.delegatedBy}
                   </span>
                 )}
+                {st?.stage && STAGE_KINDS.includes(kind) && (
+                  <span
+                    data-testid={`stage-${ws.id}`}
+                    className="ml-auto rounded border border-edge px-1.5 font-mono text-[9px] uppercase tracking-widest text-ink-muted"
+                  >
+                    {st.stage}
+                  </span>
+                )}
               </div>
 
-              {/* one line, ellipsized — a card's height never depends on what
+              {/* the call and step lines are one line each, ellipsized, and
+                  always rendered — a card's height never depends on what
                   Claude happens to be doing */}
               <div
                 data-testid={`call-${ws.id}`}
@@ -183,6 +195,13 @@ export default function MissionControl({
                 className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11.5px] text-accent-soft"
               >
                 {st?.call || " "}
+              </div>
+              <div
+                data-testid={`step-${ws.id}`}
+                title={st?.step || undefined}
+                className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-ink-muted"
+              >
+                {st?.step || " "}
               </div>
 
               {needsIndex ? (
