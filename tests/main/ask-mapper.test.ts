@@ -43,6 +43,7 @@ describe("mapAskEvent", () => {
     );
     expect(out).not.toBeUndefined();
     expect(out!.questions).toHaveLength(0);
+    expect(out!.answers).toEqual([]);
     expect(out!.workspaceId).toBe(workspaces[0].id);
     expect(out!.sessionId).toBe("s1");
   });
@@ -115,6 +116,49 @@ describe("mapAskEvent", () => {
       ),
     ).toBeUndefined();
   });
+});
+
+describe("mapAskEvent answers on the clear", () => {
+  const clear = () =>
+    fixture("posttooluse-ask") as never as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  it("reports the answered header and label on the clear", () => {
+    const out = mapAskEvent(clear() as never, workspaces);
+    expect(out!.questions).toEqual([]);
+    expect(out!.answers).toEqual([{ header: "Spec", label: "Approve" }]);
+  });
+
+  it("drops an answer that is not an offered option", () => {
+    const raw = clear();
+    raw.tool_response.answers = {
+      "Approve the spec?": "approve, but rename section 2",
+    };
+    expect(mapAskEvent(raw as never, workspaces)!.answers).toEqual([]);
+  });
+
+  it("drops an answer whose question is not listed", () => {
+    const raw = clear();
+    raw.tool_response.answers = { "Other?": "Approve" };
+    expect(mapAskEvent(raw as never, workspaces)!.answers).toEqual([]);
+  });
+
+  it("falls back to tool_input when tool_response is missing", () => {
+    const raw = clear();
+    delete raw.tool_response;
+    expect(mapAskEvent(raw as never, workspaces)!.answers).toEqual([
+      { header: "Spec", label: "Approve" },
+    ]);
+  });
+
+  it.each([undefined, null, "text", 42, { questions: "x", answers: [] }])(
+    "gives no answers for a tool_response of %s",
+    (tool_response) => {
+      const raw = clear();
+      raw.tool_response = tool_response;
+      delete raw.tool_input.answers;
+      expect(mapAskEvent(raw as never, workspaces)!.answers).toEqual([]);
+    },
+  );
 });
 
 describe("mapAskEvent session key", () => {
