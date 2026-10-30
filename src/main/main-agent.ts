@@ -279,16 +279,47 @@ export const CLEAR_INPUT = "\x15\x0b\x7f".repeat(10);
 export const CLEAR_GAP_MS = 250;
 export const SUBMIT_GAP_MS = 80;
 
-/** Types a nudge into the main agent's session as clear, text, Enter — three
- * separate writes. False when there is no session to type into. */
+/** Longest chunk typed in one write. The TUI reads a single chunk over its
+ * paste threshold (between 681 and 1076 characters on Claude Code 2.1.312) as
+ * a paste and hands the model a `pasted_content` tag; chunks of at most 500
+ * written apart arrive as plain typed text. */
+export const NUDGE_PART_CHARS = 500;
+
+/** Splits a nudge into parts of at most NUDGE_PART_CHARS that join back to the
+ * text exactly. A cut falls on a space and that space opens the next part; a
+ * word longer than the limit stays whole. */
+export function nudgeParts(text: string): string[] {
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > NUDGE_PART_CHARS) {
+    let cut = rest.lastIndexOf(" ", NUDGE_PART_CHARS);
+    if (cut <= 0) cut = rest.indexOf(" ", NUDGE_PART_CHARS);
+    if (cut === -1) break;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  parts.push(rest);
+  return parts;
+}
+
+/** Types a nudge into the main agent's session as clear, the text in parts,
+ * Enter — each a separate write, so the TUI never reads the text as a paste.
+ * False when there is no session to type into; a part that fails to write
+ * ends the rest and the Enter. */
 export function typeNudge(
   write: (data: string) => boolean,
   text: string,
 ): boolean {
   if (!write(CLEAR_INPUT)) return false;
-  setTimeout(() => {
-    if (write(text)) setTimeout(() => write("\r"), SUBMIT_GAP_MS);
-  }, CLEAR_GAP_MS);
+  const parts = nudgeParts(text);
+  const typePart = (index: number) => {
+    if (!write(parts[index])) return;
+    setTimeout(
+      index + 1 < parts.length ? () => typePart(index + 1) : () => write("\r"),
+      SUBMIT_GAP_MS,
+    );
+  };
+  setTimeout(() => typePart(0), CLEAR_GAP_MS);
   return true;
 }
 
@@ -305,9 +336,12 @@ export const dailyBriefPrompt = (notePaths: string[]): string =>
   notePaths.join(", ") +
   ". They are the same day's notes, one per machine. Their filenames carry " +
   "the date — if it is not yesterday's, say which day it is from. Then write " +
-  "one summary across all of them, with one paragraph per project they " +
-  "mention: what moved, and what is still open. Say nothing about a project " +
-  "they do not mention.";
+  "one short briefing across all of them, in three parts. First, the three " +
+  "things most worth starting today, each with one reason. Second, for each " +
+  "project they mention, what is still open or blocked and its next step. " +
+  "Third, any decision, new finding or new risk. Mention finished work only " +
+  "when it changes the plan. No counts, no commit IDs, no file names. Say " +
+  "nothing about a project they do not mention.";
 
 /** Typed into the main agent's session on the first launch of a day. The
  * main agent delegates the note to `workspace` — the vault workspace — rather

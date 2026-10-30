@@ -7,6 +7,7 @@ import {
   BRIEF_AFTER_HOUR,
   CLEAR_INPUT,
   FINISH_NUDGE,
+  NUDGE_PART_CHARS,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
   dailyBriefNudge,
@@ -17,6 +18,7 @@ import {
   CLEAR_GAP_MS,
   SUBMIT_GAP_MS,
   mainAgentWorkspace,
+  nudgeParts,
   typeNudge,
   withMainAgent,
 } from "../../src/main/main-agent";
@@ -330,14 +332,23 @@ describe("dailyBriefPrompt", () => {
     expect(a).toBe(b);
   });
 
-  it("asks for a written summary, one paragraph per project", () => {
+  it("asks for three parts: today's top three, open items, decisions and risks", () => {
     const text = dailyBriefPrompt(notes);
-    expect(text).toContain("one paragraph per project");
-    expect(text).toContain("what moved");
-    expect(text).toContain("still open");
+    expect(text).toContain("the three things most worth starting today");
+    expect(text).toContain("still open or blocked and its next step");
+    expect(text).toContain("any decision, new finding or new risk");
+    expect(text.indexOf("three things")).toBeLessThan(
+      text.indexOf("still open"),
+    );
+    expect(text.indexOf("still open")).toBeLessThan(text.indexOf("new risk"));
+    expect(text).toContain(
+      "Mention finished work only when it changes the plan",
+    );
+    expect(text).toContain("No counts, no commit IDs, no file names");
+    expect(text).toContain("Say nothing about a project they do not mention");
+    expect(text).not.toContain("one paragraph per project");
     // the main agent's finish summary is the spoken part, not this answer
     expect(text).not.toContain("spoken");
-    expect(text).not.toContain("first sentence");
   });
 
   it("asks the delegate to report a note that is not yesterday's", () => {
@@ -380,6 +391,36 @@ describe("briefing constants", () => {
   });
 });
 
+describe("nudgeParts", () => {
+  it("keeps a text of at most 500 characters whole", () => {
+    expect(nudgeParts("a".repeat(500))).toEqual(["a".repeat(500)]);
+    expect(nudgeParts("hello")).toEqual(["hello"]);
+  });
+
+  it("cuts at the last space before 500, and the space starts the next part", () => {
+    const text = "word ".repeat(150).trim(); // 749 chars
+    const parts = nudgeParts(text);
+    expect(parts.length).toBe(2);
+    expect(parts.every((p) => p.length <= NUDGE_PART_CHARS)).toBe(true);
+    expect(parts[1].startsWith(" ")).toBe(true);
+    expect(parts.join("")).toBe(text);
+  });
+
+  it("keeps a word longer than the limit whole", () => {
+    const text = "x".repeat(600) + " tail";
+    const parts = nudgeParts(text);
+    expect(parts[0]).toBe("x".repeat(600));
+    expect(parts.join("")).toBe(text);
+  });
+
+  it("splits FINISH_NUDGE into parts of at most 500 that join back", () => {
+    const parts = nudgeParts(FINISH_NUDGE);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.length <= NUDGE_PART_CHARS)).toBe(true);
+    expect(parts.join("")).toBe(FINISH_NUDGE);
+  });
+});
+
 describe("typeNudge", () => {
   const recorder = (alive = true) => {
     const writes: string[] = [];
@@ -401,6 +442,35 @@ describe("typeNudge", () => {
     expect(writes).toEqual([CLEAR_INPUT, "hello"]);
     vi.advanceTimersByTime(SUBMIT_GAP_MS);
     expect(writes).toEqual([CLEAR_INPUT, "hello", "\r"]);
+    vi.useRealTimers();
+  });
+
+  it("types a long nudge as parts 80 ms apart, then Enter", () => {
+    vi.useFakeTimers();
+    const { writes, write } = recorder();
+    const parts = nudgeParts(FINISH_NUDGE);
+    typeNudge(write, FINISH_NUDGE);
+    vi.advanceTimersByTime(CLEAR_GAP_MS);
+    expect(writes).toEqual([CLEAR_INPUT, parts[0]]);
+    vi.advanceTimersByTime(SUBMIT_GAP_MS);
+    expect(writes).toEqual([CLEAR_INPUT, parts[0], parts[1]]);
+    vi.runAllTimers();
+    expect(writes).toEqual([CLEAR_INPUT, ...parts, "\r"]);
+    vi.useRealTimers();
+  });
+
+  it("stops the rest and the Enter when a part write fails", () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    let n = 0;
+    const write = (d: string) => {
+      writes.push(d);
+      return ++n < 3; // clear ok, part 1 ok, part 2 fails
+    };
+    typeNudge(write, FINISH_NUDGE);
+    vi.runAllTimers();
+    const parts = nudgeParts(FINISH_NUDGE);
+    expect(writes).toEqual([CLEAR_INPUT, parts[0], parts[1]]);
     vi.useRealTimers();
   });
 
