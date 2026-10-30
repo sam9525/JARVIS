@@ -89,10 +89,11 @@ let generation = 0;
 
 /** Longest one line may hold the queue. A cloud `onended` that never fires
  * would otherwise silence every line behind it for the rest of the session. */
-// Sits above the worst fetch (tts.ts AbortSignal.timeout(8000) plus the
-// edge-tts 8000 ms race, about 16 s) plus a SUMMARY_MAX line (about 35 s);
-// raise it with those timeouts.
-export const TURN_CAP_MS = 60_000;
+// Sits above the worst fetch: the ElevenLabs 8 s timeout, then a worker
+// holding 2 edge-tts parts that both fail and retry, 2 x (8.8 + 8.8) s, about
+// 43 s, then a SUMMARY_MAX line (about 35 s), about 78 s in all. Raise it with
+// those timeouts.
+export const TURN_CAP_MS = 100_000;
 
 // Tail of the line chain; each speak() appends one turn to it.
 let queue: Promise<void> = Promise.resolve();

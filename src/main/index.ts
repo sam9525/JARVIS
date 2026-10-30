@@ -82,6 +82,7 @@ import { readAiTitle, topicWord } from "./transcript-title";
 import { createTts } from "./tts";
 import { MsEdgeTTS } from "msedge-tts";
 import { createEdgeTts } from "./edge-tts";
+import { appendCapped } from "./capped-log";
 import { importHead, listHeads, readHead } from "./head-models";
 import {
   hasTranscript,
@@ -400,7 +401,14 @@ app.whenReady().then(async () => {
   });
 
   const tts = createTts({ fetch: globalThis.fetch });
-  const edge = createEdgeTts({ Client: MsEdgeTTS });
+  const edge = createEdgeTts({
+    Client: MsEdgeTTS,
+    log: (line) =>
+      void appendCapped(
+        path.join(app.getPath("userData"), "edge-tts.log"),
+        line,
+      ),
+  });
   ipcMain.handle("tts-speak", async (_e, text: string) => {
     const cfg = {
       apiKey: ttsKey(),

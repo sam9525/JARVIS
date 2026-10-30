@@ -71,18 +71,23 @@ export interface EdgeClient {
 
 export interface EdgeTtsDeps {
   Client: new () => EdgeClient;
+  /** One diagnostic line per failed try; never carries the spoken text. */
+  log?: (line: string) => void;
 }
 
+type SentenceResult = { audio: Uint8Array } | { reason: string };
+
 export function createEdgeTts(deps: EdgeTtsDeps) {
+  const log = deps.log ?? (() => undefined);
   // A client per call: the socket idles out between utterances, and a
   // reconnect-on-stale path costs more than a handshake saves.
-  async function speakSentence(text: string): Promise<Uint8Array | null> {
+  async function speakSentence(text: string): Promise<SentenceResult> {
     let client: EdgeClient | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // The reason only, never the sentence: the log must not carry the line.
     const fail = (reason: string) => {
       console.warn(`[edge] sentence failed: ${reason.slice(0, 160)}`);
-      return null;
+      return { reason };
     };
     try {
       const c = (client = new deps.Client());
@@ -115,7 +120,7 @@ export function createEdgeTts(deps: EdgeTtsDeps) {
       ]);
       if (result === "quiet") return fail(`no audio for ${IDLE_MS} ms`);
       if (result instanceof Error) return fail(result.message);
-      return result.length ? result : fail("empty stream");
+      return result.length ? { audio: result } : fail("empty stream");
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     } finally {
@@ -128,27 +133,53 @@ export function createEdgeTts(deps: EdgeTtsDeps) {
     // Edge sends audio at about real time, so one request for a long line
     // keeps the renderer waiting about as long as the line plays. Each
     // part is its own request, fetched in parallel, and MP3 frames join
-    // byte for byte.
+    // byte for byte. A part that fails gets one retry on a new client.
     async speak(text: string): Promise<Uint8Array | null> {
       const parts = speechChunks(text);
       if (!parts.length) return null;
-      const audio: (Uint8Array | null)[] = [];
+      const audio: Uint8Array[] = [];
       let next = 0;
       let failed = false;
       const worker = async () => {
         while (!failed && next < parts.length) {
           const i = next++;
-          audio[i] = await speakSentence(parts[i]);
-          if (!audio[i]) failed = true;
+          const label = `part ${i + 1}/${parts.length} chars ${parts[i].length}`;
+          const attempt = async (n: number) => {
+            const started = Date.now();
+            const result = await speakSentence(parts[i]);
+            return {
+              result,
+              note: `${label} try ${n}`,
+              ms: Date.now() - started,
+            };
+          };
+          const first = await attempt(1);
+          if ("audio" in first.result) {
+            audio[i] = first.result.audio;
+            continue;
+          }
+          log(
+            `${first.note} ${first.result.reason} after ${first.ms} ms → retrying`,
+          );
+          const second = await attempt(2);
+          if ("audio" in second.result) {
+            audio[i] = second.result.audio;
+            log(`${second.note} ok after ${second.ms} ms`);
+            continue;
+          }
+          log(
+            `${second.note} ${second.result.reason} after ${second.ms} ms → line dropped`,
+          );
+          failed = true;
         }
       };
       await Promise.all(
         Array.from({ length: Math.min(PARALLEL, parts.length) }, worker),
       );
-      // One voice per line: a missing sentence sends the whole line to the
-      // OS voice rather than switching voices mid-line.
+      // One voice per line: a part still missing after its retry sends the
+      // whole line to the OS voice rather than switching voices mid-line.
       if (failed) return null;
-      return new Uint8Array(Buffer.concat(audio as Uint8Array[]));
+      return new Uint8Array(Buffer.concat(audio));
     },
   };
 }

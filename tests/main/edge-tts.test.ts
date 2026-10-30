@@ -269,9 +269,11 @@ describe("edge.speak", () => {
     vi.useFakeTimers();
     const { Client, made } = fakeClient({ stream: () => new PassThrough() });
     const pending = createEdgeTts({ Client }).speak("hi");
-    await vi.advanceTimersByTimeAsync(8000);
+    await vi.advanceTimersByTimeAsync(16_000);
     expect(await pending).toBe(null);
+    expect(made).toHaveLength(2);
     expect(made[0].close).toHaveBeenCalledTimes(1);
+    expect(made[1].close).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a slow sentence that is still sending past 8 s", async () => {
@@ -304,10 +306,11 @@ describe("edge.speak", () => {
     await vi.advanceTimersByTimeAsync(7999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect(await pending).toBe(null);
     expect(warn).toHaveBeenCalledWith(
       "[edge] sentence failed: no audio for 8000 ms",
     );
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await pending).toBe(null);
   });
 
   it("logs the reason of a failed sentence but never its text", async () => {
@@ -320,5 +323,71 @@ describe("edge.speak", () => {
       "[edge] sentence failed: Unexpected server response: 403",
     );
     expect(String(warn.mock.calls)).not.toContain("Secret plan");
+  });
+});
+
+describe("edge.speak retry", () => {
+  it("retries a part that fails once and keeps the line", async () => {
+    let calls = 0;
+    const log = vi.fn();
+    const { Client, made } = fakeClient({
+      stream: () =>
+        ++calls === 1 ? Readable.from([]) : Readable.from([Buffer.from([7])]),
+    });
+    expect(await createEdgeTts({ Client, log }).speak("hi")).toEqual(
+      new Uint8Array([7]),
+    );
+    expect(made).toHaveLength(2);
+    expect(log.mock.calls[0][0]).toMatch(
+      /^part 1\/1 chars 2 try 1 empty stream after \d+ ms → retrying$/,
+    );
+    expect(log.mock.calls[1][0]).toMatch(
+      /^part 1\/1 chars 2 try 2 ok after \d+ ms$/,
+    );
+  });
+
+  it("drops the line when the retry fails too", async () => {
+    const log = vi.fn();
+    const { Client, made } = fakeClient({ stream: () => Readable.from([]) });
+    expect(await createEdgeTts({ Client, log }).speak("hi")).toBe(null);
+    expect(made).toHaveLength(2);
+    expect(log.mock.calls.map((c) => c[0])).toEqual([
+      expect.stringMatching(/try 1 empty stream after \d+ ms → retrying$/),
+      expect.stringMatching(/try 2 empty stream after \d+ ms → line dropped$/),
+    ]);
+  });
+
+  it("retries a part that stays silent past 8 s", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const { Client } = fakeClient({
+      stream: () =>
+        ++calls === 1 ? new PassThrough() : Readable.from([Buffer.from([5])]),
+    });
+    const pending = createEdgeTts({ Client }).speak("hi");
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await pending).toEqual(new Uint8Array([5]));
+  });
+
+  it("names the part by position and never logs its text", async () => {
+    const log = vi.fn();
+    const { Client } = fakeClient({
+      stream: (text) =>
+        text === "Secret plan."
+          ? Readable.from([])
+          : Readable.from([Buffer.from([1])]),
+    });
+    await createEdgeTts({ Client, log }).speak("Good. Secret plan. Good.");
+    expect(log.mock.calls[0][0]).toMatch(/^part 2\/3 chars 12 try 1 /);
+    expect(String(log.mock.calls)).not.toContain("Secret");
+  });
+
+  it("logs nothing for a line with no failure", async () => {
+    const log = vi.fn();
+    const { Client } = fakeClient({
+      stream: () => Readable.from([Buffer.from([1])]),
+    });
+    await createEdgeTts({ Client, log }).speak("One. Two.");
+    expect(log).not.toHaveBeenCalled();
   });
 });
