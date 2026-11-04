@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import {
   AGENT_GUIDE,
   BRIEF_AFTER_HOUR,
@@ -13,6 +14,7 @@ import {
   dailyBriefNudge,
   dailyBriefPrompt,
   ensureMainAgent,
+  GUIDE_HASH_FILE,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
   CLEAR_GAP_MS,
@@ -114,11 +116,102 @@ const tmpRoot = async () =>
   );
 
 describe("ensureMainAgent", () => {
-  it("creates the folder and writes the standing instruction", async () => {
+  const hashOf = (text: string) =>
+    createHash("sha256").update(text).digest("hex");
+  const guidePath = (root: string) => path.join(root, "CLAUDE.md");
+  const hashPath = (root: string) => path.join(root, GUIDE_HASH_FILE);
+  const denied = () => Object.assign(new Error("denied"), { code: "EACCES" });
+
+  it("writes the guide and the hash on a first run, and reports it", async () => {
+    const root = await tmpRoot();
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+    expect(await fs.readFile(hashPath(root), "utf8")).toBe(hashOf(AGENT_GUIDE));
+  });
+
+  it("reports nothing on a second run", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
-    const guide = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
-    expect(guide).toBe(AGENT_GUIDE);
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
+  });
+
+  it("keeps a hand edit while the source is unchanged", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.writeFile(guidePath(root), "edited");
+    const hashBefore = await fs.readFile(hashPath(root), "utf8");
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe("edited");
+    expect(await fs.readFile(hashPath(root), "utf8")).toBe(hashBefore);
+  });
+
+  it("overwrites an old guide that has no hash file", async () => {
+    const root = await tmpRoot();
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(guidePath(root), "old");
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+  });
+
+  it("overwrites a hand edit when the stored hash differs", async () => {
+    const root = await tmpRoot();
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(guidePath(root), "edited");
+    await fs.writeFile(hashPath(root), "stale");
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+    expect(await fs.readFile(hashPath(root), "utf8")).toBe(hashOf(AGENT_GUIDE));
+  });
+
+  it("reads a stored hash with a trailing newline as a match", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.writeFile(guidePath(root), "edited");
+    await fs.appendFile(hashPath(root), "\n");
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe("edited");
+  });
+
+  it("brings back a deleted guide when the hash matches", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.rm(guidePath(root));
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+  });
+
+  it("leaves no new hash when the guide write fails", async () => {
+    const root = await tmpRoot();
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const write = vi.spyOn(fs, "writeFile").mockRejectedValueOnce(denied());
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(false);
+      expect(warn).toHaveBeenCalled();
+      await expect(fs.readFile(hashPath(root), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      write.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("still reports true when only the hash write fails", async () => {
+    const root = await tmpRoot();
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const realWriteFile = fs.writeFile.bind(fs);
+    const write = vi
+      .spyOn(fs, "writeFile")
+      .mockImplementationOnce(realWriteFile)
+      .mockRejectedValueOnce(denied());
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(true);
+      expect(warn).toHaveBeenCalled();
+      expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+    } finally {
+      write.mockRestore();
+      warn.mockRestore();
+    }
   });
 
   it("the worktree merge line names the worktree's commit, not a branch", () => {
@@ -202,7 +295,7 @@ describe("ensureMainAgent", () => {
   it("is safe to call on a folder that already exists", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
-    await expect(ensureMainAgent(root)).resolves.toBeUndefined();
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
   });
 
   it("logs non-EEXIST errors but does not reject", async () => {
@@ -214,7 +307,7 @@ describe("ensureMainAgent", () => {
       );
 
     const root = await tmpRoot();
-    await expect(ensureMainAgent(root)).resolves.toBeUndefined();
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
 
     expect(warnSpy).toHaveBeenCalledWith(
       "[jarvis] failed to write main-agent guide:",

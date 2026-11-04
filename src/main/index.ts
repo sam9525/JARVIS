@@ -1027,7 +1027,7 @@ app.whenReady().then(async () => {
   // project terminals launch by hand, or resume after a recent close (below).
   let todosWatcher: FSWatcher | undefined;
   try {
-    await ensureMainAgent(mainAgent.rootPath);
+    const guideRewritten = await ensureMainAgent(mainAgent.rootPath);
     // The folder exists now. Watching the folder, not the file, sees TODO.md
     // appear for the first time as well as every later write by either side.
     todosWatcher = watch(mainAgent.rootPath, {
@@ -1046,9 +1046,11 @@ app.whenReady().then(async () => {
     await ensureHooks(mainAgent.rootPath, forwardPath);
     await ensureMcp(mainAgent, mcpPath);
     // a fresh install has no conversation to continue, and no history to brief
-    const resume = await hasTranscript(
+    const hasHistory = await hasTranscript(
       transcriptDir(os.homedir(), mainAgent.rootPath),
     );
+    // a resumed conversation keeps the guide it loaded, so a rewrite starts fresh
+    const resume = hasHistory && !guideRewritten;
     const briefing = await readBriefing(userData);
     const notesDir = briefing.notesDir;
     // the vault workspace reads the note; without one there is no one to ask
@@ -1061,7 +1063,7 @@ app.whenReady().then(async () => {
     const due =
       notesDir !== null &&
       briefTo !== undefined &&
-      resume &&
+      hasHistory &&
       briefing.lastBriefed !== todayLocal() &&
       new Date().getHours() >= BRIEF_AFTER_HOUR;
     // registered before the launch so the first chunk starts the timer; a

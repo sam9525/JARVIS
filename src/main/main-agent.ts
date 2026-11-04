@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { normalizeId } from "./workspaces";
 import type { Workspace } from "../shared/types";
 
@@ -45,12 +46,12 @@ export function withMainAgent(
   return [...others, scratch, main];
 }
 
-/** Written into the main-agent folder on first boot and never rewritten. This
- * is the one piece of agent-facing text the app authors: it is static, it is
- * a file rather than a prompt, and the user may edit it freely afterwards.
- * ponytail: `wx` means a guide from an older version is never refreshed —
- * delete the file to pick up a new one, or store a version alongside it if
- * that stops being rare. */
+/** The one piece of agent-facing text the app authors: static, and a file
+ * rather than a prompt. `.guide-hash` beside it holds the hash of this text as
+ * last written, so a hand edit stays until the source changes, and then the
+ * file is overwritten. */
+export const GUIDE_HASH_FILE = ".guide-hash";
+
 export const AGENT_GUIDE = `# Main Agent
 
 You are the JARVIS cockpit's main agent. You do not write code. You speak for
@@ -365,19 +366,41 @@ export const dailyBriefNudge = (
   dailyBriefPrompt(notePaths) +
   " Then stop; you will be woken when it finishes.";
 
-/** The folder is the PTY's cwd, so it has to exist before launch. Both writes
- * are re-run every boot: a wiped userData self-heals. */
-export async function ensureMainAgent(rootPath: string): Promise<void> {
+/** The folder is the PTY's cwd, so it has to exist before launch. Resolves
+ * true when this call wrote the guide, so the caller can start a conversation
+ * that reads the new one. */
+export async function ensureMainAgent(rootPath: string): Promise<boolean> {
   await fs.mkdir(rootPath, { recursive: true });
   const guide = path.join(rootPath, "CLAUDE.md");
-  // "wx" fails when the file is already there, which is the whole check — the
-  // user owns the guide once it exists
-  try {
-    await fs.writeFile(guide, AGENT_GUIDE, { encoding: "utf8", flag: "wx" });
-  } catch (err) {
-    const error = err as NodeJS.ErrnoException;
-    if (error.code !== "EEXIST") {
-      console.warn("[jarvis] failed to write main-agent guide:", err);
+  const hashFile = path.join(rootPath, GUIDE_HASH_FILE);
+  const sourceHash = createHash("sha256").update(AGENT_GUIDE).digest("hex");
+  const storedHash = await fs.readFile(hashFile, "utf8").then(
+    (text) => text.trim(),
+    () => null,
+  );
+  if (storedHash === sourceHash) {
+    // "wx" fails when the file is there, which keeps a hand edit; a deleted
+    // guide comes back
+    try {
+      await fs.writeFile(guide, AGENT_GUIDE, { encoding: "utf8", flag: "wx" });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        console.warn("[jarvis] failed to write main-agent guide:", err);
+      }
+      return false;
     }
   }
+  try {
+    await fs.writeFile(guide, AGENT_GUIDE, "utf8");
+  } catch (err) {
+    console.warn("[jarvis] failed to write main-agent guide:", err);
+    return false;
+  }
+  try {
+    await fs.writeFile(hashFile, sourceHash, "utf8");
+  } catch (err) {
+    console.warn("[jarvis] failed to write main-agent guide hash:", err);
+  }
+  return true;
 }
