@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  BOX_KEY_STEP_PX,
+  BOX_MIN_PX,
   atQuery,
+  dragMinHeight,
   fileList,
   flipsToRaw,
   insertAt,
@@ -105,5 +108,18 @@ describe("fileList", () => {
   it("adds .md to vault ids", () => {
     expect(fileList(["a/b", "c"], "vault")).toEqual(["a/b.md", "c.md"]);
     expect(fileList(["src/a.ts"], "code")).toEqual(["src/a.ts"]);
+  });
+});
+
+describe("dragMinHeight", () => {
+  it("grows by the distance dragged up, capped at 60% of the panel", () => {
+    expect(dragMinHeight(54, 100)).toBe("min(154px, 60cqh)");
+  });
+  it("never goes below the default height", () => {
+    expect(dragMinHeight(54, -30)).toBe("min(54px, 60cqh)");
+  });
+  it("exposes the default height and the key step", () => {
+    expect(BOX_MIN_PX).toBe(54);
+    expect(BOX_KEY_STEP_PX).toBe(20);
   });
 });

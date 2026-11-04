@@ -63,6 +63,8 @@ beforeEach(() => {
     listTranscripts: vi.fn(async () => []),
     savePastedImage: vi.fn(),
   };
+  // jsdom has no scrollIntoView
+  Element.prototype.scrollIntoView = vi.fn();
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);

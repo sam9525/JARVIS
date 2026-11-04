@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { LBL_DIM } from "../ui/hud";
 
 export type PickerItem = {
@@ -22,8 +22,13 @@ export default function Picker({
   activeIndex,
   onChoose,
 }: PickerProps) {
+  const activeRow = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeRow.current?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
   return (
-    <div className="mb-1.5 border border-accent/35 bg-panel shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8)]">
+    <div className="absolute inset-x-0 bottom-full z-10 mb-1.5 max-h-[40cqh] overflow-y-auto border border-accent/35 bg-panel shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8)]">
       <div className={`${LBL_DIM} border-b border-edge px-2.5 py-1`}>
         {title}
       </div>
@@ -35,6 +40,7 @@ export default function Picker({
       {items.map((item, i) => (
         <button
           key={item.id}
+          ref={i === activeIndex ? activeRow : undefined}
           type="button"
           // mousedown keeps focus in the textarea
           onMouseDown={(e) => {

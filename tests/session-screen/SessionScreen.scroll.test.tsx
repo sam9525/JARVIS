@@ -11,6 +11,7 @@ import type { ScreenItem } from "../../src/renderer/session-screen/screen-state"
 let host: HTMLDivElement;
 let root: Root;
 let resized: () => void;
+let observed: Element[];
 let scroller: HTMLDivElement;
 let contentHeight: number;
 const VIEW = 300;
@@ -18,10 +19,13 @@ const VIEW = 300;
 // jsdom has no layout: the scroller's geometry is driven by hand, and the
 // ResizeObserver callback stands in for the content growing.
 beforeEach(async () => {
+  observed = [];
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe = vi.fn();
+      observe = vi.fn((target: Element) => {
+        observed.push(target);
+      });
       disconnect = vi.fn();
       constructor(cb: () => void) {
         resized = cb;
@@ -77,6 +81,11 @@ function grow(to: number): void {
 }
 
 describe("SessionScreen scroll pin", () => {
+  it("observes the scroller as well as the content, so a taller footer re-pins", () => {
+    expect(observed).toContain(scroller);
+    expect(observed).toContain(scroller.firstElementChild);
+  });
+
   it("follows output when a stale scroll event lands after the content grew", () => {
     grow(1000);
     expect(scroller.scrollTop).toBe(1000);

@@ -17,6 +17,14 @@ export const FLIP_COMMANDS: readonly string[] = [
   "/export",
 ];
 
+export const BOX_MIN_PX = 54;
+export const BOX_KEY_STEP_PX = 20;
+
+/** The 60% cap is on the panel (container query units), so the stream above always keeps room. */
+export function dragMinHeight(startHeight: number, draggedUp: number): string {
+  return `min(${Math.max(BOX_MIN_PX, startHeight + draggedUp)}px, 60cqh)`;
+}
+
 export const MODELS: readonly {
   value: string;
   label: string;

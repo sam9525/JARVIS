@@ -2,9 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import type { TranscriptSummary } from "../../main/transcript-list";
 import { relativeTime } from "../home/relative-time";
 import {
+  BOX_KEY_STEP_PX,
   MODELS,
   NO_TERMINAL,
   atQuery,
+  dragMinHeight,
   flipsToRaw,
   insertAt,
   matchFiles,
@@ -66,12 +68,14 @@ export default function Composer({
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
   const sending = useRef(false);
+  const dragStart = useRef<{ y: number; height: number } | null>(null);
   const browsing = useRef<HistoryState>(NOT_BROWSING);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
   useEffect(() => {
     browsing.current = NOT_BROWSING;
+    boxRef.current?.style.removeProperty("min-height");
     setText(getDraft(sessionKey));
     return onDraft((key) => {
       if (key === sessionKey) setText(getDraft(sessionKey));
@@ -142,6 +146,7 @@ export default function Composer({
     sending.current = true;
     browsing.current = NOT_BROWSING;
     setDraft(sessionKey, "");
+    boxRef.current?.style.removeProperty("min-height");
     setCaret(0);
     const sent = await sendPrompt(
       sessionKey,
@@ -225,6 +230,39 @@ export default function Composer({
     }
   }
 
+  function growTo(draggedUp: number, startHeight: number): void {
+    boxRef.current?.style.setProperty(
+      "min-height",
+      dragMinHeight(startHeight, draggedUp),
+    );
+  }
+
+  function onGripDown(e: React.PointerEvent<HTMLDivElement>): void {
+    const height = boxRef.current?.offsetHeight;
+    if (height === undefined) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStart.current = { y: e.clientY, height };
+    e.currentTarget.dataset.dragging = "";
+  }
+
+  function onGripMove(e: React.PointerEvent<HTMLDivElement>): void {
+    const start = dragStart.current;
+    if (start) growTo(start.y - e.clientY, start.height);
+  }
+
+  function onGripEnd(e: React.PointerEvent<HTMLDivElement>): void {
+    dragStart.current = null;
+    delete e.currentTarget.dataset.dragging;
+  }
+
+  function onGripKey(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const height = boxRef.current?.offsetHeight;
+    if (height === undefined) return;
+    growTo(e.key === "ArrowUp" ? BOX_KEY_STEP_PX : -BOX_KEY_STEP_PX, height);
+  }
+
   async function onPaste(
     e: React.ClipboardEvent<HTMLTextAreaElement>,
   ): Promise<void> {
@@ -257,6 +295,20 @@ export default function Composer({
 
   return (
     <div className="relative">
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Drag to make the message box taller"
+        tabIndex={0}
+        onPointerDown={onGripDown}
+        onPointerMove={onGripMove}
+        onPointerUp={onGripEnd}
+        onPointerCancel={onGripEnd}
+        onKeyDown={onGripKey}
+        className="group absolute inset-x-0 -top-1 z-[1] flex h-2 cursor-ns-resize touch-none items-center justify-center"
+      >
+        <i className="block h-0.5 w-8 bg-edge group-hover:bg-accent group-data-[dragging]:bg-accent" />
+      </div>
       {popup === "files" && (
         <Picker
           title="Files"
@@ -284,13 +336,12 @@ export default function Composer({
       <textarea
         ref={boxRef}
         value={text}
-        rows={2}
         placeholder="Message Claude"
         onChange={(e) => edit(e.target.value, e.target.selectionStart)}
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
-        className="block min-h-9 w-full resize-none border border-accent bg-transparent px-2.5 py-2 font-sans text-[12.5px] text-ink outline-none placeholder:text-ink-dim"
+        className="block min-h-[54px] max-h-[60cqh] w-full [field-sizing:content] resize-none border border-accent bg-transparent px-2.5 py-2 font-sans text-[12.5px] text-ink outline-none placeholder:text-ink-dim"
       />
     </div>
   );

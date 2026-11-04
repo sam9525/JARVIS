@@ -149,6 +149,7 @@ export default function SessionScreen({
     pin();
     const observer = new ResizeObserver(pin);
     observer.observe(inner);
+    observer.observe(el);
     return () => observer.disconnect();
   }, [sessionKey]);
 
@@ -165,7 +166,7 @@ export default function SessionScreen({
   const liveLabel = LIVE_LABEL[status.kind];
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col [container-type:size]">
       <div
         key={sessionKey}
         ref={scroller}
