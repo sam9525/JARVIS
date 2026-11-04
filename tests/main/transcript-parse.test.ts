@@ -250,3 +250,91 @@ describe("top-level type scan", () => {
     ]);
   });
 });
+
+describe("task notifications", () => {
+  const tnLines = readFileSync(
+    "tests/fixtures/transcript/task-notification.jsonl",
+    "utf8",
+  )
+    .split("\n")
+    .filter((l) => l !== "");
+  const byTn = (uuid: string): string => {
+    const line = tnLines.find((l) => l.includes(`"uuid":"${uuid}"`));
+    if (!line) throw new Error(`no fixture line ${uuid}`);
+    return line;
+  };
+  const userLine = (content: string, origin?: { kind: string }): string =>
+    JSON.stringify({
+      type: "user",
+      uuid: "tn-built",
+      isSidechain: false,
+      ...(origin ? { origin } : {}),
+      message: { role: "user", content },
+    });
+
+  it("turns a failed notification into a task entry", () => {
+    const [entry] = parseTranscriptLine(byTn("tn-failed"));
+    expect(entry).toMatchObject({
+      kind: "task",
+      id: "tn-failed",
+      failed: true,
+      summary:
+        'Background command "Run the Windows build script" failed with exit code 1',
+    });
+    if (entry.kind !== "task") throw new Error("not a task entry");
+    expect(entry.full.startsWith("<task-notification>")).toBe(true);
+    expect(entry.full.endsWith("</task-notification>")).toBe(true);
+  });
+
+  it("takes the summary alone from an agent notification", () => {
+    const entries = parseTranscriptLine(byTn("tn-agent"));
+    expect(entries).toHaveLength(1);
+    const [entry] = entries;
+    if (entry.kind !== "task") throw new Error("not a task entry");
+    expect(entry.failed).toBe(false);
+    expect(entry.summary).toBe('Agent "Builder check on admin spec" finished');
+    expect(entry.full).toContain("<usage>");
+  });
+
+  it("keeps a typed prompt that quotes a block as a prompt", () => {
+    const [entry] = parseTranscriptLine(byTn("tn-quoted"));
+    expect(entry.kind).toBe("prompt");
+  });
+
+  it("keeps a typed prompt that starts with a block as a prompt", () => {
+    const [entry] = parseTranscriptLine(byTn("tn-starts"));
+    expect(entry.kind).toBe("prompt");
+  });
+
+  it("falls back when the summary is missing or empty", () => {
+    const noSummary = parseTranscriptLine(
+      userLine(
+        "<task-notification>\n<status>killed</status>\n</task-notification>",
+        { kind: "task-notification" },
+      ),
+    );
+    expect(noSummary[0]).toMatchObject({
+      kind: "task",
+      summary: "Background task killed",
+    });
+    const emptySummary = parseTranscriptLine(
+      userLine(
+        "<task-notification>\n<summary> </summary>\n</task-notification>",
+        { kind: "task-notification" },
+      ),
+    );
+    expect(emptySummary[0]).toMatchObject({
+      kind: "task",
+      summary: "Background task",
+    });
+  });
+
+  it("counts a line with no origin by its text", () => {
+    const [entry] = parseTranscriptLine(
+      userLine(
+        "<task-notification>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>",
+      ),
+    );
+    expect(entry).toMatchObject({ kind: "task", summary: "done" });
+  });
+});

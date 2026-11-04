@@ -1,4 +1,7 @@
-import React from "react";
+// @vitest-environment jsdom
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import SessionScreen, {
@@ -6,6 +9,8 @@ import SessionScreen, {
 } from "../../src/renderer/session-screen/SessionScreen";
 import type { ScreenItem } from "../../src/renderer/session-screen/screen-state";
 import type { StatusKind } from "../../src/shared/types";
+
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 const noop = vi.fn();
 const render = (items: ScreenItem[], kind: StatusKind, call = "") =>
@@ -133,5 +138,66 @@ describe("SessionScreen", () => {
     expect(html).toContain(
       `Only in the raw terminal: ${KNOWN_GAPS.join(", ")}`,
     );
+  });
+
+  describe("task rows", () => {
+    const task = (failed: boolean): ScreenItem => ({
+      kind: "task",
+      id: "t",
+      summary: "Background command done",
+      failed,
+      full: "<task-notification><task-id>abc123</task-id></task-notification>",
+    });
+
+    it("shows the summary and not the raw block", () => {
+      const html = render([task(false)], "idle");
+      expect(html).toContain("Background command done");
+      expect(html).not.toContain("task-id");
+    });
+
+    it("opens the full block on click", async () => {
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          observe = vi.fn();
+          unobserve = vi.fn();
+          disconnect = vi.fn();
+        },
+      );
+      const host = document.createElement("div");
+      const root = createRoot(host);
+      await act(async () => {
+        root.render(
+          <SessionScreen
+            sessionKey="s"
+            items={[task(false)]}
+            status={{ kind: "idle", call: "" }}
+            onAskAnswer={noop}
+            onWrite={noop}
+            onShowRaw={noop}
+            footer={null}
+          />,
+        );
+      });
+      const button = host.querySelector("button[aria-expanded]") as HTMLElement;
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(host.querySelector("pre")).toBeNull();
+      await act(async () => {
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(host.querySelector("pre")?.textContent).toContain("<task-id>");
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    });
+
+    it("colours the dot warm when failed and accent otherwise", () => {
+      expect(render([task(true)], "idle")).toContain(
+        `<span class="text-warm">●</span>`,
+      );
+      expect(render([task(false)], "idle")).toContain(
+        `<span class="text-accent">●</span>`,
+      );
+    });
   });
 });

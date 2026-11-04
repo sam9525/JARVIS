@@ -106,12 +106,35 @@ function arrayPromptText(content: unknown[]): string {
     .join("\n");
 }
 
+const TASK_OPEN = "<task-notification>";
+
+function parseTask(id: string, text: string): ScreenEntry {
+  const status = tagBody(text, "status")?.trim() ?? "";
+  const summary = tagBody(text, "summary")?.trim() ?? "";
+  const fallback =
+    status === "" ? "Background task" : `Background task ${status}`;
+  return {
+    kind: "task",
+    id,
+    summary: summary !== "" ? summary : fallback,
+    failed: status === "failed",
+    full: text,
+  };
+}
+
 function parseUser(line: Json, id: string): ScreenEntry[] {
   if (line.isMeta === true || line.isSidechain === true) return [];
   if (line.isCompactSummary === true)
     return [{ kind: "notice", id, text: "Conversation compacted" }];
   const content = asRecord(line.message)?.content;
-  if (typeof content === "string") return parsePromptText(id, content);
+  if (typeof content === "string") {
+    const text = content.trim();
+    // A human-typed message can quote or open with a block; only the system's own is a task.
+    if (text.startsWith(TASK_OPEN) && asRecord(line.origin)?.kind !== "human") {
+      return [parseTask(id, text)];
+    }
+    return parsePromptText(id, content);
+  }
   if (!Array.isArray(content)) return [];
   if (!content.some((block) => asRecord(block)?.type === "tool_result")) {
     return parsePromptText(id, arrayPromptText(content));

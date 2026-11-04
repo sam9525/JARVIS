@@ -4,6 +4,7 @@ import type { StatusKind } from "../../shared/types";
 import { renderNote } from "../preview/markdown";
 import AskPanel from "../ui/AskPanel";
 import PermissionCard from "./PermissionCard";
+import TaskRow from "./TaskRow";
 import ToolRow from "./ToolRow";
 import { isDrawn, openCalls, type ScreenItem } from "./screen-state";
 
@@ -86,6 +87,8 @@ function Item({
       );
     case "tool":
       return <ToolRow item={item} />;
+    case "task":
+      return <TaskRow item={item} />;
   }
 }
 

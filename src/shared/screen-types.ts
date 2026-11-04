@@ -10,5 +10,12 @@ export type ScreenEntry =
       text: string;
       patch?: string[];
     }
+  | {
+      kind: "task";
+      id: string;
+      summary: string;
+      failed: boolean;
+      full: string;
+    }
   | { kind: "notice"; id: string; text: string }
   | { kind: "unknown"; id: string; label: string };

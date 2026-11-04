@@ -11,6 +11,14 @@ import type { ScreenItem } from "../../src/renderer/session-screen/screen-state"
 const E = ["one", "two", "three"];
 
 describe("prompt history", () => {
+  it("ignores task items", () => {
+    expect(
+      historyEntries([
+        { kind: "task", id: "t", summary: "s", failed: false, full: "f" },
+      ]),
+    ).toEqual([]);
+  });
+
   it("collapses consecutive duplicate prompts", () => {
     const p = (id: string, text: string): ScreenItem => ({
       kind: "prompt",
