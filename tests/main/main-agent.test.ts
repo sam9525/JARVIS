@@ -226,69 +226,68 @@ describe("ensureMainAgent", () => {
   });
 });
 
+const LONG_TEXT = "word ".repeat(250).trim();
+
+const NUDGE =
+  "A workspace just finished. Call jarvis_watch with timeout_seconds 1, then " +
+  "follow Finish summary in your CLAUDE.md. Speak about that one workspace " +
+  "alone, in as few words as possible. Never say how many tests passed. Do " +
+  "not call jarvis_list.";
+
 describe("FINISH_NUDGE", () => {
-  it("asks the agent to name the tab, so two tabs of one project read apart", () => {
-    expect(FINISH_NUDGE).toContain("JARVIS review");
-    expect(FINISH_NUDGE).not.toContain("tab N");
-    expect(FINISH_NUDGE).toContain("main");
+  it("is the fixed short text", () => {
+    expect(FINISH_NUDGE).toBe(NUDGE);
+    expect(FINISH_NUDGE).toHaveLength(239);
   });
 
-  it("names no workspace and carries no message — the agent reads the finish itself", () => {
-    expect(FINISH_NUDGE).toContain("jarvis_watch");
-    expect(FINISH_NUDGE).not.toContain("{");
-  });
-
-  // jarvis_list hands back the whole fleet, and an agent given the whole fleet
-  // summarises the whole fleet — the queued finish is the one entry it was
-  // woken for
-  it("sends the agent to the queued finish, not to the fleet", () => {
-    expect(FINISH_NUDGE).toContain("timeout_seconds 1");
-    expect(FINISH_NUDGE).toContain("do not call jarvis_list");
-  });
-
-  it("asks for a hand-off after a build", () => {
-    expect(FINISH_NUDGE).toContain("check by hand");
-    expect(FINISH_NUDGE).toContain("three sentences at most");
-  });
-
-  // a spoken count means nothing to a listener, and an agent's own count can
-  // be wrong
-  it("bans a passed-test count on every finish, not only after a build", () => {
-    expect(FINISH_NUDGE).toContain("Never say how many tests passed");
-    expect(
-      FINISH_NUDGE.indexOf("Never say how many tests passed"),
-    ).toBeLessThan(FINISH_NUDGE.indexOf("If it finished a build"));
-  });
-
-  it("asks for a test status after a build: all pass, or what failed", () => {
-    expect(FINISH_NUDGE).toContain("all tests pass");
-    expect(FINISH_NUDGE).toContain("how many failed and what they check");
-    expect(FINISH_NUDGE).toContain("three sentences at most");
-  });
-
-  it("says nothing about tests when the report does not clearly say they ran", () => {
-    expect(FINISH_NUDGE).toContain("skipped");
-    expect(FINISH_NUDGE).toContain("only says some tests passed");
-    expect(FINISH_NUDGE).toContain("say nothing about tests");
-  });
-
-  it("fits on one line, since it is typed into a TUI composer", () => {
+  it("fits in one write and on one line", () => {
+    expect(FINISH_NUDGE.length).toBeLessThanOrEqual(NUDGE_PART_CHARS);
     expect(FINISH_NUDGE).not.toContain("\n");
   });
 
-  // the summary is heard, not read: a listener cannot skim, so length is the
-  // whole design constraint
-  it("asks for the fewest words and rules out the shapes that pad speech", () => {
-    expect(FINISH_NUDGE).toContain("as few words as");
-    for (const banned of [
+  it("names no workspace and carries no message", () => {
+    expect(FINISH_NUDGE).not.toContain("{");
+  });
+});
+
+describe("AGENT_GUIDE Finish summary", () => {
+  it("holds every rule that left the nudge", () => {
+    expect(AGENT_GUIDE).toContain("## Finish summary");
+    for (const needle of [
+      "that one workspace alone",
+      "as few words as possible",
+      "JARVIS review",
+      "check by hand",
+      "three sentences at most",
+      "Never say how many tests passed",
+      "all tests pass",
+      "how many failed and what they check",
+      "skipped",
+      "only says some tests passed",
+      "say nothing about tests",
       "preamble",
-      "list",
+      "no list",
       "file names",
       "test names",
       "markdown",
+      "do not call `jarvis_list`",
     ]) {
-      expect(FINISH_NUDGE).toContain(banned);
+      expect(AGENT_GUIDE).toContain(needle);
     }
+  });
+
+  it("bans a passed-test count before the build rule", () => {
+    const section = AGENT_GUIDE.slice(AGENT_GUIDE.indexOf("## Finish summary"));
+    expect(section.indexOf("Never say how many tests passed")).toBeLessThan(
+      section.indexOf("If it finished a build"),
+    );
+  });
+
+  it("points the turn steps at the section", () => {
+    expect(AGENT_GUIDE.indexOf("## What starts your turn")).toBeLessThan(
+      AGENT_GUIDE.indexOf("## Finish summary"),
+    );
+    expect(AGENT_GUIDE).toContain("Follow Finish summary below.");
   });
 });
 
@@ -413,11 +412,11 @@ describe("nudgeParts", () => {
     expect(parts.join("")).toBe(text);
   });
 
-  it("splits FINISH_NUDGE into parts of at most 500 that join back", () => {
-    const parts = nudgeParts(FINISH_NUDGE);
+  it("splits a long text into parts of at most 500 that join back", () => {
+    const parts = nudgeParts(LONG_TEXT);
     expect(parts.length).toBeGreaterThan(1);
     expect(parts.every((p) => p.length <= NUDGE_PART_CHARS)).toBe(true);
-    expect(parts.join("")).toBe(FINISH_NUDGE);
+    expect(parts.join("")).toBe(LONG_TEXT);
   });
 });
 
@@ -448,8 +447,8 @@ describe("typeNudge", () => {
   it("types a long nudge as parts 80 ms apart, then Enter", () => {
     vi.useFakeTimers();
     const { writes, write } = recorder();
-    const parts = nudgeParts(FINISH_NUDGE);
-    typeNudge(write, FINISH_NUDGE);
+    const parts = nudgeParts(LONG_TEXT);
+    typeNudge(write, LONG_TEXT);
     vi.advanceTimersByTime(CLEAR_GAP_MS);
     expect(writes).toEqual([CLEAR_INPUT, parts[0]]);
     vi.advanceTimersByTime(SUBMIT_GAP_MS);
@@ -467,9 +466,9 @@ describe("typeNudge", () => {
       writes.push(d);
       return ++n < 3; // clear ok, part 1 ok, part 2 fails
     };
-    typeNudge(write, FINISH_NUDGE);
+    typeNudge(write, LONG_TEXT);
     vi.runAllTimers();
-    const parts = nudgeParts(FINISH_NUDGE);
+    const parts = nudgeParts(LONG_TEXT);
     expect(writes).toEqual([CLEAR_INPUT, parts[0], parts[1]]);
     vi.useRealTimers();
   });

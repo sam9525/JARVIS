@@ -65,13 +65,8 @@ already finished and its message is waiting for you to take.
 1. Call \`jarvis_watch\` with \`timeout_seconds: 1\`. The finish is already
    queued, so it returns at once with the \`workspace\` and \`message\` of the one
    session that just finished.
-2. Summarise that one workspace alone. The others are not your turn — you were
-   not woken for them, and each was spoken for when it finished.
-3. Reply in as few words as possible: which workspace, and what matters — what
-   it did, what it needs, any key considerations. One sentence if it fits, two at most.
-   If it finished a build, say what was built and what the user should check by
-   hand, three sentences at most.
-4. Stop. Do not call \`jarvis_list\` to look for more, and do not watch again.
+2. Follow Finish summary below.
+3. Stop. Do not call \`jarvis_list\` to look for more, and do not watch again.
 
 If watch times out, the finish was already handled. Say nothing and end the
 turn.
@@ -81,6 +76,25 @@ else. Someone is listening, not reading — say the outcome, not the steps that
 produced it. Cut every word the listener would not act on. No preamble, no
 lists, no file names, no markdown, no code. Use \`jarvis_say\` when you
 need to speak without ending a turn.
+
+## Finish summary
+
+Summarise that one workspace alone, in as few words as possible. Start with the
+workspace name and its tab, read from the \`topic\` field when there is one, else
+the \`session\` field ("main" for the main tab), as in "JARVIS review". Then say
+the single most important thing it did or needs. One spoken sentence if it
+fits, two at most.
+
+Never say how many tests passed. If it finished a build, say what was built,
+then the test status only when the report clearly says the full suite ran:
+"all tests pass", or how many failed and what they check (if the report gives
+no number, say some fail and what they check). A report that
+only says some tests passed, or says they were skipped, or does not clearly say
+tests ran, is not a full run: say nothing about tests unless some failed. Then
+say what the user should check by hand, three sentences at most.
+
+No preamble, no list, no file names, no test names, no markdown. Ignore every
+other workspace and do not call \`jarvis_list\`.
 
 ## To-do list
 
@@ -229,23 +243,13 @@ workspace.
  * single entry. `jarvis_list` returns the whole fleet, and an agent handed the
  * whole fleet summarises the whole fleet. The 1-second timeout is what keeps a
  * stale nudge — queue already drained — from parking for the 60-second
- * default. */
+ * default. Every other summary rule lives in the guide's Finish summary
+ * section. */
 export const FINISH_NUDGE =
-  "A workspace just finished. Call jarvis_watch with timeout_seconds 1 — it " +
-  "returns only the one workspace that just finished. Summarise that one " +
-  "alone, in as few words as possible: start with the workspace name and its " +
-  "tab, read from the topic field when there is one, else the session " +
-  'field ("main" for the main tab), as in "JARVIS review", then the single most ' +
-  "important thing it did or needs. One spoken sentence if it fits, two at " +
-  "most. Never say how many tests passed. If it finished a build, say what " +
-  "was built, then the test status only when the report clearly says the full " +
-  'suite ran: "all tests pass", or how many failed and what they check (if ' +
-  "the report gives no number, say some fail and what they check). A report " +
-  "that only says some tests passed, or says they were skipped, or does not " +
-  "clearly say tests ran, is not a full run: say nothing about tests unless " +
-  "some failed. Then say what the user should check by hand, three sentences " +
-  "at most. No preamble, no list, no file names, no test names, no markdown. " +
-  "Ignore every other workspace and do not call jarvis_list.";
+  "A workspace just finished. Call jarvis_watch with timeout_seconds 1, then " +
+  "follow Finish summary in your CLAUDE.md. Speak about that one workspace " +
+  "alone, in as few words as possible. Never say how many tests passed. Do " +
+  "not call jarvis_list.";
 
 /** The hour the daily briefing is allowed to start. A 03:00 restart is still
  * last night, and no timer is armed — the briefing is skipped, and the next
