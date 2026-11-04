@@ -46,12 +46,12 @@ export function withMainAgent(
   return [...others, scratch, main];
 }
 
+export const GUIDE_HASH_FILE = ".guide-hash";
+
 /** The one piece of agent-facing text the app authors: static, and a file
  * rather than a prompt. `.guide-hash` beside it holds the hash of this text as
  * last written, so a hand edit stays until the source changes, and then the
  * file is overwritten. */
-export const GUIDE_HASH_FILE = ".guide-hash";
-
 export const AGENT_GUIDE = `# Main Agent
 
 You are the JARVIS cockpit's main agent. You do not write code. You speak for
@@ -374,10 +374,17 @@ export async function ensureMainAgent(rootPath: string): Promise<boolean> {
   const guide = path.join(rootPath, "CLAUDE.md");
   const hashFile = path.join(rootPath, GUIDE_HASH_FILE);
   const sourceHash = createHash("sha256").update(AGENT_GUIDE).digest("hex");
-  const storedHash = await fs.readFile(hashFile, "utf8").then(
-    (text) => text.trim(),
-    () => null,
-  );
+  let storedHash: string | null = null;
+  try {
+    storedHash = (await fs.readFile(hashFile, "utf8")).trim();
+  } catch (err) {
+    // only a missing file means the guide was never written by this scheme; any
+    // other failure says nothing about the source, so the guide stays as is
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("[jarvis] failed to read main-agent guide hash:", err);
+      return false;
+    }
+  }
   if (storedHash === sourceHash) {
     // "wx" fails when the file is there, which keeps a hand edit; a deleted
     // guide comes back

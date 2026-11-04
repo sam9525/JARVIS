@@ -862,8 +862,9 @@ app.whenReady().then(async () => {
     // so a worktree does not inherit the main folder's
     const hooksOk = await ensureHooks(cwd, forwardPath);
     const mcpOk = await ensureMcp(ws, mcpPath);
-    // a relaunched main agent continues its conversation like the boot
-    // launch does — /clear is the only reset, and it is the user's
+    // a boot starts fresh after a guide rewrite, but a relaunched main agent
+    // always continues its conversation — /clear is the only reset, and it is
+    // the user's
     const resume = ws.isSelf
       ? await hasTranscript(transcriptDir(os.homedir(), ws.rootPath))
       : (opts.resumeId ?? false);

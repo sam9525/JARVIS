@@ -196,6 +196,45 @@ describe("ensureMainAgent", () => {
     }
   });
 
+  it("keeps a hand-edited guide when the hash read fails for another reason", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.writeFile(guidePath(root), "edited");
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const realReadFile = fs.readFile.bind(fs) as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    const read = vi
+      .spyOn(fs, "readFile")
+      .mockImplementation(((file: unknown, ...rest: unknown[]) =>
+        String(file).endsWith(GUIDE_HASH_FILE)
+          ? Promise.reject(Object.assign(new Error("busy"), { code: "EBUSY" }))
+          : realReadFile(file, ...rest)) as typeof fs.readFile);
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(false);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe("edited");
+  });
+
+  it("warns and reports false when the guide cannot be restored", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.rm(guidePath(root));
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const write = vi.spyOn(fs, "writeFile").mockRejectedValueOnce(denied());
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(false);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
   it("still reports true when only the hash write fails", async () => {
     const root = await tmpRoot();
     const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
