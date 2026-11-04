@@ -93,37 +93,73 @@ afterEach(() => {
   host.remove();
 });
 
+describe("Picker height", () => {
+  it("is limited to the room above the picker's wrapper", async () => {
+    const box = await mount();
+    const screenRoot = document.createElement("div");
+    screenRoot.setAttribute("data-session-screen", "");
+    screenRoot.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    host.replaceWith(screenRoot);
+    screenRoot.appendChild(host);
+    host.firstElementChild!.getBoundingClientRect = () =>
+      ({ top: 100 }) as DOMRect;
+    await type(box, "/model");
+    const picker = host.querySelector(".bottom-full") as HTMLElement;
+    expect(picker.style.maxHeight).toBe("min(40cqh, 94px)");
+  });
+});
+
 describe("Composer box", () => {
   it("sizes from its content, with no rows attribute", async () => {
     const box = await mount();
     expect(box.hasAttribute("rows")).toBe(false);
     expect(box.className).toContain("[field-sizing:content]");
     expect(box.className).toContain("min-h-[54px]");
-    expect(box.className).toContain("max-h-[60cqh]");
+    expect(box.className).toContain("max-h-[min(60cqh,calc(100cqh_-_130px))]");
   });
 
   it("grows while the grip is dragged up, and stops after release", async () => {
     await mount();
-    const grip = screen();
-    await pointer(grip, "pointerdown", 300);
-    await pointer(grip, "pointermove", 200);
-    expect(setProperty).toHaveBeenCalledWith("min-height", "min(154px, 60cqh)");
-    await pointer(grip, "pointerup", 200);
+    const handle = grip();
+    await pointer(handle, "pointerdown", 300);
+    expect(handle.hasAttribute("data-dragging")).toBe(true);
+    await pointer(handle, "pointermove", 200);
+    expect(setProperty).toHaveBeenCalledWith(
+      "min-height",
+      "min(154px, min(60cqh, calc(100cqh - 130px)))",
+    );
+    await pointer(handle, "pointerup", 200);
+    expect(handle.hasAttribute("data-dragging")).toBe(false);
     setProperty.mockClear();
-    await pointer(grip, "pointermove", 100);
+    await pointer(handle, "pointermove", 100);
     expect(setProperty).not.toHaveBeenCalled();
   });
 
   it("grows by a step on ArrowUp and stops at the floor on ArrowDown", async () => {
     await mount();
-    const grip = screen();
-    await key(grip, "ArrowUp");
-    expect(setProperty).toHaveBeenCalledWith("min-height", "min(74px, 60cqh)");
-    await key(grip, "ArrowDown");
+    const handle = grip();
+    await key(handle, "ArrowUp");
+    expect(setProperty).toHaveBeenCalledWith(
+      "min-height",
+      "min(74px, min(60cqh, calc(100cqh - 130px)))",
+    );
+    await key(handle, "ArrowDown");
     expect(setProperty).toHaveBeenLastCalledWith(
       "min-height",
-      "min(54px, 60cqh)",
+      "min(54px, min(60cqh, calc(100cqh - 130px)))",
     );
+  });
+
+  it("keeps focus in the box when the grip is pressed", async () => {
+    await mount();
+    const down = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      grip().dispatchEvent(down);
+    });
+    expect(down.defaultPrevented).toBe(true);
   });
 
   it("returns to the default height on send", async () => {
@@ -160,6 +196,6 @@ describe("Composer box", () => {
   });
 });
 
-function screen(): Element {
+function grip(): Element {
   return host.querySelector('[role="separator"]')!;
 }

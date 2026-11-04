@@ -299,7 +299,9 @@ export default function Composer({
         role="separator"
         aria-orientation="horizontal"
         aria-label="Drag to make the message box taller"
+        aria-valuetext="Message box height"
         tabIndex={0}
+        onMouseDown={(e) => e.preventDefault()}
         onPointerDown={onGripDown}
         onPointerMove={onGripMove}
         onPointerUp={onGripEnd}
@@ -341,7 +343,7 @@ export default function Composer({
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
-        className="block min-h-[54px] max-h-[60cqh] w-full [field-sizing:content] resize-none border border-accent bg-transparent px-2.5 py-2 font-sans text-[12.5px] text-ink outline-none placeholder:text-ink-dim"
+        className="block min-h-[54px] max-h-[min(60cqh,calc(100cqh_-_130px))] w-full [field-sizing:content] resize-none border border-accent bg-transparent px-2.5 py-2 font-sans text-[12.5px] text-ink outline-none placeholder:text-ink-dim"
       />
     </div>
   );

@@ -166,7 +166,10 @@ export default function SessionScreen({
   const liveLabel = LIVE_LABEL[status.kind];
 
   return (
-    <div className="flex h-full min-h-0 flex-col [container-type:size]">
+    <div
+      data-session-screen
+      className="flex h-full min-h-0 flex-col [container-type:size]"
+    >
       <div
         key={sessionKey}
         ref={scroller}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef } from "react";
 import { LBL_DIM } from "../ui/hud";
 
 export type PickerItem = {
@@ -8,6 +8,8 @@ export type PickerItem = {
   current?: boolean;
   mono?: boolean;
 };
+
+const GAP_PX = 6;
 
 type PickerProps = {
   title: string;
@@ -22,13 +24,31 @@ export default function Picker({
   activeIndex,
   onChoose,
 }: PickerProps) {
+  const root = useRef<HTMLDivElement>(null);
   const activeRow = useRef<HTMLButtonElement>(null);
+
+  // The panel clips what rises above the session screen, so the list is
+  // limited to the room between the screen's top and the wrapper, less the gap.
+  useLayoutEffect(() => {
+    const el = root.current;
+    const screenTop = el
+      ?.closest("[data-session-screen]")
+      ?.getBoundingClientRect().top;
+    const wrapperTop = el?.parentElement?.getBoundingClientRect().top;
+    if (!el || screenTop === undefined || wrapperTop === undefined) return;
+    const room = Math.max(0, wrapperTop - screenTop - GAP_PX);
+    el.style.maxHeight = `min(40cqh, ${room}px)`;
+  });
+
   useEffect(() => {
     activeRow.current?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
   return (
-    <div className="absolute inset-x-0 bottom-full z-10 mb-1.5 max-h-[40cqh] overflow-y-auto border border-accent/35 bg-panel shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8)]">
+    <div
+      ref={root}
+      className="absolute inset-x-0 bottom-full z-10 mb-1.5 overflow-y-auto border border-accent/35 bg-panel shadow-[0_18px_50px_-20px_rgba(0,0,0,0.8)]"
+    >
       <div className={`${LBL_DIM} border-b border-edge px-2.5 py-1`}>
         {title}
       </div>

@@ -20,9 +20,11 @@ export const FLIP_COMMANDS: readonly string[] = [
 export const BOX_MIN_PX = 54;
 export const BOX_KEY_STEP_PX = 20;
 
-/** The 60% cap is on the panel (container query units), so the stream above always keeps room. */
+/** Container query units: 60% of the panel, less 130px for the status lines. */
+export const BOX_CAP = "min(60cqh, calc(100cqh - 130px))";
+
 export function dragMinHeight(startHeight: number, draggedUp: number): string {
-  return `min(${Math.max(BOX_MIN_PX, startHeight + draggedUp)}px, 60cqh)`;
+  return `min(${Math.max(BOX_MIN_PX, startHeight + draggedUp)}px, ${BOX_CAP})`;
 }
 
 export const MODELS: readonly {

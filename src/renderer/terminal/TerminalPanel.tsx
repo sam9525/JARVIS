@@ -509,7 +509,7 @@ export default function TerminalPanel({
           </div>
         </div>
         {isMain && status.kind !== "running" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-panel/80">
             <div className="flex gap-1.5" data-testid="launch-model">
               {MODELS.map(({ value, label }) => (
                 <button

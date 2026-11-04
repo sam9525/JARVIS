@@ -112,11 +112,15 @@ describe("fileList", () => {
 });
 
 describe("dragMinHeight", () => {
-  it("grows by the distance dragged up, capped at 60% of the panel", () => {
-    expect(dragMinHeight(54, 100)).toBe("min(154px, 60cqh)");
+  it("grows by the distance dragged up, capped by the panel", () => {
+    expect(dragMinHeight(54, 100)).toBe(
+      "min(154px, min(60cqh, calc(100cqh - 130px)))",
+    );
   });
   it("never goes below the default height", () => {
-    expect(dragMinHeight(54, -30)).toBe("min(54px, 60cqh)");
+    expect(dragMinHeight(54, -30)).toBe(
+      "min(54px, min(60cqh, calc(100cqh - 130px)))",
+    );
   });
   it("exposes the default height and the key step", () => {
     expect(BOX_MIN_PX).toBe(54);
