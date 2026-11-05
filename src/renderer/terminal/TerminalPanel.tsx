@@ -1,3 +1,4 @@
+import { appendDraft } from "../session-screen/drafts";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
@@ -452,7 +453,11 @@ export default function TerminalPanel({
             <button
               className={LBL_AM + " cursor-pointer"}
               title={`Graph is behind HEAD — type \`${reindexCommand}\``}
-              onClick={() => window.jarvis.ptyInput(sessionKey, reindexCommand)}
+              onClick={() =>
+                mode === "screen"
+                  ? appendDraft(sessionKey, reindexCommand)
+                  : window.jarvis.ptyInput(sessionKey, reindexCommand)
+              }
             >
               index stale
             </button>
