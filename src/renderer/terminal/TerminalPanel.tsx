@@ -102,6 +102,7 @@ const BAR: Record<StatusKind, string> = {
 
 export {
   disposeTerminal,
+  onTerminalExit,
   onTerminalTyped,
   terminalSize,
 } from "./terminal-registry";

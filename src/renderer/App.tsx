@@ -24,6 +24,7 @@ import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
 import TerminalPanel, {
   disposeTerminal,
+  onTerminalExit,
   onTerminalTyped,
   terminalSize,
 } from "./terminal/TerminalPanel";
@@ -667,16 +668,16 @@ export default function App() {
     offs.push(window.jarvis.onStatus(setStatuses));
     // typing into a session means its answer is being given there; the id is
     // that terminal's session key
-    offs.push(
-      onTerminalTyped((id) =>
-        setAsks((prev) => {
-          if (!prev.has(id)) return prev;
-          const next = new Map(prev);
-          next.delete(id);
-          return next;
-        }),
-      ),
-    );
+    const dropAsk = (id: string) =>
+      setAsks((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+    offs.push(onTerminalTyped(dropAsk));
+    // an ended session cannot answer, and a later one may reuse its key
+    offs.push(onTerminalExit(dropAsk));
     offs.push(
       window.jarvis.onAsk?.((p) => {
         if (

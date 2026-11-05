@@ -27,6 +27,7 @@ vi.mock("../src/renderer/home/WorkspaceRail", () => ({
 }));
 vi.mock("../src/renderer/terminal/TerminalPanel", () => ({
   ...nullComponent,
+  onTerminalExit: () => () => undefined,
   onTerminalTyped: () => () => undefined,
 }));
 vi.mock("../src/renderer/preview/Preview", () => nullComponent);
