@@ -46,7 +46,7 @@ function NoteText({ markdown }: { markdown: string }) {
   }
   return (
     <div
-      className="preview-body max-w-[92%] font-sans text-sm leading-relaxed text-ink"
+      className="preview-body max-w-[92%] font-sans text-sm leading-relaxed text-ink [&_p]:whitespace-pre-line"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
