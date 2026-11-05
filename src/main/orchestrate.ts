@@ -10,6 +10,7 @@ import type {
   WorkspaceKind,
   WorkspaceStatus,
 } from "../shared/types";
+import { PASTE_END, PASTE_START } from "./pending-input";
 import type { SessionInfo } from "./sessions";
 import { topicWord } from "./transcript-title";
 
@@ -101,6 +102,21 @@ export interface SendOptions {
 // the trust prompt opens on "No, exit": Down moves to "Yes", Enter confirms
 const TRUST_DOWN = "\x1b[B";
 const KEY_GAP_MS = 80;
+// A prompt over 1024 bytes reaches the TUI in 1024-byte pieces, and a busy TUI
+// can keep only the last piece.
+const MAX_PLAIN_BYTES = 1024;
+
+/** The bytes to write for a prompt. A paste block has an explicit end marker,
+ * so it does not depend on how the TUI reads the pieces. A short single line
+ * stays plain because a slash command inside a paste is text. ESC is dropped
+ * so no prompt text can close or open a block. */
+export function sendPayload(prompt: string): string {
+  const text = prompt.replace(/\r\n?/g, "\n").trimEnd().replaceAll("\x1b", "");
+  if (!text.includes("\n") && Buffer.byteLength(text) <= MAX_PLAIN_BYTES)
+    return text;
+  return PASTE_START + text + PASTE_END;
+}
+
 const BUSY: ReadonlySet<StatusKind> = new Set(["working", "asking", "blocked"]);
 
 /** Only a summary is spoken, and this cap is what enforces that: a whole
@@ -323,11 +339,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     const by = deps.getWorkspaces().find((w) => w.isSelf)?.name ?? "JARVIS";
     // the session can die between the hasPty probe and the write, so mark the
     // delegation only once the prompt is actually in the PTY
-    if (!deps.write(key, prompt)) return false;
+    if (!deps.write(key, sendPayload(prompt))) return false;
     deps.markDelegated(key, by);
     // Claude Code's TUI treats one arriving chunk as a paste, so a trailing
     // "\r" lands as a newline in the composer instead of submitting. Send the
-    // CR as its own write a beat later — indistinguishable from typing Enter.
+    // CR as its own write a beat later, after the end marker of a paste block —
+    // indistinguishable from typing Enter.
     // ponytail: fixed 80ms, not a prompt-ready probe — bump if a busy TUI misses it
     // ponytail: send has already returned by the time the CR lands, so a session
     // that dies inside the 80ms leaves the prompt unsubmitted and only surfaces

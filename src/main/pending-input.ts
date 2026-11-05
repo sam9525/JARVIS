@@ -1,5 +1,5 @@
-const PASTE_START = "\x1b[200~";
-const PASTE_END = "\x1b[201~";
+export const PASTE_START = "\x1b[200~";
+export const PASTE_END = "\x1b[201~";
 const BACKSPACES = new Set(["\x7f", "\b"]);
 const CLEAR_LINE = "\x15";
 

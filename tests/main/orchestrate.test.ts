@@ -4,12 +4,15 @@ import {
   CLOSE_QUIET_MS,
   MAX_SAY,
   QUEUE_MAX,
+  sendPayload,
 } from "../../src/main/orchestrate";
 import type {
   SessionStatus,
   Workspace,
   WorkspaceStatus,
 } from "../../src/shared/types";
+
+const PASTED = (body: string) => "\x1b[200~" + body + "\x1b[201~";
 
 const workspaces: Workspace[] = [
   {
@@ -231,6 +234,33 @@ function setup(
     trustChecked,
   };
 }
+
+describe("sendPayload", () => {
+  it("leaves a short single line plain", () => {
+    expect(sendPayload("/clear")).toBe("/clear");
+    expect(sendPayload("run the fix")).toBe("run the fix");
+  });
+  it("removes trailing whitespace first, so a command stays a command", () => {
+    expect(sendPayload("/clear\n")).toBe("/clear");
+    expect(sendPayload("a\nb\n")).toBe(PASTED("a\nb"));
+  });
+  it("wraps a multi-line prompt", () => {
+    expect(sendPayload("a\nb")).toBe(PASTED("a\nb"));
+  });
+  it("measures the limit in UTF-8 bytes", () => {
+    expect(sendPayload("x".repeat(1024))).toBe("x".repeat(1024));
+    expect(sendPayload("x".repeat(1025))).toBe(PASTED("x".repeat(1025)));
+    // 513 three-byte characters are 513 characters and 1539 bytes
+    expect(sendPayload("—".repeat(513))).toBe(PASTED("—".repeat(513)));
+  });
+  it("turns CRLF and a lone CR into a newline", () => {
+    expect(sendPayload("a\r\nb\rc")).toBe(PASTED("a\nb\nc"));
+  });
+  it("lets no text close or open a block", () => {
+    const out = sendPayload("a\n\x1b[201~b\x1b[200~c");
+    expect(out).toBe(PASTED("a\n[201~b[200~c"));
+  });
+});
 
 describe("orchestrate.list", () => {
   it("gives a workspace with no session one row, with an empty label", () => {
@@ -454,6 +484,33 @@ describe("orchestrate.send", () => {
     expect(delegated).toEqual([]);
   });
 
+  it("writes a multi-line prompt as one paste block, then the CR", async () => {
+    const { orch, writes, delegated } = setup();
+    await orch.send("AeroGraph", "a\nb");
+    expect(writes).toEqual([["d:/aero", PASTED("a\nb")]]);
+    vi.runAllTimers();
+    expect(writes[1]).toEqual(["d:/aero", "\r"]);
+    expect(delegated).toHaveLength(1);
+  });
+
+  it("refuses a prompt of only whitespace and newlines", async () => {
+    const { orch, writes } = setup();
+    expect(await orch.send("AeroGraph", "  \n")).toEqual({
+      ok: false,
+      error: "empty prompt",
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it("sends no Enter and marks nothing when the paste block fails to write", async () => {
+    const { orch, writes, delegated, attempted } = setup({ writeFails: true });
+    expect((await orch.send("AeroGraph", "a\nb")).ok).toBe(false);
+    vi.runAllTimers();
+    expect(writes).toEqual([]);
+    expect(delegated).toEqual([]);
+    expect(attempted).toHaveLength(1);
+  });
+
   it("rejects an empty prompt", async () => {
     const { orch, writes, delegated } = setup();
     const out = await orch.send("AeroGraph", "   ");
@@ -482,6 +539,18 @@ describe("orchestrate.send with fresh", () => {
     expect(writes).toEqual([
       ["d:/aero#1", "<wait>"],
       ["d:/aero#1", "To-do task: x"],
+      ["d:/aero#1", "\r"],
+    ]);
+  });
+
+  it("writes a multi-line prompt to the new session as one paste block", async () => {
+    const { orch, writes } = setup();
+    const out = orch.send("AeroGraph", "a\nb", { fresh: true });
+    await vi.runAllTimersAsync();
+    await out;
+    expect(writes.filter(([k]) => k === "d:/aero#1")).toEqual([
+      ["d:/aero#1", "<wait>"],
+      ["d:/aero#1", PASTED("a\nb")],
       ["d:/aero#1", "\r"],
     ]);
   });
