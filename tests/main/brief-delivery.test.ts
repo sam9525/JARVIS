@@ -15,7 +15,7 @@ describe("deliverBriefing", () => {
     return out;
   };
 
-  const setup = (quietMs = 5000, hooksHeard = true) => {
+  const setup = (quietMs = 5000, hooksHeard = true, promptOpen = false) => {
     let answer!: (submitted: boolean) => void;
     const outcome = new Promise<boolean>((r) => (answer = r));
     const type = vi.fn(() => true);
@@ -24,11 +24,19 @@ describe("deliverBriefing", () => {
         type,
         msSinceOutput: () => quietMs,
         hooksHeard: () => hooksHeard,
+        promptOpen: () => promptOpen,
         outcome,
       }),
     );
     return { type, answer, result };
   };
+
+  it("types nothing while a prompt is open: Enter would pick an option", async () => {
+    const { type, result } = setup(5000, true, true);
+    await vi.advanceTimersByTimeAsync(BRIEF_CONFIRM_MS * BRIEF_TRIES);
+    expect(result.value).toBe(false);
+    expect(type).not.toHaveBeenCalled();
+  });
 
   it("types once and never again when no hook from the session was heard", async () => {
     const { type, result } = setup(5000, false);
@@ -83,6 +91,7 @@ describe("deliverBriefing", () => {
         type: () => false,
         msSinceOutput: () => 5000,
         hooksHeard: () => true,
+        promptOpen: () => false,
         outcome,
       }),
     );

@@ -105,6 +105,7 @@ import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
+import { createNudgeGate } from "./nudge-gate";
 import type {
   CardLayout,
   LineChanges,
@@ -545,6 +546,11 @@ app.whenReady().then(async () => {
       .find((s) => s.key === key)?.kind;
     return kind === "asking" || kind === "blocked";
   };
+  const finishNudge = createNudgeGate(
+    () => promptOpen(mainAgent.id),
+    () =>
+      typeNudge((data) => ptyManager.write(mainAgent.id, data), FINISH_NUDGE),
+  );
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
@@ -580,14 +586,13 @@ app.whenReady().then(async () => {
     },
     // No session yet means the write fails and the finish just waits in the
     // queue for whenever one starts.
-    nudgeMain: () => {
-      typeNudge((data) => ptyManager.write(mainAgent.id, data), FINISH_NUDGE);
-    },
+    nudgeMain: () => finishNudge.nudge(),
   });
 
   let savedInbox = "";
   const pushStatus = (changed: boolean) => {
     if (!changed) return;
+    finishNudge.statusChanged();
     const snap = status.snapshot();
     send("status", snap);
     // only Stop carries a message, so this writes rarely despite the call site
@@ -1115,6 +1120,7 @@ app.whenReady().then(async () => {
         msSinceOutput: () =>
           Date.now() - (lastOutputAt.get(mainAgent.id) ?? -Infinity),
         hooksHeard: () => hooksHeardFrom.has(mainAgent.id),
+        promptOpen: () => promptOpen(mainAgent.id),
         outcome,
       });
       onMainPrompt = null;

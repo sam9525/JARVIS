@@ -428,6 +428,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session "${s.label}" has text the user has not sent — send with fresh: true instead`,
         };
       }
+      // the Enter would pick an option in the open prompt
+      const kind = sessionKind(s.key, ws.id);
+      if (kind === "asking" || kind === "blocked") {
+        return {
+          ok: false,
+          error: `${ws.name}'s session "${s.label}" is ${kind}, waiting on the user — ask them to answer it, or send with fresh: true`,
+        };
+      }
       if (!deliver(s.key, prompt)) {
         return {
           ok: false,

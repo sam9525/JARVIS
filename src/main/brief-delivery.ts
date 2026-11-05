@@ -19,13 +19,15 @@ export async function deliverBriefing(deps: {
   type(): boolean;
   msSinceOutput(): number;
   hooksHeard(): boolean;
+  promptOpen(): boolean;
   outcome: Promise<boolean>;
 }): Promise<boolean> {
   let typed = false;
   for (let i = 0; i < BRIEF_TRIES; i++) {
     if (typed && !deps.hooksHeard()) return false;
-    // a terminal still painting is not reading yet; the next round looks again
-    if (deps.msSinceOutput() >= SETTLE_MS) {
+    // a terminal still painting is not reading yet, and an open prompt would
+    // take the Enter as a choice; the next round looks again
+    if (deps.msSinceOutput() >= SETTLE_MS && !deps.promptOpen()) {
       if (!deps.type()) return false;
       typed = true;
     }

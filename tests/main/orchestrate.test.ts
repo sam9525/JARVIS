@@ -401,6 +401,23 @@ describe("orchestrate.send", () => {
     expect(attempted).toEqual([]);
   });
 
+  it.each(["asking", "blocked"] as const)(
+    "refuses a send while that session is %s: Enter would pick an option",
+    async (kind) => {
+      const { orch, attempted } = setup({
+        statuses: [
+          status({
+            sessions: [sessionRow({ key: "d:/aero", label: "main", kind })],
+          }),
+        ],
+      });
+      const out = await orch.send("AeroGraph", "do it", { session: "main" });
+      expect(out.ok).toBe(false);
+      if (!out.ok) expect(out.error).toContain(kind);
+      expect(attempted).toEqual([]);
+    },
+  );
+
   it("refuses to send to the orchestrator itself", async () => {
     const { orch, writes, delegated } = setup({
       sessions: [mainOf("d:/jarvis")],
