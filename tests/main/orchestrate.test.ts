@@ -129,7 +129,7 @@ function setup(
   const attempted: string[] = []; // every write, delivered or not
   const delegated: Array<[string, string]> = [];
   const said: string[] = [];
-  const nudges: number[] = [];
+  const nudges: Array<[string, string]> = [];
   const named: Array<[string, string]> = [];
   const namedAtWrites: number[] = [];
   const launched: Array<[string, string | undefined]> = [];
@@ -165,9 +165,7 @@ function setup(
       said.push(text);
       return true;
     },
-    nudgeMain: () => {
-      nudges.push(Date.now());
-    },
+    nudgeMain: (workspace, tab) => nudges.push([workspace, tab]),
     // the real launch: next free number, a worktree in a code workspace,
     // refused as "cap" at four live sessions
     launch: async (ws, label) => {
@@ -690,6 +688,12 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
     expect(nudges).toHaveLength(1);
   });
 
+  it("passes the workspace and the label when there is no topic", () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/aero", "done");
+    expect(nudges).toEqual([["AeroGraph", "main"]]);
+  });
+
   it("does not nudge a parked watcher — one finish wakes the agent one way", async () => {
     const { orch, nudges } = setup();
     const pending = orch.watch(1);
@@ -737,6 +741,15 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       });
     });
 
+    it("passes the topic as the tab", () => {
+      const { orch, nudges } = setup({
+        sessions: aeroSessions,
+        statuses: topicStatus({ first: "review" }),
+      });
+      orch.publishFinish("d:/aero#first", "done");
+      expect(nudges).toEqual([["AeroGraph", "review"]]);
+    });
+
     it("sends to a session named by its topic", async () => {
       const { orch, writes } = setup({
         sessions: aeroSessions,
@@ -763,6 +776,17 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       worktreeOf("d:/aero", "first"),
       worktreeOf("d:/aero", "second"),
     ];
+
+    it("passes the clash name when two tabs share a topic", async () => {
+      const { orch, nudges } = setup({
+        sessions: twinSessions,
+        statuses: topicStatus({ first: "review", second: "review" }),
+      });
+      orch.publishFinish("d:/aero#first", "done");
+      const finish = await orch.watch(1);
+      expect(finish).toMatchObject({ topic: "review first" });
+      expect(nudges).toEqual([["AeroGraph", "review first"]]);
+    });
 
     it("sends to the name a finish speaks for a shared topic", async () => {
       const { orch, writes } = setup({

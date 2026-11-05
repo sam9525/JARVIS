@@ -7,13 +7,13 @@ import {
   AGENT_GUIDE,
   BRIEF_AFTER_HOUR,
   CLEAR_INPUT,
-  FINISH_NUDGE,
   NUDGE_PART_CHARS,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
   dailyBriefNudge,
   dailyBriefPrompt,
   ensureMainAgent,
+  finishNudge,
   GUIDE_HASH_FILE,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
@@ -360,25 +360,33 @@ describe("ensureMainAgent", () => {
 
 const LONG_TEXT = "word ".repeat(250).trim();
 
-const NUDGE =
-  "A workspace just finished. Call jarvis_watch with timeout_seconds 1, then " +
-  "follow Finish summary in your CLAUDE.md. Speak about that one workspace " +
-  "alone, in as few words as possible. Never say how many tests passed. Do " +
-  "not call jarvis_list.";
-
-describe("FINISH_NUDGE", () => {
-  it("is the fixed short text", () => {
-    expect(FINISH_NUDGE).toBe(NUDGE);
-    expect(FINISH_NUDGE).toHaveLength(239);
+describe("finishNudge", () => {
+  it("names the workspace and the tab in the fixed text", () => {
+    expect(finishNudge("JARVIS", "review")).toBe(
+      "Workspace JARVIS, tab review, just finished. Call jarvis_watch with " +
+        "timeout_seconds 1, summarise the finish it returns, and follow " +
+        "Finish summary in your CLAUDE.md. Speak about that one workspace " +
+        "alone, in as few words as possible. Never say how many tests " +
+        "passed. Do not call jarvis_list.",
+    );
   });
 
   it("fits in one write and on one line", () => {
-    expect(FINISH_NUDGE.length).toBeLessThanOrEqual(NUDGE_PART_CHARS);
-    expect(FINISH_NUDGE).not.toContain("\n");
+    const text = finishNudge("JARVIS", "review");
+    expect(text.length).toBeLessThanOrEqual(NUDGE_PART_CHARS);
+    expect(text).not.toContain("\n");
   });
 
-  it("names no workspace and carries no message", () => {
-    expect(FINISH_NUDGE).not.toContain("{");
+  it("turns a control character in a name into a space", () => {
+    expect(finishNudge("a\nb", "c\rd\x1be")).toContain(
+      "Workspace a b, tab c d e, just",
+    );
+  });
+
+  it("keeps spaces and non-ASCII letters in a name", () => {
+    expect(finishNudge("My Café 專案", "main")).toContain(
+      "Workspace My Café 專案, tab main, just",
+    );
   });
 });
 

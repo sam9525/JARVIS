@@ -47,7 +47,7 @@ import { listTranscripts } from "./transcript-list";
 import { savePastedImage } from "./pasted-images";
 import {
   BRIEF_AFTER_HOUR,
-  FINISH_NUDGE,
+  finishNudge,
   LAUNCH_SETTLE_DEADLINE_MS,
   MAIN_AGENT_MODEL,
   SETTLE_DEADLINE_MS,
@@ -548,10 +548,9 @@ app.whenReady().then(async () => {
       .find((s) => s.key === key)?.kind;
     return kind === "asking" || kind === "blocked";
   };
-  const finishNudge = createNudgeGate(
+  const nudgeGate = createNudgeGate(
     () => promptOpen(mainAgent.id),
-    () =>
-      typeNudge((data) => ptyManager.write(mainAgent.id, data), FINISH_NUDGE),
+    (text) => typeNudge((data) => ptyManager.write(mainAgent.id, data), text),
   );
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
@@ -589,13 +588,13 @@ app.whenReady().then(async () => {
     },
     // No session yet means the write fails and the finish just waits in the
     // queue for whenever one starts.
-    nudgeMain: () => finishNudge.nudge(),
+    nudgeMain: (workspace, tab) => nudgeGate.nudge(finishNudge(workspace, tab)),
   });
 
   let savedInbox = "";
   const pushStatus = (changed: boolean) => {
     if (!changed) return;
-    finishNudge.statusChanged();
+    nudgeGate.statusChanged();
     const snap = status.snapshot();
     send("status", snap);
     // only Stop carries a message, so this writes rarely despite the call site

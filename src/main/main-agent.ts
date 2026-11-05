@@ -235,22 +235,32 @@ workspace.
 `;
 
 /** Typed into the main agent's session when a delegate finishes and nobody is
- * parked on `jarvis_watch`. Fixed text: it names no workspace and carries no
- * message, so the app still composes nothing about the work itself — the
- * agent reads the one finish and writes its own words.
+ * parked on `jarvis_watch`. It names the workspace and the tab that finished
+ * and carries no message, so the app still composes nothing about the work
+ * itself — the agent reads the one finish and writes its own words.
  *
- * It sends the agent to `jarvis_watch`, not `jarvis_list`: the finish is
- * already on the queue `publishFinish` pushed it onto, so watch returns that
- * single entry. `jarvis_list` returns the whole fleet, and an agent handed the
- * whole fleet summarises the whole fleet. The 1-second timeout is what keeps a
- * stale nudge — queue already drained — from parking for the 60-second
- * default. Every other summary rule lives in the guide's Finish summary
- * section. */
-export const FINISH_NUDGE =
-  "A workspace just finished. Call jarvis_watch with timeout_seconds 1, then " +
-  "follow Finish summary in your CLAUDE.md. Speak about that one workspace " +
-  "alone, in as few words as possible. Never say how many tests passed. Do " +
-  "not call jarvis_list.";
+ * `jarvis_watch` returns the oldest queued finish, which can be an earlier one
+ * than the name given here; the words "summarise the finish it returns" make
+ * watch win over the name. It sends the agent to `jarvis_watch`, not
+ * `jarvis_list`: the finish is already on the queue `publishFinish` pushed it
+ * onto, so watch returns that single entry. `jarvis_list` returns the whole
+ * fleet, and an agent handed the whole fleet summarises the whole fleet. The
+ * 1-second timeout is what keeps a stale nudge — queue already drained — from
+ * parking for the 60-second default. Every other summary rule lives in the
+ * guide's Finish summary section. A control character in a name becomes a
+ * space, so the text stays one line. */
+export function finishNudge(workspace: string, tab: string): string {
+  // eslint-disable-next-line no-control-regex -- control characters are the target
+  const controlChars = /[\x00-\x1f\x7f]/g;
+  const oneLine = (name: string): string => name.replace(controlChars, " ");
+  return (
+    `Workspace ${oneLine(workspace)}, tab ${oneLine(tab)}, just finished. ` +
+    "Call jarvis_watch with timeout_seconds 1, summarise the finish it " +
+    "returns, and follow Finish summary in your CLAUDE.md. Speak about that " +
+    "one workspace alone, in as few words as possible. Never say how many " +
+    "tests passed. Do not call jarvis_list."
+  );
+}
 
 /** The hour the daily briefing is allowed to start. A 03:00 restart is still
  * last night, and no timer is armed — the briefing is skipped, and the next

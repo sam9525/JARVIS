@@ -54,7 +54,7 @@ export interface OrchestrateDeps {
   say: (text: string) => boolean;
   // types the fixed nudge into the main agent's own session, so a finish
   // reaches it without anyone having parked on jarvis_watch first
-  nudgeMain: () => void;
+  nudgeMain: (workspace: string, tab: string) => void;
 }
 
 // one jarvis_list row per live session, or one per workspace that has none
@@ -596,7 +596,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       // Claude Code session at an idle prompt does not act. The nudge is what
       // starts the turn that drains it. A parked waiter returned above and
       // never reaches here, so a finish wakes the agent exactly one way.
-      deps.nudgeMain();
+      deps.nudgeMain(finish.workspace, finish.topic ?? finish.session);
     },
 
     watch(
