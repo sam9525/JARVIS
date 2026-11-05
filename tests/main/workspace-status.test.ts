@@ -760,6 +760,30 @@ describe("step and stage", () => {
   });
 });
 
+describe("session change in the listener's order", () => {
+  const session = (s: ReturnType<typeof createStatusStore>, e: StatusEvent) => {
+    s.countTool(tool({ sessionId: e.sessionId, tool: "Prompt", nodeIds: [] }));
+    s.applyStatus(e);
+  };
+
+  it("a new session drops the old stage and message", () => {
+    const s = createStatusStore();
+    session(s, ev({ sessionId: "a", stage: "Build" }));
+    s.applyStatus(ev({ sessionId: "a", kind: "idle", message: "old message" }));
+    session(s, ev({ sessionId: "b" }));
+    expect(s.snapshot()[0]).toMatchObject({ message: "" });
+    expect(s.snapshot()[0].stage).toBeUndefined();
+  });
+
+  it("keeps the read that announced the new session", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ sessionId: "a" }));
+    s.countTool(tool({ sessionId: "b", nodeIds: ["first"] }));
+    s.applyStatus(ev({ sessionId: "b" }));
+    expect(s.snapshot()[0].reads).toBe(1);
+  });
+});
+
 describe("keys that answer a prompt", () => {
   const waiting = (kind: "blocked" | "asking") => {
     const s = createStatusStore();

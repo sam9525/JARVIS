@@ -33,6 +33,9 @@ interface Entry {
   since: number;
   lastEventAt: number;
   sessionId: string;
+  // the session countTool last counted for, which runs ahead of applyStatus on
+  // each hook, so it must not touch the id applyStatus compares against
+  countedSessionId: string;
   reads: Set<string>;
   edits: Set<string>;
   ptyAlive: boolean;
@@ -118,6 +121,7 @@ export function createStatusStore(
         since: now,
         lastEventAt: now,
         sessionId: "",
+        countedSessionId: "",
         reads: new Set(),
         edits: new Set(),
         ptyAlive: false,
@@ -185,7 +189,7 @@ export function createStatusStore(
       // first, so that session's own later events don't read as a takeover
       if (sessionChanged || !e.sessionId) e.sessionId = ev.sessionId;
       if (sessionChanged) {
-        resetCounts(e);
+        if (e.countedSessionId !== ev.sessionId) resetCounts(e);
         e.message = "";
         // provenance shares the message's lifecycle, except for a mark made
         // after the old session's last event: a fresh send's /clear opens a
@@ -226,8 +230,8 @@ export function createStatusStore(
       let changed = false;
       // a new session clears the counts but must NOT swallow the event that
       // announced it — that event is itself the session's first activity
-      if (ev.sessionId !== e.sessionId) {
-        e.sessionId = ev.sessionId;
+      if (ev.sessionId !== e.countedSessionId) {
+        e.countedSessionId = ev.sessionId;
         resetCounts(e);
         changed = true;
       }
