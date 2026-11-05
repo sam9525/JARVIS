@@ -28,7 +28,13 @@ import {
   entryFor,
   releaseDetached,
 } from "../../src/renderer/terminal/terminal-registry";
+import { getDraft, setDraft } from "../../src/renderer/session-screen/drafts";
+import {
+  getViewMode,
+  setViewMode,
+} from "../../src/renderer/session-screen/view-mode";
 
+const draftState = vi.fn();
 let onData: (key: string, data: string) => void = () => {};
 let onExit: (key: string, code: number) => void = () => {};
 // what the next terminal's element reports; isConnected is how the registry
@@ -44,6 +50,7 @@ beforeAll(() => {
       ptyInput: () => Promise.resolve(true),
       onPtyData: (cb: any) => (onData = cb),
       onPtyExit: (cb: any) => (onExit = cb),
+      draftState,
     },
   };
   ensureSubscribed();
@@ -88,5 +95,28 @@ describe("terminal registry", () => {
     expect(made[0].dispose).toHaveBeenCalled();
     connected = false;
     expect(entryFor("d#1").term).not.toBe(made[0]);
+  });
+});
+
+describe("per-session state at exit", () => {
+  it("frees the terminal, draft and view mode after a clean exit", () => {
+    onData("c#1", "out");
+    setDraft("c#1", "half a thought");
+    setViewMode("c#1", "raw");
+    onExit("c#1", 0);
+    expect(made[0].dispose).toHaveBeenCalled();
+    expect(getDraft("c#1")).toBe("");
+    expect(getViewMode("c#1")).toBe("screen");
+  });
+
+  it("tells main when a draft starts and ends, not on each key", () => {
+    draftState.mockClear();
+    setDraft("c#3", "a");
+    setDraft("c#3", "ab");
+    setDraft("c#3", "");
+    expect(draftState.mock.calls).toEqual([
+      ["c#3", true],
+      ["c#3", false],
+    ]);
   });
 });

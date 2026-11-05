@@ -1,5 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { clearDraft, getDraft, onDraft } from "../session-screen/drafts";
+import { clearViewMode } from "../session-screen/view-mode";
 import { markTerminalTyped } from "./typed-signal";
 
 export { onTerminalTyped } from "./typed-signal";
@@ -37,6 +39,15 @@ export function ensureSubscribed(): void {
     // the launch overlay.
     if (id.includes("#")) disposeTerminal(id);
   });
+  // main refuses to auto-close a session whose draft it knows about
+  const drafted = new Set<string>();
+  onDraft((key) => {
+    const has = getDraft(key) !== "";
+    if (has === drafted.has(key)) return;
+    if (has) drafted.add(key);
+    else drafted.delete(key);
+    window.jarvis.draftState(key, has);
+  });
 }
 
 export function entryFor(id: string): Entry {
@@ -71,10 +82,12 @@ function drop(key: string): void {
   doomed.delete(key);
 }
 
-/** Frees an ended session's terminal, so a later session reusing its key
- *  starts on an empty screen. One still on screen is freed when the panel
- *  detaches it (`releaseDetached`), since its resize observer still fits it. */
+/** Frees an ended session's terminal, draft and view mode, so a later session
+ *  reusing its key starts empty. A terminal still on screen is freed when the
+ *  panel detaches it (`releaseDetached`), since its resize observer still fits it. */
 export function disposeTerminal(key: string): void {
+  clearDraft(key);
+  clearViewMode(key);
   const e = entries.get(key);
   if (!e) return;
   if (e.el.isConnected) doomed.add(key);

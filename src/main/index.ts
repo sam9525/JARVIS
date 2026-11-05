@@ -539,6 +539,8 @@ app.whenReady().then(async () => {
 
   // orchestrator writes bypass this: only the user's own keystrokes are noted
   const pendingInput = createPendingInput();
+  // sessions whose session screen input holds text; only the renderer sees it
+  const drafted = new Set<string>();
   const promptOpen = (key: string): boolean => {
     const kind = status
       .snapshot()
@@ -557,6 +559,7 @@ app.whenReady().then(async () => {
     sessionsOf: (id) => sessions.forWorkspace(id),
     hasPty: (key) => ptyManager.has(key),
     hasPendingInput: (key) => pendingInput.has(key),
+    hasDraft: (key) => drafted.has(key),
     write: (key, data) => ptyManager.write(key, data),
     // the terminal's own defaults — Opus, permissions on — at placeholder
     // geometry the panel resizes when it attaches, as with the main agent.
@@ -1031,6 +1034,10 @@ app.whenReady().then(async () => {
     const written = ptyManager.write(id, data);
     if (written) pushStatus(status.promptKeyed(id, data, Date.now()));
     return written;
+  });
+  ipcMain.on("draft-state", (_e, key: string, has: boolean) => {
+    if (has) drafted.add(String(key));
+    else drafted.delete(String(key));
   });
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
     ptyManager.resize(id, cols, rows),

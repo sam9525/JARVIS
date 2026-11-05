@@ -25,6 +25,7 @@ export interface OrchestrateDeps {
   hasPty: (key: string) => boolean;
   // true while the user has typed into the session's terminal and not sent it
   hasPendingInput: (key: string) => boolean;
+  hasDraft: (key: string) => boolean;
   write: (key: string, data: string) => boolean;
   // the launch the tab bar's `+` makes; no label means the next free number.
   // error "cap" means the workspace already has its four live sessions
@@ -505,14 +506,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     },
 
     /** Closes a session by key when it is idle and quiet, under the same busy
-     * rule as `close`, and holds no unsent text. False means it was left open.
+     * rule as `close`, and holds no unsent text or draft. False means it was left open.
      * `turnEnded` is for the session whose own Stop asked for the check. */
     async closeIfIdle(key: string, turnEnded = false): Promise<boolean> {
       const owner = deps
         .getWorkspaces()
         .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
       if (!owner || closeBlocker(key, owner.id, turnEnded)) return false;
-      if (deps.hasPendingInput(key)) return false;
+      if (deps.hasPendingInput(key) || deps.hasDraft(key)) return false;
       await deps.close(key);
       return true;
     },

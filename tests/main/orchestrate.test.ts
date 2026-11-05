@@ -121,7 +121,8 @@ function setup(
     outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
     kept?: string; // the folder close leaves on disk
     workspaces?: Workspace[]; // the registry; defaults to the module's list
-    pendingInput?: string[]; // keys whose composer holds text the user typed
+    pendingInput?: string[]; // keys whose terminal holds text the user typed
+    drafts?: string[]; // keys whose session screen input holds a draft
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -144,6 +145,7 @@ function setup(
     sessionsOf: (id) => registered.filter((s) => s.workspaceId === id),
     hasPty: (key) => live.has(key),
     hasPendingInput: (key) => over.pendingInput?.includes(key) ?? false,
+    hasDraft: (key) => over.drafts?.includes(key) ?? false,
     write: (key, data) => {
       attempted.push(data);
       if (over.writeFails) return false;
@@ -1280,6 +1282,15 @@ describe("orchestrate.closeIfIdle", () => {
     const { orch, closed } = withWorktree({
       outputAgoMs: CLOSE_QUIET_MS + 1,
       pendingInput: ["d:/aero#1"],
+    });
+    expect(await orch.closeIfIdle("d:/aero#1")).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
+  it("leaves a session open that holds a draft", async () => {
+    const { orch, closed } = withWorktree({
+      outputAgoMs: CLOSE_QUIET_MS + 1,
+      drafts: ["d:/aero#1"],
     });
     expect(await orch.closeIfIdle("d:/aero#1")).toBe(false);
     expect(closed).toEqual([]);

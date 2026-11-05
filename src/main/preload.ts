@@ -111,6 +111,9 @@ const api = {
   // keyboard (voice) can report a send into a dead session
   ptyInput: (key: string, data: string): Promise<boolean> =>
     ipcRenderer.invoke("pty-input", key, data),
+  draftState: (key: string, has: boolean): void => {
+    ipcRenderer.send("draft-state", key, has);
+  },
   ptyResize: (key: string, cols: number, rows: number): void => {
     ipcRenderer.send("pty-resize", key, cols, rows);
   },

@@ -10,6 +10,12 @@ export function setDraft(key: string, text: string): void {
   for (const l of listeners) l(key);
 }
 
+export function clearDraft(key: string): void {
+  if (!drafts.has(key)) return;
+  drafts.delete(key);
+  for (const l of listeners) l(key);
+}
+
 export function appendDraft(key: string, text: string): void {
   const current = getDraft(key);
   setDraft(key, current ? `${current} ${text}` : text);

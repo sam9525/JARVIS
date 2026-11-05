@@ -16,6 +16,12 @@ export function setViewMode(key: string, mode: ViewMode, auto = false): void {
   for (const l of listeners) l(key);
 }
 
+export function clearViewMode(key: string): void {
+  modes.delete(key);
+  autoFlipped.delete(key);
+  for (const l of listeners) l(key);
+}
+
 export function wasAutoFlipped(key: string): boolean {
   return autoFlipped.has(key);
 }
