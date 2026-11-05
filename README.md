@@ -79,6 +79,7 @@ A repo with no index shows a button that runs `npx gitnexus analyze` for you.
 - Windows 10/11 (primary target) or macOS
 - Linux: `npm run make` builds `.deb` and `.rpm` packages, but nobody has tested them.
 - Optional: `gitnexus` for code-repo graphs
+- Optional: [`jq`](https://jqlang.org), if your Claude Code status line command uses it. JARVIS does not install it. On Windows, sessions find it through the stored Machine and User `PATH` or the WinGet Links folder, not through a `PATH` that only a shell profile sets.
 
 ## Getting started
 
