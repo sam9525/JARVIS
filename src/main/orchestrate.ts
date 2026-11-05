@@ -53,8 +53,8 @@ export interface OrchestrateDeps {
   nameSession: (key: string, word: string) => void;
   // false = no renderer listening; say() reports that rather than going silent
   say: (text: string) => boolean;
-  // types the fixed nudge into the main agent's own session, so a finish
-  // reaches it without anyone having parked on jarvis_watch first
+  // types the nudge naming the workspace and tab into the main agent's own
+  // session, so a finish reaches it without anyone having parked on jarvis_watch first
   nudgeMain: (workspace: string, tab: string) => void;
 }
 
@@ -111,7 +111,7 @@ const MAX_PLAIN_BYTES = 1024;
  * stays plain because a slash command inside a paste is text. ESC is dropped
  * so no prompt text can close or open a block. */
 export function sendPayload(prompt: string): string {
-  const text = prompt.replace(/\r\n?/g, "\n").trimEnd().replaceAll("\x1b", "");
+  const text = prompt.replace(/\r\n?/g, "\n").replaceAll("\x1b", "").trimEnd();
   if (!text.includes("\n") && Buffer.byteLength(text) <= MAX_PLAIN_BYTES)
     return text;
   return PASTE_START + text + PASTE_END;

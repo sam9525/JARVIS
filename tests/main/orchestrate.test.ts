@@ -260,6 +260,9 @@ describe("sendPayload", () => {
     const out = sendPayload("a\n\x1b[201~b\x1b[200~c");
     expect(out).toBe(PASTED("a\n[201~b[200~c"));
   });
+  it("strips escapes before trimming, so a trailing escape leaves no newline behind", () => {
+    expect(sendPayload("a\n\x1b")).toBe("a");
+  });
 });
 
 describe("orchestrate.list", () => {
