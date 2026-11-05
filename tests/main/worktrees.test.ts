@@ -313,3 +313,49 @@ describe("worktreeMerged", () => {
     ).toBe(false);
   });
 });
+
+describe("gitignored files in a worktree", () => {
+  const ignoring = async (pattern: string) => {
+    await fs.writeFile(path.join(root, ".gitignore"), `${pattern}\n`);
+    git(root, "add", ".gitignore");
+    git(root, "commit", "-m", "ignore");
+    return createWorktree(root, "1");
+  };
+
+  it("keeps a worktree holding an ignored spec, and names it", async () => {
+    const wt = await ignoring("docs/");
+    await fs.mkdir(path.join(wt, "docs"));
+    await fs.writeFile(path.join(wt, "docs", "spec.md"), "approved");
+    expect(await worktreeCheck(root, wt)).toEqual({
+      clean: false,
+      reason: "gitignored files (docs/)",
+    });
+    const removed = await removeWorktreeIfDone(root, wt);
+    expect(removed.removed).toBe(false);
+    expect(await fs.readFile(path.join(wt, "docs", "spec.md"), "utf8")).toBe(
+      "approved",
+    );
+  });
+
+  it("is not merged while it holds an ignored file", async () => {
+    const wt = await ignoring(".env");
+    await fs.writeFile(path.join(wt, "a.txt"), "changed");
+    git(wt, "add", "a.txt");
+    git(wt, "commit", "-m", "work");
+    git(root, "merge", "--ff-only", git(wt, "rev-parse", "HEAD"));
+    await fs.writeFile(path.join(wt, ".env"), "KEY=1");
+    expect(await worktreeMerged(root, wt)).toBe(false);
+  });
+
+  it("removes a worktree whose ignored files can be rebuilt", async () => {
+    const wt = await ignoring("node_modules/\nout/\n.claude/\n.mcp.json");
+    await fs.mkdir(path.join(wt, "node_modules", "x"), { recursive: true });
+    await fs.writeFile(path.join(wt, "node_modules", "x", "i.js"), "x");
+    await fs.mkdir(path.join(wt, "out"));
+    await fs.writeFile(path.join(wt, "out", "b.js"), "x");
+    await fs.mkdir(path.join(wt, ".claude"));
+    await fs.writeFile(path.join(wt, ".claude", "settings.local.json"), "{}");
+    await fs.writeFile(path.join(wt, ".mcp.json"), "{}");
+    expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+  });
+});

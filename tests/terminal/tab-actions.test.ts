@@ -42,7 +42,7 @@ describe("closeSessionTab", () => {
     expect(d.dispose).not.toHaveBeenCalled();
     const [text, action] = d.notify.mock.calls[0];
     expect(text).toBe(
-      "This worktree has uncommitted changes. Commit or merge them first.",
+      "This worktree has uncommitted changes. Commit, merge or move them first.",
     );
     expect(action.label).toBe("Close anyway");
     ptyClose.mockResolvedValueOnce({

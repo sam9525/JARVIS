@@ -11,6 +11,20 @@ const HOOK_SETTINGS = ".claude/settings.local.json";
 // into a session's worktree; untracked, they are not work
 const TOOL_LEFTOVERS = [".playwright-mcp/"];
 
+// Ignored paths a tool can rebuild; any other ignored path may be the only copy
+// of a person's work (a spec under an ignored docs/, a local .env)
+const REBUILDABLE = [
+  HOOK_SETTINGS,
+  "node_modules/",
+  "out/",
+  "dist/",
+  "build/",
+  ".vite/",
+  ".gitnexus/",
+  ".claude/",
+  ".mcp.json",
+];
+
 function git(cwd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile("git", args, { cwd, windowsHide: true }, (err, stdout) =>
@@ -94,6 +108,23 @@ export async function createWorktree(
   return wtPath;
 }
 
+/** Ignored paths git reports that are not REBUILDABLE. `matching` reports an
+ *  ignored folder once, so a large node_modules is never walked. */
+async function ignoredWork(wtPath: string): Promise<string[]> {
+  const entries = await git(wtPath, [
+    "status",
+    "--porcelain",
+    "-z",
+    "--ignored=matching",
+    "--untracked-files=normal",
+  ]);
+  return entries
+    .split("\0")
+    .filter((entry) => entry.startsWith("!! "))
+    .map((entry) => entry.slice(3))
+    .filter((file) => !REBUILDABLE.includes(file));
+}
+
 /** Any untracked file other than a loose file in a TOOL_LEFTOVERS folder is
  *  work; status lists each untracked file so a filed subfolder shows up. Tracked changes count
  *  only when they differ beyond line endings. */
@@ -128,8 +159,8 @@ async function hasUncommittedWork(wtPath: string): Promise<boolean> {
   return changed !== "";
 }
 
-/** Whether closing the worktree would lose work: uncommitted changes, or
- *  commits not yet in the start point. A missing folder has nothing to lose;
+/** Whether closing the worktree would lose work: uncommitted changes, ignored
+ *  files that cannot be rebuilt, or commits not yet in the start point. A missing folder has nothing to lose;
  *  a git failure counts as not clean so a close never discards on a guess. */
 export async function worktreeCheck(
   root: string,
@@ -143,6 +174,13 @@ export async function worktreeCheck(
   try {
     if (await hasUncommittedWork(wtPath)) {
       return { clean: false, reason: "uncommitted changes" };
+    }
+    const ignored = await ignoredWork(wtPath);
+    if (ignored.length > 0) {
+      return {
+        clean: false,
+        reason: `gitignored files (${ignored.join(", ")})`,
+      };
     }
     const start = await startPoint(root);
     const merged = await succeeds(wtPath, [
@@ -195,7 +233,7 @@ export async function worktreeMerged(
 }
 
 /** Removes the worktree only when nothing would be lost: no uncommitted
- *  changes, and its commits are already in the start point (or it has none). */
+ *  changes or ignored work, and its commits are already in the start point (or it has none). */
 export async function removeWorktreeIfDone(
   root: string,
   wtPath: string,
@@ -207,8 +245,8 @@ export async function removeWorktreeIfDone(
   }
   const check = await worktreeCheck(root, wtPath);
   if (!check.clean) return { removed: false, reason: check.reason };
-  // --force is safe here: worktreeCheck passed, so what remains is leftovers
-  // and line-ending noise that a plain remove would refuse
+  // --force is safe here: worktreeCheck passed, so what remains is leftovers,
+  // rebuildable output and line-ending noise that a plain remove would refuse
   await git(root, ["worktree", "remove", "--force", wtPath]);
   await git(root, ["worktree", "prune"]);
   return { removed: true };

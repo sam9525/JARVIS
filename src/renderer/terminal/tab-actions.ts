@@ -21,7 +21,7 @@ export function closeSessionTab(
     .then(({ ok, kept, dirty }) => {
       if (dirty)
         return deps.notify(
-          `This worktree has ${dirty}. Commit or merge them first.`,
+          `This worktree has ${dirty}. Commit, merge or move them first.`,
           {
             label: "Close anyway",
             run: () => void closeSessionTab(key, deps, true),
