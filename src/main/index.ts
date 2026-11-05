@@ -33,7 +33,7 @@ import {
 } from "./card-snapshots";
 import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
-import { loginShellPath } from "./shell-path";
+import { loginShellPath, windowsPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
 import { createPendingInput } from "./pending-input";
 import { createSettle } from "./settle";
@@ -131,12 +131,16 @@ try {
 } catch {
   /* no .env */
 }
-// Every terminal, hook and gitnexus call resolves its binary through PATH,
-// which a packaged app launched outside a shell does not have.
-if (app.isPackaged) {
-  const shellPath = loginShellPath();
-  if (shellPath) process.env.PATH = shellPath;
-}
+// Every terminal, hook and gitnexus call resolves its binary through PATH.
+// Windows reads the stored PATH because the inherited one holds whatever the
+// parent app passed down; a packaged macOS app inherits launchd's bare PATH.
+const fullPath =
+  process.platform === "win32"
+    ? windowsPath()
+    : app.isPackaged
+      ? loginShellPath()
+      : null;
+if (fullPath) process.env.PATH = fullPath;
 
 const ttsKey = () => process.env.ELEVENLABS_API_KEY ?? "";
 
