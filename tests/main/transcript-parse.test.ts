@@ -172,10 +172,9 @@ describe("parseTranscriptLine", () => {
     ]);
   });
 
-  it("marks an unknown line type", () => {
-    expect(parseTranscriptLine(byUuid("p-1"))).toEqual([
-      { kind: "unknown", id: "p-1", label: "progress" },
-    ]);
+  it("drops an unknown line type", () => {
+    expect(parseTranscriptLine(byUuid("p-1"))).toEqual([]);
+    expect(parseTranscriptLine('{"type":"session-owner"}')).toEqual([]);
   });
 
   it("returns nothing for a broken line", () => {

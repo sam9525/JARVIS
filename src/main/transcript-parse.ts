@@ -265,6 +265,8 @@ export function parseTranscriptLine(line: string): ScreenEntry[] {
     case "system":
       return parseSystem(parsed, id);
     default:
-      return [{ kind: "unknown", id, label: type }];
+      // each CLI release adds bookkeeping line types, and none of them is
+      // something the session said
+      return [];
   }
 }
