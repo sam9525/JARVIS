@@ -16,6 +16,8 @@ export const STALE_MS = 60000;
 // 6h of wall-clock idleness with no live terminal and the whole row goes
 export const EXPIRE_MS = 6 * 60 * 60 * 1000;
 
+const ESC = "\x1b";
+
 interface Entry {
   workspaceId: string;
   label: string;
@@ -47,6 +49,9 @@ export interface StatusStore {
   restore(saved: unknown): void;
   applyStatus(e: StatusEvent): boolean;
   countTool(e: ToolEvent): boolean;
+  /** A key the user sent to a session. No hook reports a permission answer
+   * until the next tool, so the keys that end a prompt end its status here. */
+  promptKeyed(key: string, data: string, now: number): boolean;
   markDelegated(key: string, by: string, now: number): boolean;
   ptyLaunched(key: string, now: number): boolean;
   sessionOpened(key: string, worktree: boolean, now: number): boolean;
@@ -238,6 +243,25 @@ export function createStatusStore(
       if (ev.phase === "post" && (ev.tool === "Edit" || ev.tool === "Write"))
         for (const id of ev.nodeIds) e.edits.add(id);
       return changed || e.reads.size + e.edits.size !== before;
+    },
+
+    promptKeyed(key, data, now) {
+      const e = entries.get(key);
+      if (!e || (e.kind !== "blocked" && e.kind !== "asking")) return false;
+      if (data === ESC) {
+        e.kind = "idle";
+        e.call = "";
+      } else if (
+        e.kind === "blocked" &&
+        (data.includes("\r") || /^\d$/.test(data))
+      ) {
+        e.kind = "working";
+        e.lastEventAt = now; // the sweep counts its quiet time from the answer
+      } else {
+        return false; // a question's Enter can step to its next page
+      }
+      e.since = now;
+      return true;
     },
 
     // set by orchestrate.send once the prompt is in the PTY. It survives the

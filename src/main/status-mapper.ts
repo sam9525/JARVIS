@@ -100,7 +100,12 @@ export function mapStatusEvent(
         ...stepOf(raw.tool_input ?? {}),
         ...stageOf(raw.tool_name, raw.tool_input ?? {}),
       };
+    case "PostToolUse":
+      // the question's end is the only tool end that changes what is happening
+      return raw.tool_name === "AskUserQuestion"
+        ? { ...common, kind: "working", call: "" }
+        : null;
     default:
-      return null; // PostToolUse included — Pre already reported the call
+      return null;
   }
 }

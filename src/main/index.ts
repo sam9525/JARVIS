@@ -538,6 +538,13 @@ app.whenReady().then(async () => {
 
   // orchestrator writes bypass this: only the user's own keystrokes are noted
   const pendingInput = createPendingInput();
+  const promptOpen = (key: string): boolean => {
+    const kind = status
+      .snapshot()
+      .flatMap((w) => w.sessions)
+      .find((s) => s.key === key)?.kind;
+    return kind === "asking" || kind === "blocked";
+  };
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
@@ -1015,13 +1022,10 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("pty-input", (_e, id: string, data: string) => {
     // a session asking or blocked shows a picker, where a key is a choice
-    const kind = status
-      .snapshot()
-      .flatMap((w) => w.sessions)
-      .find((s) => s.key === id)?.kind;
-    const pickerOpen = kind === "asking" || kind === "blocked";
-    if (pendingInput.note(id, data, pickerOpen)) send("user-submitted", id);
-    return ptyManager.write(id, data);
+    if (pendingInput.note(id, data, promptOpen(id))) send("user-submitted", id);
+    const written = ptyManager.write(id, data);
+    if (written) pushStatus(status.promptKeyed(id, data, Date.now()));
+    return written;
   });
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
     ptyManager.resize(id, cols, rows),

@@ -759,3 +759,53 @@ describe("step and stage", () => {
     expect(s.applyStatus(ev({ call: "Bash(ls)", step: "B" }))).toBe(true);
   });
 });
+
+describe("keys that answer a prompt", () => {
+  const waiting = (kind: "blocked" | "asking") => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", call: "Bash(x)" }));
+    s.applyStatus(ev({ kind }));
+    return s;
+  };
+
+  it.each(["\r", "1"])("%j on a permission prompt resumes the turn", (key) => {
+    const s = waiting("blocked");
+    expect(s.promptKeyed("w1", key, 2000)).toBe(true);
+    expect(s.snapshot()[0]).toMatchObject({
+      kind: "working",
+      call: "Bash(x)",
+      since: 2000,
+    });
+  });
+
+  it("Esc on a permission prompt ends the turn", () => {
+    const s = waiting("blocked");
+    expect(s.promptKeyed("w1", "\x1b", 2000)).toBe(true);
+    expect(s.snapshot()[0]).toMatchObject({ kind: "idle", call: "" });
+  });
+
+  it("an arrow key moves through the prompt without answering it", () => {
+    const s = waiting("blocked");
+    expect(s.promptKeyed("w1", "\x1b[B", 2000)).toBe(false);
+    expect(kindOf(s)).toBe("blocked");
+  });
+
+  it("a question stays open on Enter, which can step to its next page", () => {
+    const s = waiting("asking");
+    expect(s.promptKeyed("w1", "\r", 2000)).toBe(false);
+    expect(kindOf(s)).toBe("asking");
+  });
+
+  it("Esc dismisses a question", () => {
+    const s = waiting("asking");
+    expect(s.promptKeyed("w1", "\x1b", 2000)).toBe(true);
+    expect(kindOf(s)).toBe("idle");
+  });
+
+  it("keys on a working session change nothing", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working" }));
+    expect(s.promptKeyed("w1", "\r", 2000)).toBe(false);
+    expect(kindOf(s)).toBe("working");
+  });
+});

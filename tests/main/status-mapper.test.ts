@@ -296,6 +296,20 @@ describe("mapStatusEvent", () => {
     ).toBeNull();
   });
 
+  it("an answered question ends the asking status", () => {
+    expect(
+      mapStatusEvent(
+        {
+          ...base,
+          hook_event_name: "PostToolUse",
+          tool_name: "AskUserQuestion",
+          tool_input: {},
+        },
+        workspaces,
+      ),
+    ).toMatchObject({ kind: "working", call: "" });
+  });
+
   it("maps the captured Stop payload", () => {
     const raw = fixture("stop");
     const ws = buildWorkspaces("D:\\vault", [
