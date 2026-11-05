@@ -7,11 +7,11 @@ import {
   type TodoOpResult,
 } from "../shared/types";
 
-const TASK = /^- \[([ xX])\] (.*)$/;
+const TASK = /^- \[([ xX/])\] (.*)$/;
 const DATE = /\s(\d{4}-\d{2}-\d{2})$/;
 const PROJECT = /\s@(\S+)$/;
 // "-[ ] a", "* [ ] a", "- []": the agent meant a task and missed the shape
-const LOOKS_LIKE_TASK = /^\s*[-*+]?\s*\[[ xX]?\]/;
+const LOOKS_LIKE_TASK = /^\s*[-*+]?\s*\[[ xX/]?\]/;
 
 export type ApplyResult =
   { ok: true; file: string } | { ok: false; error: string };
@@ -55,7 +55,16 @@ export function parseLine(raw: string, line: number): Todo | null {
   }
   const text = rest.trim();
   if (!text) return null;
-  return { line, raw, done: m[1] !== " ", text, project, created };
+  const working = m[1] === "/";
+  return {
+    line,
+    raw,
+    done: m[1] !== " " && !working,
+    working,
+    text,
+    project,
+    created,
+  };
 }
 
 // A BOM would glue itself to the first line and hide that task. The panel's
@@ -80,13 +89,14 @@ export function parseTodos(file: string): TodoList {
 
 export function formatLine(t: {
   done: boolean;
+  working?: boolean;
   text: string;
   project: string | null;
   created: string | null;
 }): string {
   return (
     "- [" +
-    (t.done ? "x" : " ") +
+    (t.done ? "x" : t.working ? "/" : " ") +
     "] " +
     t.text +
     (t.project ? " @" + projectKey(t.project) : "") +
@@ -130,7 +140,14 @@ export function applyOp(file: string, op: TodoOp, today: string): ApplyResult {
   if (!current) return { ok: false, error: "stale" };
 
   if (op.kind === "toggle") {
-    lines[op.line] = formatLine({ ...current, done: !current.done });
+    lines[op.line] = formatLine({
+      ...current,
+      done: !current.done,
+      working: false,
+    });
+  } else if (op.kind === "work") {
+    if (current.done) return { ok: false, error: "done task" };
+    lines[op.line] = formatLine({ ...current, working: !current.working });
   } else if (op.kind === "delete") {
     lines.splice(op.line, 1);
   } else if (op.kind === "edit") {

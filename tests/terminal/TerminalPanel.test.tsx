@@ -48,6 +48,12 @@ import TerminalPanel, {
   detailBox,
 } from "../../src/renderer/terminal/TerminalPanel";
 import type { Workspace } from "../../src/shared/types";
+import SessionScreen from "../../src/renderer/session-screen/SessionScreen";
+import Segmented from "../../src/renderer/ui/Segmented";
+import {
+  getViewMode,
+  setViewMode,
+} from "../../src/renderer/session-screen/view-mode";
 
 const walk = (n: any): any[] =>
   !n || typeof n !== "object"
@@ -102,7 +108,7 @@ beforeEach(() => {
 // re-runs the component against the persisted state array
 function render(props: any = {}): any {
   idx = 0;
-  return TerminalPanel({ workspace, ...props });
+  return TerminalPanel({ workspace, sessionKey: workspace.id, ...props });
 }
 
 function find(node: any, pred: (n: any) => boolean): any {
@@ -156,14 +162,14 @@ describe("TerminalPanel dangerous launch", () => {
 
     confirmButton.onClick();
     expect(ptyLaunch).toHaveBeenCalledTimes(1);
-    // 4th arg is `dangerous`
-    expect(ptyLaunch.mock.calls[0][3]).toBe(true);
+    // 5th arg is `dangerous`, after the label
+    expect(ptyLaunch.mock.calls[0][4]).toBe(true);
   });
 
   it("leaves the safe launch a single click", () => {
     findButton(render(), /Launch Claude/).onClick();
     expect(ptyLaunch).toHaveBeenCalledTimes(1);
-    expect(ptyLaunch.mock.calls[0][3]).toBe(false);
+    expect(ptyLaunch.mock.calls[0][4]).toBe(false);
   });
 });
 
@@ -186,6 +192,40 @@ describe("TerminalPanel attaching to a session it did not launch", () => {
     states[1] = { [workspace.id]: { kind: "exited", code: 0 } };
     expect(overlay(render())).toBeDefined();
     expect(overlay(render({ live: true }))).toBeUndefined();
+  });
+});
+
+describe("TerminalPanel sessions", () => {
+  const overlay = (tree: any) =>
+    find(tree, (n) => String(n.props?.className ?? "").includes("bg-panel/80"));
+
+  it("launches the main-folder session from the main key", () => {
+    findButton(render(), /Launch Claude/).onClick();
+    expect(ptyLaunch.mock.calls[0].slice(0, 2)).toEqual([workspace.id, "main"]);
+  });
+
+  // a numbered tab only exists while its session is live; its launch button
+  // would start the main session instead
+  it("offers no launch on a numbered session's tab", () => {
+    expect(overlay(render({ sessionKey: "w1#1" }))).toBeUndefined();
+  });
+
+  it("shows a notice with a dismiss control", () => {
+    const onDismissNotice = vi.fn();
+    const tree = render({
+      notice: "Worktree kept: D:/r/.worktrees/1 (dirty)",
+      onDismissNotice,
+    });
+    const notice = find(
+      tree,
+      (n) => n.props?.["data-testid"] === "terminal-notice",
+    );
+    expect(text(notice)).toContain("Worktree kept");
+    findButton(notice, /✕/).onClick();
+    expect(onDismissNotice).toHaveBeenCalled();
+    expect(
+      find(render(), (n) => n.props?.["data-testid"] === "terminal-notice"),
+    ).toBeUndefined();
   });
 });
 
@@ -298,5 +338,87 @@ describe("TerminalPanel panel shell", () => {
     );
     expect(inbox).toBeGreaterThan(-1);
     expect(body).toBeGreaterThan(inbox);
+  });
+});
+
+describe("TerminalPanel session screen", () => {
+  const byTestId = (tree: any, id: string) =>
+    find(tree, (n) => n.props?.["data-testid"] === id);
+  const live = (props: any = {}) => render({ live: true, ...props });
+
+  beforeEach(() => setViewMode(workspace.id, "screen"));
+
+  it("renders the screen layer by default", () => {
+    const layer = byTestId(live(), "session-screen-layer");
+    expect(layer).toBeDefined();
+    expect(layer.props.className).toContain("absolute inset-0");
+    expect(layer.props.hidden).toBeFalsy();
+    expect(find(layer, (n) => n.type === SessionScreen)).toBeDefined();
+  });
+
+  // the ResizeObserver fits the terminal to its host; a host with no box
+  // would shrink the pty to zero columns
+  it("keeps the xterm host mounted in screen mode", () => {
+    const host = byTestId(live(), "terminal-host");
+    expect(host).toBeDefined();
+    expect(host.props.hidden).toBeFalsy();
+    expect(String(host.props.className)).not.toContain("hidden");
+    expect(host.props.style?.display).not.toBe("none");
+  });
+
+  it("hides only the layer in raw mode", () => {
+    setViewMode(workspace.id, "raw");
+    const tree = live();
+    expect(byTestId(tree, "session-screen-layer").props.hidden).toBe(true);
+    expect(byTestId(tree, "terminal-host").props.hidden).toBeFalsy();
+  });
+
+  it("shows the segmented switch", () => {
+    const seg = find(live(), (n) => n.type === Segmented);
+    expect(seg).toBeDefined();
+    expect(seg.props.options.map((o: any) => o.label)).toEqual([
+      "screen",
+      "raw terminal",
+    ]);
+    expect(seg.props.value).toBe("screen");
+    seg.props.onChange("raw");
+    expect(getViewMode(workspace.id)).toBe("raw");
+  });
+
+  it("keeps the launch overlay over the screen while nothing runs", () => {
+    const tree = render();
+    expect(
+      find(tree, (n) =>
+        String(n.props?.className ?? "").includes("bg-panel/80"),
+      ),
+    ).toBeDefined();
+  });
+});
+
+describe("TerminalPanel writes to a dead terminal", () => {
+  const noticeText = (tree: any) =>
+    text(find(tree, (n) => n.props?.["data-testid"] === "terminal-notice"));
+  const screen = (tree: any) => find(tree, (n) => n.type === SessionScreen);
+
+  beforeEach(() => {
+    setViewMode(workspace.id, "screen");
+    (global as any).window.jarvis.ptyInput = () => Promise.resolve(false);
+  });
+
+  it("says so when a permission answer finds no terminal", async () => {
+    screen(render({ live: true })).props.onWrite("\r");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(noticeText(render({ live: true }))).toContain(
+      "no terminal open in that session",
+    );
+  });
+
+  it("says so when a question answer finds no terminal", async () => {
+    const onAskAnswer = vi.fn(async () => false);
+    screen(render({ live: true, onAskAnswer })).props.onAskAnswer(["1"]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(noticeText(render({ live: true, onAskAnswer }))).toContain(
+      "no terminal open in that session",
+    );
   });
 });

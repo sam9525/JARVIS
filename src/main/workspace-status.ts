@@ -1,4 +1,7 @@
+import { MAIN_LABEL, parseSessionKey } from "../shared/session-key";
 import type {
+  PipelineStage,
+  SessionStatus,
   StatusEvent,
   StatusKind,
   ToolEvent,
@@ -13,15 +16,26 @@ export const STALE_MS = 60000;
 // 6h of wall-clock idleness with no live terminal and the whole row goes
 export const EXPIRE_MS = 6 * 60 * 60 * 1000;
 
+const ESC = "\x1b";
+
 interface Entry {
+  workspaceId: string;
+  label: string;
+  worktree: boolean;
   kind: StatusKind;
   call: string;
+  step: string;
+  stage: PipelineStage | "";
   message: string;
   messageAt: number;
   delegatedBy: string;
+  delegatedAt: number;
   since: number;
   lastEventAt: number;
   sessionId: string;
+  // the session countTool last counted for, which runs ahead of applyStatus on
+  // each hook, so it must not touch the id applyStatus compares against
+  countedSessionId: string;
   reads: Set<string>;
   edits: Set<string>;
   ptyAlive: boolean;
@@ -29,44 +43,108 @@ interface Entry {
   // sets — a `claude` run by hand in the same folder resolves to the same
   // workspace, and the terminal panel must not read that as its own session.
   ptyOwned: boolean;
+  topic: string;
+  // a topic named by the sender; a later title word does not replace it
+  topicPinned: boolean;
 }
 
 export interface StatusStore {
   restore(saved: unknown): void;
   applyStatus(e: StatusEvent): boolean;
   countTool(e: ToolEvent): boolean;
-  markDelegated(workspaceId: string, by: string, now: number): boolean;
-  ptyLaunched(workspaceId: string, now: number): boolean;
-  ptyExited(workspaceId: string, now: number, exitCode: number): boolean;
-  sweep(now: number): boolean;
+  /** A key the user sent to a session. No hook reports a permission answer
+   * until the next tool, so the keys that end a prompt end its status here. */
+  promptKeyed(key: string, data: string, now: number): boolean;
+  markDelegated(key: string, by: string, now: number): boolean;
+  ptyLaunched(key: string, now: number): boolean;
+  sessionOpened(key: string, worktree: boolean, now: number): boolean;
+  setTopic(key: string, topic: string, pinned?: boolean): boolean;
+  ptyExited(key: string, now: number, exitCode: number): boolean;
+  /** `msSinceOutput` reads a session's terminal: one that still prints is
+   * mid-turn (a long tool sends no hook), so it is not demoted. */
+  sweep(now: number, msSinceOutput?: (key: string) => number): boolean;
   snapshot(): WorkspaceStatus[];
-  sessionId(workspaceId: string): string;
+  sessionId(key: string): string;
 }
 
-export function createStatusStore(): StatusStore {
+// asking and blocked share a rank: both wait on the user
+const URGENCY: Record<StatusKind, number> = {
+  asking: 0,
+  blocked: 0,
+  working: 1,
+  crashed: 2,
+  idle: 3,
+  none: 4,
+};
+
+const bySessionOrder = (a: Entry, b: Entry): number =>
+  a.label === b.label
+    ? 0
+    : a.label === MAIN_LABEL
+      ? -1
+      : b.label === MAIN_LABEL
+        ? 1
+        : a.label < b.label
+          ? -1
+          : 1;
+
+export function createStatusStore(
+  workspaceIds: () => Iterable<string> = () => [],
+): StatusStore {
   const entries = new Map<string, Entry>();
 
-  const entry = (id: string, now: number): Entry => {
-    let e = entries.get(id);
+  // An entry records its own workspace id and label: from the caller's owner
+  // when it has one (an event names its workspace), else parsed from the key
+  // against the live workspace list, since a workspace id may hold a `#`. A
+  // given owner also corrects an entry first made from a bare key.
+  const entry = (
+    key: string,
+    now: number,
+    owner?: { workspaceId: string; label: string },
+  ): Entry => {
+    let e = entries.get(key);
     if (!e) {
+      const { workspaceId, label } =
+        owner ?? parseSessionKey(key, workspaceIds());
       e = {
+        workspaceId,
+        label,
+        worktree: false,
         kind: "none",
         call: "",
+        step: "",
+        stage: "",
         message: "",
         messageAt: 0,
         delegatedBy: "",
+        delegatedAt: 0,
         since: now,
         lastEventAt: now,
         sessionId: "",
+        countedSessionId: "",
         reads: new Set(),
         edits: new Set(),
         ptyAlive: false,
         ptyOwned: false,
+        topic: "",
+        topicPinned: false,
       };
-      entries.set(id, e);
+      entries.set(key, e);
+    }
+    if (owner) {
+      e.workspaceId = owner.workspaceId;
+      e.label = owner.label;
     }
     return e;
   };
+
+  const ownerOf = (ev: {
+    workspaceId: string;
+    sessionKey: string;
+  }): { workspaceId: string; label: string } => ({
+    workspaceId: ev.workspaceId,
+    label: parseSessionKey(ev.sessionKey, [ev.workspaceId]).label,
+  });
 
   const resetCounts = (e: Entry) => {
     e.reads.clear();
@@ -83,7 +161,10 @@ export function createStatusStore(): StatusStore {
         if (typeof raw?.workspaceId !== "string") continue;
         if (typeof raw.message !== "string" || !raw.message) continue;
         const since = typeof raw.since === "number" ? raw.since : Date.now();
-        const e = entry(raw.workspaceId, since);
+        const e = entry(raw.workspaceId, since, {
+          workspaceId: raw.workspaceId,
+          label: MAIN_LABEL,
+        });
         e.kind = "idle";
         e.message = raw.message;
         e.messageAt = since;
@@ -92,7 +173,10 @@ export function createStatusStore(): StatusStore {
     },
 
     applyStatus(ev) {
-      const e = entry(ev.workspaceId, ev.ts);
+      // the app's own pty is gone, so this is a late hook from a closed or
+      // crashed tab; applying it would mark a dead session live for good
+      if (ev.fromApp && !entries.get(ev.sessionKey)?.ptyOwned) return false;
+      const e = entry(ev.sessionKey, ev.ts, ownerOf(ev));
       // A new session's inbox starts empty — but only work takes a workspace
       // over. Claude's ~60s idle Notification, and every event from a second
       // `claude` in the same folder (a CLI window resolves to the same
@@ -105,26 +189,35 @@ export function createStatusStore(): StatusStore {
       // first, so that session's own later events don't read as a takeover
       if (sessionChanged || !e.sessionId) e.sessionId = ev.sessionId;
       if (sessionChanged) {
-        resetCounts(e);
+        if (e.countedSessionId !== ev.sessionId) resetCounts(e);
         e.message = "";
-        e.delegatedBy = ""; // provenance shares the message's lifecycle
+        // provenance shares the message's lifecycle, except for a mark made
+        // after the old session's last event: a fresh send's /clear opens a
+        // new session id, and that mark labels the turn the new id starts
+        if (e.delegatedAt < e.lastEventAt) e.delegatedBy = "";
       }
       // a permission prompt carries no call of its own; the pending PreToolUse
       // call is exactly what the user needs to see, so keep it
       const call = ev.call || e.call;
       // only Stop carries a message; keep the prior one otherwise so a running
       // turn still remembers the last thing Claude said
+      const step = sessionChanged ? (ev.step ?? "") : (ev.step ?? e.step);
+      const stage = sessionChanged ? (ev.stage ?? "") : (ev.stage ?? e.stage);
       const message = ev.message ?? e.message;
       const messageAt = ev.message === undefined ? e.messageAt : ev.ts;
       const changed =
         sessionChanged ||
         e.kind !== ev.kind ||
         e.call !== call ||
+        e.step !== step ||
+        e.stage !== stage ||
         e.message !== message ||
         e.messageAt !== messageAt;
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
       e.call = call;
+      e.step = step;
+      e.stage = stage;
       e.message = message;
       e.messageAt = messageAt;
       e.lastEventAt = ev.ts;
@@ -133,12 +226,12 @@ export function createStatusStore(): StatusStore {
     },
 
     countTool(ev) {
-      const e = entry(ev.workspaceId, ev.ts);
+      const e = entry(ev.sessionKey, ev.ts, ownerOf(ev));
       let changed = false;
       // a new session clears the counts but must NOT swallow the event that
       // announced it — that event is itself the session's first activity
-      if (ev.sessionId !== e.sessionId) {
-        e.sessionId = ev.sessionId;
+      if (ev.sessionId !== e.countedSessionId) {
+        e.countedSessionId = ev.sessionId;
         resetCounts(e);
         changed = true;
       }
@@ -156,13 +249,34 @@ export function createStatusStore(): StatusStore {
       return changed || e.reads.size + e.edits.size !== before;
     },
 
-    // set by orchestrate.send just before the prompt is written; the target's
-    // own UserPromptSubmit arrives with the SAME session id, so this survives
-    // the turn it labels and dies with the session
+    promptKeyed(key, data, now) {
+      const e = entries.get(key);
+      if (!e || (e.kind !== "blocked" && e.kind !== "asking")) return false;
+      if (data === ESC) {
+        e.kind = "idle";
+        e.call = "";
+      } else if (
+        e.kind === "blocked" &&
+        (data.includes("\r") || /^\d$/.test(data))
+      ) {
+        e.kind = "working";
+        e.lastEventAt = now; // the sweep counts its quiet time from the answer
+      } else {
+        return false; // a question's Enter can step to its next page
+      }
+      e.since = now;
+      return true;
+    },
+
+    // set by orchestrate.send once the prompt is in the PTY. It survives the
+    // turn it labels, whether that turn's UserPromptSubmit arrives under the
+    // same session id or the new one /clear opened, and dies with the session
+    // after that
     markDelegated(id, by, now) {
       const e = entry(id, now);
       const changed = e.delegatedBy !== by;
       e.delegatedBy = by;
+      e.delegatedAt = now;
       return changed;
     },
 
@@ -185,6 +299,31 @@ export function createStatusStore(): StatusStore {
       return !wasOwned;
     },
 
+    sessionOpened(key, worktree, now) {
+      const e = entry(key, now);
+      // a reopened label is a new conversation, so the old topic is dropped
+      const changed =
+        e.worktree !== worktree ||
+        e.topic !== "" ||
+        e.step !== "" ||
+        e.stage !== "";
+      e.worktree = worktree;
+      e.step = "";
+      e.stage = "";
+      e.topic = "";
+      e.topicPinned = false;
+      return changed;
+    },
+
+    setTopic(key, topic, pinned = false) {
+      const e = entries.get(key);
+      if (!e || (e.topicPinned && !pinned)) return false;
+      const changed = e.topic !== topic;
+      e.topic = topic;
+      e.topicPinned = pinned;
+      return changed;
+    },
+
     // A clean exit is what closing a terminal looks like, so it reads as no
     // session. A non-zero exit is a different fact and gets its own word —
     // and keeps the message, because what Claude last said still matters
@@ -198,11 +337,12 @@ export function createStatusStore(): StatusStore {
       e.ptyAlive = false;
       e.kind = exitCode === 0 ? "none" : "crashed";
       e.call = "";
+      e.step = "";
       e.since = now; // types.ts documents since as the last KIND change
       return true;
     },
 
-    sweep(now) {
+    sweep(now, msSinceOutput = () => Infinity) {
       let changed = false;
       // collect, then delete — never delete mid-iteration
       const expired: string[] = [];
@@ -211,9 +351,11 @@ export function createStatusStore(): StatusStore {
         if (
           e.kind === "working" &&
           e.ptyAlive &&
-          now - e.lastEventAt >= STALE_MS
+          now - e.lastEventAt >= STALE_MS &&
+          msSinceOutput(id) >= STALE_MS
         ) {
           e.kind = "idle";
+          e.step = ""; // Stop never fired, so nothing else will clear it
           e.since = now;
           changed = true;
         }
@@ -236,21 +378,51 @@ export function createStatusStore(): StatusStore {
     },
 
     snapshot() {
-      return [...entries.entries()].map(([workspaceId, e]) => ({
-        workspaceId,
-        kind: e.kind,
-        call: e.call,
-        message: e.message,
-        messageAt: e.messageAt,
-        delegatedBy: e.delegatedBy,
-        live: e.ptyOwned,
-        since: e.since,
-        reads: e.reads.size,
-        edits: e.edits.size,
-      }));
+      const byWorkspace = new Map<string, [string, Entry][]>();
+      for (const pair of entries) {
+        const group = byWorkspace.get(pair[1].workspaceId) ?? [];
+        group.push(pair);
+        byWorkspace.set(pair[1].workspaceId, group);
+      }
+      return [...byWorkspace].map(([workspaceId, group]) => {
+        group.sort((x, y) => bySessionOrder(x[1], y[1]));
+        const all = group.map(([, e]) => e);
+        // the sort is stable, so ties keep the main-first order
+        const urgent = all.reduce((best, e) =>
+          URGENCY[e.kind] < URGENCY[best.kind] ? e : best,
+        );
+        const latest = all.reduce((best, e) =>
+          e.messageAt > best.messageAt ? e : best,
+        );
+        const sessions: SessionStatus[] = group.map(([key, e]) => ({
+          key,
+          label: e.label,
+          kind: e.kind,
+          live: e.ptyOwned,
+          call: e.call,
+          since: e.since,
+          worktree: e.worktree,
+          ...(e.topic ? { topic: e.topic } : {}),
+        }));
+        return {
+          workspaceId,
+          kind: urgent.kind,
+          call: urgent.call,
+          ...(urgent.step ? { step: urgent.step } : {}),
+          ...(urgent.stage ? { stage: urgent.stage } : {}),
+          message: latest.message,
+          messageAt: latest.messageAt,
+          delegatedBy: urgent.delegatedBy,
+          live: all.some((e) => e.ptyOwned),
+          since: urgent.since,
+          reads: all.reduce((n, e) => n + e.reads.size, 0),
+          edits: all.reduce((n, e) => n + e.edits.size, 0),
+          sessions,
+        };
+      });
     },
 
-    // "" until a hook has spoken for this workspace
+    // "" until a hook has spoken for this session
     sessionId(id) {
       return entries.get(id)?.sessionId ?? "";
     },

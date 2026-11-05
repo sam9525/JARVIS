@@ -21,6 +21,7 @@ import type { ToolEvent } from "../../src/shared/types";
 const ev = (over: Partial<ToolEvent>): ToolEvent => ({
   sessionId: "s1",
   workspaceId: "w1",
+  sessionKey: "w1",
   phase: "pre",
   tool: "Read",
   nodeIds: [],
@@ -124,6 +125,7 @@ describe("highlight-store", () => {
       {
         sessionId: "s",
         workspaceId: "wa",
+        sessionKey: "wa",
         phase: "pre",
         tool: "Read",
         nodeIds: ["x"],
@@ -325,6 +327,7 @@ describe("highlight-store", () => {
     ): ToolEvent => ({
       sessionId,
       workspaceId: "w1",
+      sessionKey: "w1",
       phase: "post",
       tool: "Impact",
       nodeIds,
@@ -355,6 +358,7 @@ describe("highlight-store", () => {
         {
           sessionId: "s1",
           workspaceId: "w1",
+          sessionKey: "w1",
           phase: "pre",
           tool: "Prompt",
           nodeIds: [],
@@ -372,6 +376,7 @@ describe("highlight-store", () => {
         {
           sessionId: "s1",
           workspaceId: "w1",
+          sessionKey: "w1",
           phase: "pre",
           tool: "Read",
           nodeIds: ["r.ts"],
@@ -384,6 +389,7 @@ describe("highlight-store", () => {
         {
           sessionId: "s1",
           workspaceId: "w1",
+          sessionKey: "w1",
           phase: "post",
           tool: "Write",
           nodeIds: ["m.ts"],

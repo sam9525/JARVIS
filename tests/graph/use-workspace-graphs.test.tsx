@@ -5,7 +5,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { useWorkspaceGraphs } from "../../src/renderer/graph/use-workspace-graphs";
-import type { VaultGraph, Workspace } from "../../src/shared/types";
+import { snapshots } from "../../src/renderer/graph/card-snapshot";
+import type {
+  CardLayout,
+  StoredSnapshot,
+  VaultGraph,
+  Workspace,
+} from "../../src/shared/types";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,7 +66,24 @@ const jarvis = {
   rescan: vi.fn(),
   getWorkspaces: vi.fn(),
   indexProject: vi.fn(),
+  getCardSnapshots: vi.fn(),
 };
+
+const layout: CardLayout = {
+  width: 100,
+  height: 100,
+  transform: { k: 1, x: 0, y: 0 },
+  nodes: [{ id: "n", hk: "n", x: 0, y: 0, r: 2, fill: "#ffffff" }],
+  links: [],
+};
+
+const stored = (id: string): StoredSnapshot => ({
+  format: 1,
+  id,
+  fingerprint: "vault:x",
+  look: "look",
+  layout,
+});
 
 type Params = Parameters<typeof useWorkspaceGraphs>[0];
 
@@ -70,6 +93,7 @@ const params = (over: Partial<Params> = {}): Params => ({
   codeGraphLevel: "file",
   workspaces: [],
   showHome: false,
+  homeView: "cards",
   onWorkspacesChanged: () => undefined,
   ...over,
 });
@@ -81,6 +105,8 @@ beforeEach(() => {
   jarvis.rescan.mockResolvedValue(graphOf("rescanned"));
   jarvis.getWorkspaces.mockResolvedValue([]);
   jarvis.indexProject.mockResolvedValue({ ok: true });
+  jarvis.getCardSnapshots.mockResolvedValue([]);
+  snapshots.clear();
   (globalThis as any).window.jarvis = jarvis;
 });
 
@@ -385,5 +411,195 @@ describe("useWorkspaceGraphs", () => {
     await settle();
     expect(h.result.cardGraphs.size).toBe(0);
     expect(h.result.cardsLoaded).toBe(true);
+  });
+
+  describe("with stored card layouts", () => {
+    const list = [ws("kept", "vault"), ws("bare", "code")];
+    const fetched = () =>
+      jarvis.getGraph.mock.calls.map((c) => c[0] as string).sort();
+
+    it("loads only the cards with no stored layout on Cards", async () => {
+      jarvis.getCardSnapshots.mockResolvedValue([stored("kept")]);
+      renderHook(
+        useWorkspaceGraphs,
+        params({ showHome: true, workspaces: list }),
+      );
+      await settle();
+      await settle();
+      expect(snapshots.has("kept")).toBe(true);
+      expect(fetched()).toEqual(["bare"]);
+    });
+
+    it("loads every remaining graph once Fleet opens", async () => {
+      jarvis.getCardSnapshots.mockResolvedValue([stored("kept")]);
+      const base = params({ showHome: true, workspaces: list });
+      const h = renderHook(useWorkspaceGraphs, base);
+      await settle();
+      await settle();
+      h.rerender({ ...base, homeView: "fleet" });
+      await settle();
+      await settle();
+      expect(fetched()).toEqual(["bare", "kept"]);
+      expect([...h.result.cardGraphs.keys()].sort()).toEqual(["bare", "kept"]);
+    });
+
+    it("fetches a requested graph once however often it is asked for", async () => {
+      jarvis.getCardSnapshots.mockResolvedValue([stored("kept")]);
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({ showHome: true, workspaces: [ws("kept", "vault")] }),
+      );
+      await settle();
+      await settle();
+      await act(async () => {
+        h.result.requestGraph("kept");
+        h.result.requestGraph("kept");
+      });
+      await settle();
+      expect(fetched()).toEqual(["kept"]);
+      expect(h.result.cardGraphs.has("kept")).toBe(true);
+      await act(async () => h.result.requestGraph("kept"));
+      expect(fetched()).toEqual(["kept"]);
+    });
+
+    it("drops the stored layout of a graph the watcher rebuilt", async () => {
+      jarvis.getCardSnapshots.mockResolvedValue([stored("kept")]);
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({ showHome: true, workspaces: [ws("kept", "vault")] }),
+      );
+      await settle();
+      await settle();
+      expect(snapshots.has("kept")).toBe(true);
+      await act(async () =>
+        h.result.applyWatchedGraph("kept", graphOf("rebuilt")),
+      );
+      expect(snapshots.has("kept")).toBe(false);
+    });
+
+    it("puts a watched graph on a card that already holds one", async () => {
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({ showHome: true, workspaces: [ws("kept", "vault")] }),
+      );
+      await settle();
+      await settle();
+      expect(h.result.cardGraphs.get("kept")?.nodes[0].id).toBe("a");
+      await act(async () =>
+        h.result.applyWatchedGraph("kept", graphOf("rebuilt")),
+      );
+      expect(h.result.cardGraphs.get("kept")?.nodes[0].id).toBe("rebuilt");
+    });
+
+    it("a fleet refresh puts each rescanned graph on its card as it lands", async () => {
+      let release!: (g: VaultGraph) => void;
+      jarvis.rescan.mockImplementation((id: string) =>
+        id === "slow"
+          ? new Promise<VaultGraph>((res) => {
+              release = res;
+            })
+          : Promise.resolve(graphOf("fresh")),
+      );
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({
+          showHome: true,
+          workspaces: [ws("fast", "vault"), ws("slow", "code")],
+        }),
+      );
+      await settle();
+      await settle();
+      await act(async () => h.result.refresh());
+      await settle();
+      expect(h.result.cardGraphs.get("fast")?.nodes[0].id).toBe("fresh");
+      expect(h.result.cardGraphs.get("slow")?.nodes[0].id).toBe("a");
+      await act(async () => release(graphOf("late")));
+      await settle();
+      expect(h.result.cardGraphs.get("slow")?.nodes[0].id).toBe("late");
+    });
+
+    it("drops stored layouts on a rescan and on indexing", async () => {
+      jarvis.getCardSnapshots.mockResolvedValue([
+        stored("kept"),
+        stored("bare"),
+      ]);
+      const base = params({ showHome: true, workspaces: list });
+      const h = renderHook(useWorkspaceGraphs, base);
+      await settle();
+      await settle();
+      await act(async () => h.result.refresh());
+      await settle();
+      expect(snapshots.size).toBe(0);
+
+      const kept = ws("kept", "vault");
+      snapshots.set("kept", { look: "look", layout });
+      h.rerender({
+        ...base,
+        showHome: false,
+        active: kept,
+        activeIdRef: { current: "kept" },
+      });
+      await settle();
+      await act(async () => h.result.refresh());
+      await settle();
+      expect(snapshots.has("kept")).toBe(false);
+
+      snapshots.set("bare", { look: "look", layout });
+      await act(async () => h.result.indexProject("bare"));
+      await settle();
+      expect(snapshots.has("bare")).toBe(false);
+    });
+
+    it("reports the cards ready only once the stored list has arrived", async () => {
+      let release!: (list: StoredSnapshot[]) => void;
+      jarvis.getCardSnapshots.mockReturnValue(
+        new Promise<StoredSnapshot[]>((res) => {
+          release = res;
+        }),
+      );
+      const base = params({
+        showHome: true,
+        workspaces: [ws("kept", "vault")],
+      });
+      const h = renderHook(useWorkspaceGraphs, base);
+      await settle();
+      expect(h.result.snapshotsReady).toBe(false);
+      expect(jarvis.getGraph).not.toHaveBeenCalled();
+
+      await act(async () => release([stored("kept")]));
+      await settle();
+      expect(h.result.snapshotsReady).toBe(true);
+      expect(jarvis.getGraph).not.toHaveBeenCalled();
+
+      h.rerender({ ...base, showHome: false });
+      expect(h.result.snapshotsReady).toBe(false);
+    });
+
+    it("settles a fully stored fleet with no graph load", async () => {
+      jarvis.getCardSnapshots.mockResolvedValue([
+        stored("kept"),
+        stored("bare"),
+      ]);
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({ showHome: true, workspaces: list }),
+      );
+      await settle();
+      await settle();
+      expect(h.result.cardsLoaded).toBe(true);
+      expect(jarvis.getGraph).not.toHaveBeenCalled();
+    });
+
+    it("treats an unreadable stored list as empty", async () => {
+      jarvis.getCardSnapshots.mockRejectedValue(new Error("io"));
+      const h = renderHook(
+        useWorkspaceGraphs,
+        params({ showHome: true, workspaces: list }),
+      );
+      await settle();
+      await settle();
+      expect(fetched()).toEqual(["bare", "kept"]);
+      expect(h.result.cardsLoaded).toBe(true);
+    });
   });
 });

@@ -2,24 +2,29 @@ import { describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import {
   AGENT_GUIDE,
   BRIEF_AFTER_HOUR,
   CLEAR_INPUT,
   FINISH_NUDGE,
+  NUDGE_PART_CHARS,
   SETTLE_DEADLINE_MS,
   SETTLE_MS,
   dailyBriefNudge,
   dailyBriefPrompt,
   ensureMainAgent,
+  GUIDE_HASH_FILE,
   MAIN_AGENT_MODEL,
   MAIN_AGENT_NAME,
   CLEAR_GAP_MS,
   SUBMIT_GAP_MS,
   mainAgentWorkspace,
+  nudgeParts,
   typeNudge,
   withMainAgent,
 } from "../../src/main/main-agent";
+import { scratchWorkspace } from "../../src/main/scratch";
 import type { Workspace } from "../../src/shared/types";
 
 const repo: Workspace = {
@@ -60,27 +65,45 @@ describe("mainAgentWorkspace", () => {
 });
 
 describe("withMainAgent", () => {
-  it("appends the main agent and leaves the vault first", () => {
-    const list = withMainAgent(
-      [vault, repo],
-      mainAgentWorkspace("D:\\userData\\main-agent"),
-    );
-    expect(list.map((w) => w.name)).toEqual(["vault", "JARVIS", "Main Agent"]);
+  const main = () => mainAgentWorkspace("D:\\userData\\main-agent");
+  const scratch = () => scratchWorkspace("D:\\userData\\scratch");
+
+  it("appends Scratch and the main agent and leaves the vault first", () => {
+    const list = withMainAgent([vault, repo], main(), scratch());
+    expect(list.map((w) => w.name)).toEqual([
+      "vault",
+      "JARVIS",
+      "Scratch",
+      "Main Agent",
+    ]);
   });
 
   it("makes the main agent the only isSelf workspace", () => {
-    const list = withMainAgent(
-      [vault, repo],
-      mainAgentWorkspace("D:\\userData\\main-agent"),
-    );
+    const list = withMainAgent([vault, repo], main(), scratch());
     expect(list.filter((w) => w.isSelf).map((w) => w.name)).toEqual([
       "Main Agent",
     ]);
   });
 
+  it("keeps exactly one isScratch and clears both flags from the others", () => {
+    const stray: Workspace = { ...vault, isScratch: true, isSelf: true };
+    const list = withMainAgent(
+      [stray, repo, scratch(), main()],
+      main(),
+      scratch(),
+    );
+    expect(list.filter((w) => w.isScratch).map((w) => w.name)).toEqual([
+      "Scratch",
+    ]);
+    expect(list.filter((w) => w.isSelf).map((w) => w.name)).toEqual([
+      "Main Agent",
+    ]);
+    expect(list).toHaveLength(4);
+  });
+
   it("does not mutate the workspaces it was handed", () => {
     const input = [vault, repo];
-    withMainAgent(input, mainAgentWorkspace("D:\\userData\\main-agent"));
+    withMainAgent(input, main(), scratch());
     expect(repo.isSelf).toBe(true);
     expect(input).toHaveLength(2);
   });
@@ -93,11 +116,146 @@ const tmpRoot = async () =>
   );
 
 describe("ensureMainAgent", () => {
-  it("creates the folder and writes the standing instruction", async () => {
+  const hashOf = (text: string) =>
+    createHash("sha256").update(text).digest("hex");
+  const guidePath = (root: string) => path.join(root, "CLAUDE.md");
+  const hashPath = (root: string) => path.join(root, GUIDE_HASH_FILE);
+  const denied = () => Object.assign(new Error("denied"), { code: "EACCES" });
+
+  it("writes the guide and the hash on a first run, and reports it", async () => {
+    const root = await tmpRoot();
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+    expect(await fs.readFile(hashPath(root), "utf8")).toBe(hashOf(AGENT_GUIDE));
+  });
+
+  it("reports nothing on a second run", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
-    const guide = await fs.readFile(path.join(root, "CLAUDE.md"), "utf8");
-    expect(guide).toBe(AGENT_GUIDE);
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
+  });
+
+  it("keeps a hand edit while the source is unchanged", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.writeFile(guidePath(root), "edited");
+    const hashBefore = await fs.readFile(hashPath(root), "utf8");
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe("edited");
+    expect(await fs.readFile(hashPath(root), "utf8")).toBe(hashBefore);
+  });
+
+  it("overwrites an old guide that has no hash file", async () => {
+    const root = await tmpRoot();
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(guidePath(root), "old");
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+  });
+
+  it("overwrites a hand edit when the stored hash differs", async () => {
+    const root = await tmpRoot();
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(guidePath(root), "edited");
+    await fs.writeFile(hashPath(root), "stale");
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+    expect(await fs.readFile(hashPath(root), "utf8")).toBe(hashOf(AGENT_GUIDE));
+  });
+
+  it("reads a stored hash with a trailing newline as a match", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.writeFile(guidePath(root), "edited");
+    await fs.appendFile(hashPath(root), "\n");
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe("edited");
+  });
+
+  it("brings back a deleted guide when the hash matches", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.rm(guidePath(root));
+    await expect(ensureMainAgent(root)).resolves.toBe(true);
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+  });
+
+  it("leaves no new hash when the guide write fails", async () => {
+    const root = await tmpRoot();
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const write = vi.spyOn(fs, "writeFile").mockRejectedValueOnce(denied());
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(false);
+      expect(warn).toHaveBeenCalled();
+      await expect(fs.readFile(hashPath(root), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      write.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps a hand-edited guide when the hash read fails for another reason", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.writeFile(guidePath(root), "edited");
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const realReadFile = fs.readFile.bind(fs) as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    const read = vi
+      .spyOn(fs, "readFile")
+      .mockImplementation(((file: unknown, ...rest: unknown[]) =>
+        String(file).endsWith(GUIDE_HASH_FILE)
+          ? Promise.reject(Object.assign(new Error("busy"), { code: "EBUSY" }))
+          : realReadFile(file, ...rest)) as typeof fs.readFile);
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(false);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await fs.readFile(guidePath(root), "utf8")).toBe("edited");
+  });
+
+  it("warns and reports false when the guide cannot be restored", async () => {
+    const root = await tmpRoot();
+    await ensureMainAgent(root);
+    await fs.rm(guidePath(root));
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const write = vi.spyOn(fs, "writeFile").mockRejectedValueOnce(denied());
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(false);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("still reports true when only the hash write fails", async () => {
+    const root = await tmpRoot();
+    const warn = vi.spyOn(console, "warn").mockImplementation(vi.fn());
+    const realWriteFile = fs.writeFile.bind(fs);
+    const write = vi
+      .spyOn(fs, "writeFile")
+      .mockImplementationOnce(realWriteFile)
+      .mockRejectedValueOnce(denied());
+    try {
+      await expect(ensureMainAgent(root)).resolves.toBe(true);
+      expect(warn).toHaveBeenCalled();
+      expect(await fs.readFile(guidePath(root), "utf8")).toBe(AGENT_GUIDE);
+    } finally {
+      write.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("the worktree merge line names the worktree's commit, not a branch", () => {
+    expect(AGENT_GUIDE).not.toContain("<branch>");
+    expect(AGENT_GUIDE).toContain("git rev-parse HEAD");
   });
 
   it("tells the agent to re-arm the watch and to keep the summary spoken", () => {
@@ -118,6 +276,50 @@ describe("ensureMainAgent", () => {
       "only says done, committed or tests pass is not agreement",
     );
     expect(AGENT_GUIDE).toContain("or none clearly");
+    expect(AGENT_GUIDE).toContain("each task it clearly covers");
+  });
+
+  it("the guide tells the agent how to work a to-do task", () => {
+    expect(AGENT_GUIDE).toContain("## Working a to-do task");
+    expect(AGENT_GUIDE).toContain("fresh: true");
+    expect(AGENT_GUIDE).toContain("jarvis_send");
+    expect(AGENT_GUIDE).toContain(
+      "A follow-up to what a session already did goes to\nthat session",
+    );
+    expect(AGENT_GUIDE).toContain("in one `jarvis_send`");
+    expect(AGENT_GUIDE).toContain(
+      "Use the single-task prompt when only one task is chosen",
+    );
+    expect(AGENT_GUIDE).toContain("never share a prompt");
+  });
+
+  it("the guide carries the session, Scratch, worktree and lookup rules", () => {
+    for (const needle of [
+      "Scratch",
+      "fresh: true",
+      "git -C",
+      "--ff-only",
+      "Note lookup for:",
+      "Notes context:",
+      "jarvis_close",
+      "never by name",
+      "trustPrompt",
+      "nothing relevant",
+      "do not summarise",
+    ]) {
+      expect(AGENT_GUIDE).toContain(needle);
+    }
+    for (const needle of [
+      'session: "main"',
+      'jarvis_launch` with `label: "main"',
+      "/clear",
+    ]) {
+      expect(AGENT_GUIDE).toContain(needle);
+    }
+    expect(AGENT_GUIDE).not.toContain("is the user's own");
+    expect(AGENT_GUIDE).not.toContain("is refused for a code workspace");
+    expect(AGENT_GUIDE).not.toContain("clears that session");
+    expect(AGENT_GUIDE).not.toContain("refused because the workspace is");
   });
 
   it("leaves an edited guide alone — the user owns the file after first boot", async () => {
@@ -132,7 +334,7 @@ describe("ensureMainAgent", () => {
   it("is safe to call on a folder that already exists", async () => {
     const root = await tmpRoot();
     await ensureMainAgent(root);
-    await expect(ensureMainAgent(root)).resolves.toBeUndefined();
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
   });
 
   it("logs non-EEXIST errors but does not reject", async () => {
@@ -144,7 +346,7 @@ describe("ensureMainAgent", () => {
       );
 
     const root = await tmpRoot();
-    await expect(ensureMainAgent(root)).resolves.toBeUndefined();
+    await expect(ensureMainAgent(root)).resolves.toBe(false);
 
     expect(warnSpy).toHaveBeenCalledWith(
       "[jarvis] failed to write main-agent guide:",
@@ -156,35 +358,80 @@ describe("ensureMainAgent", () => {
   });
 });
 
+const LONG_TEXT = "word ".repeat(250).trim();
+
+const NUDGE =
+  "A workspace just finished. Call jarvis_watch with timeout_seconds 1, then " +
+  "follow Finish summary in your CLAUDE.md. Speak about that one workspace " +
+  "alone, in as few words as possible. Never say how many tests passed. Do " +
+  "not call jarvis_list.";
+
 describe("FINISH_NUDGE", () => {
-  it("names no workspace and carries no message — the agent reads the finish itself", () => {
-    expect(FINISH_NUDGE).toContain("jarvis_watch");
-    expect(FINISH_NUDGE).not.toContain("{");
+  it("is the fixed short text", () => {
+    expect(FINISH_NUDGE).toBe(NUDGE);
+    expect(FINISH_NUDGE).toHaveLength(239);
   });
 
-  // jarvis_list hands back the whole fleet, and an agent given the whole fleet
-  // summarises the whole fleet — the queued finish is the one entry it was
-  // woken for
-  it("sends the agent to the queued finish, not to the fleet", () => {
-    expect(FINISH_NUDGE).toContain("timeout_seconds 1");
-    expect(FINISH_NUDGE).toContain("do not call jarvis_list");
-  });
-
-  it("fits on one line, since it is typed into a TUI composer", () => {
+  it("fits in one write and on one line", () => {
+    expect(FINISH_NUDGE.length).toBeLessThanOrEqual(NUDGE_PART_CHARS);
     expect(FINISH_NUDGE).not.toContain("\n");
   });
 
-  // the summary is heard, not read: a listener cannot skim, so length is the
-  // whole design constraint
-  it("asks for the fewest words and rules out the shapes that pad speech", () => {
-    expect(FINISH_NUDGE).toContain("as few words as");
-    for (const banned of ["preamble", "list", "file names", "markdown"]) {
-      expect(FINISH_NUDGE).toContain(banned);
+  it("names no workspace and carries no message", () => {
+    expect(FINISH_NUDGE).not.toContain("{");
+  });
+});
+
+describe("AGENT_GUIDE Finish summary", () => {
+  it("holds every rule that left the nudge", () => {
+    expect(AGENT_GUIDE).toContain("## Finish summary");
+    for (const needle of [
+      "that one workspace alone",
+      "as few words as possible",
+      "JARVIS review",
+      "check by hand",
+      "three sentences at most",
+      "Never say how many tests passed",
+      "all tests pass",
+      "how many failed and what they check",
+      "skipped",
+      "only says some tests passed",
+      "say nothing about tests",
+      "preamble",
+      "no list",
+      "file names",
+      "test names",
+      "markdown",
+      "do not call `jarvis_list`",
+    ]) {
+      expect(AGENT_GUIDE).toContain(needle);
     }
+  });
+
+  it("bans a passed-test count before the build rule", () => {
+    const section = AGENT_GUIDE.slice(AGENT_GUIDE.indexOf("## Finish summary"));
+    expect(section.indexOf("Never say how many tests passed")).toBeLessThan(
+      section.indexOf("If it finished a build"),
+    );
+  });
+
+  it("points the turn steps at the section", () => {
+    expect(AGENT_GUIDE.indexOf("## What starts your turn")).toBeLessThan(
+      AGENT_GUIDE.indexOf("## Finish summary"),
+    );
+    expect(AGENT_GUIDE).toContain("Follow Finish summary below.");
   });
 });
 
 describe("AGENT_GUIDE describes the nudge, not a watch loop", () => {
+  it("carries the working mark and the hand-off rules", () => {
+    expect(AGENT_GUIDE).toContain("- [/]");
+    expect(AGENT_GUIDE).toContain("check by hand");
+    expect(AGENT_GUIDE).toContain(
+      "one sentence naming the workspace and the task",
+    );
+  });
+
   it("tells the agent it is started by the app rather than by polling", () => {
     expect(AGENT_GUIDE).toContain("jarvis_watch");
     expect(AGENT_GUIDE).toContain("not poll and you do not wait");
@@ -216,14 +463,23 @@ describe("dailyBriefPrompt", () => {
     expect(a).toBe(b);
   });
 
-  it("asks for a written summary, one paragraph per project", () => {
+  it("asks for three parts: today's top three, open items, decisions and risks", () => {
     const text = dailyBriefPrompt(notes);
-    expect(text).toContain("one paragraph per project");
-    expect(text).toContain("what moved");
-    expect(text).toContain("still open");
+    expect(text).toContain("the three things most worth starting today");
+    expect(text).toContain("still open or blocked and its next step");
+    expect(text).toContain("any decision, new finding or new risk");
+    expect(text.indexOf("three things")).toBeLessThan(
+      text.indexOf("still open"),
+    );
+    expect(text.indexOf("still open")).toBeLessThan(text.indexOf("new risk"));
+    expect(text).toContain(
+      "Mention finished work only when it changes the plan",
+    );
+    expect(text).toContain("No counts, no commit IDs, no file names");
+    expect(text).toContain("Say nothing about a project they do not mention");
+    expect(text).not.toContain("one paragraph per project");
     // the main agent's finish summary is the spoken part, not this answer
     expect(text).not.toContain("spoken");
-    expect(text).not.toContain("first sentence");
   });
 
   it("asks the delegate to report a note that is not yesterday's", () => {
@@ -266,6 +522,36 @@ describe("briefing constants", () => {
   });
 });
 
+describe("nudgeParts", () => {
+  it("keeps a text of at most 500 characters whole", () => {
+    expect(nudgeParts("a".repeat(500))).toEqual(["a".repeat(500)]);
+    expect(nudgeParts("hello")).toEqual(["hello"]);
+  });
+
+  it("cuts at the last space before 500, and the space starts the next part", () => {
+    const text = "word ".repeat(150).trim(); // 749 chars
+    const parts = nudgeParts(text);
+    expect(parts.length).toBe(2);
+    expect(parts.every((p) => p.length <= NUDGE_PART_CHARS)).toBe(true);
+    expect(parts[1].startsWith(" ")).toBe(true);
+    expect(parts.join("")).toBe(text);
+  });
+
+  it("keeps a word longer than the limit whole", () => {
+    const text = "x".repeat(600) + " tail";
+    const parts = nudgeParts(text);
+    expect(parts[0]).toBe("x".repeat(600));
+    expect(parts.join("")).toBe(text);
+  });
+
+  it("splits a long text into parts of at most 500 that join back", () => {
+    const parts = nudgeParts(LONG_TEXT);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.length <= NUDGE_PART_CHARS)).toBe(true);
+    expect(parts.join("")).toBe(LONG_TEXT);
+  });
+});
+
 describe("typeNudge", () => {
   const recorder = (alive = true) => {
     const writes: string[] = [];
@@ -287,6 +573,35 @@ describe("typeNudge", () => {
     expect(writes).toEqual([CLEAR_INPUT, "hello"]);
     vi.advanceTimersByTime(SUBMIT_GAP_MS);
     expect(writes).toEqual([CLEAR_INPUT, "hello", "\r"]);
+    vi.useRealTimers();
+  });
+
+  it("types a long nudge as parts 80 ms apart, then Enter", () => {
+    vi.useFakeTimers();
+    const { writes, write } = recorder();
+    const parts = nudgeParts(LONG_TEXT);
+    typeNudge(write, LONG_TEXT);
+    vi.advanceTimersByTime(CLEAR_GAP_MS);
+    expect(writes).toEqual([CLEAR_INPUT, parts[0]]);
+    vi.advanceTimersByTime(SUBMIT_GAP_MS);
+    expect(writes).toEqual([CLEAR_INPUT, parts[0], parts[1]]);
+    vi.runAllTimers();
+    expect(writes).toEqual([CLEAR_INPUT, ...parts, "\r"]);
+    vi.useRealTimers();
+  });
+
+  it("stops the rest and the Enter when a part write fails", () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    let n = 0;
+    const write = (d: string) => {
+      writes.push(d);
+      return ++n < 3; // clear ok, part 1 ok, part 2 fails
+    };
+    typeNudge(write, LONG_TEXT);
+    vi.runAllTimers();
+    const parts = nudgeParts(LONG_TEXT);
+    expect(writes).toEqual([CLEAR_INPUT, parts[0], parts[1]]);
     vi.useRealTimers();
   });
 

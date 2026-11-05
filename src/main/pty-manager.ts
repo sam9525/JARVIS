@@ -1,5 +1,3 @@
-import type { Workspace } from "../shared/types";
-
 // Structural subset of node-pty's IPty — lets tests inject fakes and keeps
 // this module free of the native import (index.ts injects the real spawn).
 export interface PtyLike {
@@ -24,13 +22,16 @@ export type SpawnFn = (
 ) => PtyLike;
 
 export interface PtyManagerEvents {
-  onData(workspaceId: string, data: string): void;
-  onExit(workspaceId: string, exitCode: number): void;
+  onData(key: string, data: string): void;
+  onExit(key: string, exitCode: number): void;
 }
 
 /** The aliases `--model` accepts. An unlisted string passes no flag at all,
  * so a renderer bug cannot place arbitrary text on the command line. */
 export const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"] as const;
+
+/** How long `kill` waits for the process to exit before resolving anyway. */
+export const KILL_WAIT_MS = 3000;
 
 export const isSessionId = (s: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -57,41 +58,84 @@ export function claudeCommand(
 
 export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
   const ptys = new Map<string, PtyLike>();
+  // a killed pty's exit resolves its kill instead of reaching events.onExit
+  const exitWaiters = new Map<PtyLike, () => void>();
   return {
     launch(
-      ws: Workspace,
+      key: string,
+      cwd: string,
       cols: number,
       rows: number,
       dangerous = false,
       model?: string,
       resume: boolean | string = false,
+      statusLine?: string,
     ): void {
-      if (ptys.has(ws.id)) return; // one live session per workspace
+      if (ptys.has(key)) return; // one live pty per session key
       const { file, args } = claudeCommand(dangerous, model, resume);
+      // an app started from inside a JARVIS terminal inherits that session's
+      // JARVIS_STATUSLINE, so the inherited value is dropped, not passed on
+      const parentEnv = { ...process.env };
+      delete parentEnv.JARVIS_STATUSLINE;
       const p = spawnFn(file, args, {
-        cwd: ws.rootPath,
+        cwd,
         cols,
         rows,
-        env: process.env,
+        // the hook forwarder reads JARVIS_SESSION to tag its events; the
+        // status line wrapper reads JARVIS_STATUSLINE for the user's own command
+        env: {
+          ...parentEnv,
+          JARVIS_SESSION: key,
+          ...(typeof statusLine === "string"
+            ? { JARVIS_STATUSLINE: statusLine }
+            : {}),
+        },
       });
-      ptys.set(ws.id, p);
-      p.onData((d) => events.onData(ws.id, d));
+      ptys.set(key, p);
+      p.onData((d) => events.onData(key, d));
       p.onExit(({ exitCode }) => {
-        ptys.delete(ws.id);
-        events.onExit(ws.id, exitCode);
+        // a killed pty's late exit must not remove a relaunch of the same key
+        if (ptys.get(key) !== p) {
+          exitWaiters.get(p)?.();
+          return;
+        }
+        ptys.delete(key);
+        events.onExit(key, exitCode);
       });
     },
-    write(id: string, data: string): boolean {
-      const p = ptys.get(id);
+    write(key: string, data: string): boolean {
+      const p = ptys.get(key);
       if (!p) return false;
       p.write(data);
       return true;
     },
-    has(id: string): boolean {
-      return ptys.has(id);
+    has(key: string): boolean {
+      return ptys.has(key);
     },
-    resize(id: string, cols: number, rows: number): void {
-      ptys.get(id)?.resize(cols, rows);
+    keys(): string[] {
+      return [...ptys.keys()];
+    },
+    resize(key: string, cols: number, rows: number): void {
+      ptys.get(key)?.resize(cols, rows);
+    },
+    /** Resolves once the process has exited — a dying process still holds
+     * its cwd, and Windows refuses to remove that folder — or at
+     * KILL_WAIT_MS if no exit comes. False when no pty has the key. */
+    kill(key: string): Promise<boolean> {
+      const p = ptys.get(key);
+      if (!p) return Promise.resolve(false);
+      ptys.delete(key);
+      const exited = new Promise<boolean>((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          exitWaiters.delete(p);
+          resolve(true);
+        };
+        const timer = setTimeout(done, KILL_WAIT_MS);
+        exitWaiters.set(p, done);
+      });
+      p.kill();
+      return exited;
     },
     killAll(): void {
       for (const p of ptys.values()) p.kill();

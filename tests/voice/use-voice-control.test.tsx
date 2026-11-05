@@ -29,6 +29,12 @@ vi.mock("../../src/renderer/voice/voice-tracker", () => ({
   },
 }));
 
+// every session here is in raw mode, the path that writes to the pty;
+// tests/AppVoice.test.tsx covers dictation into the session screen's draft
+vi.mock("../../src/renderer/session-screen/view-mode", () => ({
+  getViewMode: () => "raw",
+}));
+
 import {
   useVoiceControl,
   END_MS,

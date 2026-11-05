@@ -157,7 +157,13 @@ export default function Panel({
   }, [folding, foldSeq]);
 
   const compact = state.collapsed && compactWidth !== undefined;
-  const width = compact ? compactWidth : state.collapsed ? undefined : state.w;
+  // max-content, not auto: a minimized panel near the right edge would
+  // otherwise shrink to the room left and squeeze its title bar's labels
+  const width = compact
+    ? compactWidth
+    : state.collapsed
+      ? "max-content"
+      : state.w;
   // A minimized panel shrink-wraps to its title bar, so it is the only thing
   // that knows its own width. Everything else in the folded box is analytic:
   // compact is `compactWidth` wide, and a minimized panel is exactly one title
@@ -219,12 +225,21 @@ export default function Panel({
       // the panel on a body press but not on the grip you actually reach for
       onPointerDownCapture={onFocus}
     >
-      <div className={CAPBAR} onPointerDown={drag.onTitlePointerDown}>
+      <div
+        data-testid={`panel-title-${id}`}
+        className={CAPBAR}
+        style={{ height: TITLE_BAR_H }}
+        onPointerDown={drag.onTitlePointerDown}
+      >
         {/* title and frame stay lit whatever has focus — a dimmed preview or
             settings panel read as disabled next to the terminal you were just
             typing in. Focus is still legible in the body fill (panelClass). */}
-        <span className={LBL_CY}>⣿&nbsp;&nbsp;{title}</span>
-        <span className="ml-3 flex items-center gap-2">
+        <span className={LBL_CY + " whitespace-nowrap"}>
+          ⣿&nbsp;&nbsp;{title}
+        </span>
+        {/* grows so a badge can stretch across the bar; end-aligned so a
+            small one still sits by the buttons */}
+        <span className="ml-3 flex min-w-0 flex-1 items-center justify-end gap-2">
           {badge}
           <button
             data-testid={`panel-collapse-${id}`}

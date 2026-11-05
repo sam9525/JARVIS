@@ -3,21 +3,29 @@ import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
 import type { StatusEvent, ToolEvent, Workspace } from "../../src/shared/types";
 import { buildWorkspaces } from "../../src/main/workspaces";
+import type { DeliveredResult } from "../../src/main/orchestrate";
 
 const workspaces: Workspace[] = buildWorkspaces("D:\\vault", []);
 
 function stubOrchestrator() {
-  const sends: Array<[string, string]> = [];
+  const sends: Array<
+    [string, string, { session?: string; fresh?: boolean } | undefined]
+  > = [];
   return {
     sends,
+    sendResult: { ok: true } as DeliveredResult,
     listCalls: { n: 0 },
     list() {
       this.listCalls.n++;
       return [{ name: "vault", live: false }];
     },
-    send(workspace: string, prompt: string) {
-      sends.push([workspace, prompt]);
-      return { ok: true as const };
+    send(
+      workspace: string,
+      prompt: string,
+      opts?: { session?: string; fresh?: boolean },
+    ) {
+      sends.push([workspace, prompt, opts]);
+      return Promise.resolve(this.sendResult);
     },
     says: [] as string[],
     watchCalls: [] as number[],
@@ -29,15 +37,23 @@ function stubOrchestrator() {
       this.says.push(text);
       return { ok: true as const };
     },
-    launches: [] as string[],
-    launch(workspace: string) {
-      this.launches.push(workspace);
+    launches: [] as Array<[string, string | undefined]>,
+    launch(workspace: string, label?: string) {
+      this.launches.push([workspace, label]);
+      return Promise.resolve({ ok: true as const, session: "1" });
+    },
+    trusts: [] as Array<[string, boolean, string | undefined]>,
+    trust(workspace: string, accept: boolean, session?: string) {
+      this.trusts.push([workspace, accept, session]);
       return Promise.resolve({ ok: true as const });
     },
-    trusts: [] as Array<[string, boolean]>,
-    trust(workspace: string, accept: boolean) {
-      this.trusts.push([workspace, accept]);
-      return Promise.resolve({ ok: true as const });
+    closes: [] as Array<[string, string]>,
+    close(workspace: string, session: string) {
+      this.closes.push([workspace, session]);
+      return Promise.resolve({
+        ok: true as const,
+        kept: "D:\\a\\.worktrees\\1",
+      });
     },
     todosCalls: { n: 0 },
     todos() {
@@ -268,7 +284,109 @@ describe("orchestrate routes", () => {
       { "x-jarvis": "1" },
     );
     expect(await res.json()).toEqual({ ok: true });
-    expect(orch.sends).toEqual([["AeroGraph", "fix it"]]);
+    expect(orch.sends).toEqual([
+      ["AeroGraph", "fix it", { session: undefined, fresh: false }],
+    ]);
+    close();
+  });
+
+  it("send forwards the session and a literal fresh: true", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    orch.sendResult = { ok: true, session: "2", worktree: "D:\\a\\.wt\\2" };
+    const res = await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({
+        workspace: "A",
+        prompt: "p",
+        fresh: true,
+        session: "2",
+      }),
+      { "x-jarvis": "1" },
+    );
+    expect(await res.json()).toEqual({
+      ok: true,
+      session: "2",
+      worktree: "D:\\a\\.wt\\2",
+    });
+    expect(orch.sends).toEqual([["A", "p", { session: "2", fresh: true }]]);
+    close();
+  });
+
+  it("send forwards the label of a fresh send", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({
+        workspace: "AeroGraph",
+        prompt: "p",
+        fresh: true,
+        label: "tabs",
+      }),
+      { "x-jarvis": "1" },
+    );
+    expect(orch.sends).toEqual([
+      ["AeroGraph", "p", { session: undefined, fresh: true, label: "tabs" }],
+    ]);
+    close();
+  });
+
+  it.each(["true", 1, null])(
+    "a fresh that is not literally true is a plain send (%s)",
+    async (fresh) => {
+      const { port, orch, close } = await start(() => {
+        /* no-op */
+      });
+      await post(
+        port,
+        "/orchestrate/send",
+        JSON.stringify({ workspace: "A", prompt: "p", fresh }),
+        { "x-jarvis": "1" },
+      );
+      expect(orch.sends).toEqual([
+        ["A", "p", { session: undefined, fresh: false }],
+      ]);
+      close();
+    },
+  );
+
+  it("a session that is not a string is left out", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({ workspace: "A", prompt: "p", session: 2 }),
+      { "x-jarvis": "1" },
+    );
+    expect(orch.sends).toEqual([
+      ["A", "p", { session: undefined, fresh: false }],
+    ]);
+    close();
+  });
+
+  it("a rejected send comes back as its error", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    orch.sendResult = { ok: false, error: "A has 4 sessions" };
+    const res = await post(
+      port,
+      "/orchestrate/send",
+      JSON.stringify({ workspace: "A", prompt: "p", fresh: true }),
+      { "x-jarvis": "1" },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "A has 4 sessions",
+    });
     close();
   });
 
@@ -300,12 +418,13 @@ describe("orchestrate routes", () => {
         list() {
           throw new Error("snapshot exploded");
         },
-        send: () => ({ ok: true as const }),
+        send: () => Promise.resolve({ ok: true as const }),
         watch: () => Promise.resolve(null),
         say: () => ({ ok: true as const }),
         todos: () => Promise.resolve(null),
-        launch: () => Promise.resolve({ ok: true as const }),
+        launch: () => Promise.resolve({ ok: true as const, session: "1" }),
         trust: () => Promise.resolve({ ok: true as const }),
+        close: () => Promise.resolve({ ok: true as const }),
       },
     );
     await new Promise((r) => server.once("listening", r));
@@ -606,8 +725,21 @@ describe("/orchestrate/launch", () => {
     const res = await call(s.port, JSON.stringify({ workspace: "AeroGraph" }), {
       "x-jarvis": "1",
     });
-    expect(await res.json()).toEqual({ ok: true });
-    expect(s.orch.launches).toEqual(["AeroGraph"]);
+    expect(await res.json()).toEqual({ ok: true, session: "1" });
+    expect(s.orch.launches).toEqual([["AeroGraph", undefined]]);
+    s.close();
+  });
+
+  it("forwards a label", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    await call(
+      s.port,
+      JSON.stringify({ workspace: "Obsidian-vault", label: "AeroGraph" }),
+      { "x-jarvis": "1" },
+    );
+    expect(s.orch.launches).toEqual([["Obsidian-vault", "AeroGraph"]]);
     s.close();
   });
 
@@ -649,7 +781,20 @@ describe("/orchestrate/trust", () => {
       { "x-jarvis": "1" },
     );
     expect(await res.json()).toEqual({ ok: true });
-    expect(s.orch.trusts).toEqual([["New", true]]);
+    expect(s.orch.trusts).toEqual([["New", true, undefined]]);
+    s.close();
+  });
+
+  it("forwards the session", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    await call(
+      s.port,
+      { workspace: "New", accept: true, session: "1" },
+      { "x-jarvis": "1" },
+    );
+    expect(s.orch.trusts).toEqual([["New", true, "1"]]);
     s.close();
   });
 
@@ -662,7 +807,7 @@ describe("/orchestrate/trust", () => {
       { workspace: "New", accept: "yes" },
       { "x-jarvis": "1" },
     );
-    expect(s.orch.trusts).toEqual([["New", false]]);
+    expect(s.orch.trusts).toEqual([["New", false, undefined]]);
     s.close();
   });
 
@@ -673,5 +818,142 @@ describe("/orchestrate/trust", () => {
     await call(s.port, { workspace: "New", accept: true }, {});
     expect(s.orch.trusts).toEqual([]);
     s.close();
+  });
+});
+
+describe("/orchestrate/close", () => {
+  const call = (port: number, body: string, headers: Record<string, string>) =>
+    fetch(`http://127.0.0.1:${port}/orchestrate/close`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body,
+    });
+
+  it("forwards the workspace and session and answers the result", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(
+      s.port,
+      JSON.stringify({ workspace: "AeroGraph", session: "1" }),
+      { "x-jarvis": "1" },
+    );
+    expect(await res.json()).toEqual({
+      ok: true,
+      kept: "D:\\a\\.worktrees\\1",
+    });
+    expect(s.orch.closes).toEqual([["AeroGraph", "1"]]);
+    s.close();
+  });
+
+  it("needs the x-jarvis header", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(
+      s.port,
+      JSON.stringify({ workspace: "AeroGraph", session: "1" }),
+      {},
+    );
+    expect(res.status).toBe(403);
+    expect(s.orch.closes).toEqual([]);
+    s.close();
+  });
+
+  it("a malformed body is an error result, not a close", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const res = await call(s.port, "{not json", { "x-jarvis": "1" });
+    expect((await res.json()).ok).toBe(false);
+    expect(s.orch.closes).toEqual([]);
+    s.close();
+  });
+});
+
+describe("statusline route", () => {
+  async function startWithStatusLine(
+    onStatusLine: (key: string, raw: Record<string, unknown>) => void,
+  ) {
+    const server = startListener(
+      0,
+      () => undefined,
+      () => undefined,
+      () => workspaces,
+      stubOrchestrator(),
+      undefined,
+      onStatusLine,
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return { port, close: () => server.close() };
+  }
+  const postStatus = (port: number, body: unknown, type = "application/json") =>
+    fetch(`http://127.0.0.1:${port}/statusline`, {
+      method: "POST",
+      headers: { "Content-Type": type },
+      body: JSON.stringify(body),
+    });
+
+  it("statusline route passes the session key and body", async () => {
+    const calls: Array<[string, Record<string, unknown>]> = [];
+    const { port, close } = await startWithStatusLine((k, r) =>
+      calls.push([k, r]),
+    );
+    const res = await postStatus(port, {
+      model: { display_name: "Opus" },
+      jarvis_session: "s1",
+    });
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0][0]).toBe("s1");
+    expect(calls[0][1].model).toEqual({ display_name: "Opus" });
+    await postStatus(port, { model: {} }); // no key: ignored
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toHaveLength(1);
+    close();
+  });
+
+  it("statusline route refuses a non-JSON content type with 415", async () => {
+    const calls: unknown[] = [];
+    const { port, close } = await startWithStatusLine((k) => calls.push(k));
+    const res = await postStatus(port, { jarvis_session: "s1" }, "text/plain");
+    expect(res.status).toBe(415);
+    expect(calls).toHaveLength(0);
+    close();
+  });
+});
+
+describe("SessionStart on /event", () => {
+  it("hands the new transcript to onSessionStart and reports no status", async () => {
+    const started: unknown[] = [];
+    const statuses: unknown[] = [];
+    const server = startListener(
+      0,
+      () => undefined,
+      (s) => statuses.push(s),
+      () => workspaces,
+      stubOrchestrator(),
+      undefined,
+      undefined,
+      (s) => started.push(s),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    await post(port, {
+      hook_event_name: "SessionStart",
+      session_id: "s-new",
+      cwd: "D:\\vault",
+      transcript_path: "C:/t/s-new.jsonl",
+      source: "resume",
+    });
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+    expect(started[0]).toEqual({
+      sessionKey: workspaces[0].id,
+      transcriptPath: "C:/t/s-new.jsonl",
+      fromApp: false,
+    });
+    expect(statuses).toEqual([]);
+    server.close();
   });
 });

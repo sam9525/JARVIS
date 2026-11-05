@@ -1,46 +1,7 @@
-import type { RawHookEvent } from "./event-mapper";
-import type { StatusEvent, Workspace } from "../shared/types";
+import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
+import type { PipelineStage, StatusEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
-
-const CALL_MAX = 30;
-
-// Which single argument identifies each tool's call. Anything not listed shows
-// the bare tool name — guessing an argument reads worse than admitting none.
-const SUBJECT: Record<string, (i: Record<string, unknown>) => string | null> = {
-  Read: (i) => basename(i.file_path),
-  Edit: (i) => basename(i.file_path),
-  Write: (i) => basename(i.file_path),
-  NotebookEdit: (i) => basename(i.file_path),
-  Grep: (i) => quoted(i.pattern),
-  Glob: (i) => quoted(i.pattern),
-  Bash: (i) => (typeof i.command === "string" ? i.command : null),
-  Task: (i) => (typeof i.subagent_type === "string" ? i.subagent_type : null),
-  Skill: (i) => (typeof i.skill === "string" ? i.skill : null),
-};
-
-function basename(v: unknown): string | null {
-  if (typeof v !== "string" || !v) return null;
-  const parts = v.split(/[\\/]/);
-  return parts[parts.length - 1] || null;
-}
-
-function quoted(v: unknown): string | null {
-  return typeof v === "string" && v ? `"${v}"` : null;
-}
-
-export function callSignature(
-  toolName: string,
-  input: Record<string, unknown>,
-): string {
-  const subject = SUBJECT[toolName]?.(input ?? {}) ?? null;
-  const full = `${toolName}(${subject ?? "…"})`;
-  if (full.length <= CALL_MAX) return full;
-  // keep the tool name and the opening paren; the subject is what gets cut
-  const room = CALL_MAX - toolName.length - 3; // "(", "…", ")"
-  const cut = `${toolName}(${(subject ?? "").slice(0, Math.max(0, room))}…)`;
-  // a tool name longer than the budget leaves nothing to trim — cut the label
-  return cut.length <= CALL_MAX ? cut : `${cut.slice(0, CALL_MAX - 1)}…`;
-}
+import { callSignature } from "../shared/call-signature";
 
 // The question's own short chip label — what AskUserQuestion provides for
 // exactly this purpose. No questions, or no header, and the bare tool name is
@@ -50,6 +11,27 @@ function askHeader(input: Record<string, unknown>): string {
   if (!Array.isArray(qs) || qs.length === 0) return "AskUserQuestion";
   const h = (qs[0] as Record<string, unknown> | undefined)?.header;
   return typeof h === "string" && h ? h : "AskUserQuestion";
+}
+
+const STAGE_BY_SKILL: Record<string, PipelineStage> = {
+  brainstorming: "Spec",
+  "writing-plans": "Plan",
+  "subagent-driven-development": "Build",
+  "executing-plans": "Build",
+};
+
+function stepOf(input: Record<string, unknown>): { step?: string } {
+  const d = input.description;
+  return typeof d === "string" && d ? { step: d } : {};
+}
+
+function stageOf(
+  tool: unknown,
+  input: Record<string, unknown>,
+): { stage?: PipelineStage } {
+  if (tool !== "Skill" || typeof input.skill !== "string") return {};
+  const stage = STAGE_BY_SKILL[input.skill.split(":").pop() ?? ""];
+  return stage ? { stage } : {};
 }
 
 // Second, independent mapper: same raw payload as mapHookEvent, different
@@ -62,10 +44,16 @@ export function mapStatusEvent(
   if (!raw.session_id || !raw.cwd) return null;
   const ws = resolveWorkspace(workspaces, raw.cwd);
   if (!ws) return null;
+  const sessionKey = resolveSessionKey(raw, ws);
   const common = {
     workspaceId: ws.id,
+    sessionKey,
+    fromApp: raw.jarvis_session === sessionKey,
     sessionId: raw.session_id,
     ts: Date.now(),
+    ...(typeof raw.transcript_path === "string"
+      ? { transcriptPath: raw.transcript_path }
+      : {}),
   };
 
   switch (raw.hook_event_name) {
@@ -81,13 +69,20 @@ export function mapStatusEvent(
         ...common,
         kind: "idle",
         call: "",
+        step: "",
         message:
           typeof raw.last_assistant_message === "string"
             ? raw.last_assistant_message
             : undefined,
       };
     case "UserPromptSubmit":
-      return { ...common, kind: "working", call: "" };
+      return {
+        ...common,
+        kind: "working",
+        call: "",
+        step: "",
+        prompt: typeof raw.prompt === "string" ? raw.prompt : undefined,
+      };
     case "PreToolUse":
       // asking is ordered before the generic branch: it is the one tool call
       // whose meaning is "stopped", not "working"
@@ -96,13 +91,21 @@ export function mapStatusEvent(
           ...common,
           kind: "asking",
           call: askHeader(raw.tool_input ?? {}),
+          ...stepOf(raw.tool_input ?? {}),
         };
       return {
         ...common,
         kind: "working",
         call: callSignature(String(raw.tool_name ?? ""), raw.tool_input ?? {}),
+        ...stepOf(raw.tool_input ?? {}),
+        ...stageOf(raw.tool_name, raw.tool_input ?? {}),
       };
+    case "PostToolUse":
+      // the question's end is the only tool end that changes what is happening
+      return raw.tool_name === "AskUserQuestion"
+        ? { ...common, kind: "working", call: "" }
+        : null;
     default:
-      return null; // PostToolUse included — Pre already reported the call
+      return null;
   }
 }

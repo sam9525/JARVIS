@@ -28,14 +28,14 @@ export function clusterGroups(
     .map((ws) => ({ query: ws.id, color: mainColors[ws.id] }))
     .sort((a, b) => b.query.length - a.query.length);
 }
-/** The domain list every view colours a project by. The main agent is left
- * out: it has no graph, so Fleet draws no cluster for it, and a caller that
- * passed the unfiltered array would have counted a domain the home views do
- * not — which is one project wearing two colours. */
+/** The domain list every view colours a project by. The main agent and
+ * Scratch are left out: neither has a graph, so Fleet draws no cluster for
+ * them, and a caller that passed the unfiltered array would have counted a
+ * domain the home views do not — which is one project wearing two colours. */
 export function fleetDomains(workspaces: Workspace[]): string[] {
   return Array.from(
     new Set([
-      ...workspaces.filter((w) => !w.isSelf).map((w) => w.name),
+      ...workspaces.filter((w) => !w.isSelf && !w.isScratch).map((w) => w.name),
       FLEET_ROOT_DOMAIN,
     ]),
   ).sort();

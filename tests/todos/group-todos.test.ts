@@ -6,6 +6,7 @@ const todo = (line: number, project: string | null): Todo => ({
   line,
   raw: `- [ ] t${line}`,
   done: false,
+  working: false,
   text: `t${line}`,
   project,
   created: null,

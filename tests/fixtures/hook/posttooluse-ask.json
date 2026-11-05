@@ -1,0 +1,59 @@
+{
+  "session_id": "sess-ask-1",
+  "cwd": "D:\\vault",
+  "prompt_id": "b48519fd-14e2-4084-b4e1-625fa0e900c9",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Approve the spec?",
+        "header": "Spec",
+        "options": [
+          {
+            "label": "Approve",
+            "description": "Approve the spec as written."
+          },
+          {
+            "label": "Review in browser",
+            "description": "Open the spec for review in the browser before approving."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answers": {
+      "Approve the spec?": "Approve"
+    },
+    "annotations": {}
+  },
+  "tool_response": {
+    "questions": [
+      {
+        "question": "Approve the spec?",
+        "header": "Spec",
+        "options": [
+          {
+            "label": "Approve",
+            "description": "Approve the spec as written."
+          },
+          {
+            "label": "Review in browser",
+            "description": "Open the spec for review in the browser before approving."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answers": {
+      "Approve the spec?": "Approve"
+    },
+    "annotations": {}
+  },
+  "tool_use_id": "toolu_01F6SxBFn1FykLsY1kkdGzc6",
+  "duration_ms": 1
+}

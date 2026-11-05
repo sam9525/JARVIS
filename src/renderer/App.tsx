@@ -12,11 +12,36 @@ import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
 import AskPanel, { pickAsk } from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
+import {
+  approvedDocClose,
+  docPreviewId,
+  docWriteOf,
+  type AskDocs,
+} from "./ui/ask-doc";
 import MouthPicker from "./voice/MouthPicker";
 import WorkspaceRail, { railSeats } from "./home/WorkspaceRail";
 import MissionControl from "./home/MissionControl";
 import HomeHeader from "./home/HomeHeader";
-import TerminalPanel, { onTerminalTyped } from "./terminal/TerminalPanel";
+import TerminalPanel, {
+  disposeTerminal,
+  onTerminalExit,
+  onTerminalTyped,
+  terminalSize,
+} from "./terminal/TerminalPanel";
+import SessionTabs from "./terminal/SessionTabs";
+import {
+  cardTab,
+  homeTabs,
+  pickTab,
+  projectTabs,
+  pruneSelections,
+  type TabSelection,
+} from "./terminal/session-tabs";
+import {
+  closeSessionTab,
+  openSessionTab,
+  type NoticeAction,
+} from "./terminal/tab-actions";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
 import Segmented from "./ui/Segmented";
@@ -33,6 +58,7 @@ import TodoPanel from "./todos/TodoPanel";
 import TodoComposer, { type ComposeRequest } from "./todos/TodoComposer";
 import TodoToggle from "./todos/TodoToggle";
 import TodoView from "./todos/TodoView";
+import { todosGrew } from "./todos/todo-growth";
 import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
 import {
   ASK_Z,
@@ -67,7 +93,14 @@ import {
   hueOfWorkspace,
   hueToHex,
 } from "./graph/workspace-color";
-import { createPreviewOpener, isEditOf } from "./preview/preview-opener";
+import { createPreviewOpener } from "./preview/preview-opener";
+import {
+  focusedPreviewNode,
+  isPreviewEdit,
+  previewNoteIds,
+  previewWorkspace,
+  type PreviewTarget,
+} from "./preview/preview-target";
 import type {
   CodeGraphLevel,
   HomeView,
@@ -84,12 +117,20 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
+import { parseSessionKey } from "../shared/session-key";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
 import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
 import { useHandControl } from "./hands/use-hand-control";
 import { useHandActions, type HandActions } from "./hands/use-hand-actions";
 import { useVoiceControl } from "./voice/use-voice-control";
+import { fileList } from "./session-screen/composer-logic";
+import {
+  getViewMode,
+  onViewMode,
+  setViewMode,
+  wasAutoFlipped,
+} from "./session-screen/view-mode";
 import { nextUtterance, speak, stopSpeaking, type Spoken } from "./voice/speak";
 import VoiceToggle from "./voice/VoiceToggle";
 import type { Graph3DHandle } from "./graph/Graph3D";
@@ -108,7 +149,13 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
 ];
 
 // the same box on the home screen and in a workspace
-const SHARED_PANELS = new Set<PanelId>(["todos", "compose", "view", "ask"]);
+const SHARED_PANELS = new Set<PanelId>([
+  "todos",
+  "compose",
+  "view",
+  "ask",
+  "preview",
+]);
 
 const fold = (m: PanelMap): PanelMap =>
   m.terminal ? { ...m, terminal: { ...m.terminal, collapsed: true } } : m;
@@ -135,7 +182,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [active, setActive] = useState<Workspace | null>(null);
   const [statuses, setStatuses] = useState<WorkspaceStatus[]>([]);
-  const [previewNode, setPreviewNode] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [settings, setSettings] = useState<Settings>(defaultSettings());
   // Mirrors `settings` synchronously (updated every render, below) so the
   // debounced disk-write timer in `setPanel` always captures the latest
@@ -161,8 +208,8 @@ export default function App() {
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
-  // the open question per workspace. Not a queue: the panel shows the active
-  // workspace's question, and another workspace asking shows up as its rail
+  // the open question per session key. Not a queue: the panel shows the
+  // selected tab's question, and another session asking shows up as its rail
   // pip going amber.
   const [asks, setAsks] = useState<Map<string, AskPrompt>>(new Map());
   // An answer is two writes 80 ms apart and the panel moves to the next
@@ -186,6 +233,17 @@ export default function App() {
     seq: number;
   }>({ open: false, todo: null, project: "", seq: 0 });
   const [deckCleared, setDeckCleared] = useState(false);
+  // the terminal tab each panel owner shows, keyed by the owner's workspace id
+  // (home is the main agent's); no entry, or a key that is not a tab, is main
+  const [selectedTabs, setSelectedTabs] = useState<Map<string, TabSelection>>(
+    new Map(),
+  );
+  // a tab action's one-line result, shown only in the owner it came from
+  const [terminalNotice, setTerminalNotice] = useState<{
+    ownerId: string;
+    text: string;
+    action?: NoticeAction;
+  } | null>(null);
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
   // than a visible failure
@@ -340,18 +398,43 @@ export default function App() {
   // the raise working against the panels map of that moment, not of mount
   const focusPanelRef = useRef(focusPanel);
   focusPanelRef.current = focusPanel;
+  // the registered listeners outlive every render, so they read the panel
+  // state through these mirrors
+  const showTodosRef = useRef(showTodos);
+  showTodosRef.current = showTodos;
+  const composeOpenRef = useRef(compose.open);
+  composeOpenRef.current = compose.open;
+  const taskViewOpenRef = useRef(taskView.open);
+  taskViewOpenRef.current = taskView.open;
+  const lastTodosRef = useRef<TodoList | null>(null);
   useEffect(() => {
-    window.jarvis.getTodos().then(setTodoList).catch(console.error);
-    const offList = window.jarvis.onTodos(setTodoList);
-    // the agent says the list is open, so a cleared deck must not hide it
-    const offShow = window.jarvis.onShowTodos(() => {
+    const openTodos = () => {
       setDeckCleared(false);
       setShowTodos(true);
       focusPanelRef.current("todos");
+    };
+    const receiveTodos = (list: TodoList) => {
+      if (todosGrew(lastTodosRef.current, list) && !showTodosRef.current) {
+        openTodos();
+      }
+      lastTodosRef.current = list;
+      setTodoList(list);
+    };
+    window.jarvis.getTodos().then(receiveTodos).catch(console.error);
+    const offList = window.jarvis.onTodos(receiveTodos);
+    // the agent says the list is open, so a cleared deck must not hide it
+    const offShow = window.jarvis.onShowTodos(openTodos);
+    // the panel gets out of the way of the next prompt, unless the user is
+    // mid-edit in the composer or reading a task
+    const offSubmitted = window.jarvis.onUserSubmitted(() => {
+      if (!composeOpenRef.current && !taskViewOpenRef.current) {
+        setShowTodos(false);
+      }
     });
     return () => {
       offList();
       offShow();
+      offSubmitted();
     };
   }, []);
 
@@ -376,15 +459,37 @@ export default function App() {
   );
 
   const todoProjects = useMemo(
-    () => workspaces.filter((w) => !w.isSelf).map((w) => w.name),
+    () =>
+      workspaces.filter((w) => !w.isSelf && !w.isScratch).map((w) => w.name),
     [workspaces],
   );
 
-  // one highlight store per workspace; Graph reads stateRef.current per frame,
-  // so retargeting .current on switch is all a switch needs
+  // one highlight store per session key; Graph reads stateRef.current per
+  // frame, so retargeting .current on switch is all a switch needs
   const storesRef = useRef(new Map<string, HighlightState>());
   const stateRef = useRef(emptyState());
   const activeIdRef = useRef<string | null>(null);
+  // the session key of the open workspace's selected tab: the store the graph
+  // shows and the log the scrubber replays
+  const activeKeyRef = useRef<string | null>(null);
+  // A panel owner's tabs and the one it shows: home's for the main agent, the
+  // project's own otherwise. The terminal, the question panel and the graph
+  // all read the shown tab from here, so an answer lands in the session the
+  // terminal shows.
+  const shownTabs = (owner: Workspace, home: boolean) => {
+    const tabs = home
+      ? homeTabs(
+          owner,
+          workspaces.find((w) => w.isScratch),
+          statuses,
+        )
+      : projectTabs(owner, statuses);
+    return { tabs, tab: pickTab(tabs, selectedTabs.get(owner.id)?.key) };
+  };
+  const selectedKeyOf = (ws: Workspace): string => shownTabs(ws, false).tab.key;
+  // openWorkspace is memoised once, so it reads the current selection here
+  const selectedKeyOfRef = useRef(selectedKeyOf);
+  selectedKeyOfRef.current = selectedKeyOf;
   // whichever graph view is mounted registers its gesture map here
   const handActionsRef = useRef<HandActions>({});
 
@@ -394,13 +499,14 @@ export default function App() {
     codeGraphLevel: settings.codeGraphLevel,
     workspaces,
     showHome,
+    homeView,
     onWorkspacesChanged: setWorkspaces,
   });
   const { graph, graphLoading, cardGraphs, cardsLoaded, indexing } = graphs;
 
-  // event log per workspace, feeding the replay scrubber. logRev exists only to
-  // re-render the bar as events arrive — the log itself stays in a ref so an
-  // append is O(1) rather than an array copy per event.
+  // event log per session key, feeding the replay scrubber. logRev exists only
+  // to re-render the bar as events arrive — the log itself stays in a ref so
+  // an append is O(1) rather than an array copy per event.
   const logsRef = useRef(new Map<string, ToolEvent[]>());
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -419,39 +525,80 @@ export default function App() {
   // live store keeps receiving events while parked, so returning to live needs
   // no catch-up — only a fresh rev so Graph3D re-bakes against the new object.
   const onScrub = useCallback((i: number | null) => {
-    const id = activeIdRef.current;
-    if (!id) return;
+    const key = activeKeyRef.current;
+    if (!key) return;
     setReplayIndex(i);
     if (i === null) {
-      const live = storeFor(id);
+      const live = storeFor(key);
       live.rev = nextRev();
       stateRef.current = live;
     } else {
-      stateRef.current = foldTo(logsRef.current.get(id) ?? [], i);
+      stateRef.current = foldTo(logsRef.current.get(key) ?? [], i);
     }
   }, []);
 
   // debounced auto-open: last-read file after reads go quiet
-  const onPreviewEvent = useMemo(() => createPreviewOpener(setPreviewNode), []);
+  // the auto-open and a graph click preview a file of the workspace on screen
+  // on home it only closes: a read there must not cover the command center
+  const showHomeRef = useRef(showHome);
+  showHomeRef.current = showHome;
+  const openActivePreview = useCallback((nodeId: string | null) => {
+    const workspaceId = activeIdRef.current;
+    if (nodeId && showHomeRef.current) return;
+    setPreview(nodeId && workspaceId ? { workspaceId, nodeId } : null);
+  }, []);
+  const onPreviewEvent = useMemo(
+    () => createPreviewOpener(openActivePreview),
+    [openActivePreview],
+  );
   // read by the event subscription, which is set up once and would otherwise
-  // see only the first render's previewNode
-  const previewNodeRef = useRef(previewNode);
-  previewNodeRef.current = previewNode;
+  // see only the first render's preview
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
   const [previewRev, setPreviewRev] = useState(0);
+  // spec and plan paths each session has written, for the question panel's
+  // preview row; read by the once-registered subscribers
+  const askDocsRef = useRef(new Map<string, AskDocs>());
+  // the Claude session each key last emitted for; a change clears its docs
+  const askDocSessionRef = useRef(new Map<string, string>());
+  const workspacesRef = useRef<Workspace[]>([]);
+  workspacesRef.current = workspaces;
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
       onPreviewEvent.cancel(); // pending open from the old workspace must die
-      setPreviewNode(null);
+      setPreview(null);
       setActive(ws);
       activeIdRef.current = ws.id;
-      stateRef.current = storeFor(ws.id);
+      activeKeyRef.current = selectedKeyOfRef.current(ws);
+      stateRef.current = storeFor(activeKeyRef.current);
       setReplayIndex(null); // the ref above already points at the live store
       // a mid-drag switch must not latch across workspaces (ledger #11)
       grabbedRef.current = undefined;
     },
     [onPreviewEvent],
   );
+
+  // opens over whatever screen is showing, reading the question's own workspace
+  const openDoc = (workspaceId: string, nodeId: string) => {
+    setPreview({ workspaceId, nodeId });
+  };
+
+  // leaving home and going home both close a preview
+  // (end of openDoc)
+  useEffect(() => {
+    setPreview(null);
+  }, [showHome]);
+
+  const previewWs = previewWorkspace(preview, workspaces);
+  const previewOrphaned = preview !== null && previewWs === null;
+  // a preview whose workspace was removed closes instead of hiding
+  useEffect(() => {
+    if (previewOrphaned) setPreview(null);
+  }, [previewOrphaned]);
+  const focusedNode = focusedPreviewNode(preview, active?.id, showHome);
 
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -480,39 +627,77 @@ export default function App() {
         // is also the backstop for a session still running the old matcher.
         if (e.tool === "Prompt")
           setAsks((prev) => {
-            if (!prev.has(e.workspaceId)) return prev;
+            if (!prev.has(e.sessionKey)) return prev;
             const next = new Map(prev);
-            next.delete(e.workspaceId);
+            next.delete(e.sessionKey);
             return next;
           });
+        if (askDocSessionRef.current.get(e.sessionKey) !== e.sessionId) {
+          askDocSessionRef.current.set(e.sessionKey, e.sessionId);
+          askDocsRef.current.delete(e.sessionKey);
+        }
+        const docWrite = docWriteOf(
+          e,
+          workspacesRef.current.find((w) => w.id === e.workspaceId)?.kind ===
+            "vault",
+        );
+        if (docWrite) {
+          const inWorktree = statusesRef.current
+            .find((w) => w.workspaceId === e.workspaceId)
+            ?.sessions.find((s) => s.key === e.sessionKey)?.worktree;
+          askDocsRef.current.set(e.sessionKey, {
+            ...askDocsRef.current.get(e.sessionKey),
+            [docWrite.kind]: docPreviewId(
+              docWrite.nodeId,
+              inWorktree ? parseSessionKey(e.sessionKey).label : null,
+            ),
+          });
+        }
         const fresh = appendEvent(logsRef.current, e);
-        applyEvent(storeFor(e.workspaceId), e, performance.now());
-        if (e.workspaceId === activeIdRef.current) {
+        applyEvent(storeFor(e.sessionKey), e, performance.now());
+        if (e.sessionKey === activeKeyRef.current) {
           if (fresh) onScrub(null); // the past being replayed no longer exists
           setLogRev((n) => n + 1);
           onPreviewEvent(e);
-          if (isEditOf(e, previewNodeRef.current)) setPreviewRev((n) => n + 1);
         }
+        // sessions of one workspace can share its folder, so any of them
+        // editing the previewed file makes the preview stale
+        if (isPreviewEdit(e, previewRef.current)) setPreviewRev((n) => n + 1);
       }),
     );
     offs.push(window.jarvis.onStatus(setStatuses));
-    // typing into the session means the answer is being given there
-    offs.push(
-      onTerminalTyped((id) =>
-        setAsks((prev) => {
-          if (!prev.has(id)) return prev;
-          const next = new Map(prev);
-          next.delete(id);
-          return next;
-        }),
-      ),
-    );
+    // typing into a session means its answer is being given there; the id is
+    // that terminal's session key
+    const dropAsk = (id: string) =>
+      setAsks((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+    offs.push(onTerminalTyped(dropAsk));
+    // an ended session cannot answer, and a later one may reuse its key
+    offs.push(onTerminalExit(dropAsk));
     offs.push(
       window.jarvis.onAsk?.((p) => {
+        if (
+          p.questions.length === 0 &&
+          approvedDocClose(
+            p.answers ?? [],
+            askDocsRef.current.get(p.sessionKey),
+            p.workspaceId,
+            previewRef.current,
+          )
+        )
+          setPreview(null);
         setAsks((prev) => {
           const next = new Map(prev);
-          if (p.questions.length === 0) next.delete(p.workspaceId);
-          else next.set(p.workspaceId, p);
+          if (p.questions.length === 0) next.delete(p.sessionKey);
+          else
+            next.set(p.sessionKey, {
+              ...p,
+              docs: askDocsRef.current.get(p.sessionKey),
+            });
           return next;
         });
       }) ?? (() => undefined),
@@ -592,10 +777,101 @@ export default function App() {
 
   // The rail, the cards and the ring are graph views, and the main agent has
   // no graph. You reach its session from home, which already pins it.
+  // A selection whose session has ended is dropped on the next status push,
+  // so a later session reusing its label does not take the panel (and the
+  // keyboard focus) without the user choosing it.
+  useEffect(() => {
+    if (!orchestrator) return;
+    const scratch = workspaces.find((w) => w.isScratch);
+    setSelectedTabs((m) =>
+      pruneSelections(m, (ownerId) => {
+        if (ownerId === orchestrator.id)
+          return homeTabs(orchestrator, scratch, statuses);
+        const ws = workspaces.find((w) => w.id === ownerId);
+        return ws ? projectTabs(ws, statuses) : null;
+      }),
+    );
+  }, [orchestrator, workspaces, statuses]);
+
+  // Scratch has no graph either, and home's tabs already reach its sessions
   const fleet = useMemo(
-    () => workspaces.filter((w) => !w.isSelf),
+    () => workspaces.filter((w) => !w.isSelf && !w.isScratch),
     [workspaces],
   );
+
+  // Switching tabs retargets the graph to that session's live store, the same
+  // way opening a workspace does; openWorkspace has already moved the ref when
+  // the workspace itself changed.
+  const activeKey = active ? selectedKeyOf(active) : null;
+  useEffect(() => {
+    if (activeKey === null || activeKey === activeKeyRef.current) return;
+    activeKeyRef.current = activeKey;
+    onPreviewEvent.cancel(); // a pending open from the old session must die
+    const live = storeFor(activeKey);
+    live.rev = nextRev();
+    stateRef.current = live;
+    setReplayIndex(null);
+  }, [activeKey, onPreviewEvent]);
+
+  // cards and the ring show the selected session, else the most urgent one
+  const selectedStoreOf = (workspaceId: string): HighlightState => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return storeFor(workspaceId);
+    const { tabs } = shownTabs(ws, false);
+    return storeFor(cardTab(tabs, selectedTabs.get(ws.id)?.key).key);
+  };
+
+  // The terminal panel's session and workspace. Its `@` picker offers the
+  // workspace's files, read from the card graph cache that the cards and the
+  // open graph already fill, so a workspace's graph loads at most once.
+  const terminalOwner = showHome ? orchestrator : active;
+  const terminalTab = terminalOwner && shownTabs(terminalOwner, showHome).tab;
+  const terminalWs =
+    terminalTab &&
+    (workspaces.find((w) => w.id === terminalTab.workspaceId) ?? terminalOwner);
+  const terminalWsId = terminalWs?.id;
+  const { requestGraph } = graphs;
+  useEffect(() => {
+    if (terminalWsId) requestGraph(terminalWsId);
+  }, [terminalWsId, requestGraph]);
+  const terminalFiles = useMemo(() => {
+    const g = terminalWs && cardGraphs.get(terminalWs.id);
+    if (!terminalWs || !g) return [];
+    const ids = g.nodes.filter((n) => n.type !== "tag").map((n) => n.id);
+    return fileList(ids, terminalWs.kind === "vault" ? "vault" : "code");
+  }, [terminalWs, cardGraphs]);
+
+  // re-renders on a view mode change: the floating question stands down for
+  // the session whose screen shows it inline
+  const [, setViewModeRev] = useState(0);
+  useEffect(() => onViewMode(() => setViewModeRev((n) => n + 1)), []);
+  // a prompt submitted after a command flipped to the raw terminal is the
+  // user done with it, so the screen comes back
+  useEffect(
+    () =>
+      window.jarvis.onPromptSubmitted((key) => {
+        if (wasAutoFlipped(key)) setViewMode(key, "screen");
+      }),
+    [],
+  );
+
+  // the floating question panel and the session screen both answer through
+  // this one queue. Resolves false when the session has no terminal.
+  const answerAsk = (key: string, writes: string[]): Promise<boolean> => {
+    const answered = askWriteRef.current
+      .then(async (): Promise<boolean> => {
+        // SEPARATE writes, 80 ms apart — never merge them
+        for (const [i, w] of writes.entries()) {
+          if (i > 0) await new Promise((r) => setTimeout(r, 80));
+          if (!(await window.jarvis.ptyInput(key, w))) return false;
+        }
+        return true;
+      })
+      // a failed write must not strand every answer behind it
+      .catch(() => false);
+    askWriteRef.current = answered.then((): void => undefined);
+    return answered;
+  };
 
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
   // the main agent's row has no card, no tile and no pip to point at
@@ -724,6 +1000,7 @@ export default function App() {
   // The mouth. Only the orchestrator's row is read, and only once per turn
   // — spokenRef is a ref because speaking must not itself cause a render.
   const spokenRef = useRef<Spoken>({ text: "", at: null });
+  const spokenAskRef = useRef("");
   // A restored session (jarvis-inbox.json carries a last message) or a
   // manual mic-on mid-session both find a message already sitting in
   // `statuses` — without this, the false→true edge reads it aloud as if it
@@ -781,7 +1058,10 @@ export default function App() {
     const line = `${ws.name} asks: ${q.question}. Options: ${q.options
       .map((o) => o.label)
       .join(", ")}.`.slice(0, 500);
-    if (spokenRef.current.text === line) return;
+    // identity, not wording: the same question re-asked is a new panel
+    const askId = `${prompt.sessionId}:${prompt.ts}`;
+    if (spokenAskRef.current === askId) return;
+    spokenAskRef.current = askId;
     spokenRef.current = { ...spokenRef.current, text: line };
     void speak(line);
   }, [asks, micOn, workspaces]);
@@ -832,7 +1112,7 @@ export default function App() {
     if (deckCleared) return {};
     const live: PanelMap = {};
     if (active) live.terminal = panelState("terminal");
-    if (previewNode !== null && active) live.preview = panelState("preview");
+    if (preview && previewWs) live.preview = panelState("preview");
     // SETTINGS_Z here as well as at render, so a pinch hit-tests the stack the
     // way it looks rather than the way it is stored
     if (showSettings)
@@ -845,7 +1125,8 @@ export default function App() {
   }, [
     deckCleared,
     active,
-    previewNode,
+    preview,
+    previewWs,
     showSettings,
     showMouthPicker,
     showTodos,
@@ -939,10 +1220,12 @@ export default function App() {
   );
 
   // Seed a workspace's groups once, from its own top-level folders, as soon as
-  // its graph exists — off `cardGraphs`, which fills for the whole fleet at
-  // boot, not off the open workspace. Keying this on `active` meant a project
-  // drew no colour until you opened it, so the cards and the fleet showed the
-  // unseeded fallback and the palette appeared to change when you came back.
+  // its graph exists — off `cardGraphs`, which fills as each card's graph
+  // loads (every card without a valid stored layout, every graph once Fleet
+  // or Ring opens), not off the open workspace. Keying this on `active` meant
+  // a project drew no colour until you opened it, so the cards and the fleet
+  // showed the unseeded fallback and the palette appeared to change when you
+  // came back.
   //
   // `id in groups` marks a workspace seeded, so later deletions are respected.
   // A workspace with no folders is skipped rather than marked: its graph may
@@ -1003,9 +1286,11 @@ export default function App() {
   const resolveLink = useMemo(
     () =>
       buildWikilinkResolver(
-        graph.nodes.filter((n) => n.type === "note").map((n) => n.id),
+        preview
+          ? previewNoteIds(preview, active?.id, graph, cardGraphs)
+          : graph.nodes.filter((n) => n.type === "note").map((n) => n.id),
       ),
-    [graph],
+    [graph, cardGraphs, preview, active?.id],
   );
   // code workspaces have no sections; force "both" so nothing vanishes.
   // Deps are the four filter fields, NOT `settings` — panel drags and window
@@ -1138,7 +1423,7 @@ export default function App() {
                     mainColors={settings.mainColors}
                     statuses={statuses}
                     graphs={cardGraphs}
-                    getStore={storeFor}
+                    getStore={selectedStoreOf}
                     groups={settings.groups}
                     view={settings.views["3d"]}
                     filters={{
@@ -1165,7 +1450,7 @@ export default function App() {
                     mainColors={settings.mainColors}
                     statuses={statuses}
                     graphs={cardGraphs}
-                    getStore={storeFor}
+                    getStore={selectedStoreOf}
                     groups={settings.groups}
                     view={settings.views["2d"]}
                     filters={{
@@ -1177,6 +1462,8 @@ export default function App() {
                     stagger={stage >= 2}
                     indexing={indexing}
                     onIndex={graphs.indexProject}
+                    onNeedGraph={graphs.requestGraph}
+                    snapshotsReady={graphs.snapshotsReady}
                     onSelect={(ws) => {
                       setShowHome(false);
                       openWorkspace(ws);
@@ -1195,9 +1482,9 @@ export default function App() {
                     display={view.display}
                     forces={view.forces}
                     stateRef={stateRef}
-                    onNodeClick={setPreviewNode}
-                    focusNode={previewNode}
-                    rotationPaused={previewNode !== null}
+                    onNodeClick={openActivePreview}
+                    focusNode={focusedNode}
+                    rotationPaused={focusedNode !== null}
                     handleRef={graph3dHandle}
                     width={width}
                     height={height}
@@ -1211,8 +1498,8 @@ export default function App() {
                     display={view.display}
                     forces={view.forces}
                     stateRef={stateRef}
-                    onNodeClick={setPreviewNode}
-                    focusNode={previewNode}
+                    onNodeClick={openActivePreview}
+                    focusNode={focusedNode}
                     handleRef={graphHandle}
                     width={width}
                     height={height}
@@ -1248,7 +1535,10 @@ export default function App() {
           homeActive={showHome}
           stagger={stage >= 1}
           onAddProject={addProject}
-          onHome={() => setShowHome(true)}
+          onHome={() => {
+            setPreview(null); // before paint, so the panel does not flash
+            setShowHome(true);
+          }}
           onSelect={(ws) => {
             setShowHome(false);
             openWorkspace(ws);
@@ -1303,7 +1593,7 @@ export default function App() {
               {showHome ? null : (
                 <div className="pointer-events-auto self-stretch">
                   <Timeline
-                    log={(active && logsRef.current.get(active.id)) || []}
+                    log={(activeKey && logsRef.current.get(activeKey)) || []}
                     index={replayIndex}
                     onScrub={onScrub}
                   />
@@ -1313,39 +1603,83 @@ export default function App() {
           }
         />
       </div>
-      {!showHome && previewNode && active && (
+      {preview && previewWs && (
         <Panel
           id="preview"
-          title={`PREVIEW · ${previewNode.toUpperCase()}`}
+          title={`PREVIEW · ${preview.nodeId.toUpperCase()}`}
           state={panelState("preview")}
           focused={focusedPanel === "preview"}
           hidden={deckCleared}
           foldTo="left"
           onChange={(next) => setPanel("preview", next)}
           onFocus={() => focusPanel("preview")}
-          onClose={() => setPreviewNode(null)}
+          onClose={() => setPreview(null)}
         >
           <Preview
-            nodeId={previewNode}
+            nodeId={preview.nodeId}
             revision={previewRev}
-            workspace={active}
+            workspace={previewWs}
             resolveLink={resolveLink}
-            onNavigate={setPreviewNode}
-            onClose={() => setPreviewNode(null)}
+            onNavigate={(nodeId) =>
+              setPreview({ workspaceId: preview.workspaceId, nodeId })
+            }
+            onClose={() => setPreview(null)}
           />
         </Panel>
       )}
 
       {(() => {
-        const ws = showHome ? orchestrator : active;
-        if (!ws) return null;
+        const owner = showHome ? orchestrator : active;
+        if (!owner) return null;
         // home's terminal collapses to an inbox strip rather than to its title
         // bar — the fleet's state is what you want while the session is parked
         const inboxOnly = showHome && panelState("terminal").collapsed;
+        const { tabs, tab } = shownTabs(owner, showHome);
+        const ws = workspaces.find((w) => w.id === tab.workspaceId) ?? owner;
+        const select = (key: string) => {
+          // an action notice (Close anyway) targets the tab it came from
+          setTerminalNotice((n) => (n?.action ? null : n));
+          setSelectedTabs((m) =>
+            new Map(m).set(owner.id, {
+              key,
+              seen: tabs.some((t) => t.key === key),
+            }),
+          );
+        };
+        const notify = (text: string, action?: NoticeAction) =>
+          setTerminalNotice({ ownerId: owner.id, text, action });
+        const closeTab = (key: string) =>
+          closeSessionTab(key, {
+            deselect: (closed) =>
+              setSelectedTabs((m) => {
+                if (m.get(owner.id)?.key !== closed) return m;
+                const next = new Map(m);
+                next.delete(owner.id);
+                return next;
+              }),
+            dispose: disposeTerminal,
+            notify,
+          });
+        const newTab = () =>
+          openSessionTab(owner.id, terminalSize(tab.key), { select, notify });
         return (
           <Panel
             id="terminal"
-            title={`${showHome ? "ORCHESTRATOR" : "SESSION"} // ${ws.name.toUpperCase()}`}
+            title={showHome ? "ORCHESTRATOR" : owner.name}
+            badge={
+              inboxOnly ? undefined : (
+                <SessionTabs
+                  // per owner, so another owner's tabs never read as new
+                  key={owner.id}
+                  tabs={tabs}
+                  value={tab.key}
+                  onSelect={select}
+                  onNew={showHome ? undefined : newTab}
+                  onClose={closeTab}
+                  fit={panelState("terminal").collapsed}
+                />
+              )
+            }
             compactWidth={
               showHome ? Math.round(viewport.width * 0.22) : undefined
             }
@@ -1358,10 +1692,31 @@ export default function App() {
           >
             <TerminalPanel
               workspace={ws}
-              live={statuses.some((s) => s.workspaceId === ws.id && s.live)}
+              sessionKey={tab.key}
+              live={statuses.some((s) =>
+                s.sessions.some((x) => x.key === tab.key && x.live),
+              )}
+              notice={
+                terminalNotice?.ownerId === owner.id
+                  ? terminalNotice.text
+                  : null
+              }
+              noticeAction={
+                terminalNotice?.ownerId === owner.id
+                  ? terminalNotice.action
+                  : undefined
+              }
+              onDismissNotice={() => setTerminalNotice(null)}
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
               visible={stage >= 3}
+              ask={asks.get(tab.key)}
+              sessionStatus={statuses
+                .flatMap((s) => s.sessions)
+                .find((x) => x.key === tab.key)}
+              files={terminalFiles}
+              onAskAnswer={(writes) => answerAsk(tab.key, writes)}
+              onOpenDoc={(id) => openDoc(ws.id, id)}
             />
           </Panel>
         );
@@ -1484,8 +1839,17 @@ export default function App() {
       </Panel>
 
       {(() => {
-        const own = showHome ? orchestrator : active;
-        const prompt = pickAsk(asks, own?.id);
+        const ownKey = showHome
+          ? orchestrator && shownTabs(orchestrator, true).tab.key
+          : activeKey;
+        // the session screen shows its own question inline while it is up
+        const screenKey =
+          terminalTab &&
+          getViewMode(terminalTab.key) === "screen" &&
+          !panelState("terminal").collapsed
+            ? terminalTab.key
+            : undefined;
+        const prompt = pickAsk(asks, ownKey ?? undefined, screenKey);
         const ws =
           prompt && workspaces.find((w) => w.id === prompt.workspaceId);
         if (!ws || !prompt) return null;
@@ -1504,28 +1868,18 @@ export default function App() {
             onClose={() =>
               setAsks((prev) => {
                 const next = new Map(prev);
-                next.delete(ws.id);
+                next.delete(prompt.sessionKey);
                 return next;
               })
             }
           >
             <AskPanel
               // a different question starts at its own first page
-              key={`${prompt.workspaceId}:${prompt.ts}`}
+              key={`${prompt.sessionKey}:${prompt.ts}`}
               prompt={prompt}
               workspaceName={ws.name}
-              onAnswer={(writes) => {
-                askWriteRef.current = askWriteRef.current
-                  .then(async (): Promise<void> => {
-                    // SEPARATE writes, 80 ms apart — never merge them
-                    for (const [i, w] of writes.entries()) {
-                      if (i > 0) await new Promise((r) => setTimeout(r, 80));
-                      await window.jarvis.ptyInput(ws.id, w);
-                    }
-                  })
-                  // a failed write must not strand every answer behind it
-                  .catch((): void => undefined);
-              }}
+              onAnswer={(writes) => void answerAsk(prompt.sessionKey, writes)}
+              onOpenDoc={(id) => openDoc(prompt.workspaceId, id)}
             />
           </Panel>
         );

@@ -36,6 +36,9 @@ export const DOT: Record<StatusKind, string> = {
   none: "border border-ink-dim",
 };
 
+// the pipeline stage only means something while a session is mid-task
+const STAGE_KINDS: StatusKind[] = ["working", "asking", "blocked"];
+
 const TEXT: Record<StatusKind, string> = {
   working: "text-accent",
   asking: "text-warm",
@@ -68,6 +71,10 @@ type MissionControlProps = {
   // keyed by workspace id; absent means idle
   indexing: Record<string, { state: IndexState; error?: string }>;
   onIndex: (workspaceId: string) => void;
+  // a card asks for its graph only when it has to go live
+  onNeedGraph: (workspaceId: string) => void;
+  // cards draw nothing until this home visit's stored layouts have arrived
+  snapshotsReady: boolean;
   /** Play the entrance run across the cards. App passes `stage >= 2`. */
   stagger?: boolean;
 };
@@ -87,6 +94,8 @@ export default function MissionControl({
   onSelect,
   indexing,
   onIndex,
+  onNeedGraph,
+  snapshotsReady,
   stagger,
 }: MissionControlProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
@@ -167,9 +176,18 @@ export default function MissionControl({
                     ↳ delegated by {st.delegatedBy}
                   </span>
                 )}
+                {st?.stage && STAGE_KINDS.includes(kind) && (
+                  <span
+                    data-testid={`stage-${ws.id}`}
+                    className="ml-auto rounded border border-edge px-1.5 font-mono text-[9px] uppercase tracking-widest text-ink-muted"
+                  >
+                    {st.stage}
+                  </span>
+                )}
               </div>
 
-              {/* one line, ellipsized — a card's height never depends on what
+              {/* the call and step lines are one line each, ellipsized, and
+                  always rendered — a card's height never depends on what
                   Claude happens to be doing */}
               <div
                 data-testid={`call-${ws.id}`}
@@ -177,6 +195,13 @@ export default function MissionControl({
                 className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11.5px] text-accent-soft"
               >
                 {st?.call || " "}
+              </div>
+              <div
+                data-testid={`step-${ws.id}`}
+                title={st?.step || undefined}
+                className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-ink-muted"
+              >
+                {st?.step || " "}
               </div>
 
               {needsIndex ? (
@@ -194,6 +219,8 @@ export default function MissionControl({
                 </div>
               ) : (
                 <MiniGraph
+                  workspaceId={ws.id}
+                  working={kind === "working"}
                   graph={g ?? null}
                   kind={ws.kind}
                   baseHue={hueOfWorkspace(ws, workspaces, mainColors)}
@@ -203,6 +230,8 @@ export default function MissionControl({
                   filters={filters}
                   width={CARD_W}
                   height={CARD_H}
+                  onNeedGraph={() => onNeedGraph(ws.id)}
+                  ready={snapshotsReady}
                 />
               )}
 

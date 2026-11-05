@@ -4,7 +4,9 @@
 
 import type { PanelId, PanelMap, PanelState } from "../../shared/types";
 
-export const TITLE_BAR_H = 26;
+// Every title bar is this tall, the height the terminal's session tabs need,
+// so a panel with tabs and one without line up.
+export const TITLE_BAR_H = 38;
 export const MIN_W = 240;
 export const MIN_H = 120;
 export const SNAP_PX = 16;

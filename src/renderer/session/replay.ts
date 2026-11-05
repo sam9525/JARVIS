@@ -33,7 +33,7 @@ export function foldTo(log: ToolEvent[], index: number): HighlightState {
   return s;
 }
 
-// Appends to the workspace's log, starting a fresh one when the session
+// Appends to the session's log, starting a fresh one when the session
 // changes — the past a scrubber was showing no longer exists. Returns true when
 // it started fresh, so the caller can snap out of replay.
 //
@@ -43,9 +43,9 @@ export function appendEvent(
   logs: Map<string, ToolEvent[]>,
   e: ToolEvent,
 ): boolean {
-  const prev = logs.get(e.workspaceId);
+  const prev = logs.get(e.sessionKey);
   if (!prev?.length || prev[prev.length - 1].sessionId !== e.sessionId) {
-    logs.set(e.workspaceId, [e]);
+    logs.set(e.sessionKey, [e]);
     return true;
   }
   prev.push(e);

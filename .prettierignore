@@ -1,2 +1,4 @@
 # generated code index — not source
 .gitnexus/
+# session worktrees: live checkouts other sessions are editing
+.worktrees/

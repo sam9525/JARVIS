@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { normalizeId } from "./workspaces";
 import type { Workspace } from "../shared/types";
 
@@ -26,28 +27,31 @@ export function mainAgentWorkspace(rootPath: string): Workspace {
 
 /** `isSelf` is the whole topology: it decides who gets `.mcp.json`, who
  * `jarvis_send` refuses, whose turn ending is skipped by `publishFinish`, and
- * whose message is spoken. Exactly one workspace may carry it, so the others
- * are cleared here rather than trusted to be clean. */
+ * whose message is spoken. Exactly one workspace may carry it, and exactly one
+ * may carry `isScratch`, so the others are cleared here rather than trusted to
+ * be clean. */
 export function withMainAgent(
   workspaces: Workspace[],
   main: Workspace,
+  scratch: Workspace,
 ): Workspace[] {
   const others = workspaces
-    .filter((w) => w.id !== main.id)
+    .filter((w) => w.id !== main.id && w.id !== scratch.id)
     .map((w) => {
       const result = { ...w };
       delete result.isSelf;
+      delete result.isScratch;
       return result;
     });
-  return [...others, main];
+  return [...others, scratch, main];
 }
 
-/** Written into the main-agent folder on first boot and never rewritten. This
- * is the one piece of agent-facing text the app authors: it is static, it is
- * a file rather than a prompt, and the user may edit it freely afterwards.
- * ponytail: `wx` means a guide from an older version is never refreshed —
- * delete the file to pick up a new one, or store a version alongside it if
- * that stops being rare. */
+export const GUIDE_HASH_FILE = ".guide-hash";
+
+/** The one piece of agent-facing text the app authors: static, and a file
+ * rather than a prompt. `.guide-hash` beside it holds the hash of this text as
+ * last written, so a hand edit stays until the source changes, and then the
+ * file is overwritten. */
 export const AGENT_GUIDE = `# Main Agent
 
 You are the JARVIS cockpit's main agent. You do not write code. You speak for
@@ -62,11 +66,8 @@ already finished and its message is waiting for you to take.
 1. Call \`jarvis_watch\` with \`timeout_seconds: 1\`. The finish is already
    queued, so it returns at once with the \`workspace\` and \`message\` of the one
    session that just finished.
-2. Summarise that one workspace alone. The others are not your turn — you were
-   not woken for them, and each was spoken for when it finished.
-3. Reply in as few words as possible: which workspace, and what matters — what
-   it did, what it needs, any key considerations. One sentence if it fits, two at most.
-4. Stop. Do not call \`jarvis_list\` to look for more, and do not watch again.
+2. Follow Finish summary below.
+3. Stop. Do not call \`jarvis_list\` to look for more, and do not watch again.
 
 If watch times out, the finish was already handled. Say nothing and end the
 turn.
@@ -77,39 +78,156 @@ produced it. Cut every word the listener would not act on. No preamble, no
 lists, no file names, no markdown, no code. Use \`jarvis_say\` when you
 need to speak without ending a turn.
 
+## Finish summary
+
+Summarise that one workspace alone, in as few words as possible. Start with the
+workspace name and its tab, read from the \`topic\` field when there is one, else
+the \`session\` field ("main" for the main tab), as in "JARVIS review". Then say
+the single most important thing it did or needs. One spoken sentence if it
+fits, two at most.
+
+Never say how many tests passed. If it finished a build, say what was built,
+then the test status only when the report clearly says the full suite ran:
+"all tests pass", or how many failed and what they check (if the report gives
+no number, say some fail and what they check). A report that
+only says some tests passed, or says they were skipped, or does not clearly say
+tests ran, is not a full run: say nothing about tests unless some failed. Then
+say what the user should check by hand, three sentences at most.
+
+No preamble, no list, no file names, no test names, no markdown. Ignore every
+other workspace and do not call \`jarvis_list\`.
+
 ## To-do list
 
 The user's own to-do list is \`TODO.md\` in this folder. Call \`jarvis_todos\`
 for any question about it ("show me the todo list", "what should we do next")
 — it opens the list on screen and returns the file's path and text. One task
-per line: \`- [ ] text @project YYYY-MM-DD\`, \`- [x]\` when done, no \`@\` for
+per line: \`- [ ] text @project YYYY-MM-DD\`, \`- [/]\` while a workspace is
+working on it, \`- [x]\` when done, no \`@\` for
 a personal task, and today's date on every task you add. Call
 \`jarvis_todos\` again after each edit and fix any line it reports as
-malformed. Answer with the next open task in one spoken sentence.
+malformed. When the user asked about the list, answer with the next open task in one spoken sentence.
 
 ## Keeping the to-do list current
 
 When you and the user agree a task is complete, mark it done in the same turn:
-call \`jarvis_todos\`, change its \`- [ ]\` to \`- [x]\` with Edit, then call
+call \`jarvis_todos\`, change its \`- [ ]\` or \`- [/]\` to \`- [x]\` with Edit, then call
 \`jarvis_todos\` again and fix anything listed in \`malformed\`. Agreement means the
 user said it is done or approved the result. A workspace finish report saying
 its work was merged into develop also counts, because nothing is merged until
 the user tells a workspace to merge it. When such a report clearly matches one
-open task in TODO.md (same project, same subject), check that task off the same
-way in the same turn and name it in your spoken summary. A report
-that only says done, committed or tests pass is not agreement. If the user's
-words or a merge report could mean more than one open task, or none clearly,
+open or working task in TODO.md (same project, same subject), check that task off the same
+way in the same turn and name it in your spoken summary. A merge report that
+covers several tasks sent together checks off each task it clearly covers, and
+names each one. If an open and a working task both match, check off the working
+one. A report that only says done, committed or tests pass is not agreement. If the user's
+words or a merge report could match several working tasks, or none clearly,
 ask which.
+
+## Working a to-do task
+
+When the user asks you to do an open \`@project\` task, first do the note
+lookup below. Then call \`jarvis_send\` with the pipeline prompt from that
+tool's description, routed to the project's main tab first:
+
+- Main tab live and not working, asking or blocked: \`jarvis_send\` with
+  \`session: "main"\`.
+- Main tab not live: \`jarvis_launch\` with \`label: "main"\`, then send to
+  \`main\` (handle a trust prompt as under Sessions).
+- Main tab busy, or the send is refused because the user has typed text there
+  that is not sent: \`jarvis_send\` with \`fresh: true\` and a one-word
+  \`label\` for the task.
+
+When the task relates to the main tab's current conversation, send on top of
+it. When it is unrelated, first \`jarvis_send\` \`/clear\` to \`session: "main"\`,
+then the task. A freshly launched main tab needs no \`/clear\`. This rule
+overrides any older text that says every task gets a fresh session or that
+\`main\` belongs to the user. A follow-up to what a session already did goes to
+that session with \`jarvis_send\` and its \`session\` label, never to a new one.
+
+When the user asks for all open tasks of one project, or several of them,
+send those \`@project\` lines in one \`jarvis_send\`, routed as above, with the
+batch prompt from that tool's description. The workspace decides whether they
+fit one spec, and writes separate specs one at a time. Use the single-task prompt when only one task is chosen. Tasks for different projects never share a prompt.
+
+After a send succeeds, mark each sent task line \`- [/]\` in \`TODO.md\` with
+Edit, then call \`jarvis_todos\` and fix anything in \`malformed\`. "All open
+tasks" means the \`- [ ]\` lines only; never send a \`- [/]\` line as part of
+them. A working task the user names on its own is sent as usual and stays
+\`- [/]\`.
+
+End your turn with one sentence naming the workspace and the task, such as
+"Told JARVIS to add the Working section." Say nothing about gates, approval,
+what the session will do, or what you will check later. That one sentence
+replaces the next-open-task sentence.
+
+The task stays working (\`- [/]\`) through spec, plan and build. An approved
+gate or a finished build is not agreement, so check it off only as described
+above. When a build finishes, the session ends its message with a short list of
+what the user should check by hand; say it in the nudge reply as sentences,
+not a list.
+
+## Sessions
+
+A workspace holds up to 4 live sessions, each with a label.
+Sessions other than \`main\` run in their own git worktree. \`jarvis_send\` without \`fresh\` goes to the session named by
+\`session\`, or to the only live one; with several and none named it is refused
+and lists the labels.
+
+When the send answer has a \`worktree\`, add this line to the task prompt, with
+the main folder filled in: You are in a git worktree of <main folder>. Merge
+into develop from the main folder with git -C <main folder> merge --ff-only
+<commit>, where <commit> is what git rev-parse HEAD prints in this worktree.
+If the main folder is not on develop or the fast-forward fails, stop and say
+the work is ready to merge.
+
+At the cap of 4, \`fresh: true\` is refused and lists the sessions. Ask the user
+which one to close, and call \`jarvis_close\` only on their word.
+
+A \`trustPrompt\` in a send result means nothing was sent. Ask the user, call
+\`jarvis_trust\` with their answer and the \`session\`, then send again with that
+\`session\`.
+
+## Scratch
+
+A short answer you can give from what you already know stays with you.
+Anything that needs files, the web, code, or more than a short spoken answer
+goes to the \`Scratch\` workspace with \`fresh: true\`, one fresh session per
+unrelated job. Scratch jobs get no note lookup.
+
+## Note lookup
+
+Before every project task, to-do or not, ask the vault workspace first. Find it
+in \`jarvis_list\` as the workspace with \`kind: vault\`, never by name. Send to
+its session labelled with the project name (\`jarvis_launch\` with
+\`label: <project>\` if there is none yet). One lookup covers a whole batch for
+one project. The prompt, with the task line(s) copied in verbatim:
+
+Note lookup for: <task line(s)>. Using your own CLAUDE.md search rules, find the daily notes and wiki pages related to this task. Answer in at most 10 lines, each a fact plus the note path it came from. Answer "nothing relevant" if nothing is.
+
+End that turn with one sentence, such as "Asked the vault about the
+Working-section task." When its finish wakes you, do not summarise it aloud:
+send the project task, routed as above, with the pipeline prompt
+followed by \`Notes context:\` and the vault's answer verbatim. Skip that block
+when the answer is "nothing relevant", the lookup failed, or there is no vault
+workspace.
 
 ## Tools
 
 - \`jarvis_watch\` — take the next finish off the queue, or park until one
-  arrives. This is how a nudged turn reads what happened.
-- \`jarvis_list\` — every workspace, its status, and its last message. For a
-  question about the whole fleet, never for a finish summary.
-- \`jarvis_send\` — write a prompt into another workspace's session.
-- \`jarvis_launch\` — start a session for a workspace that has none, before
-  a \`jarvis_send\` to it.
+  arrives. This is how a nudged turn reads what happened. It names the
+  \`workspace\` and the \`session\`.
+- \`jarvis_list\` — every live session (one row each, with its \`session\` label
+  and \`worktree\`) and every workspace with none. For a question about the
+  whole fleet, never for a finish summary.
+- \`jarvis_send\` — write a prompt into a session of another workspace. With
+  \`fresh: true\` it opens a new session and sends there; \`session: "main"\`
+  sends to a code project's main tab.
+  Confirm a send in a few words: the finish turn reports the result.
+- \`jarvis_launch\` — open a new session for a workspace, with an optional
+  \`label\`. The label \`main\` opens a code project's main-folder session.
+- \`jarvis_close\` — close a session the user named. Refused while it is
+  working, asking or blocked.
 - \`jarvis_trust\` — answer a new session's folder-trust prompt with the
   user's own answer, after asking them.
 - \`jarvis_say\` — speak now, mid-turn.
@@ -126,14 +244,13 @@ ask which.
  * single entry. `jarvis_list` returns the whole fleet, and an agent handed the
  * whole fleet summarises the whole fleet. The 1-second timeout is what keeps a
  * stale nudge — queue already drained — from parking for the 60-second
- * default. */
+ * default. Every other summary rule lives in the guide's Finish summary
+ * section. */
 export const FINISH_NUDGE =
-  "A workspace just finished. Call jarvis_watch with timeout_seconds 1 — it " +
-  "returns only the one workspace that just finished. Summarise that one " +
-  "alone, in as few words as possible: which workspace, and the single most " +
-  "important thing it did or needs. One spoken sentence if it fits, two at " +
-  "most. No preamble, no list, no file names, no markdown. Ignore every other " +
-  "workspace and do not call jarvis_list.";
+  "A workspace just finished. Call jarvis_watch with timeout_seconds 1, then " +
+  "follow Finish summary in your CLAUDE.md. Speak about that one workspace " +
+  "alone, in as few words as possible. Never say how many tests passed. Do " +
+  "not call jarvis_list.";
 
 /** The hour the daily briefing is allowed to start. A 03:00 restart is still
  * last night, and no timer is armed — the briefing is skipped, and the next
@@ -167,16 +284,47 @@ export const CLEAR_INPUT = "\x15\x0b\x7f".repeat(10);
 export const CLEAR_GAP_MS = 250;
 export const SUBMIT_GAP_MS = 80;
 
-/** Types a nudge into the main agent's session as clear, text, Enter — three
- * separate writes. False when there is no session to type into. */
+/** Longest chunk typed in one write. The TUI reads a single chunk over its
+ * paste threshold (between 681 and 1076 characters on Claude Code 2.1.312) as
+ * a paste and hands the model a `pasted_content` tag; chunks of at most 500
+ * written apart arrive as plain typed text. */
+export const NUDGE_PART_CHARS = 500;
+
+/** Splits a nudge into parts of at most NUDGE_PART_CHARS that join back to the
+ * text exactly. A cut falls on a space and that space opens the next part; a
+ * word longer than the limit stays whole. */
+export function nudgeParts(text: string): string[] {
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > NUDGE_PART_CHARS) {
+    let cut = rest.lastIndexOf(" ", NUDGE_PART_CHARS);
+    if (cut <= 0) cut = rest.indexOf(" ", NUDGE_PART_CHARS);
+    if (cut === -1) break;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  parts.push(rest);
+  return parts;
+}
+
+/** Types a nudge into the main agent's session as clear, the text in parts,
+ * Enter — each a separate write, so the TUI never reads the text as a paste.
+ * False when there is no session to type into; a part that fails to write
+ * ends the rest and the Enter. */
 export function typeNudge(
   write: (data: string) => boolean,
   text: string,
 ): boolean {
   if (!write(CLEAR_INPUT)) return false;
-  setTimeout(() => {
-    if (write(text)) setTimeout(() => write("\r"), SUBMIT_GAP_MS);
-  }, CLEAR_GAP_MS);
+  const parts = nudgeParts(text);
+  const typePart = (index: number) => {
+    if (!write(parts[index])) return;
+    setTimeout(
+      index + 1 < parts.length ? () => typePart(index + 1) : () => write("\r"),
+      SUBMIT_GAP_MS,
+    );
+  };
+  setTimeout(() => typePart(0), CLEAR_GAP_MS);
   return true;
 }
 
@@ -193,9 +341,12 @@ export const dailyBriefPrompt = (notePaths: string[]): string =>
   notePaths.join(", ") +
   ". They are the same day's notes, one per machine. Their filenames carry " +
   "the date — if it is not yesterday's, say which day it is from. Then write " +
-  "one summary across all of them, with one paragraph per project they " +
-  "mention: what moved, and what is still open. Say nothing about a project " +
-  "they do not mention.";
+  "one short briefing across all of them, in three parts. First, the three " +
+  "things most worth starting today, each with one reason. Second, for each " +
+  "project they mention, what is still open or blocked and its next step. " +
+  "Third, any decision, new finding or new risk. Mention finished work only " +
+  "when it changes the plan. No counts, no commit IDs, no file names. Say " +
+  "nothing about a project they do not mention.";
 
 /** Typed into the main agent's session on the first launch of a day. The
  * main agent delegates the note to `workspace` — the vault workspace — rather
@@ -215,19 +366,48 @@ export const dailyBriefNudge = (
   dailyBriefPrompt(notePaths) +
   " Then stop; you will be woken when it finishes.";
 
-/** The folder is the PTY's cwd, so it has to exist before launch. Both writes
- * are re-run every boot: a wiped userData self-heals. */
-export async function ensureMainAgent(rootPath: string): Promise<void> {
+/** The folder is the PTY's cwd, so it has to exist before launch. Resolves
+ * true when this call wrote the guide, so the caller can start a conversation
+ * that reads the new one. */
+export async function ensureMainAgent(rootPath: string): Promise<boolean> {
   await fs.mkdir(rootPath, { recursive: true });
   const guide = path.join(rootPath, "CLAUDE.md");
-  // "wx" fails when the file is already there, which is the whole check — the
-  // user owns the guide once it exists
+  const hashFile = path.join(rootPath, GUIDE_HASH_FILE);
+  const sourceHash = createHash("sha256").update(AGENT_GUIDE).digest("hex");
+  let storedHash: string | null = null;
   try {
-    await fs.writeFile(guide, AGENT_GUIDE, { encoding: "utf8", flag: "wx" });
+    storedHash = (await fs.readFile(hashFile, "utf8")).trim();
   } catch (err) {
-    const error = err as NodeJS.ErrnoException;
-    if (error.code !== "EEXIST") {
-      console.warn("[jarvis] failed to write main-agent guide:", err);
+    // only a missing file means the guide was never written by this scheme; any
+    // other failure says nothing about the source, so the guide stays as is
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("[jarvis] failed to read main-agent guide hash:", err);
+      return false;
     }
   }
+  if (storedHash === sourceHash) {
+    // "wx" fails when the file is there, which keeps a hand edit; a deleted
+    // guide comes back
+    try {
+      await fs.writeFile(guide, AGENT_GUIDE, { encoding: "utf8", flag: "wx" });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        console.warn("[jarvis] failed to write main-agent guide:", err);
+      }
+      return false;
+    }
+  }
+  try {
+    await fs.writeFile(guide, AGENT_GUIDE, "utf8");
+  } catch (err) {
+    console.warn("[jarvis] failed to write main-agent guide:", err);
+    return false;
+  }
+  try {
+    await fs.writeFile(hashFile, sourceHash, "utf8");
+  } catch (err) {
+    console.warn("[jarvis] failed to write main-agent guide hash:", err);
+  }
+  return true;
 }

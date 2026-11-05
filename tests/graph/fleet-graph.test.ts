@@ -182,6 +182,12 @@ describe("fleetDomains", () => {
     );
   });
 
+  it("leaves Scratch out too", () => {
+    const scratch = { ...ws("scr", "Scratch"), isScratch: true } as Workspace;
+    const all = [ws("a", "AeroGraph"), scratch];
+    expect(fleetDomains(all)).toEqual(["AeroGraph", "JARVIS"]);
+  });
+
   it("gives two projects two different colours", () => {
     const all = [ws("a", "AeroGraph"), ws("b", "Pokemon")];
     expect(colorFor("AeroGraph", fleetDomains(all))).not.toBe(

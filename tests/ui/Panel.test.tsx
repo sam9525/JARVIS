@@ -101,6 +101,17 @@ describe("Panel", () => {
     );
     const el = Panel({ ...base, state }) as React.ReactElement<any>;
     expect(el.props.style.height).toBe(TITLE_BAR_H);
+    // its full title bar, never squeezed by the room left at a screen edge
+    expect(el.props.style.width).toBe("max-content");
+  });
+
+  it("gives every title bar the same fixed height", () => {
+    const html = renderToStaticMarkup(<Panel {...base} />);
+    expect(html).toMatch(
+      new RegExp(
+        `data-testid="panel-title-terminal"[^>]*height:${TITLE_BAR_H}px`,
+      ),
+    );
   });
 
   it("collapses to compactWidth with its body intact when one is given", () => {

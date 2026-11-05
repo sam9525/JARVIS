@@ -122,6 +122,7 @@ describe("pullNotes", () => {
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", args, { cwd, stdio: "ignore" });
 
+  // nine git spawns, which on Windows pass the 5 s default during a full run
   it("fast-forwards the local copy from its remote", async () => {
     const origin = await tmp();
     git(origin, "init", "-q");
@@ -140,7 +141,7 @@ describe("pullNotes", () => {
     expect(await latestNotes(local)).toEqual([
       path.join(local, "2026-09-11.md"),
     ]);
-  });
+  }, 30000);
 
   it("resolves for a folder that is not a repo", async () => {
     await expect(pullNotes(await tmp())).resolves.toBeUndefined();

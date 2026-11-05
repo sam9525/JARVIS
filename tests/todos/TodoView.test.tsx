@@ -30,13 +30,16 @@ const button = (label: string) =>
     (b) => b.textContent === label,
   ) as HTMLButtonElement;
 
-const render = (onOp = vi.fn().mockResolvedValue({ ok: true })) => {
+const render = (
+  onOp = vi.fn().mockResolvedValue({ ok: true }),
+  shown = todo,
+) => {
   const onEdit = vi.fn();
   const onClose = vi.fn();
   act(() =>
     root.render(
       <TodoView
-        todo={todo}
+        todo={shown}
         project="JARVIS"
         colors={{}}
         onOp={onOp}
@@ -55,6 +58,11 @@ describe("TodoView", () => {
     expect(text).toContain("Fix the ring snap");
     expect(text).toContain("JARVIS");
     expect(text).toContain("2026-09-27");
+  });
+
+  it("labels a working task Working", () => {
+    render(undefined, parseTodos("- [/] Fix the ring snap\n").todos[0]);
+    expect(container.textContent).toContain("Working");
   });
 
   it("asks for the composer from Edit", () => {

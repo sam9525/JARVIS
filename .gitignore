@@ -13,6 +13,9 @@ out/
 # ANTIGRAVITY
 AGENTS.md
 
+# Session worktrees
+.worktrees/
+
 # Docs
 docs/
 CONTEXT.md

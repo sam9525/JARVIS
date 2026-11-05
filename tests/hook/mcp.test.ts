@@ -5,6 +5,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
+import { AGENT_GUIDE } from "../../src/main/main-agent";
 
 const MCP = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -141,10 +142,316 @@ describe("mcp.mjs", () => {
     expect(JSON.parse(listener.hits[0].body)).toEqual({
       workspace: "AeroGraph",
       prompt: "fix it",
+      fresh: false,
     });
     expect(res.result.isError).toBeUndefined();
     listener.close();
   });
+
+  it("jarvis_send's schema offers fresh as an optional boolean", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 20, method: "tools/list" });
+    const send = res.result.tools[1];
+    expect(send.inputSchema.properties.fresh.type).toBe("boolean");
+    expect(send.inputSchema.properties.fresh.description).not.toContain(
+      "/clear",
+    );
+    expect(send.inputSchema.properties.fresh.description).toContain(
+      "new session",
+    );
+    expect(send.inputSchema.properties.session.type).toBe("string");
+    expect(send.inputSchema.required).toEqual(["workspace", "prompt"]);
+  });
+
+  it("jarvis_send's schema offers an optional label for a fresh send", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 26, method: "tools/list" });
+    const send = res.result.tools[1];
+    expect(send.inputSchema.properties.label.type).toBe("string");
+    expect(send.inputSchema.properties.label.description).toContain("fresh");
+    expect(send.inputSchema.required).toEqual(["workspace", "prompt"]);
+    expect(send.description).toContain(
+      'Pass label with every fresh send: one word that names the task, such as\nlabel: "tabs". The new tab shows it at once.\n',
+    );
+  });
+
+  it("tools/call jarvis_send forwards label", async () => {
+    const listener = await fakeListener({ ok: true, session: "2" });
+    const { request } = startMcp(listener.port);
+    await request({
+      jsonrpc: "2.0",
+      id: 27,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true, label: "tabs" },
+      },
+    });
+    expect(JSON.parse(listener.hits[0].body).label).toBe("tabs");
+    listener.close();
+  });
+
+  it("jarvis_launch takes an optional label and jarvis_trust a session", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 24, method: "tools/list" });
+    const tool = (name: string) =>
+      res.result.tools.find((t: any) => t.name === name);
+    expect(tool("jarvis_launch").inputSchema.properties.label.type).toBe(
+      "string",
+    );
+    expect(tool("jarvis_launch").inputSchema.required).toEqual(["workspace"]);
+    expect(tool("jarvis_trust").inputSchema.properties.session.type).toBe(
+      "string",
+    );
+    expect(tool("jarvis_close").inputSchema.required).toEqual([
+      "workspace",
+      "session",
+    ]);
+  });
+
+  it("tools/call jarvis_send forwards session and names it in the answer", async () => {
+    const listener = await fakeListener({
+      ok: true,
+      session: "2",
+      worktree: "D:\\a\\.worktrees\\2",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 25,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true, session: "2" },
+      },
+    });
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "A",
+      prompt: "p",
+      fresh: true,
+      session: "2",
+    });
+    const text = res.result.content[0].text;
+    expect(text).toContain('session "2"');
+    expect(text).toContain("D:\\a\\.worktrees\\2");
+    listener.close();
+  });
+
+  it("a fresh send that hits a trust prompt tells the agent to ask the user", async () => {
+    const listener = await fakeListener({
+      ok: true,
+      session: "1",
+      trustPrompt: "D:\\a\\.worktrees\\1",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 26,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true },
+      },
+    });
+    const text = res.result.content[0].text;
+    expect(res.result.isError).toBeUndefined();
+    expect(text).toContain("D:\\a\\.worktrees\\1");
+    expect(text).toContain("Ask the user");
+    expect(text).toContain("jarvis_trust");
+    expect(text).toContain("not sent");
+    listener.close();
+  });
+
+  it("tools/call jarvis_close POSTs to /orchestrate/close with the header", async () => {
+    const listener = await fakeListener({
+      ok: true,
+      kept: "D:\\a\\.worktrees\\1 (uncommitted changes)",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 27,
+      method: "tools/call",
+      params: {
+        name: "jarvis_close",
+        arguments: { workspace: "A", session: "1" },
+      },
+    });
+    expect(listener.hits[0].url).toBe("/orchestrate/close");
+    expect(listener.hits[0].headers["x-jarvis"]).toBe("1");
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "A",
+      session: "1",
+    });
+    expect(res.result.isError).toBeUndefined();
+    expect(res.result.content[0].text).toContain("uncommitted changes");
+    listener.close();
+  });
+
+  it("a refused close comes back as a tool error", async () => {
+    const listener = await fakeListener({
+      ok: false,
+      error: "A's session 1 is busy (working)",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 28,
+      method: "tools/call",
+      params: {
+        name: "jarvis_close",
+        arguments: { workspace: "A", session: "1" },
+      },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("busy");
+    listener.close();
+  });
+
+  it("jarvis_send's description carries the pipeline and the fresh rule", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 21, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    for (const needle of [
+      "superpowers:brainstorming",
+      "interactive-html-review",
+      "superpowers:writing-plans",
+      "superpowers:subagent-driven-development",
+      "fresh: true",
+      "@project",
+      "To-do tasks:",
+      "Never start a spec before the one before it is approved.",
+      "for each spec in order",
+      "Use the single-task prompt when only one task is chosen",
+      "never share a prompt",
+      "check by hand",
+      "- [/]",
+      "one sentence naming the workspace and the task",
+      "never send a - [/] line",
+    ]) {
+      expect(description).toContain(needle);
+    }
+  });
+
+  it("jarvis_send's pipelines tell every build subagent to run impact with repo", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 41, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    const impactLine =
+      "Before editing any existing function, class or method, run GitNexus\n" +
+      "   impact on it and pass repo: the name list_repos gives for this\n" +
+      "   project's main folder (call list_repos once). New files, tests and\n" +
+      "   docs need no impact. Report each result in your summary.";
+    expect(description.split(impactLine)).toHaveLength(3);
+    expect(description).toContain("implementer or fix subagent");
+    expect(description).not.toContain("repo: JARVIS");
+  });
+
+  it("jarvis_send tells the agent to confirm a send in a few words, like the guide", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 42, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    expect(description).toContain("After a send, confirm it in a few words");
+    expect(description).toContain("the finish turn reports the result");
+    expect(AGENT_GUIDE).toContain(
+      "Confirm a send in a few words: the finish turn reports the result.",
+    );
+  });
+
+  it("jarvis_send's worktree merge line names the commit, not a branch", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 43, method: "tools/list" });
+    const description: string = res.result.tools[1].description;
+    expect(description).not.toContain("<branch>");
+    expect(description).toContain("git rev-parse HEAD");
+  });
+
+  it("jarvis_send's description carries the session, Scratch, worktree and lookup rules", async () => {
+    const { request } = startMcp(1);
+    const res = await request({ jsonrpc: "2.0", id: 40, method: "tools/list" });
+    const tool = (name: string) =>
+      res.result.tools.find((t: any) => t.name === name);
+    const send: string = tool("jarvis_send").description;
+    for (const needle of [
+      "Scratch",
+      "fresh: true",
+      "git -C",
+      "--ff-only",
+      "Note lookup for:",
+      "Notes context:",
+      "jarvis_close",
+      "never by name",
+      "trustPrompt",
+      "nothing relevant",
+    ]) {
+      expect(send).toContain(needle);
+    }
+    expect(send).not.toContain("refused as busy");
+    for (const needle of [
+      'session: "main"',
+      'jarvis_launch with label: "main"',
+      "/clear",
+      "overrides",
+    ]) {
+      expect(send).toContain(needle);
+    }
+    expect(send).not.toContain("Use fresh: true for any new spec or new task");
+    const launch: string = tool("jarvis_launch").description;
+    expect(launch).not.toContain("is refused for a code workspace");
+    expect(launch).toContain("main-folder session");
+    expect(launch).not.toContain("a session already exists");
+    expect(launch).toContain("`main`");
+    expect(launch).toContain("label");
+    expect(launch).not.toContain("next free number");
+    expect(launch).toContain("omit it to open the main tab");
+    expect(launch).toContain("busy");
+    const list: string = tool("jarvis_list").description;
+    expect(list).toContain("session");
+    expect(list).toContain("worktree");
+    const watch: string = tool("jarvis_watch").description;
+    expect(watch).toContain("do not summarise");
+    expect(watch).toContain("session");
+  });
+
+  it("tools/call jarvis_send forwards fresh", async () => {
+    const listener = await fakeListener({ ok: true });
+    const { request } = startMcp(listener.port);
+    await request({
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true },
+      },
+    });
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "A",
+      prompt: "p",
+      fresh: true,
+    });
+    listener.close();
+  });
+
+  it("a fresh send waits past the 20 s settle deadline", async () => {
+    const { server, port } = await startStubServer(async () => {
+      await new Promise((r) => setTimeout(r, 3000));
+      return { ok: true };
+    });
+    const { request } = startMcp(port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 23,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: { workspace: "A", prompt: "p", fresh: true },
+      },
+    });
+    expect(res.result.isError).toBeUndefined();
+    expect(res.result.content[0].text).toBe("sent to A");
+    server.close();
+  }, 10000);
 
   it("a rejected send comes back as a tool error, not a protocol error", async () => {
     const listener = await fakeListener({ ok: false, error: "no workspace" });
@@ -185,7 +492,7 @@ describe("mcp.mjs", () => {
       id: 7,
       method: "tools/list",
     });
-    expect(alive.result.tools).toHaveLength(7);
+    expect(alive.result.tools).toHaveLength(8);
   });
 
   it("tools/call jarvis_launch POSTs the name to /orchestrate/launch", async () => {
@@ -203,6 +510,26 @@ describe("mcp.mjs", () => {
       workspace: "FinPulse",
     });
     expect(res.result.isError).toBeUndefined();
+    listener.close();
+  });
+
+  it("tools/call jarvis_launch forwards a label and names the session", async () => {
+    const listener = await fakeListener({ ok: true, session: "AeroGraph" });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 29,
+      method: "tools/call",
+      params: {
+        name: "jarvis_launch",
+        arguments: { workspace: "Obsidian-vault", label: "AeroGraph" },
+      },
+    });
+    expect(JSON.parse(listener.hits[0].body)).toEqual({
+      workspace: "Obsidian-vault",
+      label: "AeroGraph",
+    });
+    expect(res.result.content[0].text).toContain('session "AeroGraph"');
     listener.close();
   });
 
@@ -248,13 +575,14 @@ describe("mcp.mjs", () => {
       method: "tools/call",
       params: {
         name: "jarvis_trust",
-        arguments: { workspace: "New", accept: true },
+        arguments: { workspace: "New", accept: true, session: "1" },
       },
     });
     expect(listener.hits[0].url).toBe("/orchestrate/trust");
     expect(JSON.parse(listener.hits[0].body)).toEqual({
       workspace: "New",
       accept: true,
+      session: "1",
     });
     expect(res.result.content[0].text).toContain("ready for jarvis_send");
     listener.close();
@@ -322,6 +650,8 @@ describe("mcp.mjs", () => {
     expect(tool.description).toContain("YYYY-MM-DD");
     expect(tool.description).toContain("malformed");
     expect(tool.description).toContain("merged into develop also counts");
+    expect(tool.description).toContain("each task it clearly covers");
+    expect(tool.description).toContain("- [/]");
     const res = await request({
       jsonrpc: "2.0",
       id: 2,

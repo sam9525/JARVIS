@@ -8,6 +8,7 @@ vi.mock("../../src/renderer/graph/MiniGraph", () => ({ default: () => null }));
 
 import { renderToStaticMarkup } from "react-dom/server";
 import MissionControl from "../../src/renderer/home/MissionControl";
+import MiniGraph from "../../src/renderer/graph/MiniGraph";
 import { emptyState } from "../../src/renderer/session/highlight-store";
 import { defaultSettings } from "../../src/shared/types";
 import type {
@@ -40,6 +41,7 @@ const status = (over: Partial<WorkspaceStatus>): WorkspaceStatus => ({
   since: 0,
   reads: 0,
   edits: 0,
+  sessions: [],
   ...over,
 });
 
@@ -63,11 +65,12 @@ function walk(node: any, fn: (n: any) => boolean): any {
     }
     return null;
   }
+  // matched before it renders, so a test can find a component element itself
+  if (fn(node)) return node;
   if (typeof node.type === "function") {
     const rendered = node.type(node.props);
     return walk(rendered, fn);
   }
-  if (fn(node)) return node;
   const children = node.props?.children;
   if (Array.isArray(children)) {
     for (const child of children) {
@@ -367,6 +370,52 @@ describe("MissionControl", () => {
     expect(screen.byTestId("call-w1").props.title).toBe(call);
   });
 
+  it("tells a card's thumbnail whether its project is working", () => {
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [
+            status({ workspaceId: "w1", kind: "working" }),
+            status({ workspaceId: "w2", kind: "idle" }),
+          ],
+        }) as any)}
+      />,
+    );
+    const mini = (id: string) =>
+      walk(
+        currentTree,
+        (n) => n.type === MiniGraph && n.props.workspaceId === id,
+      );
+    expect(mini("w1").props.working).toBe(true);
+    expect(mini("w2").props.working).toBe(false);
+  });
+
+  it("binds a card's graph request to its workspace id", () => {
+    const onNeedGraph = vi.fn();
+    render(<MissionControl {...(props({ onNeedGraph }) as any)} />);
+    const mini = walk(
+      currentTree,
+      (n) => n.type === MiniGraph && n.props.workspaceId === "w2",
+    );
+    mini.props.onNeedGraph();
+    expect(onNeedGraph).toHaveBeenCalledWith("w2");
+  });
+
+  it("holds every card until the stored snapshots arrive", () => {
+    const readyOf = (snapshotsReady: boolean) => {
+      render(<MissionControl {...(props({ snapshotsReady }) as any)} />);
+      return ["w1", "w2"].map(
+        (id) =>
+          walk(
+            currentTree,
+            (n) => n.type === MiniGraph && n.props.workspaceId === id,
+          ).props.ready,
+      );
+    };
+    expect(readyOf(false)).toEqual([false, false]);
+    expect(readyOf(true)).toEqual([true, true]);
+  });
+
   it("has no tooltip when there is no call", () => {
     render(
       <MissionControl
@@ -374,6 +423,43 @@ describe("MissionControl", () => {
       />,
     );
     expect(screen.byTestId("call-w1").props.title).toBeUndefined();
+  });
+});
+
+describe("step line and stage chip", () => {
+  const renderWith = (s: Partial<WorkspaceStatus>) =>
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [status({ workspaceId: "w1", ...s })],
+        }) as any)}
+      />,
+    );
+
+  it("shows the stage chip while working and asking", () => {
+    for (const kind of ["working", "asking"] as const) {
+      renderWith({ kind, stage: "Plan" });
+      expect(screen.byTestId("stage-w1").text).toBe("Plan");
+    }
+  });
+
+  it("hides the stage chip on an idle card", () => {
+    renderWith({ kind: "idle", stage: "Build" });
+    expect(() => screen.byTestId("stage-w1")).toThrow();
+  });
+
+  it("shows the step line with its full text as title", () => {
+    renderWith({ kind: "working", step: "Task 3: Draw the step line" });
+    expect(screen.byTestId("step-w1").text).toBe("Task 3: Draw the step line");
+    expect(screen.byTestId("step-w1").props.title).toBe(
+      "Task 3: Draw the step line",
+    );
+  });
+
+  it("keeps the step line when there is no step", () => {
+    renderWith({ kind: "working" });
+    expect(screen.byTestId("step-w1").text).toBe(" ");
+    expect(screen.byTestId("step-w1").props.title).toBeUndefined();
   });
 });
 

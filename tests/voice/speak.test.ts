@@ -12,6 +12,7 @@ import {
   readWave,
   speak,
   stopSpeaking,
+  TURN_CAP_MS,
   WAVE_BINS,
 } from "../../src/renderer/voice/speak";
 import type { WorkspaceStatus } from "../../src/shared/types";
@@ -114,7 +115,14 @@ describe("nextUtterance", () => {
   });
 });
 
+const flush = async () => {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+};
+
 describe("speak", () => {
+  beforeEach(() => {
+    stopSpeaking();
+  });
   afterEach(() => {
     delete (globalThis as { speechSynthesis?: unknown }).speechSynthesis;
   });
@@ -123,36 +131,54 @@ describe("speak", () => {
     await expect(speak("hello")).resolves.toBeUndefined();
   });
 
-  it("cancels queued speech first, so stale statuses cannot pile up", async () => {
+  it("moves straight on when there is no mouth at all", async () => {
+    await expect(speak("one")).resolves.toBeUndefined();
+    await expect(speak("two")).resolves.toBeUndefined();
+    expect(isSounding()).toBe(false);
+  });
+
+  it("does not cancel the line already playing", async () => {
     const cancel = vi.fn();
-    const spoken = vi.fn();
+    const utterances: { text: string; onend?: () => void }[] = [];
     (globalThis as Record<string, unknown>).speechSynthesis = {
       cancel,
-      speak: spoken,
+      speak: (u: { text: string; onend?: () => void }) => utterances.push(u),
     };
     (globalThis as Record<string, unknown>).SpeechSynthesisUtterance = class {
+      onend?: () => void;
       constructor(public text: string) {}
     };
-    await speak("hello");
-    expect(cancel).toHaveBeenCalledOnce();
-    expect(spoken).toHaveBeenCalledOnce();
+    await speak("one");
+    void speak("two");
+    await flush();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(utterances.map((u) => u.text)).toEqual(["one"]);
+    utterances[0].onend?.();
+    await flush();
+    expect(utterances.map((u) => u.text)).toEqual(["one", "two"]);
   });
 });
 
 describe("speak — cloud first, local fallback", () => {
   const played: string[] = [];
+  const audios: any[] = [];
   const pause = vi.fn();
 
   beforeEach(() => {
+    stopSpeaking();
     played.length = 0;
+    audios.length = 0;
     pause.mockClear();
     (globalThis as any).URL.createObjectURL = vi.fn(() => "blob:x");
     (globalThis as any).URL.revokeObjectURL = vi.fn();
     (globalThis as any).Audio = class {
       src: string;
+      ended = false;
+      paused = false;
       onended: (() => void) | null = null;
       constructor(src: string) {
         this.src = src;
+        audios.push(this);
       }
       play() {
         played.push(this.src);
@@ -196,14 +222,18 @@ describe("speak — cloud first, local fallback", () => {
     expect((globalThis as any).speechSynthesis.speak).toHaveBeenCalled();
   });
 
-  it("stops the previous cloud utterance before starting the next", async () => {
+  it("plays the next cloud line only after the current one ends", async () => {
     (globalThis as any).window.jarvis = {
       ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
     };
     await speak("one");
-    await speak("two");
-    expect(pause).toHaveBeenCalled();
-    expect(played).toEqual(["blob:x", "blob:x"]);
+    const p2 = speak("two");
+    await flush();
+    expect(played).toHaveLength(1);
+    expect(pause).not.toHaveBeenCalled();
+    audios[0].onended();
+    await p2;
+    expect(played).toHaveLength(2);
   });
 
   it("stopSpeaking silences both mouths — either may be the one talking", async () => {
@@ -227,7 +257,7 @@ describe("speak — cloud first, local fallback", () => {
     );
   });
 
-  it("does not let an overlapping speak() call end up playing", async () => {
+  it("plays overlapping calls in call order", async () => {
     let resolveFirst!: (bytes: Uint8Array) => void;
     const first = new Promise<Uint8Array>((resolve) => {
       resolveFirst = resolve;
@@ -238,14 +268,204 @@ describe("speak — cloud first, local fallback", () => {
       .mockImplementationOnce(() => Promise.resolve(new Uint8Array([2])));
     (globalThis as any).window.jarvis = { ttsSpeak };
 
-    const p1 = speak("one"); // starts, then stalls awaiting its IPC round-trip
-    const p2 = speak("two"); // starts and resolves while "one" is still stalled
-    await p2;
-    resolveFirst(new Uint8Array([1])); // "one" resolves last, after being superseded
+    const p1 = speak("one");
+    const p2 = speak("two");
+    await flush();
+    expect(ttsSpeak).toHaveBeenCalledOnce(); // bytes are not fetched ahead
+    resolveFirst(new Uint8Array([1]));
     await p1;
+    expect(played).toHaveLength(1);
+    audios[0].onended();
+    await p2;
+    expect(played).toHaveLength(2);
+    expect(ttsSpeak.mock.calls.map((c) => c[0])).toEqual(["one", "two"]);
+  });
 
-    expect(played).toEqual(["blob:x"]); // only "two" ever played
-    expect((globalThis as any).URL.createObjectURL).toHaveBeenCalledOnce(); // "one" never created a URL to revoke
+  it("plays three lines in call order", async () => {
+    let n = 0;
+    (globalThis as any).URL.createObjectURL = vi.fn(() => `blob:${++n}`);
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn((text: string) =>
+        Promise.resolve(new Uint8Array([text.length])),
+      ),
+    };
+    const done = [speak("a"), speak("bb"), speak("ccc")];
+    for (let i = 0; i < 3; i++) {
+      await done[i];
+      audios[i].onended();
+    }
+    expect(played).toEqual(["blob:1", "blob:2", "blob:3"]);
+  });
+
+  it("stopSpeaking drops the backlog", async () => {
+    const ttsSpeak = vi.fn(() => Promise.resolve(new Uint8Array([1])));
+    (globalThis as any).window.jarvis = { ttsSpeak };
+    await speak("one");
+    void speak("two");
+    void speak("three");
+    stopSpeaking();
+    await flush();
+    expect(ttsSpeak).toHaveBeenCalledOnce();
+    expect(played).toHaveLength(1);
+    await speak("four");
+    expect(played).toHaveLength(2);
+  });
+
+  it("stopSpeaking while a line awaits its bytes drops it too", async () => {
+    let resolveFirst!: (bytes: Uint8Array) => void;
+    const first = new Promise<Uint8Array>((resolve) => {
+      resolveFirst = resolve;
+    });
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn(() => first),
+    };
+    void speak("one");
+    void speak("two");
+    await flush();
+    stopSpeaking();
+    resolveFirst(new Uint8Array([1]));
+    await flush();
+    expect(played).toEqual([]);
+  });
+
+  it("a late onended does not end the next line", async () => {
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
+    };
+    await speak("one");
+    stopSpeaking();
+    await speak("two");
+    void speak("three");
+    audios[0].onended();
+    await flush();
+    expect(played).toHaveLength(2); // "three" has not played
+  });
+
+  it("moves on after TURN_CAP_MS when the end never fires", async () => {
+    vi.useFakeTimers();
+    try {
+      (globalThis as any).window.jarvis = {
+        ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
+      };
+      await speak("one");
+      void speak("two");
+      vi.advanceTimersByTime(TURN_CAP_MS - 1);
+      await flush();
+      expect(played).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      await flush();
+      expect(played).toHaveLength(2);
+      expect(pause).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers(); // first, so the deaf tail stopSpeaking starts is not stamped with advanced fake time
+      stopSpeaking();
+    }
+  });
+
+  it("a throw mid-turn does not leave the cap armed against a later line", async () => {
+    vi.useFakeTimers();
+    try {
+      (globalThis as any).window.jarvis = {
+        ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
+      };
+      (globalThis as any).URL.createObjectURL = vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error("boom");
+        })
+        .mockImplementation(() => "blob:x");
+      await speak("one"); // throws before the mouth opens
+      vi.advanceTimersByTime(TURN_CAP_MS / 2);
+      await speak("two");
+      expect(played).toHaveLength(1);
+      vi.advanceTimersByTime(TURN_CAP_MS / 2); // the dead turn's cap would fire here
+      await flush();
+      expect(pause).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers(); // first, so the deaf tail stopSpeaking starts is not stamped with advanced fake time
+      stopSpeaking();
+    }
+  });
+
+  it("is deaf while a queued line awaits its bytes", async () => {
+    vi.useFakeTimers();
+    let release!: (bytes: Uint8Array) => void;
+    const stalled = new Promise<Uint8Array>((resolve) => {
+      release = resolve;
+    });
+    try {
+      (globalThis as any).window.jarvis = {
+        ttsSpeak: vi.fn(() => stalled),
+      };
+      void speak("one");
+      await flush();
+      vi.advanceTimersByTime(DEAF_TAIL_MS * 3);
+      expect(isSounding()).toBe(false);
+      expect(isSpeaking()).toBe(true);
+      stopSpeaking();
+      vi.advanceTimersByTime(DEAF_TAIL_MS + 1);
+      expect(isSpeaking()).toBe(false);
+    } finally {
+      stopSpeaking();
+      release(new Uint8Array([1]));
+      await flush();
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for the local fallback after play() rejects", async () => {
+    const utterances: { text: string; onend?: () => void }[] = [];
+    (globalThis as any).speechSynthesis = {
+      cancel: vi.fn(),
+      speak: (u: any) => utterances.push(u),
+    };
+    (globalThis as any).SpeechSynthesisUtterance = class {
+      onend?: () => void;
+      constructor(public text: string) {}
+    };
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const Base = (globalThis as any).Audio;
+    let rejected = false;
+    (globalThis as any).Audio = class extends Base {
+      play() {
+        if (rejected) return super.play();
+        rejected = true;
+        return Promise.reject(new Error("nope"));
+      }
+    };
+    await speak("one");
+    void speak("two");
+    await flush();
+    expect(utterances.map((u) => u.text)).toEqual(["one"]);
+    expect(played).toEqual([]);
+    utterances[0].onend?.();
+    await flush();
+    expect(played).toHaveLength(1);
+  });
+
+  it("ends the turn on a local onerror", async () => {
+    const utterances: { text: string; onerror?: () => void }[] = [];
+    (globalThis as any).speechSynthesis = {
+      cancel: vi.fn(),
+      speak: (u: any) => utterances.push(u),
+    };
+    (globalThis as any).SpeechSynthesisUtterance = class {
+      onerror?: () => void;
+      constructor(public text: string) {}
+    };
+    (globalThis as any).window.jarvis = {
+      ttsSpeak: vi.fn(() => Promise.resolve(null)),
+    };
+    await speak("one");
+    void speak("two");
+    await flush();
+    expect(utterances).toHaveLength(1);
+    utterances[0].onerror?.();
+    await flush();
+    expect(utterances.map((u) => u.text)).toEqual(["one", "two"]);
   });
 });
 
@@ -320,10 +540,12 @@ describe("isSpeaking", () => {
 
 describe("readWave — the analyser behind the wave", () => {
   const connected: string[] = [];
+  const waveAudios: any[] = [];
   const sample = 200;
 
   const install = () => {
     connected.length = 0;
+    waveAudios.length = 0;
     (globalThis as any).URL.createObjectURL = vi.fn(() => "blob:x");
     (globalThis as any).URL.revokeObjectURL = vi.fn();
     (globalThis as any).Audio = class {
@@ -333,6 +555,7 @@ describe("readWave — the analyser behind the wave", () => {
       onended: (() => void) | null = null;
       constructor(src: string) {
         this.src = src;
+        waveAudios.push(this);
       }
       play() {
         return Promise.resolve();
@@ -364,6 +587,10 @@ describe("readWave — the analyser behind the wave", () => {
       ttsSpeak: vi.fn(() => Promise.resolve(new Uint8Array([1]))),
     };
   };
+
+  beforeEach(() => {
+    stopSpeaking();
+  });
 
   afterEach(() => {
     stopSpeaking();
@@ -454,6 +681,7 @@ describe("readWave — the analyser behind the wave", () => {
   it("wires one source per utterance and drops the one before it", async () => {
     install();
     await speak("one");
+    waveAudios[0].onended();
     await speak("two");
     expect(connected.filter((c) => c === "source->analyser")).toHaveLength(2);
     expect(connected).toContain("source-disconnect");

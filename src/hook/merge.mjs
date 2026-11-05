@@ -15,6 +15,7 @@ const EVENTS = [
   "UserPromptSubmit",
   "Notification",
   "Stop",
+  "SessionStart",
 ];
 
 // Any entry already pointing at forward.mjs is ours (possibly stale from an
@@ -37,13 +38,14 @@ function withoutOurHooks(settings) {
 
 export function mergeHooks(settings, command) {
   const hooks = [{ type: "command", command }];
-  // Stop and Notification take no matcher — they always fire
+  // Stop, Notification and SessionStart take no matcher — they always fire
   const entries = {
     PreToolUse: { matcher: PRE_MATCHER, hooks },
     PostToolUse: { matcher: POST_MATCHER, hooks },
     UserPromptSubmit: { hooks },
     Notification: { hooks },
     Stop: { hooks },
+    SessionStart: { hooks },
   };
   const out = withoutOurHooks(settings);
   for (const [event, entry] of Object.entries(entries)) {

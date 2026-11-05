@@ -1,6 +1,7 @@
 ﻿import React, { useState } from "react";
 import type { AskPrompt } from "../../main/ask-mapper";
-import { LBL_DIM } from "./hud";
+import { LBL_CY, LBL_DIM } from "./hud";
+import { docKindOf } from "./ask-doc";
 
 type AskPanelProps = {
   prompt: AskPrompt;
@@ -8,6 +9,8 @@ type AskPanelProps = {
   /** separate PTY writes, in order: a chunk arriving whole reads as a paste,
    *  so the keystrokes, any typed text and each Enter must not be merged */
   onAnswer: (writes: string[]) => void;
+  /** opens a file node in the preview; never answers the question */
+  onOpenDoc?: (nodeId: string) => void;
 };
 
 /**
@@ -21,14 +24,23 @@ export function answerKeys(index: number, options: number): string {
   return "\x1b[A".repeat(options) + "\x1b[B".repeat(index);
 }
 
-/** The question to show: this screen's own workspace first, else the newest
- *  open one in the fleet — a question must not hide behind the current view. */
+/** The question to show, from questions keyed by session key: this screen's
+ *  own session first, else the newest open one in the fleet — a question must
+ *  not hide behind the current view. `exclude` names a session whose question
+ *  is already shown inline elsewhere. */
 export function pickAsk(
   asks: Map<string, AskPrompt>,
-  ownId: string | undefined,
+  ownKey: string | undefined,
+  exclude?: string,
 ): AskPrompt | undefined {
-  const own = ownId === undefined ? undefined : asks.get(ownId);
-  return own ?? [...asks.values()].sort((a, b) => b.ts - a.ts)[0];
+  const own =
+    ownKey === undefined || ownKey === exclude ? undefined : asks.get(ownKey);
+  return (
+    own ??
+    [...asks.values()]
+      .filter((a) => a.sessionKey !== exclude)
+      .sort((a, b) => b.ts - a.ts)[0]
+  );
 }
 
 // Claude Code appends this itself, and it needs typed prose rather than a
@@ -44,6 +56,7 @@ export default function AskPanel({
   prompt,
   workspaceName,
   onAnswer,
+  onOpenDoc,
 }: AskPanelProps) {
   // the panel's own index: the TUI moves to the next question as soon as one
   // is answered, and no event arrives until the whole tool completes
@@ -73,6 +86,8 @@ export default function AskPanel({
       setSent(false);
     }
   };
+  const docKind = docKindOf(q.header);
+  const docNodeId = docKind ? prompt.docs?.[docKind] : undefined;
   const answer = (i: number) => send([answerKeys(i, rows)]);
   const answerTyped = () => {
     const text = typed.replace(/[\r\n]+/g, " ").trim();
@@ -111,6 +126,24 @@ export default function AskPanel({
           </div>
         ))}
       </div>
+      {onOpenDoc && docKind && typeof docNodeId === "string" && (
+        <button
+          type="button"
+          data-testid="ask-doc"
+          onClick={() => onOpenDoc(docNodeId)}
+          className="flex cursor-pointer items-center justify-between gap-3 border border-dashed border-accent/45 bg-transparent px-3 py-2 text-left transition-colors hover:border-solid hover:border-accent focus-visible:border-solid focus-visible:border-accent"
+        >
+          <span className="min-w-0">
+            <span className="block text-[13px] text-accent-soft">
+              {`Preview the ${docKind}`}
+            </span>
+            <span className="mt-0.5 block break-all text-[11px] text-ink-dim">
+              {docNodeId}
+            </span>
+          </span>
+          <span className={LBL_CY}>open ›</span>
+        </button>
+      )}
       {!readOnly && (
         <input
           data-testid="ask-typed"

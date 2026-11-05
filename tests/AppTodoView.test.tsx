@@ -27,6 +27,7 @@ vi.mock("../src/renderer/home/WorkspaceRail", () => ({
 }));
 vi.mock("../src/renderer/terminal/TerminalPanel", () => ({
   ...nullComponent,
+  onTerminalExit: () => () => undefined,
   onTerminalTyped: () => () => undefined,
 }));
 vi.mock("../src/renderer/preview/Preview", () => nullComponent);
@@ -73,6 +74,7 @@ beforeEach(() => {
     addProject: () => Promise.resolve([]),
     getGraph: () => Promise.resolve({ nodes: [], edges: [] }),
     getSymbolGraph: () => Promise.resolve({ nodes: [], edges: [] }),
+    getCardSnapshots: () => Promise.resolve([]),
     ptyInput: () => Promise.resolve(true),
     onGraph: () => () => undefined,
     onToolEvent: () => () => undefined,
@@ -87,10 +89,12 @@ beforeEach(() => {
     getTodos: () => Promise.resolve(LIST),
     todoOp,
     onTodos: () => () => undefined,
+    onUserSubmitted: () => () => undefined,
     onShowTodos: (cb: () => void) => {
       showTodos = cb;
       return () => undefined;
     },
+    onPromptSubmitted: () => () => undefined,
   };
   container = document.createElement("div");
   document.body.appendChild(container);

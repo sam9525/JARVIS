@@ -1,4 +1,4 @@
-import type { RawHookEvent } from "./event-mapper";
+import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
 import type { Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 
@@ -14,11 +14,21 @@ export interface AskQuestion {
   options: AskOption[];
 }
 
+export interface AskAnswer {
+  header: string;
+  label: string;
+}
+
 export interface AskPrompt {
   workspaceId: string;
+  sessionKey: string;
   sessionId: string;
   questions: AskQuestion[];
+  // set only on a clear: the offered option each question was answered with
+  answers?: AskAnswer[];
   ts: number;
+  // the renderer fills this from the session's writes; main never sets it
+  docs?: Partial<Record<"spec" | "plan", string>>;
 }
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -57,6 +67,28 @@ function toQuestions(v: unknown): AskQuestion[] {
   return out;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === "object" && !Array.isArray(v);
+
+// Claude Code reports the answers as { [question text]: chosen label } in
+// tool_response and echoes them in tool_input. A reply that is not exactly one
+// of the question's offered labels (free text, a multi-select join) is dropped,
+// so a caller can trust every label it gets.
+function toAnswers(raw: RawHookEvent): AskAnswer[] {
+  const response = isRecord(raw.tool_response) ? raw.tool_response : {};
+  const input = isRecord(raw.tool_input) ? raw.tool_input : {};
+  const questions = toQuestions(response.questions ?? input.questions);
+  const answers = isRecord(response.answers) ? response.answers : input.answers;
+  if (!isRecord(answers)) return [];
+  const out: AskAnswer[] = [];
+  for (const q of questions) {
+    const label = answers[q.question];
+    if (typeof label === "string" && q.options.some((o) => o.label === label))
+      out.push({ header: q.header, label });
+  }
+  return out;
+}
+
 /**
  * Third, independent mapper: same raw payload as mapHookEvent and
  * mapStatusEvent, a third question — "what is this workspace asking".
@@ -78,8 +110,10 @@ export function mapAskEvent(
   if (raw.hook_event_name === "PostToolUse")
     return {
       workspaceId: ws.id,
+      sessionKey: resolveSessionKey(raw, ws),
       sessionId: raw.session_id,
       questions: [],
+      answers: toAnswers(raw),
       ts: Date.now(),
     };
   if (raw.hook_event_name !== "PreToolUse") return undefined;
@@ -88,6 +122,7 @@ export function mapAskEvent(
   if (questions.length === 0) return undefined;
   return {
     workspaceId: ws.id,
+    sessionKey: resolveSessionKey(raw, ws),
     sessionId: raw.session_id,
     questions,
     ts: Date.now(),

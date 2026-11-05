@@ -77,15 +77,31 @@ export function nextUtterance(
   return repeat ? null : message;
 }
 
-// Whichever mouth is talking, only one is. Module level because a new
-// utterance must be able to stop the previous one — a backlog read in order is
-// worse than the newest line.
+// Whichever mouth is talking, only one is: lines play in call order, each
+// after the one before it has ended. Module level because stopSpeaking() must
+// reach the element that is playing.
 let current: HTMLAudioElement | null = null;
 
-// Bumped by stopSpeaking() and compared after every await in speak(), so a
-// call whose IPC round-trip outlives a stop or a newer speak() call notices
-// and backs off instead of playing over — or after — whatever superseded it.
+// Marks the backlog a stopSpeaking() dropped. Each speak() captures it at call
+// time and compares after every await, so a line queued or awaiting its IPC
+// round-trip before a stop notices and backs off instead of playing after it.
 let generation = 0;
+
+/** Longest one line may hold the queue. A cloud `onended` that never fires
+ * would otherwise silence every line behind it for the rest of the session. */
+// Sits above the worst fetch: the ElevenLabs 8 s timeout, then a worker
+// holding 2 edge-tts parts that both fail and retry, 2 x (8.8 + 8.8) s, about
+// 43 s, then a SUMMARY_MAX line (about 35 s), about 78 s in all. Raise it with
+// those timeouts.
+export const TURN_CAP_MS = 100_000;
+
+// Tail of the line chain; each speak() appends one turn to it.
+let queue: Promise<void> = Promise.resolve();
+
+// Ends the turn now playing. Only stopSpeaking() calls it: every other end
+// goes through that turn's own `finish`, so a late `onended` from a stopped
+// line cannot end the line after it.
+let endTurn: (() => void) | null = null;
 
 /** How long the ear stays deaf after the last sound. The segmenter only ends
  * an utterance HANG_MS after the room goes quiet and whisper runs after that,
@@ -103,17 +119,25 @@ const stoppedSounding = () => {
 
 // speechSynthesis is missing in jsdom and can be missing in a stripped
 // Electron build. A missing mouth must not break dictation, so this is a
-// feature detect rather than a throw. Both callers reach this only after
-// speak() has already run stopSpeaking(), so no cancel is needed here.
-function localSpeak(text: string): void {
+// feature detect rather than a throw, and it ends the turn at once.
+function localSpeak(text: string, onDone: () => void): void {
   const synth = (globalThis as { speechSynthesis?: SpeechSynthesis })
     .speechSynthesis;
   const Utterance = (
     globalThis as { SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance }
   ).SpeechSynthesisUtterance;
-  if (!synth || !Utterance) return; // half a mouth is not a mouth
+  if (!synth || !Utterance) {
+    onDone(); // half a mouth is not a mouth
+    return;
+  }
   const utterance = new Utterance(text);
-  utterance.onend = stoppedSounding;
+  // onerror too: a failed utterance never fires onend and would hold the queue
+  const end = () => {
+    stoppedSounding();
+    onDone();
+  };
+  utterance.onend = end;
+  utterance.onerror = end;
   synth.speak(utterance);
 }
 
@@ -176,39 +200,85 @@ export function readWave(out: Uint8Array<ArrayBuffer>): boolean {
   return true;
 }
 
-/** Cloud voice first; speechSynthesis whenever main hands back nothing — no
- * key, a revoked key, a spent quota and a timeout are one case here. */
-export async function speak(text: string): Promise<void> {
-  stopSpeaking();
-  const myGeneration = generation; // captured after the bump above, so this call isn't its own stale call
-  let bytes: Uint8Array<ArrayBuffer> | null = null;
-  try {
-    bytes = (await window.jarvis?.ttsSpeak?.(text)) ?? null;
-  } catch {
-    bytes = null; // main unreachable — the local mouth still works
-  }
-  if (myGeneration !== generation) return; // stopped or superseded while awaiting — the bytes arrived too late to matter
-  if (!bytes) {
-    localSpeak(text);
-    return;
-  }
-  const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
-  const audio = new Audio(url);
-  current = audio;
-  wireAnalyser(audio);
-  audio.onended = () => {
-    URL.revokeObjectURL(url);
-    if (current === audio) current = null;
-    stoppedSounding();
+// One line's turn: fetch, start the mouth, hold the queue until it ends.
+// `started` settles speak()'s promise as soon as the line is sounding.
+async function sayOne(
+  text: string,
+  myGeneration: number,
+  started: () => void,
+): Promise<void> {
+  if (myGeneration !== generation) return; // dropped by a stopSpeaking() while queued
+  let release!: () => void;
+  const ended = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const finish = () => {
+    clearTimeout(timer);
+    if (endTurn === finish) endTurn = null;
+    release();
   };
-  await audio.play().catch((err) => {
-    if (current !== audio) return; // already stopped or superseded — stale text must not speak
-    // the OS voice that follows sounds the same whether main handed back no
-    // bytes or the bytes would not play, and only main logs the first case
-    console.warn("[tts] play rejected:", err);
-    URL.revokeObjectURL(url);
-    current = null;
-    localSpeak(text);
+  endTurn = finish;
+  // the backlog continues after a cap, so the generation is not bumped
+  const timer = setTimeout(() => {
+    silenceMouths();
+    finish();
+  }, TURN_CAP_MS);
+
+  // a throw below must not leave the cap armed against a later line
+  try {
+    let bytes: Uint8Array<ArrayBuffer> | null = null;
+    try {
+      bytes = (await window.jarvis?.ttsSpeak?.(text)) ?? null;
+    } catch {
+      bytes = null; // main unreachable — the local mouth still works
+    }
+    if (myGeneration !== generation) {
+      finish(); // stopped while awaiting — the bytes arrived too late to matter
+      return;
+    }
+    if (!bytes) {
+      localSpeak(text, finish);
+      started();
+      await ended;
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+    const audio = new Audio(url);
+    current = audio;
+    wireAnalyser(audio);
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (current === audio) current = null;
+      stoppedSounding();
+      finish();
+    };
+    await audio.play().catch((err) => {
+      if (current !== audio) return; // already stopped or capped — stale text must not speak
+      // the OS voice that follows sounds the same whether main handed back no
+      // bytes or the bytes would not play, and only main logs the first case
+      console.warn("[tts] play rejected:", err);
+      URL.revokeObjectURL(url);
+      current = null;
+      localSpeak(text, finish);
+    });
+    started();
+    await ended;
+  } finally {
+    finish();
+  }
+}
+
+/** Cloud voice first; speechSynthesis whenever main hands back nothing — no
+ * key, a revoked key, a spent quota and a timeout are one case here. Lines
+ * play in call order; the promise settles once this line is sounding (or was
+ * skipped or dropped), not when it ends. */
+export function speak(text: string): Promise<void> {
+  const myGeneration = generation;
+  return new Promise<void>((resolve) => {
+    queue = queue
+      .then(() => sayOne(text, myGeneration, resolve))
+      .catch(() => undefined) // one failed line must not break the chain
+      .finally(resolve);
   });
 }
 
@@ -223,21 +293,20 @@ export function isSounding(): boolean {
   );
 }
 
-/** True while either mouth is talking and for DEAF_TAIL_MS after it stops.
+/** True while either mouth is talking, while a queued line's turn is in flight
+ * (its fetch can outlast the tail), and for DEAF_TAIL_MS after it stops.
  * The ear reads this and drops what it hears: the app must not transcribe its
  * own voice, and a summary naming a workspace called JARVIS says the wake word
  * out loud. The tail is the half that catches the echo — by the time the app's
  * own words come back as text, the mouth has already closed. */
 export function isSpeaking(): boolean {
-  return isSounding() || Date.now() < deafUntil;
+  return isSounding() || endTurn !== null || Date.now() < deafUntil;
 }
 
-// Either mouth may be the one talking, so the mic-off transition silences
-// both. An interrupted cloud utterance never reaches its own `onended`, so
-// its blob URL is revoked here instead — otherwise every interruption leaks
-// one.
-export function stopSpeaking(): void {
-  generation++; // invalidates any speak() still awaiting its IPC round-trip
+// Either mouth may be the one talking, so both are silenced. An interrupted
+// cloud utterance never reaches its own `onended`, so its blob URL is revoked
+// here instead — otherwise every interruption leaks one.
+function silenceMouths(): void {
   // an interruption is still a mouth that was open a moment ago, so the echo
   // of what it already said is still on its way through the segmenter
   if (isSounding()) stoppedSounding();
@@ -252,6 +321,13 @@ export function stopSpeaking(): void {
   (
     globalThis as { speechSynthesis?: SpeechSynthesis }
   ).speechSynthesis?.cancel();
+}
+
+/** Silences the mouth and drops every line still queued or fetching. */
+export function stopSpeaking(): void {
+  generation++;
+  silenceMouths();
+  endTurn?.();
 }
 
 /**

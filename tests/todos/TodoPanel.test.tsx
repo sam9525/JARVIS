@@ -29,7 +29,8 @@ const FILE =
   "- [ ] Fix the ring snap @JARVIS 2026-09-27\n" +
   "- [ ] Call the bank 2026-09-26\n" +
   "- [ ] Ship v0.5.1 @JARVIS 2026-09-25\n" +
-  "- [x] Ship v0.5.0 @JARVIS 2026-09-20\n";
+  "- [x] Ship v0.5.0 @JARVIS 2026-09-20\n" +
+  "- [/] Add the Working tab @JARVIS 2026-10-24\n";
 const list: TodoList = parseTodos(FILE);
 
 const ok = () => vi.fn().mockResolvedValue({ ok: true });
@@ -115,6 +116,18 @@ describe("TodoPanel growth", () => {
     mount(afterResize);
     expect(afterResize).not.toHaveBeenCalled();
   });
+
+  it("gives back the height DONE took when it folds again", () => {
+    stub(200, 200);
+    const onOverflow = vi.fn();
+    mount(onOverflow);
+    const doneButton = () =>
+      $('[data-testid="todo-done"] button') as HTMLElement;
+    act(() => doneButton().click());
+    stub(320, 320); // the owner grew the box to fit the done list
+    act(() => doneButton().click());
+    expect(onOverflow).toHaveBeenLastCalledWith(-120);
+  });
 });
 
 describe("TodoPanel", () => {
@@ -131,6 +144,37 @@ describe("TodoPanel", () => {
     expect(rows()[0].textContent).toContain("Fix the ring snap");
     // the age reads relative; the exact created date is its tooltip
     expect(rows()[0].querySelector('[title="2026-09-27"]')).not.toBeNull();
+  });
+
+  it("numbers each row per group and puts the date last, after the icons", () => {
+    render();
+    const parts = (r: HTMLElement) =>
+      [...r.children].map((c) => c.getAttribute("title") ?? c.tagName);
+    expect(rows().map((r) => r.firstElementChild?.textContent)).toEqual([
+      "1.",
+      "2.",
+      "1.",
+      "1.",
+    ]);
+    expect(parts(rows()[0])).toEqual([
+      "SPAN",
+      "INPUT",
+      "SPAN",
+      "Start working",
+      "Edit",
+      "Delete",
+      "2026-09-27",
+    ]);
+  });
+
+  it("takes the icons out of the layout until the row is hovered or focused", () => {
+    render();
+    for (const title of ["Start working", "Edit", "Delete"]) {
+      const icon = $(`[data-testid="todo-row"] [title="${title}"]`);
+      expect(icon.classList).toContain("hidden");
+      expect(icon.classList).toContain("group-hover:inline-block");
+      expect(icon.classList).toContain("group-focus-within:inline-block");
+    }
   });
 
   it("colours a workspace header and opens that workspace from it", () => {
@@ -284,6 +328,60 @@ describe("TodoPanel", () => {
         new Event("drop", { bubbles: true, cancelable: true }),
       );
     });
+    expect(onOp).not.toHaveBeenCalled();
+  });
+
+  it("shows TO DO, WORKING and DONE in that order, working unfolded", () => {
+    render();
+    const titles = $$("section > button").map((b) => b.textContent);
+    expect(titles).toEqual(["▾ TO DO (3)", "▾ WORKING (1)", "▸ DONE (1)"]);
+    expect($('[data-testid="todo-working"]').textContent).toContain(
+      "Add the Working tab",
+    );
+    expect($('[data-testid="todo-open"]').textContent).not.toContain(
+      "Add the Working tab",
+    );
+  });
+
+  it("moves a row to working and back with its line and raw", () => {
+    const onOp = render();
+    const open = rows().find((r) => r.textContent?.includes("Fix the ring"))!;
+    act(() =>
+      (open.querySelector("[title='Start working']") as HTMLElement).click(),
+    );
+    expect(onOp).toHaveBeenLastCalledWith({
+      kind: "work",
+      line: 1,
+      raw: "- [ ] Fix the ring snap @JARVIS 2026-09-27",
+    });
+    const working = rows().find((r) =>
+      r.textContent?.includes("Add the Working tab"),
+    )!;
+    expect(working.querySelector("[title='Start working']")).toBeNull();
+    act(() =>
+      (working.querySelector("[title='Back to to do']") as HTMLElement).click(),
+    );
+    expect(onOp).toHaveBeenLastCalledWith({
+      kind: "work",
+      line: 5,
+      raw: "- [/] Add the Working tab @JARVIS 2026-10-24",
+    });
+  });
+
+  it("has no working button on a done row", () => {
+    render();
+    act(() => ($('[data-testid="todo-done"] > button') as HTMLElement).click());
+    const done = $('[data-testid="todo-done"] [data-testid="todo-row"]');
+    expect(done.querySelector("[title='Start working']")).toBeNull();
+    expect(done.querySelector("[title='Back to to do']")).toBeNull();
+  });
+
+  it("refuses a drop of a working row onto a TO DO row of the same project", () => {
+    const onOp = render();
+    const working = rows().find((r) =>
+      r.textContent?.includes("Add the Working tab"),
+    )!;
+    drag(working, rows()[0]);
     expect(onOp).not.toHaveBeenCalled();
   });
 });

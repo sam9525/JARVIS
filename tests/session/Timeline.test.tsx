@@ -49,6 +49,7 @@ function byTestId(id: string) {
 const ev = (over: Partial<ToolEvent>): ToolEvent => ({
   sessionId: "s1",
   workspaceId: "w1",
+  sessionKey: "w1",
   phase: "pre",
   tool: "Read",
   nodeIds: [],

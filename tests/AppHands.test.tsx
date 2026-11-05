@@ -28,6 +28,7 @@ vi.mock("../src/renderer/home/WorkspaceRail", () => ({
 }));
 vi.mock("../src/renderer/terminal/TerminalPanel", () => ({
   ...nullComponent,
+  onTerminalExit: () => () => undefined,
   onTerminalTyped: () => () => undefined,
 }));
 vi.mock("../src/renderer/preview/Preview", () => nullComponent);
@@ -77,6 +78,7 @@ beforeEach(() => {
   settingsOnDisk = defaultSettings();
   (window as any).jarvis = {
     getWorkspaces: () => Promise.resolve([]),
+    getCardSnapshots: () => Promise.resolve([]),
     getSettings: () => Promise.resolve(settingsOnDisk),
     setSettings,
     addProject: () => Promise.resolve([]),
@@ -94,6 +96,8 @@ beforeEach(() => {
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,
     onShowTodos: () => () => undefined,
+    onUserSubmitted: () => () => undefined,
+    onPromptSubmitted: () => () => undefined,
   };
   container = document.createElement("div");
   document.body.appendChild(container);

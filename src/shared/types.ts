@@ -4,6 +4,7 @@ export type ToolName =
 export interface ToolEvent {
   sessionId: string;
   workspaceId: string; // which workspace's graph/highlights this event drives
+  sessionKey: string; // which of that workspace's sessions emitted it
   phase: "pre" | "post";
   tool: ToolName;
   // vault: relative POSIX path without .md; code: relative POSIX path with
@@ -28,11 +29,28 @@ export type StatusKind =
   | "crashed" // the PTY exited non-zero
   | "none"; // no session
 
-// what the rail badge and the mission-control cards read
+// one Claude Code session of a workspace; `main` is the one in the folder itself
+export interface SessionStatus {
+  key: string;
+  label: string;
+  kind: StatusKind;
+  live: boolean; // this app's own pty is attached right now
+  call: string;
+  since: number; // ms epoch of the last kind change
+  worktree: boolean; // runs in its own git worktree rather than the folder
+  topic?: string; // one word for what the last turn was about; absent until a Stop sets it
+}
+
+// what the rail badge and the mission-control cards read: the aggregate of the
+// workspace's sessions, plus the sessions themselves
+export type PipelineStage = "Spec" | "Plan" | "Build";
+
 export interface WorkspaceStatus {
   workspaceId: string;
   kind: StatusKind;
   call: string; // compact "Tool(subject)"; "" when there is nothing to show
+  step?: string; // the current call's own description; absent when empty
+  stage?: PipelineStage; // pipeline stage a Skill call entered; absent when none
   message?: string; // idle: the last thing Claude said, for the inbox
   messageAt?: number; // ms epoch of the Stop that set message — tells a repeated reply from the same reply pushed again
   delegatedBy?: string; // orchestrator that submitted the current turn; "" when the user did
@@ -40,16 +58,25 @@ export interface WorkspaceStatus {
   since: number; // ms epoch of the last kind change — drives "40s ago"
   reads: number; // distinct files read this session
   edits: number; // distinct files edited this session
+  sessions: SessionStatus[]; // `main` first, then by label
 }
 
 // emitted by the status mapper; "none" is never a hook outcome, only a PTY one
 export interface StatusEvent {
   workspaceId: string;
+  sessionKey: string;
   sessionId: string;
   // "none" is never a hook outcome, only a PTY one; "crashed" likewise
   kind: "working" | "asking" | "blocked" | "idle";
   call: string;
+  step?: string; // the call's description; "" clears it, absent keeps it
+  stage?: PipelineStage; // set by a pipeline Skill call; absent keeps it
   message?: string; // Stop only: the last thing Claude said, for the inbox
+  prompt?: string; // UserPromptSubmit only: what was submitted
+  transcriptPath?: string; // any event: where the session transcript lives
+  // a pty this app spawned sent it; a `claude` run by hand in the same
+  // folder shares the main key but not this
+  fromApp?: boolean;
   ts: number;
 }
 
@@ -76,6 +103,9 @@ export interface VaultGraph {
   // set when the source could not read its index: a short reason for the card.
   // A failed graph is never cached, so the next load asks the source again.
   failed?: string;
+  // the source's fingerprint, read before this graph loaded; a card saves its
+  // layout under it, so a layout never outlives the graph it was drawn from
+  fingerprint?: string;
 }
 
 /** A previewed file's uncommitted changes against HEAD, as 1-based line
@@ -104,6 +134,7 @@ export interface Workspace {
   kind: WorkspaceKind;
   sourceId: string;
   isSelf?: boolean;
+  isScratch?: boolean;
 }
 
 export interface Session {
@@ -181,6 +212,8 @@ export interface Todo {
   line: number;
   raw: string;
   done: boolean;
+  /** `[/]`: the agent is on it. Never true together with `done`. */
+  working: boolean;
   text: string;
   project: string | null;
   created: string | null;
@@ -201,6 +234,7 @@ export type TodoOp =
       text: string;
       project: string | null;
     }
+  | { kind: "work"; line: number; raw: string }
   | { kind: "delete"; line: number; raw: string }
   | { kind: "add"; text: string; project: string | null }
   | { kind: "move"; line: number; raw: string; toLine: number; toRaw: string };
@@ -361,4 +395,48 @@ export function defaultSettings(): Settings {
     ttsModelId: "eleven_multilingual_v2",
     panels: { home: {}, workspace: {} },
   };
+}
+
+// A graph as drawn: graph-space positions plus the zoom/pan that framed them.
+// `r` is the base radius before displayRadius; `fill` is the colour before
+// highlights (group, then tag or domain). `hk` is the node's highlight key.
+export type LayoutNode = {
+  id: string;
+  hk: string;
+  x: number;
+  y: number;
+  r: number;
+  fill: string;
+};
+
+export type CardLayout = {
+  width: number;
+  height: number;
+  // zoom k, and the graph-space point at the canvas centre
+  transform: { k: number; x: number; y: number };
+  nodes: LayoutNode[];
+  links: [number, number][]; // indices into nodes
+};
+
+export const SNAPSHOT_FORMAT = 1;
+
+export type StoredSnapshot = {
+  format: number;
+  id: string;
+  fingerprint: string;
+  look: string;
+  layout: CardLayout;
+};
+
+export interface StatusLineView {
+  model: string;
+  effort: string;
+  folder: string;
+  branch: string;
+  commit: string;
+  contextPct: number | null;
+  fiveHourPct: number | null;
+  fiveHourResetsAt: number | null; // epoch seconds
+  sevenDayPct: number | null;
+  sevenDayResetsAt: number | null;
 }

@@ -19,6 +19,7 @@ describe("parseLine", () => {
       line: 3,
       raw: "- [ ] Fix the ring snap @JARVIS 2026-09-27",
       done: false,
+      working: false,
       text: "Fix the ring snap",
       project: "JARVIS",
       created: "2026-09-27",
@@ -356,5 +357,94 @@ describe("fileTodoIO", () => {
       fileTodoIO(path.join(dir, "TODO.md")).read(),
     ).rejects.toThrow();
     await fs.rm(dir, { recursive: true });
+  });
+});
+
+describe("working mark", () => {
+  it("reads [/] as working, and old marks as not working", () => {
+    expect(parseLine("- [/] Add tab @JARVIS 2026-10-24", 0)).toMatchObject({
+      done: false,
+      working: true,
+      text: "Add tab",
+    });
+    expect(parseLine("- [ ] a", 0)).toMatchObject({
+      done: false,
+      working: false,
+    });
+    expect(parseLine("- [x] a", 0)).toMatchObject({
+      done: true,
+      working: false,
+    });
+  });
+
+  it("never lists a well-formed working line as malformed", () => {
+    expect(parseTodos("- [/] a @JARVIS 2026-10-24\n").malformed).toEqual([]);
+  });
+
+  it("writes a working task as [/]", () => {
+    expect(
+      formatLine({
+        done: false,
+        working: true,
+        text: "a",
+        project: "JARVIS",
+        created: "2026-10-24",
+      }),
+    ).toBe("- [/] a @JARVIS 2026-10-24");
+  });
+
+  it("work flips open to working and back", () => {
+    const file = "- [ ] a @JARVIS 2026-09-20\n";
+    const r1 = applyOp(
+      file,
+      { kind: "work", line: 0, raw: "- [ ] a @JARVIS 2026-09-20" },
+      TODAY,
+    );
+    expect(r1.ok && r1.file).toBe("- [/] a @JARVIS 2026-09-20\n");
+    const r2 = applyOp(
+      r1.ok ? r1.file : "",
+      { kind: "work", line: 0, raw: "- [/] a @JARVIS 2026-09-20" },
+      TODAY,
+    );
+    expect(r2.ok && r2.file).toBe(file);
+  });
+
+  it("edit keeps the working mark", () => {
+    const r = applyOp(
+      "- [/] a @JARVIS 2026-09-20\n",
+      {
+        kind: "edit",
+        line: 0,
+        raw: "- [/] a @JARVIS 2026-09-20",
+        text: "bee",
+        project: "JARVIS",
+      },
+      TODAY,
+    );
+    expect(r.ok && r.file).toBe("- [/] bee @JARVIS 2026-09-20\n");
+  });
+
+  it("work refuses a done task and a stale line", () => {
+    expect(
+      applyOp("- [x] a\n", { kind: "work", line: 0, raw: "- [x] a" }, TODAY),
+    ).toEqual({ ok: false, error: "done task" });
+    expect(
+      applyOp("- [ ] b\n", { kind: "work", line: 0, raw: "- [ ] a" }, TODAY),
+    ).toEqual({ ok: false, error: "stale" });
+  });
+
+  it("toggle makes a working task done, and a done task open", () => {
+    const r = applyOp(
+      "- [/] a\n",
+      { kind: "toggle", line: 0, raw: "- [/] a" },
+      TODAY,
+    );
+    expect(r.ok && r.file).toBe("- [x] a\n");
+    const back = applyOp(
+      "- [x] a\n",
+      { kind: "toggle", line: 0, raw: "- [x] a" },
+      TODAY,
+    );
+    expect(back.ok && back.file).toBe("- [ ] a\n");
   });
 });

@@ -3,21 +3,34 @@ import type { ToolEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 import { extractPaths } from "./response-paths";
 import { extractImpact } from "./impact-paths";
+import { parseSessionKey } from "../shared/session-key";
 
 export interface RawHookEvent {
   session_id?: string;
   cwd?: string;
+  jarvis_session?: string; // set by forward.mjs from the PTY's JARVIS_SESSION
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: unknown; // PostToolUse only; read solely for the Grep/Glob match highlight
+  tool_response?: unknown; // PostToolUse only; read for Grep/Glob matches, gitnexus impact hits and AskUserQuestion answers
   notification_type?: string; // Notification only; read by status-mapper.ts
   last_assistant_message?: string; // Stop only; the final assistant text of the turn
+  prompt?: string; // UserPromptSubmit only; read by status-mapper.ts
+  transcript_path?: string; // Stop only; read by status-mapper.ts for the topic
 }
 
 // A broad search can match hundreds of files; past this the graph is a white
 // screen, not a signal. First-N in response order (≈ relevance order for Grep).
 export const MATCH_CAP = 40;
+
+// A key naming another workspace is not trusted: the cwd decided the workspace.
+export function resolveSessionKey(raw: RawHookEvent, ws: Workspace): string {
+  const claimed = raw.jarvis_session;
+  return typeof claimed === "string" &&
+    parseSessionKey(claimed, [ws.id]).workspaceId === ws.id
+    ? claimed
+    : ws.id;
+}
 
 // Emits exactly the combos the graph reacts to; everything else → null.
 // Events route to the workspace whose root is the longest prefix of cwd.
@@ -31,6 +44,7 @@ export function mapHookEvent(
   const common = {
     sessionId: raw.session_id,
     workspaceId: ws.id,
+    sessionKey: resolveSessionKey(raw, ws),
     ts: Date.now(),
   };
 
@@ -125,7 +139,11 @@ function toNode(ws: Workspace, cwd: string, filePath: unknown): string | null {
     : path.resolve(cwd, filePath);
   const rel = path.relative(ws.rootPath, absPath);
   if (rel.startsWith("..") || path.isAbsolute(rel)) return null; // outside workspace
-  const posix = rel.split(path.sep).join("/");
+  // a session worktree is a copy of the main folder; its files are the main folder's nodes
+  const posix = rel
+    .split(path.sep)
+    .join("/")
+    .replace(/^\.worktrees\/[^/]+\//, "");
   if (ws.kind === "vault") {
     return /\.md$/i.test(posix) ? posix.replace(/\.md$/i, "") : null;
   }

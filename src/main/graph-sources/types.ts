@@ -9,5 +9,8 @@ export interface GraphSource {
   loadSymbols?(ws: Workspace): Promise<VaultGraph>; // symbol/concept level
   index?(rootPath: string): Promise<void>; // gitnexus analyze
   stale?(rootPath: string): Promise<boolean>; // index behind repo HEAD
+  // identity of what the graph was built from; null = cannot tell, so no
+  // snapshot is kept
+  fingerprint?(ws: Workspace): Promise<string | null>;
   reindexCommand?: string; // what the stale button types into the terminal
 }

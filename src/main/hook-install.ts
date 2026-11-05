@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { mergeHooks, stripHooks } from "../hook/merge.mjs";
+import { withStatusLine } from "./status-line";
 
 // v1 installed hooks into .claude/settings.json — Claude Code's shared,
 // version-controlled file. Code workspaces come from the gitnexus registry and
@@ -41,7 +42,9 @@ export async function ensureHooks(
       return false;
     }
   }
-  const merged = mergeHooks(settings, `node "${forwardPath}"`);
+  const hooked = mergeHooks(settings, `node "${forwardPath}"`);
+  const statuslinePath = path.join(path.dirname(forwardPath), "statusline.mjs");
+  const merged = withStatusLine(hooked, `node "${statuslinePath}"`) ?? hooked;
   try {
     await fs.mkdir(claudeDir, { recursive: true });
     await fs.writeFile(settingsPath, JSON.stringify(merged, null, 2) + "\n");

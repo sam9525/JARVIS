@@ -12,14 +12,15 @@ One extra session, the **main agent**, sits above the fleet. It can list every w
 
 - **Live highlight layer.** Reads leave a persistent ring and a trail of arrows in read order. Searches pulse, and the files a search matched glow for a few seconds. Edited files stay marked for the whole session.
 - **Many workspaces.** A rail on the left switches between vaults and repos. Each has its own graph, terminal and status.
+- **Several sessions per workspace.** A workspace runs up to four Claude Code sessions, one tab each. See [Sessions](#sessions).
 - **Mission control.** The home screen shows every workspace as a card with its status: running, waiting on you, or idle. `Ring` and `Fleet` give two other views of the same fleet.
 - **2D and 3D graphs.** Vaults graph their `[[wikilinks]]`, Markdown links and tags. Code repos graph files and imports.
 - **Session replay.** A scrubber rebuilds the highlight state at any earlier point of the current session.
-- **Orchestrator.** The main agent drives the fleet through six MCP tools. See [MCP tools](#mcp-tools).
+- **Orchestrator.** The main agent drives the fleet through seven MCP tools. See [MCP tools](#mcp-tools).
 - **Voice (optional).** Say "Jarvis …" and the command is typed into the main agent's terminal. You still press Enter. Replies are read aloud, with a wireframe head and waveform.
 - **Hand control (optional).** Webcam gestures pan, orbit, zoom and open panels. See [Gestures](#gestures).
 - **Inbox.** A list at the top of the terminal panel with one row per workspace. Each row shows the status and the last message from Claude, or its current tool call while it runs. It is read-only: you reply in the terminal.
-- **To-do list.** The main agent keeps your tasks in `TODO.md`, grouped by project. Double-click a task to read it in full, then edit or delete it. The main agent checks a task off only when you say it is done, not when a workspace reports it finished.
+- **To-do list.** The main agent keeps your tasks in `TODO.md`, grouped by project. Double-click a task to read it in full, then edit or delete it. A task a workspace is working on is marked `- [/]` and shows in its own WORKING section. The main agent checks a task off when you say it is done, or when a workspace reports its work merged into develop.
 - **Daily briefing (optional).** On the first launch of the day, the main agent asks your vault workspace to summarise your newest daily note, project by project. See [Daily briefing](#daily-briefing).
 - **Floating panels.** The terminal, preview, settings and to-do list are panels that you can drag, resize and collapse.
 
@@ -37,16 +38,27 @@ The graph itself is static. It comes from the files on disk, never from search r
 
 Only the main agent gets these tools. Delegate sessions never do, so a delegate cannot send work back up the chain.
 
-| Tool            | What it does                                                                        |
-| --------------- | ----------------------------------------------------------------------------------- |
-| `jarvis_list`   | Lists every workspace with its status, current tool call and last message.          |
-| `jarvis_send`   | Types a prompt into another workspace's live terminal and returns at once.          |
-| `jarvis_launch` | Starts a Claude Code session for a workspace that has none, like its Launch button. |
-| `jarvis_watch`  | Waits until another workspace finishes a turn, then returns its last message.       |
-| `jarvis_say`    | Speaks a short summary aloud, up to 500 characters.                                 |
-| `jarvis_todos`  | Opens your to-do list on screen and returns the file path to edit.                  |
+| Tool            | What it does                                                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `jarvis_list`   | Lists every live session, and every workspace with none, with status, current tool call, last message, session label and worktree. |
+| `jarvis_send`   | Types a prompt into a session of another workspace and returns at once. With `fresh`, it opens a new session and sends there.      |
+| `jarvis_launch` | Opens a new Claude Code session for a workspace, with an optional label.                                                           |
+| `jarvis_close`  | Closes a session you named. Refused while it is working, asking or blocked.                                                        |
+| `jarvis_watch`  | Waits until another workspace finishes a turn, then returns its last message.                                                      |
+| `jarvis_say`    | Speaks a short summary aloud, up to 500 characters.                                                                                |
+| `jarvis_todos`  | Opens your to-do list on screen and returns the file path to edit.                                                                 |
 
 The main agent does not need to poll. When a delegate finishes, JARVIS types a short nudge into the main agent's terminal so it can read the result.
+
+## Sessions
+
+A workspace holds up to four live Claude Code sessions, shown as tabs in its terminal panel. The `+` tab opens another.
+
+- **Worktrees.** In a code repo, the `main` session runs in your folder and is yours. Every other session runs in its own git worktree at `<repo>/.worktrees/<label>`, cut from `develop` (or `HEAD` without it). JARVIS adds `.worktrees/` to the repo's `.git/info/exclude`. Closing a tab removes its worktree only when it is clean and merged into `develop`; otherwise the folder stays and the close message names it. Vaults and folders that are not git repos share the folder.
+- **Fresh task, fresh session.** `jarvis_send` with `fresh` opens a new session for a new spec or task. A follow-up goes to the session that did the work. At four sessions the main agent asks which one to close.
+- **Scratch.** A `Scratch` workspace (hidden from the rail) takes the jobs the main agent should not do itself: anything that needs files, the web, code, or more than a short spoken answer. It shows as a `SCRATCH` tab beside `MAIN AGENT`.
+- **Vault lookup.** Before a project task, the main agent asks your vault workspace (found by its kind, not its name) for related notes, then passes the answer to the new session as `Notes context:`.
+- **Trust.** If a new session asks Claude Code to trust its folder, the main agent asks you. JARVIS never writes `~/.claude.json`.
 
 ## Graph sources
 
@@ -67,6 +79,7 @@ A repo with no index shows a button that runs `npx gitnexus analyze` for you.
 - Windows 10/11 (primary target) or macOS
 - Linux: `npm run make` builds `.deb` and `.rpm` packages, but nobody has tested them.
 - Optional: `gitnexus` for code-repo graphs
+- Optional: [`jq`](https://jqlang.org), if your Claude Code status line command uses it. JARVIS does not install it. On Windows, sessions find it through the stored Machine and User `PATH` or the WinGet Links folder, not through a `PATH` that only a shell profile sets.
 
 ## Getting started
 
@@ -96,12 +109,12 @@ When my-app goes idle, JARVIS nudges the main agent. The main agent reads that o
 
 To turn it on, open settings and click **Choose** under **Daily notes**. Pick the folder where you keep your daily notes. **Clear** turns the briefing off.
 
-The main agent resumes its last conversation each time JARVIS starts. On the first launch of a day, after 7:00, JARVIS also asks it for a briefing. The main agent does not read the note itself. It sends every `.md` file in that folder with the latest `YYYY-MM-DD` date in its name to your vault workspace with `jarvis_send`, and calls `jarvis_launch` first if that workspace has no session. When each machine writes its own note for a day, such as `2026-10-12.md` and `2026-10-12-Mac.md`, all of them go. The vault workspace writes one summary with one paragraph for each project the notes mention: what moved and what is still open. If the notes are not from yesterday, it says which day it is from. You read that summary in the vault workspace's terminal or the inbox. When the vault workspace finishes, JARVIS wakes the main agent the normal way, and the main agent says its usual one or two sentences about it.
+The main agent resumes its last conversation each time JARVIS starts, except a start that rewrites its guide, which begins a new conversation; a guide change overwrites any hand edits to the guide. On the first launch of a day, after 7:00, JARVIS also asks it for a briefing. The main agent does not read the note itself. It sends every `.md` file in that folder with the latest `YYYY-MM-DD` date in its name to your vault workspace with `jarvis_send`, and calls `jarvis_launch` first if that workspace has no session. When each machine writes its own note for a day, such as `2026-10-12.md` and `2026-10-12-Mac.md`, all of them go. The vault workspace writes one summary with one paragraph for each project the notes mention: what moved and what is still open. If the notes are not from yesterday, it says which day it is from. You read that summary in the vault workspace's terminal or the inbox. When the vault workspace finishes, JARVIS wakes the main agent the normal way, and the main agent says its usual one or two sentences about it.
 
 Some details:
 
 - The briefing runs at most once a day. A launch before 7:00 skips it, and the next launch after 7:00 gives it.
-- It needs an earlier main-agent conversation to resume, so the very first launch has no briefing.
+- It needs an earlier main-agent conversation, so the very first launch has no briefing. A start that rewrites the guide begins a new conversation but still briefs.
 - Before it picks the note, JARVIS runs `git pull --ff-only` in the notes folder, so a vault behind its remote still gets the latest note. If the pull fails or takes more than 15 seconds, it briefs from the local copy. Notes with no date in the file name are not picked.
 - JARVIS waits for the main agent's terminal to go quiet before it asks. If the terminal stays busy for 60 seconds, that day is skipped.
 - The first time, Claude Code in the vault workspace may ask your permission to read the notes folder.

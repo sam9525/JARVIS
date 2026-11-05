@@ -8,6 +8,7 @@ import type { StatusEvent, ToolEvent } from "../../src/shared/types";
 
 const ev = (over: Partial<StatusEvent>): StatusEvent => ({
   workspaceId: "w1",
+  sessionKey: "w1",
   sessionId: "s1",
   kind: "working",
   call: "",
@@ -18,6 +19,7 @@ const ev = (over: Partial<StatusEvent>): StatusEvent => ({
 const tool = (over: Partial<ToolEvent>): ToolEvent => ({
   sessionId: "s1",
   workspaceId: "w1",
+  sessionKey: "w1",
   phase: "pre",
   tool: "Read",
   nodeIds: ["a"],
@@ -137,6 +139,16 @@ describe("status store", () => {
     expect(s.sweep(1000 + STALE_MS * 3)).toBe(false); // already demoted
   });
 
+  it("staleness leaves working alone while the terminal still prints", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    expect(s.sweep(1000 + STALE_MS, () => 1000)).toBe(false);
+    expect(kindOf(s)).toBe("working");
+    expect(s.sweep(1000 + STALE_MS * 2, () => STALE_MS)).toBe(true);
+    expect(kindOf(s)).toBe("idle");
+  });
+
   it("staleness never touches blocked — that is the state the user acts on", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 0);
@@ -190,7 +202,7 @@ describe("status store", () => {
   it("keeps workspaces independent", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ workspaceId: "w1", kind: "blocked" }));
-    s.applyStatus(ev({ workspaceId: "w2", kind: "working" }));
+    s.applyStatus(ev({ workspaceId: "w2", sessionKey: "w2", kind: "working" }));
     expect(kindOf(s, "w1")).toBe("blocked");
     expect(kindOf(s, "w2")).toBe("working");
   });
@@ -280,7 +292,22 @@ describe("status store", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "working" }));
     s.markDelegated("w1", "JARVIS", 2000);
+    // the old session acts after the mark, so the mark belongs to it
+    s.applyStatus(ev({ kind: "idle", ts: 3000, message: "done" }));
     s.applyStatus(ev({ sessionId: "s2", kind: "working", ts: 5000 }));
+    expect(s.snapshot()[0].delegatedBy).toBe("");
+  });
+
+  // a fresh send types /clear, which starts a new session id, then marks the
+  // delegation before the delegate's first prompt arrives under that new id
+  it("delegatedBy survives the session a fresh send starts", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", ts: 1000, message: "old" }));
+    s.markDelegated("w1", "JARVIS", 2000);
+    s.applyStatus(ev({ sessionId: "s2", kind: "working", ts: 2500 }));
+    expect(s.snapshot()[0].delegatedBy).toBe("JARVIS");
+    // the next session change is not the one the mark was made for
+    s.applyStatus(ev({ sessionId: "s3", kind: "working", ts: 9000 }));
     expect(s.snapshot()[0].delegatedBy).toBe("");
   });
 });
@@ -424,6 +451,7 @@ describe("crashed", () => {
     s.ptyLaunched("w1", 1000);
     s.applyStatus({
       workspaceId: "w1",
+      sessionKey: "w1",
       sessionId: "s1",
       kind: "working",
       call: "",
@@ -431,6 +459,7 @@ describe("crashed", () => {
     });
     s.applyStatus({
       workspaceId: "w1",
+      sessionKey: "w1",
       sessionId: "s1",
       kind: "idle",
       call: "",
@@ -443,10 +472,27 @@ describe("crashed", () => {
     expect(row?.message).toBe("done");
   });
 
+  it("a late hook from a crashed tab does not bring its row back", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1#2", 1000);
+    s.ptyExited("w1#2", 2000, 1);
+    const late = ev({ sessionKey: "w1#2", kind: "idle", ts: 2100 });
+    expect(s.applyStatus({ ...late, fromApp: true })).toBe(false);
+    s.sweep(2000 + EXPIRE_MS);
+    expect(s.snapshot().flatMap((w) => w.sessions)).toEqual([]);
+  });
+
+  it("a claude started by hand still reports on the main row", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ fromApp: false }));
+    expect(kindOf(s)).toBe("working");
+  });
+
   it("never promotes a stale working session to asking", () => {
     const s = createStatusStore();
     s.applyStatus({
       workspaceId: "w1",
+      sessionKey: "w1",
       sessionId: "s1",
       kind: "working",
       call: "Read(a.md)",
@@ -455,5 +501,335 @@ describe("crashed", () => {
     s.sweep(1000 + STALE_MS);
     const row = s.snapshot().find((r) => r.workspaceId === "w1");
     expect(row?.kind).toBe("idle");
+  });
+
+  describe("sessions", () => {
+    const sess = (label: string) => ({
+      sessionKey: label === "main" ? "d:/r" : `d:/r#${label}`,
+      workspaceId: "d:/r",
+    });
+
+    it("one row per workspace: the most urgent session sets the row", () => {
+      const s = createStatusStore();
+      s.applyStatus(
+        ev({ ...sess("main"), kind: "asking", call: "Ask(x)", ts: 2000 }),
+      );
+      s.markDelegated("d:/r", "orch", 2500);
+      s.applyStatus(
+        ev({ ...sess("1"), kind: "working", call: "Bash(y)", ts: 3000 }),
+      );
+      const rows = s.snapshot();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        workspaceId: "d:/r",
+        kind: "asking",
+        call: "Ask(x)",
+        delegatedBy: "orch",
+        since: 2000,
+      });
+      expect(rows[0].sessions.map((x) => [x.key, x.label, x.kind])).toEqual([
+        ["d:/r", "main", "asking"],
+        ["d:/r#1", "1", "working"],
+      ]);
+    });
+
+    it("a later session can be the more urgent one", () => {
+      const s = createStatusStore();
+      s.applyStatus(ev({ ...sess("main"), kind: "working", ts: 1000 }));
+      s.applyStatus(
+        ev({ ...sess("1"), kind: "asking", call: "Ask(z)", ts: 2000 }),
+      );
+      s.markDelegated("d:/r#1", "orch", 2500);
+      expect(s.snapshot()[0]).toMatchObject({
+        kind: "asking",
+        call: "Ask(z)",
+        delegatedBy: "orch",
+        since: 2000,
+      });
+    });
+
+    it("blocked outranks working", () => {
+      const s = createStatusStore();
+      s.applyStatus(ev({ ...sess("main"), kind: "working", ts: 1000 }));
+      s.applyStatus(
+        ev({ ...sess("2"), kind: "blocked", call: "Bash(rm)", ts: 2000 }),
+      );
+      expect(s.snapshot()[0]).toMatchObject({
+        kind: "blocked",
+        call: "Bash(rm)",
+        since: 2000,
+      });
+    });
+
+    it("a workspace id holding # keeps its own id from a bare key", () => {
+      const s = createStatusStore(() => ["d:/c#proj"]);
+      s.ptyLaunched("d:/c#proj", 1000);
+      const row = s.snapshot()[0];
+      expect(row.workspaceId).toBe("d:/c#proj");
+      expect(row.sessions[0].label).toBe("main");
+    });
+
+    it("an event's owner corrects an entry made from a bare key", () => {
+      const s = createStatusStore();
+      s.ptyLaunched("d:/c#proj", 1000);
+      s.applyStatus(
+        ev({ workspaceId: "d:/c#proj", sessionKey: "d:/c#proj", ts: 2000 }),
+      );
+      expect(s.snapshot().map((r) => r.workspaceId)).toEqual(["d:/c#proj"]);
+    });
+
+    it("the message comes from the session that spoke last", () => {
+      const s = createStatusStore();
+      s.applyStatus(
+        ev({ ...sess("1"), kind: "idle", message: "new", ts: 2000 }),
+      );
+      s.applyStatus(
+        ev({ ...sess("main"), kind: "idle", message: "old", ts: 1000 }),
+      );
+      expect(s.snapshot()[0]).toMatchObject({
+        message: "new",
+        messageAt: 2000,
+      });
+    });
+
+    it("sums counts, and is live if any session is", () => {
+      const s = createStatusStore();
+      s.countTool(tool({ ...sess("main"), nodeIds: ["a"] }));
+      s.countTool(tool({ ...sess("1"), nodeIds: ["b", "c"] }));
+      s.ptyLaunched("d:/r#1", 1000);
+      const row = s.snapshot()[0];
+      expect(row.reads).toBe(3);
+      expect(row.live).toBe(true);
+      expect(row.sessions.find((x) => x.label === "main")?.live).toBe(false);
+    });
+
+    it("sessionOpened records the worktree flag", () => {
+      const s = createStatusStore();
+      s.ptyLaunched("d:/r#2", 1000);
+      expect(s.sessionOpened("d:/r#2", true, 1000)).toBe(true);
+      expect(s.snapshot()[0].sessions[0]).toMatchObject({
+        label: "2",
+        worktree: true,
+      });
+    });
+
+    it("sessionId is per session", () => {
+      const s = createStatusStore();
+      s.applyStatus(ev({ ...sess("main"), sessionId: "a" }));
+      s.applyStatus(ev({ ...sess("1"), sessionId: "b" }));
+      expect(s.sessionId("d:/r")).toBe("a");
+      expect(s.sessionId("d:/r#1")).toBe("b");
+    });
+
+    it("shows a set topic on the session row", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      expect(s.setTopic("w#first", "review")).toBe(true);
+      expect(s.snapshot()[0].sessions[0].topic).toBe("review");
+      expect(s.setTopic("w#first", "review")).toBe(false);
+    });
+
+    it("a pinned topic outlives a later unpinned one", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      expect(s.setTopic("w#first", "tabs", true)).toBe(true);
+      expect(s.setTopic("w#first", "review")).toBe(false);
+      expect(s.snapshot()[0].sessions[0].topic).toBe("tabs");
+    });
+
+    it("reopening the label drops the pin with the topic", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      s.setTopic("w#first", "tabs", true);
+      s.sessionOpened("w#first", true, 2);
+      expect(s.setTopic("w#first", "review")).toBe(true);
+      expect(s.snapshot()[0].sessions[0].topic).toBe("review");
+    });
+
+    it("forgets the topic when the label is opened again", () => {
+      const s = createStatusStore(() => ["w"]);
+      s.sessionOpened("w#first", true, 1);
+      s.setTopic("w#first", "review");
+      s.sessionOpened("w#first", true, 2);
+      expect(s.snapshot()[0].sessions[0]).not.toHaveProperty("topic");
+    });
+
+    it("restore puts a saved row on the workspace's main session", () => {
+      const s = createStatusStore();
+      s.restore([{ workspaceId: "d:/r", message: "hi", since: 500 }]);
+      const row = s.snapshot()[0];
+      expect(row).toMatchObject({ workspaceId: "d:/r", message: "hi" });
+      expect(row.sessions.map((x) => x.key)).toEqual(["d:/r"]);
+    });
+  });
+});
+
+describe("step and stage", () => {
+  const stepOf = (s: ReturnType<typeof createStatusStore>) =>
+    s.snapshot()[0].step;
+  const stageOf = (s: ReturnType<typeof createStatusStore>) =>
+    s.snapshot()[0].stage;
+
+  it("keeps the step through a call with no description", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ step: "A" }));
+    s.applyStatus(ev({ call: "Read(x)" }));
+    expect(stepOf(s)).toBe("A");
+  });
+
+  it("clears the step on a prompt, on Stop and on a new session", () => {
+    const clearers: Partial<StatusEvent>[] = [
+      { step: "" },
+      { kind: "idle", step: "" },
+      { sessionId: "s2" },
+    ];
+    for (const c of clearers) {
+      const s = createStatusStore();
+      s.applyStatus(ev({ step: "A" }));
+      s.applyStatus(ev(c));
+      expect(stepOf(s)).toBeUndefined();
+    }
+  });
+
+  it("keeps step and stage through a permission prompt", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ call: "Bash(ls)", step: "A", stage: "Build" }));
+    s.applyStatus(ev({ kind: "blocked", call: "" }));
+    expect(stepOf(s)).toBe("A");
+    expect(stageOf(s)).toBe("Build");
+  });
+
+  it("keeps the stage across Stop and a new prompt", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ stage: "Plan" }));
+    s.applyStatus(ev({ kind: "idle", step: "" }));
+    s.applyStatus(ev({ step: "" }));
+    expect(stageOf(s)).toBe("Plan");
+  });
+
+  it("clears the stage on a new session and on sessionOpened", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ stage: "Plan" }));
+    s.applyStatus(ev({ sessionId: "s2" }));
+    expect(stageOf(s)).toBeUndefined();
+    s.applyStatus(ev({ stage: "Spec" }));
+    expect(s.sessionOpened("w1", false, 2000)).toBe(true);
+    expect(stageOf(s)).toBeUndefined();
+  });
+
+  it("takes step and stage from the most urgent session", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", stage: "Build" }));
+    s.applyStatus(
+      ev({ sessionKey: "w1#1", kind: "asking", stage: "Plan", step: "B" }),
+    );
+    expect(stageOf(s)).toBe("Plan");
+    expect(stepOf(s)).toBe("B");
+  });
+
+  it("clears the step when the session exits, clean or crashed", () => {
+    for (const code of [0, 1]) {
+      const s = createStatusStore();
+      s.ptyLaunched("w1", 0);
+      s.applyStatus(ev({ step: "A" }));
+      s.ptyExited("w1", 2000, code);
+      expect(stepOf(s)).toBeUndefined();
+    }
+  });
+
+  it("clears the step when staleness demotes working to idle", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ step: "A" }));
+    s.sweep(1000 + STALE_MS);
+    expect(kindOf(s)).toBe("idle");
+    expect(stepOf(s)).toBeUndefined();
+  });
+
+  it("keeps the step a new session's first event carries", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ step: "A" }));
+    s.applyStatus(ev({ sessionId: "s2", step: "B" }));
+    expect(stepOf(s)).toBe("B");
+  });
+
+  it("counts a step change as a change", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ call: "Bash(ls)", step: "A" }));
+    expect(s.applyStatus(ev({ call: "Bash(ls)", step: "B" }))).toBe(true);
+  });
+});
+
+describe("session change in the listener's order", () => {
+  const session = (s: ReturnType<typeof createStatusStore>, e: StatusEvent) => {
+    s.countTool(tool({ sessionId: e.sessionId, tool: "Prompt", nodeIds: [] }));
+    s.applyStatus(e);
+  };
+
+  it("a new session drops the old stage and message", () => {
+    const s = createStatusStore();
+    session(s, ev({ sessionId: "a", stage: "Build" }));
+    s.applyStatus(ev({ sessionId: "a", kind: "idle", message: "old message" }));
+    session(s, ev({ sessionId: "b" }));
+    expect(s.snapshot()[0]).toMatchObject({ message: "" });
+    expect(s.snapshot()[0].stage).toBeUndefined();
+  });
+
+  it("keeps the read that announced the new session", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ sessionId: "a" }));
+    s.countTool(tool({ sessionId: "b", nodeIds: ["first"] }));
+    s.applyStatus(ev({ sessionId: "b" }));
+    expect(s.snapshot()[0].reads).toBe(1);
+  });
+});
+
+describe("keys that answer a prompt", () => {
+  const waiting = (kind: "blocked" | "asking") => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", call: "Bash(x)" }));
+    s.applyStatus(ev({ kind }));
+    return s;
+  };
+
+  it.each(["\r", "1"])("%j on a permission prompt resumes the turn", (key) => {
+    const s = waiting("blocked");
+    expect(s.promptKeyed("w1", key, 2000)).toBe(true);
+    expect(s.snapshot()[0]).toMatchObject({
+      kind: "working",
+      call: "Bash(x)",
+      since: 2000,
+    });
+  });
+
+  it("Esc on a permission prompt ends the turn", () => {
+    const s = waiting("blocked");
+    expect(s.promptKeyed("w1", "\x1b", 2000)).toBe(true);
+    expect(s.snapshot()[0]).toMatchObject({ kind: "idle", call: "" });
+  });
+
+  it("an arrow key moves through the prompt without answering it", () => {
+    const s = waiting("blocked");
+    expect(s.promptKeyed("w1", "\x1b[B", 2000)).toBe(false);
+    expect(kindOf(s)).toBe("blocked");
+  });
+
+  it("a question stays open on Enter, which can step to its next page", () => {
+    const s = waiting("asking");
+    expect(s.promptKeyed("w1", "\r", 2000)).toBe(false);
+    expect(kindOf(s)).toBe("asking");
+  });
+
+  it("Esc dismisses a question", () => {
+    const s = waiting("asking");
+    expect(s.promptKeyed("w1", "\x1b", 2000)).toBe(true);
+    expect(kindOf(s)).toBe("idle");
+  });
+
+  it("keys on a working session change nothing", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working" }));
+    expect(s.promptKeyed("w1", "\r", 2000)).toBe(false);
+    expect(kindOf(s)).toBe("working");
   });
 });

@@ -19,7 +19,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { mapStatusEvent, callSignature } from "../../src/main/status-mapper";
+import { mapStatusEvent } from "../../src/main/status-mapper";
+import { callSignature } from "../../src/shared/call-signature";
 import { buildWorkspaces } from "../../src/main/workspaces";
 import type { Workspace } from "../../src/shared/types";
 
@@ -101,6 +102,61 @@ describe("callSignature", () => {
   });
 });
 
+describe("callSignature names", () => {
+  it("shortens an MCP tool and shows its main argument", () => {
+    expect(
+      callSignature("mcp__gitnexus__impact", {
+        target: "mapAskEvent",
+        repo: "JARVIS",
+      }),
+    ).toBe("gitnexus impact(mapAskEvent)");
+  });
+  it("takes the first listed key that holds a string", () => {
+    expect(
+      callSignature("mcp__gitnexus__query", {
+        repo: "J",
+        search_query: "voice",
+      }),
+    ).toBe("gitnexus query(voice)");
+  });
+  it("shows … for an MCP call with none of the keys", () => {
+    expect(callSignature("mcp__gitnexus__list_repos", {})).toBe(
+      "gitnexus list_repos(…)",
+    );
+  });
+  it("keeps the cap for a long MCP name", () => {
+    const s = callSignature("mcp__playwright__browser_take_screenshot", {
+      url: "x",
+    });
+    expect(s.length).toBeLessThanOrEqual(30);
+    expect(s.startsWith("playwright ")).toBe(true);
+  });
+  it.each([
+    ["mcp__x", "x(…)"],
+    ["mcp__", "mcp__(…)"],
+    ["mcp__a__b__c", "a b__c(…)"],
+  ])("names the odd MCP tool %s as %s", (n, want) => {
+    expect(callSignature(n, {})).toBe(want);
+  });
+  it("drops the plugin prefix of a skill", () => {
+    expect(callSignature("Skill", { skill: "superpowers:brainstorming" })).toBe(
+      "Skill(brainstorming)",
+    );
+    expect(callSignature("Skill", { skill: "tdd" })).toBe("Skill(tdd)");
+  });
+  it("names an Agent call by its description, else its type", () => {
+    expect(
+      callSignature("Agent", {
+        description: "Implement Task 2",
+        subagent_type: "general-purpose",
+      }),
+    ).toBe("Agent(Implement Task 2)");
+    expect(callSignature("Agent", { subagent_type: "Explore" })).toBe(
+      "Agent(Explore)",
+    );
+  });
+});
+
 describe("mapStatusEvent", () => {
   it("a permission notification is 'blocked'", () => {
     const e = mapStatusEvent(
@@ -131,12 +187,51 @@ describe("mapStatusEvent", () => {
     expect(e?.kind).toBe("idle");
   });
 
+  it("Stop carries the transcript path when the payload has one", () => {
+    const e = mapStatusEvent(
+      { ...base, hook_event_name: "Stop", transcript_path: "C:\\t\\a.jsonl" },
+      workspaces,
+    );
+    expect(e?.transcriptPath).toBe("C:\\t\\a.jsonl");
+    const bare = mapStatusEvent(
+      { ...base, hook_event_name: "Stop" },
+      workspaces,
+    );
+    expect(bare).not.toHaveProperty("transcriptPath");
+  });
+
+  it("carries transcriptPath on a PreToolUse", () => {
+    const e = mapStatusEvent(
+      {
+        ...base,
+        hook_event_name: "PreToolUse",
+        tool_name: "Read",
+        tool_input: { file_path: "a.md" },
+        transcript_path: "C:\\t\\a.jsonl",
+      },
+      workspaces,
+    );
+    expect(e?.transcriptPath).toBe("C:\\t\\a.jsonl");
+  });
+
   it("UserPromptSubmit is 'working' with no call yet", () => {
     const e = mapStatusEvent(
       { ...base, hook_event_name: "UserPromptSubmit" },
       workspaces,
     );
     expect(e).toMatchObject({ kind: "working", call: "" });
+  });
+
+  it("UserPromptSubmit carries the submitted prompt", () => {
+    const e = mapStatusEvent(
+      {
+        ...base,
+        hook_event_name: "UserPromptSubmit",
+        prompt: "Daily briefing.",
+      },
+      workspaces,
+    );
+    expect(e?.prompt).toBe("Daily briefing.");
   });
 
   it("PreToolUse is 'working' and carries the call signature", () => {
@@ -199,6 +294,20 @@ describe("mapStatusEvent", () => {
         workspaces,
       ),
     ).toBeNull();
+  });
+
+  it("an answered question ends the asking status", () => {
+    expect(
+      mapStatusEvent(
+        {
+          ...base,
+          hook_event_name: "PostToolUse",
+          tool_name: "AskUserQuestion",
+          tool_input: {},
+        },
+        workspaces,
+      ),
+    ).toMatchObject({ kind: "working", call: "" });
   });
 
   it("maps the captured Stop payload", () => {
@@ -317,5 +426,91 @@ describe("six status kinds", () => {
     );
     expect(out?.kind).toBe("asking");
     expect(out?.call).toBe("AskUserQuestion");
+  });
+});
+
+describe("mapStatusEvent session key", () => {
+  it("carries the payload's session key", () => {
+    const ws = workspaces[1];
+    const e = mapStatusEvent(
+      {
+        session_id: "s1",
+        cwd: "D:\\proj",
+        hook_event_name: "UserPromptSubmit",
+        jarvis_session: `${ws.id}#2`,
+      },
+      workspaces,
+    );
+    expect(e?.sessionKey).toBe(`${ws.id}#2`);
+    expect(e?.fromApp).toBe(true);
+  });
+
+  it("marks an event from a claude started by hand as not the app's", () => {
+    const e = mapStatusEvent(
+      { session_id: "s1", cwd: "D:\\proj", hook_event_name: "Stop" },
+      workspaces,
+    );
+    expect(e?.fromApp).toBe(false);
+  });
+});
+
+describe("step and stage", () => {
+  const map = (raw: Record<string, unknown>) =>
+    mapStatusEvent(
+      { ...base, ...raw } as Parameters<typeof mapStatusEvent>[0],
+      workspaces,
+    );
+
+  it("takes the step from a call's description", () => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "ls", description: "List the folder" },
+      })!.step,
+    ).toBe("List the folder");
+  });
+
+  it.each([undefined, "", 42])("gives no step for a description of %s", (d) => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "ls", description: d },
+      })!.step,
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["superpowers:brainstorming", "Spec"],
+    ["brainstorming", "Spec"],
+    ["superpowers:writing-plans", "Plan"],
+    ["superpowers:subagent-driven-development", "Build"],
+    ["superpowers:executing-plans", "Build"],
+  ])("maps skill %s to stage %s", (skill, stage) => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Skill",
+        tool_input: { skill },
+      })!.stage,
+    ).toBe(stage);
+  });
+
+  it("gives no stage for another skill", () => {
+    expect(
+      map({
+        hook_event_name: "PreToolUse",
+        tool_name: "Skill",
+        tool_input: { skill: "tdd" },
+      })!.stage,
+    ).toBeUndefined();
+  });
+
+  it("clears the step on a prompt and on Stop", () => {
+    expect(
+      map({ hook_event_name: "UserPromptSubmit", prompt: "hi" })!.step,
+    ).toBe("");
+    expect(map({ hook_event_name: "Stop" })!.step).toBe("");
   });
 });

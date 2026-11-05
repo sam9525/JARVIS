@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ensureHooks } from "../../src/main/hook-install";
-import { mergeHooks } from "../../src/hook/merge.mjs";
+import { mergeHooks, stripHooks } from "../../src/hook/merge.mjs";
 
 let dir: string;
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -19,7 +19,7 @@ const localPath = (d: string) => path.join(d, ".claude", "settings.local.json");
 const sharedPath = (d: string) => path.join(d, ".claude", "settings.json");
 
 describe("ensureHooks", () => {
-  it("creates .claude/settings.local.json with the five hook events", async () => {
+  it("creates .claude/settings.local.json with the six hook events", async () => {
     dir = tmp();
     const ok = await ensureHooks(dir, "C:\\app\\src\\hook\\forward.mjs");
     expect(ok).toBe(true);
@@ -30,6 +30,7 @@ describe("ensureHooks", () => {
       "UserPromptSubmit",
       "Notification",
       "Stop",
+      "SessionStart",
     ]) {
       expect(JSON.stringify(s.hooks[ev]).includes("forward.mjs"), ev).toBe(
         true,
@@ -117,6 +118,7 @@ describe("mergeHooks", () => {
       "Notification",
       "PostToolUse",
       "PreToolUse",
+      "SessionStart",
       "Stop",
       "UserPromptSubmit",
     ]);
@@ -133,6 +135,7 @@ describe("mergeHooks", () => {
 
   it("Stop and Notification are registered matcher-less", () => {
     const out = mergeHooks({}, "node forward.mjs");
+    expect(out.hooks.SessionStart[0].matcher).toBeUndefined();
     expect(out.hooks.Stop[0].matcher).toBeUndefined();
     expect(out.hooks.Notification[0].matcher).toBeUndefined();
   });
@@ -160,5 +163,35 @@ describe("mergeHooks", () => {
     };
     const out = mergeHooks(foreign, "node forward.mjs");
     expect(out.hooks.Stop).toHaveLength(2); // theirs + ours
+  });
+});
+
+describe("stripHooks", () => {
+  it("removes every event mergeHooks adds, SessionStart included", () => {
+    const out = stripHooks(mergeHooks({}, "node forward.mjs"));
+    expect(out.hooks).toEqual({});
+  });
+});
+
+describe("ensureHooks status line", () => {
+  it("installs the status line next to the hooks", async () => {
+    dir = tmp();
+    await ensureHooks(dir, path.join("C:", "app", "hook", "forward.mjs"));
+    const s = JSON.parse(readFileSync(localPath(dir), "utf8"));
+    expect(s.statusLine.type).toBe("command");
+    expect(s.statusLine.command).toContain("statusline.mjs");
+    expect(s.statusLine.command).not.toContain("forward.mjs");
+    expect(s.hooks.Stop).toBeDefined();
+  });
+
+  it("keeps a foreign status line", async () => {
+    dir = tmp();
+    mkdirSync(path.dirname(localPath(dir)), { recursive: true });
+    const foreign = { type: "command", command: "bash mine.sh" };
+    writeFileSync(localPath(dir), JSON.stringify({ statusLine: foreign }));
+    await ensureHooks(dir, "C:\\app\\forward.mjs");
+    const s = JSON.parse(readFileSync(localPath(dir), "utf8"));
+    expect(s.statusLine).toEqual(foreign);
+    expect(JSON.stringify(s.hooks.Stop)).toContain("forward.mjs");
   });
 });

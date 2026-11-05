@@ -1,33 +1,50 @@
+import { appendDraft } from "../session-screen/drafts";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
 import { LBL_AM } from "../ui/hud";
+import { PILL } from "./status-colours";
+import type { NoticeAction } from "./tab-actions";
+import {
+  ensureSubscribed,
+  entryFor,
+  onTerminalExit,
+  releaseDetached,
+} from "./terminal-registry";
+import { MAIN_LABEL, sessionKey as keyOf } from "../../shared/session-key";
 import type {
   StatusKind,
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
+import type { AskPrompt } from "../../main/ask-mapper";
+import Segmented from "../ui/Segmented";
+import SessionScreen from "../session-screen/SessionScreen";
+import { NO_TERMINAL } from "../session-screen/composer-logic";
+import Composer from "../session-screen/Composer";
+import { historyEntries } from "../session-screen/prompt-history";
+import StatusLine from "../session-screen/StatusLine";
+import {
+  getViewMode,
+  onViewMode,
+  setViewMode,
+  wasAutoFlipped,
+  type ViewMode,
+} from "../session-screen/view-mode";
+import {
+  itemsFor,
+  loadSession,
+  modelOf,
+  onSessionFeed,
+  statusLineFor,
+} from "../session-screen/session-feed";
 
 type Status =
   | { kind: "idle" }
   | { kind: "running"; hooksOk: boolean }
   | { kind: "exited"; code: number };
 
-type Entry = { term: Terminal; fit: FitAddon; el: HTMLDivElement };
-
-// same state colors the rail badges and inbox dots use — amber is waiting on
-// you (asking or blocked), red is a session that died
-const PILL: Record<StatusKind, string> = {
-  working: "border-accent/30 bg-accent/10 text-accent",
-  asking: "border-warm/30 bg-warm/10 text-warm",
-  blocked: "border-warm/30 bg-warm/10 text-warm",
-  idle: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
-  crashed: "border-alarm/30 bg-alarm/10 text-alarm",
-  none: "border-ink-dim/30 bg-ink-dim/10 text-ink-dim",
-};
 const PILL_LABEL: Record<StatusKind, string> = {
   working: "working",
   asking: "asking you",
@@ -68,6 +85,13 @@ const MODELS = [
   { value: "haiku", label: "Haiku" },
 ];
 
+const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
+  { value: "screen", label: "screen" },
+  { value: "raw", label: "raw terminal" },
+];
+
+const NO_STATUS = { kind: "none" as const, call: "" };
+
 const BAR: Record<StatusKind, string> = {
   working: "from-accent",
   asking: "from-warm",
@@ -77,70 +101,40 @@ const BAR: Record<StatusKind, string> = {
   none: "from-ink-dim",
 };
 
-// Module-level so terminals (and their scrollback) survive workspace
-// switches and panel collapse/expand — the component only attaches them.
-const entries = new Map<string, Entry>();
-const exitListeners = new Set<(id: string, code: number) => void>();
-const typedListeners = new Set<(id: string) => void>();
-let subscribed = false;
-
-/** Fires when a person types text or Enter into a workspace's terminal.
- *  Escape sequences (arrows, xterm's own focus reports) do not count. */
-export function onTerminalTyped(fn: (id: string) => void): () => void {
-  typedListeners.add(fn);
-  return () => typedListeners.delete(fn);
-}
-
-// module-scope and permanent by design: these feed terminals that outlive
-// any one mount, so the disposers are deliberately dropped
-function ensureSubscribed() {
-  if (subscribed) return;
-  subscribed = true;
-  window.jarvis.onPtyData((id, data) => entries.get(id)?.term.write(data));
-  window.jarvis.onPtyExit((id, code) => {
-    for (const l of exitListeners) l(id, code);
-  });
-}
-
-function entryFor(id: string): Entry {
-  let e = entries.get(id);
-  if (!e) {
-    const term = new Terminal({
-      fontSize: 13,
-      fontFamily: "Consolas, monospace",
-      theme: { background: "#02060b" },
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    const el = document.createElement("div");
-    el.style.width = "100%";
-    el.style.height = "100%";
-    term.open(el);
-    term.onData((d) => {
-      window.jarvis.ptyInput(id, d);
-      // arrow keys move through a question without answering it; a bare Esc
-      // dismisses it, so that one counts as typing
-      if (d === "\x1b" || !d.startsWith("\x1b"))
-        for (const l of typedListeners) l(id);
-    });
-    e = { term, fit, el };
-    entries.set(id, e);
-  }
-  return e;
-}
+export {
+  disposeTerminal,
+  onTerminalExit,
+  onTerminalTyped,
+  terminalSize,
+} from "./terminal-registry";
 
 export default function TerminalPanel({
   workspace,
+  sessionKey,
   live,
+  notice,
+  noticeAction,
+  onDismissNotice,
   inbox,
   inboxOnly,
   visible,
+  ask,
+  sessionStatus = NO_STATUS,
+  files = [],
+  onAskAnswer,
+  onOpenDoc,
 }: {
   workspace: Workspace;
+  // which of the workspace's sessions this panel shows
+  sessionKey: string;
   // main spawns the main agent's pty at boot, so this panel never saw that
   // launch. WorkspaceStatus.live is the renderer's only record of it — without
   // it the launch overlay covers a session that is already running.
   live?: boolean;
+  // a one-line message from a tab action, such as a worktree kept on close
+  notice?: string | null;
+  noticeAction?: NoticeAction;
+  onDismissNotice?: () => void;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
   inbox?: { workspaces: Workspace[]; statuses: WorkspaceStatus[] };
@@ -151,8 +145,18 @@ export default function TerminalPanel({
   // take focus — so the focus call waits for this rather than firing at mount
   // into a no-op and never running again. Absent means visible.
   visible?: boolean;
+  // the session's open question, answered inline on the screen
+  ask?: AskPrompt;
+  sessionStatus?: { kind: StatusKind; call: string };
+  // what the composer's `@` offers: the workspace's graph files
+  files?: string[];
+  // resolves false when the session has no terminal to write to
+  onAskAnswer?: (writes: string[]) => Promise<boolean>;
+  // opens a spec or plan the question refers to in the preview panel
+  onOpenDoc?: (nodeId: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const screenRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -170,13 +174,16 @@ export default function TerminalPanel({
   // this panel did not make still ends here rather than staying "running".
   // main clears `live` on every exit, so live beside a remembered exit means a
   // later launch this panel did not make (jarvis_launch) — the exit is stale.
-  const local = localStatuses[workspace.id];
+  const local = localStatuses[sessionKey];
   const status: Status =
     local && !(local.kind === "exited" && live)
       ? local
       : live
         ? { kind: "running", hooksOk: true }
         : { kind: "idle" };
+  // the launch button starts the main-folder session; a numbered session's tab
+  // exists only while it is live, so it never offers one
+  const isMain = sessionKey === keyOf(workspace.id, MAIN_LABEL);
   // the reindex command comes from the workspace's own graph source — the
   // panel never names gitnexus, so a graphify workspace gets `/graphify .`
   const [reindexCommand, setReindexCommand] = useState<string | null>(null);
@@ -200,6 +207,18 @@ export default function TerminalPanel({
   // preview uses so bold/tables/lists read the same here. No vault to link
   // into, so both link deps are dead ends.
   const [detailHtml, setDetailHtml] = useState("");
+  const [composerError, setComposerError] = useState<string | null>(null);
+  // the screen's answers write straight to the pty; a missing one is reported
+  // on the composer's error line, as a failed send is
+  const reportWrite = (written: Promise<boolean> | undefined) =>
+    void written
+      ?.then((ok) => {
+        if (!ok) setComposerError(NO_TERMINAL);
+      })
+      .catch(() => setComposerError(NO_TERMINAL));
+  // re-renders on this session's feed or view mode changing; the values
+  // themselves are read from their module caches below
+  const [, setFeedRev] = useState(0);
   const message = detail?.status.message ?? "";
   useEffect(() => {
     let stale = false;
@@ -236,12 +255,9 @@ export default function TerminalPanel({
 
   useEffect(() => {
     ensureSubscribed();
-    const onExit = (id: string, code: number) =>
-      setLocalStatuses((m) => ({ ...m, [id]: { kind: "exited", code } }));
-    exitListeners.add(onExit);
-    return () => {
-      exitListeners.delete(onExit);
-    };
+    return onTerminalExit((id, code) =>
+      setLocalStatuses((m) => ({ ...m, [id]: { kind: "exited", code } })),
+    );
   }, []);
   // Attach the active workspace's terminal element to the panel and keep the
   // pty's cols/rows in step with it. One ResizeObserver covers all the ways
@@ -249,31 +265,60 @@ export default function TerminalPanel({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const e = entryFor(workspace.id);
+    const e = entryFor(sessionKey);
     host.replaceChildren(e.el);
     const refit = () => {
       e.fit.fit();
-      window.jarvis.ptyResize(workspace.id, e.term.cols, e.term.rows);
+      window.jarvis.ptyResize(sessionKey, e.term.cols, e.term.rows);
     };
     refit();
     const observer = new ResizeObserver(refit);
     observer.observe(host);
-    return () => observer.disconnect();
-  }, [workspace.id]);
+    return () => {
+      observer.disconnect();
+      releaseDetached(sessionKey);
+    };
+  }, [sessionKey]);
+
+  useEffect(() => {
+    loadSession(sessionKey);
+    setComposerError(null);
+    const bump = (key: string) => {
+      if (key === sessionKey) setFeedRev((n) => n + 1);
+    };
+    const offFeed = onSessionFeed(bump);
+    const offMode = onViewMode(bump);
+    return () => {
+      offFeed();
+      offMode();
+    };
+  }, [sessionKey]);
+  const mode = getViewMode(sessionKey);
+  const statusLine = statusLineFor(sessionKey);
 
   // Separate from the mount effect above, and keyed on visibility: the boot
   // sequence holds this panel behind `visibility: hidden` until its stage, and
-  // a focus call inside a hidden subtree is a silent no-op.
+  // a focus call inside a hidden subtree is a silent no-op. The screen's
+  // composer takes the keys in screen mode, the xterm in raw mode.
   useEffect(() => {
     if (visible === false) return;
-    entryFor(workspace.id).term.focus();
-  }, [workspace.id, visible]);
+    if (mode === "screen")
+      screenRef.current?.querySelector("textarea")?.focus();
+    else entryFor(sessionKey).term.focus();
+  }, [sessionKey, visible, mode]);
 
   const launch = (dangerous = false) => {
-    const e = entryFor(workspace.id);
+    const e = entryFor(sessionKey);
     e.fit.fit();
     window.jarvis
-      .ptyLaunch(workspace.id, e.term.cols, e.term.rows, dangerous, model)
+      .ptyLaunch(
+        workspace.id,
+        "main",
+        e.term.cols,
+        e.term.rows,
+        dangerous,
+        model,
+      )
       .then(({ ok, hooksOk }) => {
         if (!ok) {
           e.term.writeln(
@@ -287,7 +332,7 @@ export default function TerminalPanel({
           );
         setLocalStatuses((m) => ({
           ...m,
-          [workspace.id]: { kind: "running", hooksOk },
+          [sessionKey]: { kind: "running", hooksOk },
         }));
       })
       .catch((err) => {
@@ -368,23 +413,120 @@ export default function TerminalPanel({
           </div>
         </div>
       )}
+      {(notice || composerError) && !inboxOnly && (
+        <div
+          className="flex flex-none items-center gap-2 border-b border-edge px-3 py-1 text-[12px] text-warm"
+          data-testid="terminal-notice"
+        >
+          <span className="min-w-0 flex-1 break-words">
+            {notice || composerError}
+          </span>
+          {notice && noticeAction && (
+            <button
+              className="flex-none cursor-pointer text-[10px] text-ink-dim hover:text-accent"
+              onClick={() => {
+                noticeAction.run();
+                onDismissNotice?.();
+              }}
+            >
+              {noticeAction.label}
+            </button>
+          )}
+          <button
+            className="flex-none cursor-pointer text-[10px] text-ink-dim hover:text-accent"
+            title="Dismiss"
+            onClick={() =>
+              notice ? onDismissNotice?.() : setComposerError(null)
+            }
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div
-        className="relative min-h-0 flex-1"
+        className="relative flex min-h-0 flex-1 flex-col"
         data-testid="terminal-body"
         hidden={inboxOnly}
       >
-        {reindexCommand && status.kind === "running" && (
-          <button
-            className={LBL_AM + " absolute top-1 right-2 z-10 cursor-pointer"}
-            title={`Graph is behind HEAD — type \`${reindexCommand}\``}
-            onClick={() => window.jarvis.ptyInput(workspace.id, reindexCommand)}
-          >
-            index stale
-          </button>
+        <div className="flex flex-none items-center justify-end gap-3 border-b border-accent/20 px-2.5 py-1">
+          {reindexCommand && status.kind === "running" && (
+            <button
+              className={LBL_AM + " cursor-pointer"}
+              title={`Graph is behind HEAD — type \`${reindexCommand}\``}
+              onClick={() =>
+                mode === "screen"
+                  ? appendDraft(sessionKey, reindexCommand)
+                  : window.jarvis.ptyInput(sessionKey, reindexCommand)
+              }
+            >
+              index stale
+            </button>
+          )}
+          <Segmented
+            options={VIEW_OPTIONS}
+            value={mode}
+            onChange={(next) => setViewMode(sessionKey, next)}
+          />
+        </div>
+        {!isMain && status.kind === "exited" && (
+          <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
+            This session crashed (exit code {status.code}). Its files stay on
+            disk. Close the tab when you are done with it.
+          </div>
         )}
-        <div ref={hostRef} className="h-full w-full" />
-        {status.kind !== "running" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-panel/80">
+        {mode === "raw" && wasAutoFlipped(sessionKey) && (
+          <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
+            Close it here, then switch back to screen. Your next prompt also
+            switches back.
+          </div>
+        )}
+        {/* The xterm host keeps its box in both modes: the ResizeObserver
+            fits the pty to it, and a host with no box is zero columns. */}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={hostRef}
+            className="h-full w-full"
+            data-testid="terminal-host"
+          />
+          <div
+            ref={screenRef}
+            className="absolute inset-0 bg-panel"
+            data-testid="session-screen-layer"
+            hidden={mode === "raw"}
+          >
+            <SessionScreen
+              sessionKey={sessionKey}
+              items={itemsFor(sessionKey)}
+              status={sessionStatus}
+              ask={ask}
+              onAskAnswer={(writes) => reportWrite(onAskAnswer?.(writes))}
+              onOpenDoc={onOpenDoc}
+              onWrite={(data) =>
+                reportWrite(window.jarvis.ptyInput(sessionKey, data))
+              }
+              onShowRaw={() => setViewMode(sessionKey, "raw")}
+              footer={
+                <>
+                  <Composer
+                    sessionKey={sessionKey}
+                    files={files}
+                    currentModel={modelOf(statusLine)}
+                    history={historyEntries(itemsFor(sessionKey))}
+                    awaitingAnswer={
+                      !!ask ||
+                      sessionStatus.kind === "blocked" ||
+                      sessionStatus.kind === "asking"
+                    }
+                    onError={setComposerError}
+                  />
+                  <StatusLine view={statusLine} now={Date.now()} />
+                </>
+              }
+            />
+          </div>
+        </div>
+        {isMain && status.kind !== "running" && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-panel/80">
             <div className="flex gap-1.5" data-testid="launch-model">
               {MODELS.map(({ value, label }) => (
                 <button

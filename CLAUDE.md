@@ -1,5 +1,7 @@
 # Project Guide - Vault X-Ray (JARVIS)
 
+**Before editing an existing function, class or method, run GitNexus `impact` on it, passing `repo`.** New files, tests and docs are exempt. Details are in the GitNexus section below.
+
 Electron desktop app — a cockpit for N workspaces (vault + indexed repos), each with its own force-graph and embedded Claude Code terminal (PTY). Live-highlights nodes as Claude Code reads/searches files via hooks. Feature overview, MCP tools, gestures and configuration are in `README.md`; GitNexus rules are in `AGENTS.md`.
 
 ## Commands
@@ -12,10 +14,10 @@ Electron desktop app — a cockpit for N workspaces (vault + indexed repos), eac
 
 ## Architecture & Core Decisions
 
-- **Passive observer that owns the Claude Code sessions.** The app writes no AI/search logic. It reacts to hook events POSTed by `src/hook/forward.mjs` to a localhost listener on port 4599, and runs one `claude` CLI per workspace in a PTY (node-pty + xterm.js). Hooks registered in `src/hook/merge.mjs`: `PreToolUse` (matcher `*`), `PostToolUse` (matcher `Read|Grep|Glob|Edit|Write` — kept narrow on purpose, since a wider matcher would ship every Bash command's full output), `UserPromptSubmit`, `Notification`, `Stop`.
-- **Two independent mappers read the same payload.** `event-mapper.ts` decides which nodes light up; `status-mapper.ts` decides what the workspace is doing. `http-listener.ts` gives each its own `try`.
-- **`tool_response` is read for one thing only:** the files a `PostToolUse` Grep/Glob matched (`response-paths.ts` `extractPaths`). Every other reaction comes from `tool_input`.
-- **Status lives in main** (`workspace-status.ts`), the only process that sees both hooks and PTY lifecycle. `Notification`'s `notification_type` separates `permission_prompt` (waiting on you) from `idle_prompt`. `Stop` does not fire on an Esc interrupt: a 60s staleness rule demotes Running to Idle, and must never promote to Waiting.
+- **Passive observer that owns the Claude Code sessions.** The app writes no AI/search logic. It reacts to hook events POSTed by `src/hook/forward.mjs` to a localhost listener on port 4599, and runs one `claude` CLI per workspace in a PTY (node-pty + xterm.js). Hooks registered in `src/hook/merge.mjs`: `PreToolUse` (matcher `*`), `PostToolUse` (matcher `Read|Grep|Glob|Edit|Write|AskUserQuestion|mcp__gitnexus__impact` — kept narrow on purpose, since a wider matcher would ship every Bash command's full output), `UserPromptSubmit`, `Notification`, `Stop`, `SessionStart`.
+- **Four independent mappers read the same payload.** `event-mapper.ts` decides which nodes light up; `status-mapper.ts` decides what the workspace is doing; `ask-mapper.ts` tracks the open question; `session-start.ts` follows a new transcript. `http-listener.ts` gives each its own `try`.
+- **`tool_response` is read for three things only:** the files a `PostToolUse` Grep/Glob matched (`response-paths.ts` `extractPaths`), gitnexus impact hits (`impact-paths.ts`), and `AskUserQuestion` answers (`ask-mapper.ts`). Every other reaction comes from `tool_input`.
+- **Status lives in main** (`workspace-status.ts`), the only process that sees both hooks and PTY lifecycle. `Notification`'s `notification_type` separates `permission_prompt` (waiting on you) from `idle_prompt`. `Stop` does not fire on an Esc interrupt: a 60s staleness rule demotes Running to Idle, and must never promote to Waiting. No hook reports a permission answer, so `promptKeyed` ends `blocked` from the user's keys; a question ends on its `PostToolUse` or on Esc. On each hook `countTool` runs before `applyStatus`, so it keeps its own `countedSessionId` and must not touch the `sessionId` that `applyStatus` compares.
 - **Graph sources are a registry** (`src/main/graph-sources/`): ordered `vault`, `gitnexus`, `graphify`. `resolveSourceId(ws)` picks the first whose `detect()` passes and is re-probed on rescan, not only at boot. A source pairs `stale?()` with `reindexCommand?`, and `loadSymbols?()` is optional (absent means an empty symbol graph). `graphify` is last so a repo with both resolves to gitnexus, and it is read-only: JARVIS never runs `/graphify`. `canIndex()` offers indexing only to gitnexus and bare folders. Adding a provider is one file plus a `SOURCES` entry. Source captions live only in `SOURCE_LABELS`.
 - **The graph is static; AI activity is a highlight layer.** Never build the graph from search results. Vault: wikilinks, md links and tags. Code: gitnexus File nodes + IMPORTS edges.
 - **Node identity:** vault ids are vault-relative POSIX paths without `.md` (`relative(cwd, path)` → `\` to `/` → strip `.md`). Code ids keep the extension so they match gitnexus `filePath`. Paths outside cwd or non-`.md` files in a vault are ignored. Unresolved `[[links]]` create no node.
@@ -26,21 +28,25 @@ Electron desktop app — a cockpit for N workspaces (vault + indexed repos), eac
 
 ### Orchestrator / main agent
 
-- **`isSelf` is a synthetic workspace** at `<userData>/main-agent`, appended by `withMainAgent`. The flag drives `.mcp.json`, the home terminal pin, self-send refusal, the `publishFinish` skip and the spoken voice. It is filtered out of the rail, cards and ring. It is the only PTY launched automatically (`--model sonnet`, plus `--continue` when a transcript `.jsonl` exists).
+- **`isSelf` is a synthetic workspace** at `<userData>/main-agent`, appended by `withMainAgent`. The flag drives `.mcp.json`, the home terminal pin, self-send refusal, the `publishFinish` skip and the spoken voice. It is filtered out of the rail, cards and ring. It is the only PTY launched automatically (`--model sonnet`, plus `--continue` when a transcript `.jsonl` exists and that boot did not write the guide).
 - **MCP:** `mcp-install.ts` writes `.mcp.json` into the `isSelf` workspace only, and `ensureMcp` strips the `jarvis` server from every other workspace. Delegates must never get the tools: a second `jarvis_watch` holder would overwrite the single waiter slot. `src/hook/mcp.mjs` (stdio JSON-RPC, no SDK) proxies to `/orchestrate/*` → `orchestrate.ts`.
 - **Security:** `/orchestrate/*` requires the `x-jarvis: 1` header, and preflights are never answered. `/event` stays open but requires `application/json`, caps bodies at 1 MiB, and returns 404 for every non-POST.
 - **Two-write submit — don't merge them.** `jarvis_send` and `publishFinish` write the prompt, then `"\r"` as a separate write 80 ms later; a CR in the same chunk lands as a newline in the composer. `ptyManager.write` reports whether a PTY existed.
+- **Nothing types Enter into an open prompt.** While a session is `asking` or `blocked`, Enter picks an option, normally "Yes". The composer keeps its draft, `jarvis_send` refuses, the finish nudge waits in `nudge-gate.ts`, and the briefing waits for its next round. Only an answer control (`PermissionCard`, `AskPanel`) or the raw terminal may answer.
+- **Worktrees keep what cannot be rebuilt.** `worktreeCheck` refuses a close for uncommitted changes, unmerged commits, or a gitignored path outside `REBUILDABLE` (`worktrees.ts`). In this repo that includes `docs/`, so a merged tab holding a spec stays open until the user closes it. `closeIfIdle` also leaves a session with unsent terminal text or a composer draft (`draft-state` IPC). `.worktrees/` is excluded from git, prettier and vitest.
+- **Tabs:** a clean exit drops a numbered session's tab and frees its terminal, draft and view mode. A crashed session keeps its tab, output and label until the user closes it; `closeSession` is what ends its status.
 - **Launch waits for quiet.** `jarvis_launch` and the boot briefing wait for `SETTLE_MS` of PTY silence (`settle.ts`, capped by a deadline), because text written before raw mode is dropped. For an untrusted folder, `launch` answers `trustPrompt` (read from `~/.claude.json` via `folder-trust.ts`); `jarvis_trust` types the user's answer only while the config still says untrusted.
 - **A finish wakes the agent exactly once:** a parked `jarvis_watch` waiter is resolved, otherwise `publishFinish` types `FINISH_NUDGE`.
-- **Daily briefing** gate: `notesDir !== null && resume && lastBriefed !== todayLocal() && hour >= 7`. The nudge delegates the note path to the vault workspace (the non-`isSelf` one with `kind === "vault"`, never matched by name). The app reads no note itself.
-- **To-dos:** `TODO.md` in the main-agent folder, one task per line: `- [ ] text @project YYYY-MM-DD`. The panel never writes the whole list; `todo-op` sends one op naming `line` + `raw`, and the store refuses a changed line as `stale`. Only `ENOENT` reads as empty. The main-agent `CLAUDE.md` is written once (`wx`), so rules for an existing install live in tool descriptions.
-- **The app composes no prompt text**, with two bounded exceptions: the one-time `AGENT_GUIDE` file and the fixed `FINISH_NUDGE` line (which names no workspace and quotes no message). Also out of scope: editing notes from the app, persisting events, non-Claude backends, and parsing terminal output (`jarvis_list` is built from hooks). The inbox is read-only.
+- **Daily briefing** gate: `notesDir !== null && hasHistory && lastBriefed !== todayLocal() && hour >= 7`. The nudge delegates the note path to the vault workspace (the non-`isSelf` one with `kind === "vault"`, never matched by name). The app reads no note itself.
+- **To-dos:** `TODO.md` in the main-agent folder, one task per line: `- [ ] text @project YYYY-MM-DD`. The panel never writes the whole list; `todo-op` sends one op naming `line` + `raw`, and the store refuses a changed line as `stale`. Only `ENOENT` reads as empty. The app rewrites the main-agent `CLAUDE.md` when `AGENT_GUIDE` changes (`.guide-hash`), and that boot starts the main agent without `--continue`.
+- **The app composes no prompt text**, with bounded exceptions: the `AGENT_GUIDE` file, the fixed `FINISH_NUDGE` line (which names no workspace and quotes no message), the `dailyBriefNudge` text, and the pipeline prompts in the `jarvis_send` description (`mcp.mjs`). Also out of scope: editing notes from the app, persisting events, non-Claude backends, and parsing terminal output (`jarvis_list` is built from hooks). The inbox is read-only.
 
 ### Renderer traps
 
 - **Fleet view:** node ids are prefixed `<wsId>::`, which breaks the highlight store's keys, so Fleet shows no highlights. Making it live needs a prefix-aware `hlKey`.
 - **Ring view:** the centre graph loads only after rotation rests about 300 ms, so spinning starts one simulation, not eight. Cards stay the default landing view.
-- **Mission-control cards** re-settle on each visit on purpose. Keeping them mounted would hold N simulations alive.
+- **Mission-control cards:** idle cards draw a stored snapshot picture, kept on disk in `userData/card-snapshots/` (`src/main/card-snapshots.ts`) and in memory (`card-snapshot.ts`), so they show instantly even after a restart. Only working cards, or cards with no valid snapshot, mount a live Graph, so N simulations are never held alive.
+- **Session screen transcript:** `parseTranscriptLine` drops unknown top-level line types, because each CLI release adds bookkeeping lines. Unknown assistant blocks and `system` subtypes still show as "unknown" rows.
 - **Never put per-frame values in React state.** A re-render restarts the force simulation underneath. Hand cursor, voice wave and head are written through refs or imperative handles.
 - **Hands:** each view registers actions via `useHandActions` during render, with identity-guarded cleanup. Distances are strictly 2D (MediaPipe `z` is unreliable). Two palms is a mode: while both are up, the one-hand gestures stand down. `armed` is session-only, and disarmed must look different from camera-off.
 - **Layers:** graph z0, bezel z10, scanlines z15 (below panels on purpose), `footLeft` z16, panels in the 20–40 band, sweep z48. The bezel and `footLeft` are pointer-transparent; only the scrubber opts back in.
@@ -72,17 +78,16 @@ Electron desktop app — a cockpit for N workspaces (vault + indexed repos), eac
 
 ```
 src/main/      Electron main: listener, mappers, status, graph-sources/, pty, orchestrate, main-agent, todos, tts
-src/renderer/  App.tsx + feature folders: graph/ hands/ voice/ home/ preview/ terminal/ todos/ session/ ui/
+src/renderer/  App.tsx + feature folders: graph/ hands/ voice/ home/ preview/ terminal/ session-screen/ todos/ session/ ui/
 src/shared/    types.ts, wikilink.ts
 src/hook/      forward.mjs, install.mjs, merge.mjs, mcp.mjs
 tests/         vitest, mirroring src folders + fixtures/
 ```
 
 <!-- gitnexus:start -->
-
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **JARVIS** (5063 symbols, 11302 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **JARVIS** (6061 symbols, 13746 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -104,22 +109,22 @@ This project is indexed by GitNexus as **JARVIS** (5063 symbols, 11302 relations
 
 ## Resources
 
-| Resource                                | Use for                                  |
-| --------------------------------------- | ---------------------------------------- |
-| `gitnexus://repo/JARVIS/context`        | Codebase overview, check index freshness |
-| `gitnexus://repo/JARVIS/clusters`       | All functional areas                     |
-| `gitnexus://repo/JARVIS/processes`      | All execution flows                      |
-| `gitnexus://repo/JARVIS/process/{name}` | Step-by-step execution trace             |
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/JARVIS/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/JARVIS/clusters` | All functional areas |
+| `gitnexus://repo/JARVIS/processes` | All execution flows |
+| `gitnexus://repo/JARVIS/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 
-| Task                                         | Read this skill file                                        |
-| -------------------------------------------- | ----------------------------------------------------------- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
-| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
-| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
-| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
-| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->

@@ -33,4 +33,20 @@ describe("preload subscriptions", () => {
     off();
     expect(handlers.get("status")!.size).toBe(0);
   });
+
+  it("onTranscript, onStatusLine and onPromptSubmitted return disposers", async () => {
+    await import("../../src/main/preload");
+
+    const subscriptions = {
+      onTranscript: "transcript",
+      onStatusLine: "statusline",
+      onPromptSubmitted: "prompt-submitted",
+    };
+    for (const [method, channel] of Object.entries(subscriptions)) {
+      const off = exposed[method](() => undefined);
+      expect(handlers.get(channel)!.size).toBe(1);
+      off();
+      expect(handlers.get(channel)!.size).toBe(0);
+    }
+  });
 });

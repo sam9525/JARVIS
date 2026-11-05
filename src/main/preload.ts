@@ -1,7 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { ScreenEntry } from "../shared/screen-types";
 import type {
+  CardLayout,
   LineChanges,
   Settings,
+  StatusLineView,
+  StoredSnapshot,
   TodoList,
   TodoOp,
   TodoOpResult,
@@ -12,6 +16,7 @@ import type {
 } from "../shared/types";
 import type { AskPrompt } from "./ask-mapper";
 import type { TtsOption } from "./tts";
+import type { TranscriptSummary } from "./transcript-list";
 
 // Every subscription hands back its own disposer. Without one, a second mount
 // (StrictMode, or any remount) silently doubles the listener.
@@ -29,6 +34,12 @@ const api = {
     ipcRenderer.invoke("get-workspaces"),
   getGraph: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("get-graph", workspaceId),
+  getCardSnapshots: (): Promise<StoredSnapshot[]> =>
+    ipcRenderer.invoke("get-card-snapshots"),
+  saveCardSnapshot: (
+    id: string,
+    body: { look: string; layout: CardLayout; fingerprint?: string },
+  ): Promise<boolean> => ipcRenderer.invoke("save-card-snapshot", id, body),
   getSymbolGraph: (workspaceId: string): Promise<VaultGraph> =>
     ipcRenderer.invoke("get-symbol-graph", workspaceId),
   onGraph: (cb: (g: VaultGraph) => void) =>
@@ -64,20 +75,47 @@ const api = {
     ipcRenderer.invoke("index-project", workspaceId),
   staleReindexCommand: (workspaceId: string): Promise<string | null> =>
     ipcRenderer.invoke("stale-reindex-command", workspaceId),
+  // label "main" is the main-folder session; null opens the next numbered
+  // one. `error: "cap"` means the workspace already has its maximum.
   ptyLaunch: (
     workspaceId: string,
+    label: string | null,
     cols: number,
     rows: number,
     dangerous = false,
     model?: string,
-  ): Promise<{ ok: boolean; hooksOk: boolean }> =>
-    ipcRenderer.invoke("pty-launch", workspaceId, cols, rows, dangerous, model),
+  ): Promise<{
+    ok: boolean;
+    hooksOk: boolean;
+    key?: string;
+    label?: string;
+    worktree?: string;
+    error?: string;
+  }> =>
+    ipcRenderer.invoke(
+      "pty-launch",
+      workspaceId,
+      label,
+      cols,
+      rows,
+      dangerous,
+      model,
+    ),
+  // `kept` names a worktree folder left on disk, and why
+  ptyClose: (
+    key: string,
+    force?: boolean,
+  ): Promise<{ ok: boolean; kept?: string; dirty?: string }> =>
+    ipcRenderer.invoke("pty-close", key, force),
   // returns whether a live PTY took the write, so a caller that is not a
   // keyboard (voice) can report a send into a dead session
-  ptyInput: (workspaceId: string, data: string): Promise<boolean> =>
-    ipcRenderer.invoke("pty-input", workspaceId, data),
-  ptyResize: (workspaceId: string, cols: number, rows: number): void => {
-    ipcRenderer.send("pty-resize", workspaceId, cols, rows);
+  ptyInput: (key: string, data: string): Promise<boolean> =>
+    ipcRenderer.invoke("pty-input", key, data),
+  draftState: (key: string, has: boolean): void => {
+    ipcRenderer.send("draft-state", key, has);
+  },
+  ptyResize: (key: string, cols: number, rows: number): void => {
+    ipcRenderer.send("pty-resize", key, cols, rows);
   },
   // the key never crosses this bridge — main reads it from .env
   ttsSpeak: (text: string): Promise<Uint8Array<ArrayBuffer> | null> =>
@@ -99,9 +137,31 @@ const api = {
   clearNotesDir: (): Promise<string | null> =>
     ipcRenderer.invoke("clear-notes-dir"),
   ttsModels: (): Promise<TtsOption[]> => ipcRenderer.invoke("tts-models"),
-  onPtyData: (cb: (workspaceId: string, data: string) => void) =>
+  // the session screen's data: transcript entries (reset = replace, else
+  // append), the status line, and a prompt having been submitted
+  getTranscript: (key: string): Promise<ScreenEntry[]> =>
+    ipcRenderer.invoke("get-transcript", key),
+  onTranscript: (
+    cb: (key: string, entries: ScreenEntry[], reset: boolean) => void,
+  ) => subscribe<[string, ScreenEntry[], boolean]>("transcript", cb),
+  getStatusLine: (key: string): Promise<StatusLineView | null> =>
+    ipcRenderer.invoke("get-statusline", key),
+  // null: the session closed or exited, so its status line is gone
+  onStatusLine: (cb: (key: string, view: StatusLineView | null) => void) =>
+    subscribe<[string, StatusLineView | null]>("statusline", cb),
+  onPromptSubmitted: (cb: (key: string) => void) =>
+    subscribe<[string]>("prompt-submitted", cb),
+  onUserSubmitted: (cb: (key: string) => void) =>
+    subscribe<[string]>("user-submitted", cb),
+  listTranscripts: (key: string): Promise<TranscriptSummary[]> =>
+    ipcRenderer.invoke("list-transcripts", key),
+  savePastedImage: (
+    bytes: Uint8Array,
+    ext: "png" | "jpg" | "gif" | "webp",
+  ): Promise<string> => ipcRenderer.invoke("save-pasted-image", bytes, ext),
+  onPtyData: (cb: (key: string, data: string) => void) =>
     subscribe<[string, string]>("pty-data", cb),
-  onPtyExit: (cb: (workspaceId: string, exitCode: number) => void) =>
+  onPtyExit: (cb: (key: string, exitCode: number) => void) =>
     subscribe<[string, number]>("pty-exit", cb),
 };
 
