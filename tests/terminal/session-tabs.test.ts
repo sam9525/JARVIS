@@ -102,12 +102,29 @@ describe("homeTabs", () => {
     expect(tabs.map((t) => t.key)).toEqual(["self", "scr#2", "scr#5"]);
   });
 
+  it("keeps a crashed scratch session's tab", () => {
+    const tabs = homeTabs(SELF, SCRATCH, [
+      row("scr", [session("scr#1", "1", { live: false, kind: "crashed" })]),
+    ]);
+    expect(tabs.map((t) => t.key)).toEqual(["self", "scr#1"]);
+  });
+
   it("works without a scratch workspace", () => {
     expect(homeTabs(SELF, undefined, []).map((t) => t.label)).toEqual(["MAIN"]);
   });
 });
 
 describe("projectTabs", () => {
+  it("keeps a crashed session's tab and drops a cleanly ended one", () => {
+    const tabs = projectTabs(REPO, [
+      row("repo", [
+        session("repo#1", "1", { live: false, kind: "crashed" }),
+        session("repo#2", "2", { live: false, kind: "none" }),
+      ]),
+    ]);
+    expect(tabs.map((t) => t.key)).toEqual(["repo", "repo#1"]);
+  });
+
   it("is the single main tab while nothing is live", () => {
     const tabs = projectTabs(REPO, [
       row("repo", [session("repo", "main", { live: false, kind: "crashed" })]),

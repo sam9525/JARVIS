@@ -670,7 +670,8 @@ app.whenReady().then(async () => {
       onExit: (id, code) => {
         send("pty-exit", id, code);
         pendingInput.clear(id);
-        if (id.includes("#")) stopFeed(id);
+        // a crashed session's tab stays, and its screen with it
+        if (id.includes("#") && code === 0) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
       },
     },
@@ -958,10 +959,9 @@ app.whenReady().then(async () => {
     resumedWith.delete(key);
     stopFeed(key);
     const killed = await ptyManager.kill(key);
-    if (killed) {
-      pushStatus(status.ptyExited(key, Date.now(), 0));
-      send("pty-exit", key, 0);
-    }
+    // a crashed session has nothing to kill, and this is what ends its tab
+    pushStatus(status.ptyExited(key, Date.now(), 0));
+    if (killed) send("pty-exit", key, 0);
     if (!info) return { ok: killed };
     if (!info.worktree) return { ok: true };
     const ws = workspaces.find((w) => w.id === info.workspaceId);

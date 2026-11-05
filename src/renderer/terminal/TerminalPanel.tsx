@@ -468,6 +468,12 @@ export default function TerminalPanel({
             onChange={(next) => setViewMode(sessionKey, next)}
           />
         </div>
+        {!isMain && status.kind === "exited" && (
+          <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
+            This session crashed (exit code {status.code}). Its files stay on
+            disk. Close the tab when you are done with it.
+          </div>
+        )}
         {mode === "raw" && wasAutoFlipped(sessionKey) && (
           <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
             Close it here, then switch back to screen. Your next prompt also

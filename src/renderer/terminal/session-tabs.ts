@@ -23,6 +23,9 @@ function sessionsOf(
   return statuses.find((s) => s.workspaceId === workspaceId)?.sessions ?? [];
 }
 
+// a crashed session keeps its tab, so its output can still be read
+const hasTab = (s: SessionStatus): boolean => s.live || s.kind === "crashed";
+
 function mainTab(
   ws: Workspace,
   label: string,
@@ -42,7 +45,7 @@ export function homeTabs(
 ): SessionTab[] {
   const tabs = [mainTab(orchestrator, "MAIN", statuses)];
   if (!scratch) return tabs;
-  const live = sessionsOf(scratch.id, statuses).filter((s) => s.live);
+  const live = sessionsOf(scratch.id, statuses).filter(hasTab);
   return [
     ...tabs,
     ...live.map((s, i) => ({
@@ -64,7 +67,7 @@ export function projectTabs(
 ): SessionTab[] {
   const main = mainTab(ws, MAIN_LABEL, statuses);
   const others = sessionsOf(ws.id, statuses).filter(
-    (s) => s.live && s.key !== main.key,
+    (s) => hasTab(s) && s.key !== main.key,
   );
   return [
     main,

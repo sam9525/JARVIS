@@ -34,10 +34,11 @@ export function ensureSubscribed(): void {
   window.jarvis.onPtyData((id, data) => entryFor(id).term.write(data));
   window.jarvis.onPtyExit((id, code) => {
     for (const l of exitListeners) l(id, code);
-    // A numbered session's tab goes away with it, and a later session may
-    // reuse its key. A main key has no `#` and keeps its scrollback behind
-    // the launch overlay.
-    if (id.includes("#")) disposeTerminal(id);
+    // A numbered session's tab goes away with a clean exit, and a later
+    // session may reuse its key. A crashed one keeps its tab, and with it the
+    // output that says why, until the user closes it. A main key has no `#`
+    // and keeps its scrollback behind the launch overlay.
+    if (id.includes("#") && code === 0) disposeTerminal(id);
   });
   // main refuses to auto-close a session whose draft it knows about
   const drafted = new Set<string>();

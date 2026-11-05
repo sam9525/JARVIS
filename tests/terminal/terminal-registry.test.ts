@@ -109,6 +109,16 @@ describe("per-session state at exit", () => {
     expect(getViewMode("c#1")).toBe("screen");
   });
 
+  it("keeps all of them after a crash, while the tab stays", () => {
+    onData("c#2", "out");
+    setDraft("c#2", "half a thought");
+    setViewMode("c#2", "raw");
+    onExit("c#2", 1);
+    expect(made[0].dispose).not.toHaveBeenCalled();
+    expect(getDraft("c#2")).toBe("half a thought");
+    expect(getViewMode("c#2")).toBe("raw");
+  });
+
   it("tells main when a draft starts and ends, not on each key", () => {
     draftState.mockClear();
     setDraft("c#3", "a");
