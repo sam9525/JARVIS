@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import type { TranscriptSummary } from "../../main/transcript-list";
 import { relativeTime } from "../home/relative-time";
 import {
+  ANSWER_FIRST,
   BOX_KEY_STEP_PX,
   MODELS,
   NO_TERMINAL,
@@ -23,12 +24,15 @@ import {
   type HistoryState,
 } from "./prompt-history";
 import { setViewMode } from "./view-mode";
+import { markTerminalTyped } from "../terminal/typed-signal";
 
 type ComposerProps = {
   sessionKey: string;
   files: string[];
   currentModel: string;
   history?: string[];
+  // a permission prompt or question is open, where Enter picks an option
+  awaitingAnswer?: boolean;
   onError: (msg: string | null) => void;
 };
 
@@ -58,6 +62,7 @@ export default function Composer({
   files,
   currentModel,
   history = [],
+  awaitingAnswer = false,
   onError,
 }: ComposerProps) {
   const [text, setText] = useState(() => getDraft(sessionKey));
@@ -143,6 +148,10 @@ export default function Composer({
   // send and typing during the gap is kept; a failed send puts the prompt back.
   async function submit(prompt: string): Promise<void> {
     if (!prompt.trim() || sending.current) return;
+    if (awaitingAnswer) {
+      onError(ANSWER_FIRST);
+      return;
+    }
     sending.current = true;
     browsing.current = NOT_BROWSING;
     setDraft(sessionKey, "");
@@ -216,11 +225,14 @@ export default function Composer({
     if (e.key === "Escape") {
       e.preventDefault();
       if (popup) setClosedFor(text);
-      else
+      else {
+        // a bare Esc dismisses an open question, so its panel goes too
+        markTerminalTyped(sessionKey);
         void window.jarvis
           .ptyInput(sessionKey, "\x1b")
           .then((ok) => onError(ok ? null : NO_TERMINAL))
           .catch(() => onError(NO_TERMINAL));
+      }
       return;
     }
     // an empty popup (no past sessions) leaves Enter to send what was typed

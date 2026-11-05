@@ -91,6 +91,8 @@ export function flipsToRaw(text: string): boolean {
 const SUBMIT_GAP_MS = 80;
 
 export const NO_TERMINAL = "no terminal open in that session";
+export const ANSWER_FIRST =
+  "answer the prompt above first — your message stays here";
 
 /** Text, then the Enter as its own write: a CR in the same chunk lands as a newline. */
 export async function sendPrompt(

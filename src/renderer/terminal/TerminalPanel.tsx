@@ -500,6 +500,11 @@ export default function TerminalPanel({
                     files={files}
                     currentModel={modelOf(statusLine)}
                     history={historyEntries(itemsFor(sessionKey))}
+                    awaitingAnswer={
+                      !!ask ||
+                      sessionStatus.kind === "blocked" ||
+                      sessionStatus.kind === "asking"
+                    }
                     onError={setComposerError}
                   />
                   <StatusLine view={statusLine} now={Date.now()} />

@@ -1,5 +1,8 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { markTerminalTyped } from "./typed-signal";
+
+export { onTerminalTyped } from "./typed-signal";
 
 export type Entry = { term: Terminal; fit: FitAddon; el: HTMLDivElement };
 
@@ -10,16 +13,7 @@ const entries = new Map<string, Entry>();
 // keys whose terminal is freed as soon as the panel detaches it
 const doomed = new Set<string>();
 const exitListeners = new Set<(id: string, code: number) => void>();
-const typedListeners = new Set<(id: string) => void>();
 let subscribed = false;
-
-/** Fires with the session key when a person types text or Enter into a
- *  session's terminal. Escape sequences (arrows, xterm's own focus reports)
- *  do not count. */
-export function onTerminalTyped(fn: (id: string) => void): () => void {
-  typedListeners.add(fn);
-  return () => typedListeners.delete(fn);
-}
 
 export function onTerminalExit(
   fn: (id: string, code: number) => void,
@@ -63,8 +57,7 @@ export function entryFor(id: string): Entry {
       window.jarvis.ptyInput(id, d);
       // arrow keys move through a question without answering it; a bare Esc
       // dismisses it, so that one counts as typing
-      if (d === "\x1b" || !d.startsWith("\x1b"))
-        for (const l of typedListeners) l(id);
+      if (d === "\x1b" || !d.startsWith("\x1b")) markTerminalTyped(id);
     });
     e = { term, fit, el };
     entries.set(id, e);
