@@ -43,6 +43,7 @@ import { createPtyManager, type SpawnFn } from "./pty-manager";
 import { createTranscriptFeed, newestTranscript } from "./transcript-feed";
 import { gitHead, toStatusLineView, userStatusLine } from "./status-line";
 import { feedStatusEvent } from "./feed-follow";
+import { listSlashCommands } from "./slash-commands";
 import { listTranscripts } from "./transcript-list";
 import { savePastedImage } from "./pasted-images";
 import {
@@ -1025,6 +1026,13 @@ app.whenReady().then(async () => {
     return cwd
       ? listTranscripts(transcriptDir(os.homedir(), cwd))
       : Promise.resolve([]);
+  });
+  ipcMain.handle("list-commands", (_e, key: string) => {
+    const cwd =
+      String(key) === mainAgent.id
+        ? mainAgent.rootPath
+        : sessions.get(String(key))?.cwd;
+    return cwd ? listSlashCommands(cwd, os.homedir()) : Promise.resolve([]);
   });
   ipcMain.handle("save-pasted-image", (_e, bytes: Uint8Array, ext: string) => {
     if (!["png", "jpg", "gif", "webp"].includes(ext))

@@ -16,6 +16,7 @@ import type {
 } from "../shared/types";
 import type { AskPrompt } from "./ask-mapper";
 import type { TtsOption } from "./tts";
+import type { SlashCommand } from "./slash-commands";
 import type { TranscriptSummary } from "./transcript-list";
 
 // Every subscription hands back its own disposer. Without one, a second mount
@@ -158,6 +159,8 @@ const api = {
     subscribe<[string]>("user-submitted", cb),
   listTranscripts: (key: string): Promise<TranscriptSummary[]> =>
     ipcRenderer.invoke("list-transcripts", key),
+  listCommands: (key: string): Promise<SlashCommand[]> =>
+    ipcRenderer.invoke("list-commands", key),
   savePastedImage: (
     bytes: Uint8Array,
     ext: "png" | "jpg" | "gif" | "webp",
