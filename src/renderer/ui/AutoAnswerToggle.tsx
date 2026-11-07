@@ -15,8 +15,8 @@ export default function AutoAnswerToggle({
       aria-pressed={on}
       title={
         on
-          ? "Auto-answer is on, click to turn it off"
-          : "Answer questions automatically"
+          ? "Auto-answer on: picks Approve or the Recommended option"
+          : "Auto-answer off: questions wait for you"
       }
       onClick={onToggle}
       className={

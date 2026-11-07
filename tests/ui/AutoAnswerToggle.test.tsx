@@ -10,7 +10,7 @@ describe("AutoAnswerToggle", () => {
     );
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain(">A<");
-    expect(html).toContain('title="Answer questions automatically"');
+    expect(html).toContain('title="Auto-answer off: questions wait for you"');
     expect(html).not.toContain("AUTO ON");
   });
 
@@ -20,7 +20,9 @@ describe("AutoAnswerToggle", () => {
     );
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain(">AUTO ON<");
-    expect(html).toContain('title="Auto-answer is on, click to turn it off"');
+    expect(html).toContain(
+      'title="Auto-answer on: picks Approve or the Recommended option"',
+    );
   });
 
   it("a click calls onToggle", () => {
