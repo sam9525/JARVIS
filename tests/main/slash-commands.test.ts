@@ -154,3 +154,30 @@ describe("listSlashCommands", () => {
     expect(await names()).toEqual(["ok"]);
   });
 });
+
+describe("frontmatter values", () => {
+  async function descriptionOf(front: string): Promise<string | undefined> {
+    await write(
+      path.join(cwd, ".claude", "skills", "s", "SKILL.md"),
+      `---\nname: s\n${front}---\nbody\n`,
+    );
+    return (await listSlashCommands(cwd, home))[0]?.description;
+  }
+
+  it("joins a folded >- block with spaces", async () => {
+    expect(
+      await descriptionOf("description: >-\n  first line\n  second line\n"),
+    ).toBe("first line second line");
+  });
+
+  it("joins a | block with spaces", async () => {
+    expect(await descriptionOf("description: |\n  one\n  two\n")).toBe(
+      "one two",
+    );
+  });
+
+  it("unescapes quotes and backslashes in a double-quoted value", async () => {
+    const front = String.raw`description: "say \"hi\" a\\b"` + "\n";
+    expect(await descriptionOf(front)).toBe(String.raw`say "hi" a\b`);
+  });
+});

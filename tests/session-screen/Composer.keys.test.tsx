@@ -308,3 +308,121 @@ describe("Composer slash list", () => {
     expect(host.textContent).not.toContain("/stale");
   });
 });
+
+describe("Composer slash list edge cases", () => {
+  const load = (names: string[]) =>
+    listCommands.mockResolvedValue(
+      names.map((name) => ({ name, description: "" })),
+    );
+
+  it("sends a built-in name on Enter although a longer skill matches", async () => {
+    load(["init-project"]);
+    const box = await mount();
+    await type(box, "/init");
+    await settle();
+    expect(host.textContent).toContain("/init-project");
+    await press(box, "Enter");
+    await settle();
+    expect(ptyInput).toHaveBeenCalledWith(KEY, "/init");
+  });
+
+  it("sends /init on Enter when a skill is named exactly init", async () => {
+    load(["init", "init-project"]);
+    const box = await mount();
+    await type(box, "/init");
+    await settle();
+    await press(box, "Enter");
+    await settle();
+    expect(ptyInput).toHaveBeenCalledWith(KEY, "/init");
+  });
+
+  it("inserts the skill for a partial built-in name", async () => {
+    load(["init-project"]);
+    const box = await mount();
+    await type(box, "/ini");
+    await settle();
+    await press(box, "Enter");
+    expect(getDraft(KEY)).toBe("/init-project ");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("Tab on an exact name inserts it and writes nothing", async () => {
+    load(["tdd"]);
+    const box = await mount();
+    await type(box, "/tdd");
+    await settle();
+    await press(box, "Tab");
+    expect(getDraft(KEY)).toBe("/tdd ");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("a click on the exact row inserts it and writes nothing", async () => {
+    load(["tdd"]);
+    const box = await mount();
+    await type(box, "/tdd");
+    await settle();
+    const row = host.querySelector("button")!;
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    await settle();
+    expect(getDraft(KEY)).toBe("/tdd ");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("a recalled /tdd opens no list and Up goes on to older prompts", async () => {
+    load(["tdd"]);
+    const box = await mount("", ["older", "/tdd"]);
+    await press(box, "ArrowUp");
+    await settle();
+    expect(getDraft(KEY)).toBe("/tdd");
+    expect(host.querySelector("button")).toBeNull();
+    await press(box, "ArrowUp");
+    expect(getDraft(KEY)).toBe("older");
+  });
+
+  it("a session switch resets the active row", async () => {
+    load(["aaa", "bbb", "ccc"]);
+    const other = "w2#1";
+    setDraft(other, "/");
+    setDraft(KEY, "/");
+    const box = await mount();
+    await settle();
+    await press(box, "ArrowDown");
+    await press(box, "ArrowDown");
+    await act(async () => {
+      root.render(
+        <Composer
+          sessionKey={other}
+          files={[]}
+          currentModel=""
+          onError={onError}
+        />,
+      );
+    });
+    await settle();
+    await press(host.querySelector("textarea")!, "Enter");
+    expect(getDraft(other)).toBe("/aaa ");
+  });
+
+  it("sends a path-like draft as typed", async () => {
+    load(["usr"]);
+    const box = await mount();
+    await type(box, "/usr/bin/x");
+    await settle();
+    await press(box, "Enter");
+    await settle();
+    expect(ptyInput).toHaveBeenCalledWith(KEY, "/usr/bin/x");
+  });
+
+  it("a multi-line draft starting with / opens no list and sends", async () => {
+    load(["usr"]);
+    const box = await mount();
+    await type(box, "/usr\nmore");
+    await settle();
+    expect(host.querySelector("button")).toBeNull();
+    await press(box, "Enter");
+    await settle();
+    expect(ptyInput).toHaveBeenCalledWith(KEY, "/usr\nmore");
+  });
+});

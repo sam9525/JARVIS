@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BOX_KEY_STEP_PX,
   BOX_MIN_PX,
+  BUILT_IN_COMMANDS,
+  FLIP_COMMANDS,
   atQuery,
   dragMinHeight,
   fileList,
@@ -165,5 +167,13 @@ describe("matchCommands", () => {
   it("returns at most 8 rows", () => {
     const list = Array.from({ length: 20 }, (_, i) => cmd(`a${i}`));
     expect(matchCommands(list, "a")).toHaveLength(8);
+  });
+});
+
+describe("BUILT_IN_COMMANDS", () => {
+  it("has no duplicates and includes the flip commands", () => {
+    expect(new Set(BUILT_IN_COMMANDS).size).toBe(BUILT_IN_COMMANDS.length);
+    for (const name of FLIP_COMMANDS) expect(BUILT_IN_COMMANDS).toContain(name);
+    expect(BUILT_IN_COMMANDS).toContain("/init");
   });
 });

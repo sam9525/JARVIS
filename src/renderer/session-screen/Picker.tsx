@@ -74,13 +74,13 @@ export default function Picker({
           } ${item.current ? "text-accent" : "text-ink"}`}
         >
           <span
-            className={`min-w-0 truncate ${item.mono ? "font-mono text-xs" : ""}`}
+            className={`max-w-[60%] shrink-0 truncate ${item.mono ? "font-mono text-xs" : ""}`}
           >
             {item.label}
             {item.current ? " ✓" : ""}
           </span>
           {item.note && (
-            <span className="whitespace-nowrap text-[11.5px] text-ink-dim">
+            <span className="min-w-0 truncate text-[11.5px] text-ink-dim">
               {item.note}
             </span>
           )}

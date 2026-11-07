@@ -5,6 +5,7 @@ import { relativeTime } from "../home/relative-time";
 import {
   ANSWER_FIRST,
   BOX_KEY_STEP_PX,
+  BUILT_IN_COMMANDS,
   MODELS,
   NO_TERMINAL,
   atQuery,
@@ -85,6 +86,8 @@ export default function Composer({
   useEffect(() => {
     browsing.current = NOT_BROWSING;
     boxRef.current?.style.removeProperty("min-height");
+    setIndex(0);
+    setClosedFor(null);
     setText(getDraft(sessionKey));
     return onDraft((key) => {
       if (key === sessionKey) setText(getDraft(sessionKey));
@@ -131,7 +134,11 @@ export default function Composer({
     };
   }, [slashing, sessionKey]);
 
-  const commandQuery = picker || closedFor === text ? null : slashQuery(text);
+  // a recalled draft is history, not a command being typed
+  const commandQuery =
+    picker || closedFor === text || browsing.current.pos !== null
+      ? null
+      : slashQuery(text);
   const commandMatches =
     commandQuery === null ? [] : matchCommands(commands, commandQuery);
   const at = picker || closedFor === text ? null : atQuery(text, caret);
@@ -215,10 +222,6 @@ export default function Composer({
   }
 
   function chooseCommand(name: string): void {
-    if (text === "/" + name) {
-      void submit(text);
-      return;
-    }
     const inserted = `/${name} `;
     pendingCaret.current = inserted.length;
     edit(inserted, inserted.length);
@@ -230,6 +233,19 @@ export default function Composer({
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // Only Enter sends an exact name; Tab and a click always insert it.
+    const typedName = slashQuery(text);
+    const exactBuiltIn =
+      !picker &&
+      BUILT_IN_COMMANDS.includes(text) &&
+      !commands.some((c) => c.name === typedName);
+    const exactLoaded =
+      popup === "commands" && commandMatches[index]?.name === typedName;
+    if (e.key === "Enter" && !e.shiftKey && (exactBuiltIn || exactLoaded)) {
+      e.preventDefault();
+      void submit(text);
+      return;
+    }
     if (popup && itemCount > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();

@@ -19,6 +19,27 @@ export const FLIP_COMMANDS: readonly string[] = [
   "/export",
 ];
 
+/** Commands that run as typed on an exact Enter; they never appear in the slash list. */
+export const BUILT_IN_COMMANDS: readonly string[] = [
+  ...new Set([
+    ...FLIP_COMMANDS,
+    "/add-dir",
+    "/agents",
+    "/clear",
+    "/compact",
+    "/context",
+    "/cost",
+    "/help",
+    "/init",
+    "/model",
+    "/plan",
+    "/resume",
+    "/review",
+    "/skills",
+    "/usage",
+  ]),
+];
+
 export const BOX_MIN_PX = 54;
 export const BOX_KEY_STEP_PX = 20;
 

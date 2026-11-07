@@ -39,11 +39,22 @@ function parseFrontmatter(text: string): Frontmatter {
   const lines = text.split(/\r?\n/);
   const fields: Frontmatter = {};
   if (lines[0]?.trim() !== "---") return fields;
-  for (const line of lines.slice(1)) {
-    if (line.trim() === "---") break;
-    const match = /^([\w-]+):\s*(.*)$/.exec(line);
+  const body = lines.slice(1);
+  for (let i = 0; i < body.length; i++) {
+    if (body[i].trim() === "---") break;
+    const match = /^([\w-]+):\s*(.*)$/.exec(body[i]);
     if (!match) continue;
-    fields[match[1]] = match[2].trim().replace(/^(["'])(.*)\1$/, "$2");
+    const value = match[2].trim();
+    if (/^[>|][+-]?\d*$/.test(value)) {
+      const block: string[] = [];
+      while (i + 1 < body.length && /^\s+\S/.test(body[i + 1]))
+        block.push(body[++i].trim());
+      fields[match[1]] = block.join(" ");
+    } else if (/^".*"$/.test(value)) {
+      fields[match[1]] = value.slice(1, -1).replace(/\\(["\\])/g, "$1");
+    } else {
+      fields[match[1]] = value.replace(/^'(.*)'$/, "$1");
+    }
   }
   return fields;
 }
