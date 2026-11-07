@@ -14,6 +14,9 @@ let root: Root;
 let ptyInput: ReturnType<
   typeof vi.fn<(k: string, d: string) => Promise<boolean>>
 >;
+let listCommands: ReturnType<
+  typeof vi.fn<(k: string) => Promise<{ name: string; description: string }[]>>
+>;
 let onError: ReturnType<typeof vi.fn<(msg: string | null) => void>>;
 
 async function mount(
@@ -57,10 +60,15 @@ const settle = () => act(() => new Promise((r) => setTimeout(r, 120)));
 beforeEach(() => {
   setDraft(KEY, "");
   ptyInput = vi.fn(async (_k: string, _d: string) => true);
+  listCommands = vi.fn(async (_k: string) => [
+    { name: "write-plan", description: "Plan it" },
+    { name: "review", description: "Review it" },
+  ]);
   onError = vi.fn((_msg: string | null) => undefined);
   (window as any).jarvis = {
     ptyInput,
     listTranscripts: vi.fn(async () => []),
+    listCommands,
     savePastedImage: vi.fn(),
   };
   // jsdom has no scrollIntoView
@@ -214,5 +222,89 @@ describe("Composer keys", () => {
     });
     await press(host.querySelector("textarea")!, "ArrowUp");
     expect(getDraft(other)).toBe("b2");
+  });
+});
+
+describe("Composer slash list", () => {
+  it("opens on / and Enter inserts the name without sending", async () => {
+    const box = await mount();
+    await type(box, "/wri");
+    await settle();
+    expect(host.textContent).toContain("/write-plan");
+    expect(host.textContent).toContain("Plan it");
+    await press(box, "Enter");
+    expect(getDraft(KEY)).toBe("/write-plan ");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("Enter on the exact name sends it", async () => {
+    const box = await mount();
+    await type(box, "/review");
+    await settle();
+    await press(box, "Enter");
+    await settle();
+    expect(ptyInput).toHaveBeenCalledWith(KEY, "/review");
+  });
+
+  it("Tab inserts like Enter", async () => {
+    const box = await mount();
+    await type(box, "/wri");
+    await settle();
+    await press(box, "Tab");
+    expect(getDraft(KEY)).toBe("/write-plan ");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("Esc keeps the text and closes the list", async () => {
+    const box = await mount();
+    await type(box, "/wri");
+    await settle();
+    await press(box, "Escape");
+    expect(getDraft(KEY)).toBe("/wri");
+    expect(host.textContent).not.toContain("/write-plan");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("sends /clear on Enter when nothing matches", async () => {
+    const box = await mount();
+    await type(box, "/clear");
+    await settle();
+    await press(box, "Enter");
+    await settle();
+    expect(ptyInput).toHaveBeenCalledWith(KEY, "/clear");
+  });
+
+  it("keeps /model for the model picker", async () => {
+    const box = await mount("opus");
+    await type(box, "/model");
+    await settle();
+    expect(host.textContent).toContain("Switch model");
+  });
+
+  it("ignores a late reply for the previous session", async () => {
+    const other = "w2#1";
+    setDraft(other, "/");
+    let release: (v: { name: string; description: string }[]) => void = () =>
+      undefined;
+    listCommands.mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve)),
+    );
+    setDraft(KEY, "/");
+    await mount();
+    listCommands.mockResolvedValueOnce([{ name: "fresh", description: "" }]);
+    await act(async () => {
+      root.render(
+        <Composer
+          sessionKey={other}
+          files={[]}
+          currentModel=""
+          onError={onError}
+        />,
+      );
+    });
+    await settle();
+    await act(async () => release([{ name: "stale", description: "" }]));
+    expect(host.textContent).toContain("/fresh");
+    expect(host.textContent).not.toContain("/stale");
   });
 });

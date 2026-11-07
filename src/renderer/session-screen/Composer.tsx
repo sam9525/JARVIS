@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import type { SlashCommand } from "../../main/slash-commands";
 import type { TranscriptSummary } from "../../main/transcript-list";
 import { relativeTime } from "../home/relative-time";
 import {
@@ -10,9 +11,11 @@ import {
   dragMinHeight,
   flipsToRaw,
   insertAt,
+  matchCommands,
   matchFiles,
   pickerFor,
   sendPrompt,
+  slashQuery,
 } from "./composer-logic";
 import { getDraft, onDraft, setDraft } from "./drafts";
 import Picker, { type PickerItem } from "./Picker";
@@ -70,6 +73,7 @@ export default function Composer({
   const [index, setIndex] = useState(0);
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const [sessions, setSessions] = useState<TranscriptSummary[]>([]);
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | null>(null);
   const sending = useRef(false);
@@ -111,9 +115,34 @@ export default function Composer({
     };
   }, [picker, sessionKey]);
 
+  const slashing = text.startsWith("/");
+  useEffect(() => {
+    setCommands([]);
+    if (!slashing) return;
+    let live = true;
+    window.jarvis
+      .listCommands(sessionKey)
+      .then((list) => {
+        if (live) setCommands(list);
+      })
+      .catch(() => onErrorRef.current("could not list commands"));
+    return () => {
+      live = false;
+    };
+  }, [slashing, sessionKey]);
+
+  const commandQuery = picker || closedFor === text ? null : slashQuery(text);
+  const commandMatches =
+    commandQuery === null ? [] : matchCommands(commands, commandQuery);
   const at = picker || closedFor === text ? null : atQuery(text, caret);
   const matches = at ? matchFiles(files, at.query) : [];
-  const popup = picker ? "picker" : matches.length > 0 ? "files" : null;
+  const popup = picker
+    ? "picker"
+    : commandMatches.length > 0
+      ? "commands"
+      : matches.length > 0
+        ? "files"
+        : null;
 
   const current = MODELS.find((m) => m.value === currentModel.toLowerCase());
   const pickerItems: PickerItem[] =
@@ -131,7 +160,12 @@ export default function Composer({
             note: `${relativeTime(s.mtime, Date.now())} · ${s.prompts} msgs`,
           }))
         : [];
-  const itemCount = popup === "files" ? matches.length : pickerItems.length;
+  const itemCount =
+    popup === "files"
+      ? matches.length
+      : popup === "commands"
+        ? commandMatches.length
+        : pickerItems.length;
 
   function edit(next: string, nextCaret: number): void {
     browsing.current = NOT_BROWSING;
@@ -180,6 +214,16 @@ export default function Composer({
     edit(next.text, next.caret);
   }
 
+  function chooseCommand(name: string): void {
+    if (text === "/" + name) {
+      void submit(text);
+      return;
+    }
+    const inserted = `/${name} `;
+    pendingCaret.current = inserted.length;
+    edit(inserted, inserted.length);
+  }
+
   function choosePicker(id: string): void {
     void submit(picker === "model" ? `/model ${id}` : `/resume ${id}`);
   }
@@ -196,6 +240,8 @@ export default function Composer({
       if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
         e.preventDefault();
         if (popup === "files") chooseFile(matches[index]);
+        else if (popup === "commands")
+          chooseCommand(commandMatches[index].name);
         else choosePicker(pickerItems[index].id);
         return;
       }
@@ -331,6 +377,19 @@ export default function Composer({
           items={matches.map((p) => ({
             id: p,
             label: highlight(p, at?.query ?? ""),
+            mono: true,
+          }))}
+        />
+      )}
+      {popup === "commands" && (
+        <Picker
+          title="Commands"
+          activeIndex={index}
+          onChoose={chooseCommand}
+          items={commandMatches.map((c) => ({
+            id: c.name,
+            label: `/${c.name}`,
+            note: c.description,
             mono: true,
           }))}
         />
