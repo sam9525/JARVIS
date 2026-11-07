@@ -1,5 +1,7 @@
 // Claude Code hook forwarder: pipes the hook's stdin JSON to the X-Ray listener.
-// Must always exit 0 and fast — a failing/slow hook would block Claude Code.
+// Prints the listener's reply body, when there is one, as the hook output (an
+// automatic answer). Must always exit 0 and fast — a failing/slow hook would
+// block Claude Code.
 const PORT = process.env.JARVIS_PORT ?? 4599;
 
 let body = "";
@@ -19,14 +21,19 @@ if (process.env.JARVIS_SESSION) {
   }
 }
 
+let reply = "";
 try {
-  await fetch(`http://127.0.0.1:${PORT}/event`, {
+  const res = await fetch(`http://127.0.0.1:${PORT}/event`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
     signal: AbortSignal.timeout(1500),
   });
+  reply = await res.text();
 } catch {
   // app not running — fine, hooks must never break Claude Code
 }
-process.exit(0);
+// the write callback runs once the pipe has taken the bytes; exiting before
+// it can drop them on Windows
+if (reply) process.stdout.write(reply, () => process.exit(0));
+else process.exit(0);

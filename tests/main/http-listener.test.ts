@@ -957,3 +957,97 @@ describe("SessionStart on /event", () => {
     server.close();
   });
 });
+
+describe("the auto-answer reply", () => {
+  const readEvent = {
+    session_id: "s1",
+    cwd: "D:\\vault",
+    hook_event_name: "PreToolUse",
+    tool_name: "Read",
+    tool_input: { file_path: "D:\\vault\\notes\\beta.md" },
+  };
+  const askEvent = {
+    session_id: "s1",
+    cwd: "D:\\vault",
+    hook_event_name: "PreToolUse",
+    tool_name: "AskUserQuestion",
+    tool_input: {
+      questions: [{ question: "Which?", header: "H", options: [] }],
+    },
+  };
+
+  async function startWith(autoAnswer: (raw: unknown) => unknown) {
+    const events: ToolEvent[] = [];
+    const statuses: StatusEvent[] = [];
+    const asks: unknown[] = [];
+    const server = startListener(
+      0,
+      (e) => events.push(e),
+      (s) => statuses.push(s),
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => asks.push(p),
+      undefined,
+      undefined,
+      autoAnswer,
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return { port, events, statuses, asks, close: () => server.close() };
+  }
+
+  it("replies with the hook output when autoAnswer answers", async () => {
+    const answer = { hookSpecificOutput: { permissionDecision: "allow" } };
+    const s = await startWith(() => answer);
+    const res = await post(s.port, readEvent);
+    expect(JSON.parse(await res.text())).toEqual(answer);
+    await vi.waitFor(() => expect(s.events).toHaveLength(1));
+    expect(s.statuses).toEqual([]);
+    expect(s.asks).toEqual([]);
+    s.close();
+  });
+
+  it("replies empty when autoAnswer gives null", async () => {
+    const s = await startWith(() => null);
+    const res = await post(s.port, askEvent);
+    expect(await res.text()).toBe("");
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.statuses).toHaveLength(1);
+    s.close();
+  });
+
+  it("replies empty on a body that is not JSON", async () => {
+    const autoAnswer = vi.fn(() => ({ a: 1 }));
+    const s = await startWith(autoAnswer);
+    const res = await postRaw(s.port, "{not json");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+    expect(autoAnswer).not.toHaveBeenCalled();
+    s.close();
+  });
+
+  it("a throwing autoAnswer replies empty", async () => {
+    const s = await startWith(() => {
+      throw new Error("boom");
+    });
+    const res = await post(s.port, askEvent);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+  });
+
+  it("a PostToolUse after an answer still reaches onStatus and onAsk", async () => {
+    const s = await startWith(() => null);
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: { answers: { "Which?": "A" } },
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.statuses).toHaveLength(1);
+    s.close();
+  });
+});

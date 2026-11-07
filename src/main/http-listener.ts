@@ -77,6 +77,9 @@ export function startListener(
   onAsk?: (p: AskPrompt) => void,
   onStatusLine?: (sessionKey: string, raw: Record<string, unknown>) => void,
   onSessionStart?: (s: SessionStart) => void,
+  // the hook output to print for this event, or null to leave the prompt to
+  // the user; the reply to /event carries it back to forward.mjs
+  autoAnswer?: (raw: RawHookEvent) => unknown | null,
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -88,7 +91,9 @@ export function startListener(
       // but application/json is outside the CORS simple-request set — so a web
       // page has to preflight, and we never answer preflights. forward.mjs
       // already sends this header; the Stop message it carries is persisted and
-      // rendered as HTML, so the body must not be page-writable.
+      // rendered as HTML, so the body must not be page-writable. The reply body
+      // is printed by forward.mjs as the hook output, so it must not be
+      // page-writable either.
       if (
         !String(req.headers["content-type"] ?? "").startsWith(
           "application/json",
@@ -98,13 +103,23 @@ export function startListener(
         return;
       }
       readBody(req, (body) => {
-        res.writeHead(200).end(); // ack immediately — never make Claude Code wait
         let raw: RawHookEvent;
         try {
           raw = JSON.parse(body) as RawHookEvent;
         } catch {
-          return; // malformed hook payload → ignore
+          res.writeHead(200).end(); // malformed hook payload → ack and ignore
+          return;
         }
+        // the answer is computed synchronously and the mappers run after the
+        // reply, so Claude Code waits for nothing but the callback
+        let answer: unknown = null;
+        try {
+          answer = autoAnswer?.(raw) ?? null;
+        } catch {
+          /* a failing answerer leaves the prompt to the user */
+        }
+        if (answer === null) res.writeHead(200).end();
+        else res.writeHead(200).end(JSON.stringify(answer));
         const ws = getWorkspaces();
         // the two mappers are independent: one rejecting must not affect the
         // other, so they get a try each rather than sharing one
@@ -114,8 +129,10 @@ export function startListener(
         } catch {
           /* highlight mapping failed — status may still be fine */
         }
+        // an answered prompt never reaches the user, so it must not flash a
+        // panel or read as asking
         try {
-          const s = mapStatusEvent(raw, ws);
+          const s = answer === null ? mapStatusEvent(raw, ws) : null;
           if (s) onStatus(s);
         } catch {
           /* status mapping failed — highlights already went out */
@@ -123,7 +140,7 @@ export function startListener(
         // independent mappers, a try block each: one rejecting must never
         // take another's output with it
         try {
-          const a = mapAskEvent(raw, ws);
+          const a = answer === null ? mapAskEvent(raw, ws) : undefined;
           // undefined = not about questions; no questions = that one is over
           if (a !== undefined) onAsk?.(a);
         } catch {
