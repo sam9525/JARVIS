@@ -71,7 +71,15 @@ describe("forward.mjs", () => {
       tool_name: "Read",
       cwd: "d:/repo",
       jarvis_session: "d:/repo#2",
+      jarvis_sent_at: expect.any(Number),
     });
+  });
+
+  it("stamps a session event with a numeric jarvis_sent_at", async () => {
+    const body = await captureBody('{"tool_name":"Read"}', {
+      JARVIS_SESSION: "d:/repo#2",
+    });
+    expect(typeof JSON.parse(body).jarvis_sent_at).toBe("number");
   });
 
   it("forwards a non-JSON body unchanged", async () => {
@@ -126,13 +134,57 @@ describe("forward.mjs", () => {
     }
   }
 
-  it("prints a non-empty reply body to stdout", async () => {
-    const reply = '{"hookSpecificOutput":{"permissionDecision":"allow"}}';
+  const askStdin = JSON.stringify({
+    hook_event_name: "PreToolUse",
+    tool_name: "AskUserQuestion",
+  });
+  const reply = '{"hookSpecificOutput":{"permissionDecision":"allow"}}';
+
+  it("prints the reply body for an AskUserQuestion PreToolUse in a session", async () => {
     await withReply(reply, async (port) => {
-      const r = await runForwardWithOutput(port, '{"tool_name":"Read"}');
+      const r = await runForwardWithOutput(port, askStdin, {
+        JARVIS_SESSION: "d:/repo#2",
+      });
       expect(r.code).toBe(0);
       expect(r.stdout).toBe(reply);
     });
+  });
+
+  it("prints nothing for another tool", async () => {
+    await withReply(reply, async (port) => {
+      const r = await runForwardWithOutput(
+        port,
+        '{"hook_event_name":"PreToolUse","tool_name":"Read"}',
+        { JARVIS_SESSION: "d:/repo#2" },
+      );
+      expect(r.stdout).toBe("");
+    });
+  });
+
+  it("prints nothing without JARVIS_SESSION", async () => {
+    await withReply(reply, async (port) => {
+      const r = await runForwardWithOutput(port, askStdin);
+      expect(r.stdout).toBe("");
+    });
+  });
+
+  it("prints nothing for a non-200 reply with a body", async () => {
+    const server = http.createServer((req, res) => {
+      req.resume();
+      req.on("end", () => res.writeHead(500).end(reply));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      const r = await runForwardWithOutput(
+        (server.address() as AddressInfo).port,
+        askStdin,
+        { JARVIS_SESSION: "d:/repo#2" },
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).toBe("");
+    } finally {
+      server.close();
+    }
   });
 
   it("prints nothing for an empty reply", async () => {

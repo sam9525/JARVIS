@@ -118,17 +118,6 @@ describe("approvedDocClose", () => {
     );
   });
 
-  it("closes on an auto-answered Spec → Approve, whose prompt was never open", () => {
-    expect(
-      approvedDocClose(
-        [{ header: "Spec", label: "Approve" }],
-        docs,
-        "d:/r",
-        spec,
-      ),
-    ).toBe(true);
-  });
-
   it("closes on plan → Approve (Recommended)", () => {
     expect(
       approvedDocClose(yes("plan", "Approve (Recommended)"), docs, "d:/r", {

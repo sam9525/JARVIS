@@ -1007,6 +1007,16 @@ describe("the auto-answer reply", () => {
     s.close();
   });
 
+  it("an answered AskUserQuestion reaches neither onStatus nor onAsk", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, askEvent);
+    await post(s.port, readEvent);
+    await vi.waitFor(() => expect(s.events).toHaveLength(1));
+    expect(s.statuses).toEqual([]);
+    expect(s.asks).toEqual([]);
+    s.close();
+  });
+
   it("replies empty when autoAnswer gives null", async () => {
     const s = await startWith(() => null);
     const res = await post(s.port, askEvent);

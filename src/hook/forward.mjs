@@ -15,6 +15,7 @@ if (process.env.JARVIS_SESSION) {
     body = JSON.stringify({
       ...JSON.parse(body),
       jarvis_session: process.env.JARVIS_SESSION,
+      jarvis_sent_at: Date.now(),
     });
   } catch {
     // not JSON — forward it untouched
@@ -22,6 +23,15 @@ if (process.env.JARVIS_SESSION) {
 }
 
 let reply = "";
+let wantsReply = false;
+try {
+  const event = JSON.parse(body);
+  wantsReply =
+    event.hook_event_name === "PreToolUse" &&
+    event.tool_name === "AskUserQuestion";
+} catch {
+  // not JSON — nothing to answer
+}
 try {
   const res = await fetch(`http://127.0.0.1:${PORT}/event`, {
     method: "POST",
@@ -29,7 +39,8 @@ try {
     body,
     signal: AbortSignal.timeout(1500),
   });
-  reply = await res.text();
+  const text = await res.text();
+  if (process.env.JARVIS_SESSION && res.ok && wantsReply) reply = text;
 } catch {
   // app not running — fine, hooks must never break Claude Code
 }

@@ -9,6 +9,10 @@ export interface AutoAnswerOutput {
   };
 }
 
+// The hook gives up at 1500 ms and the picker then opens, so an event older
+// than this has an open question and must map as one, not be answered.
+const MAX_EVENT_AGE_MS = 1000;
+
 const GATE_HEADERS = new Set(["spec", "plan"]);
 
 function chooseLabel(q: AskQuestion): string | null {
@@ -27,9 +31,14 @@ function chooseLabel(q: AskQuestion): string | null {
 
 // The hook can only answer the prompt as a whole, so one question without a
 // clear choice returns null and the picker opens for the user.
-export function autoAnswerOutput(raw: RawHookEvent): AutoAnswerOutput | null {
+export function autoAnswerOutput(
+  raw: RawHookEvent,
+  now: number = Date.now(),
+): AutoAnswerOutput | null {
   if (
     !raw.jarvis_session ||
+    typeof raw.jarvis_sent_at !== "number" ||
+    now - raw.jarvis_sent_at > MAX_EVENT_AGE_MS ||
     raw.hook_event_name !== "PreToolUse" ||
     raw.tool_name !== "AskUserQuestion"
   )
@@ -49,7 +58,7 @@ export function autoAnswerOutput(raw: RawHookEvent): AutoAnswerOutput | null {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "allow",
-      updatedInput: { questions: rawQuestions, answers },
+      updatedInput: { ...raw.tool_input, answers },
     },
   };
 }
