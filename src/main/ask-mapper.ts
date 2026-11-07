@@ -49,7 +49,7 @@ function toOptions(v: unknown): AskOption[] {
   return out;
 }
 
-function toQuestions(v: unknown): AskQuestion[] {
+export function toQuestions(v: unknown): AskQuestion[] {
   if (!Array.isArray(v)) return [];
   const out: AskQuestion[] = [];
   for (const raw of v) {
