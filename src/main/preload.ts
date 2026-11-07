@@ -63,6 +63,9 @@ const api = {
     ipcRenderer.invoke("read-note", workspaceId, nodeId),
   lineChanges: (workspaceId: string, nodeId: string): Promise<LineChanges> =>
     ipcRenderer.invoke("line-changes", workspaceId, nodeId),
+  getAutoAnswer: (): Promise<boolean> => ipcRenderer.invoke("get-auto-answer"),
+  setAutoAnswer: (on: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("set-auto-answer", on),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),
   setSettings: (s: Settings): Promise<void> =>
     ipcRenderer.invoke("set-settings", s),

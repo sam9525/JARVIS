@@ -103,6 +103,7 @@ import {
 } from "./session-restore";
 import { watch, type FSWatcher } from "chokidar";
 import type { AskPrompt } from "./ask-mapper";
+import { autoAnswerOutput } from "./auto-answer";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
 import { createNudgeGate } from "./nudge-gate";
@@ -352,6 +353,13 @@ app.whenReady().then(async () => {
     "jarvis-settings.json",
   );
   let settings = await loadSettings(settingsPath);
+  // session-only: a restart never answers a question on its own
+  let autoAnswerOn = false;
+  ipcMain.handle("get-auto-answer", () => autoAnswerOn);
+  ipcMain.handle("set-auto-answer", (_e, value: unknown) => {
+    autoAnswerOn = value === true;
+    return autoAnswerOn;
+  });
   ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
     settings = s;
@@ -783,6 +791,7 @@ app.whenReady().then(async () => {
       hooksHeardFrom.add(s.sessionKey);
       feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
     },
+    (raw) => (autoAnswerOn ? autoAnswerOutput(raw) : null),
   );
 
   // Claude Code spawns both of these as its own child processes, so they must

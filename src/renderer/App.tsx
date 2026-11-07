@@ -57,6 +57,7 @@ import Panel from "./ui/Panel";
 import TodoPanel from "./todos/TodoPanel";
 import TodoComposer, { type ComposeRequest } from "./todos/TodoComposer";
 import TodoToggle from "./todos/TodoToggle";
+import AutoAnswerToggle from "./ui/AutoAnswerToggle";
 import TodoView from "./todos/TodoView";
 import { todosGrew } from "./todos/todo-growth";
 import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
@@ -205,6 +206,10 @@ export default function App() {
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
   const [ringCentreId, setRingCentreId] = useState<string | null>(null);
+  const [autoAnswer, setAutoAnswer] = useState(false);
+  useEffect(() => {
+    window.jarvis.getAutoAnswer().then(setAutoAnswer).catch(console.error);
+  }, []);
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
@@ -1364,6 +1369,15 @@ export default function App() {
           if (!showTodos) focusPanel("todos");
           setShowTodos(!showTodos);
         }}
+      />
+      <AutoAnswerToggle
+        on={autoAnswer}
+        onToggle={() =>
+          window.jarvis
+            .setAutoAnswer(!autoAnswer)
+            .then(setAutoAnswer)
+            .catch(console.error)
+        }
       />
       <button
         className={BTN_IDLE + " text-[13px]"}

@@ -68,6 +68,7 @@ const walk = (n: any): any[] =>
     getNotesDir: () => Promise.resolve(null),
     pickNotesDir: () => Promise.resolve(null),
     clearNotesDir: () => Promise.resolve(null),
+    getAutoAnswer: () => Promise.resolve(false),
     getTodos: () => Promise.resolve({ todos: [], malformed: [] }),
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,
