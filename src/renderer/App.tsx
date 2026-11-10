@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -583,9 +584,10 @@ export default function App() {
   statusesRef.current = statuses;
 
   // Keyed on the shown project alone: a status push or a session starting
-  // inside the project leaves the id unchanged, so it never re-folds.
+  // inside the project leaves the id unchanged, so it never re-folds. A layout
+  // effect, so a project without a live session never paints an open terminal.
   const shownProjectId = showHome ? null : (active?.id ?? null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (shownProjectId === null) return;
     setTerminalCollapsedRef.current(
       !hasLiveSession(statusesRef.current, shownProjectId),
@@ -963,11 +965,16 @@ export default function App() {
       return;
     e.preventDefault();
     e.stopPropagation();
+    // a held key repeats; one press is one toggle
+    if (e.repeat) return;
     if (!terminalOwner || stage < 3 || deckCleared) return;
     const { collapsed } = panelState("terminal");
     // folding unmounts the focused field in a project, but on home the inbox
-    // strip stays mounted and would keep the keys
-    if (!collapsed) (document.activeElement as HTMLElement | null)?.blur();
+    // strip stays mounted and would keep the keys; a field outside the
+    // terminal keeps its caret
+    const focused = document.activeElement as HTMLElement | null;
+    if (!collapsed && focused?.closest('[data-testid="panel-terminal"]'))
+      focused.blur();
     setTerminalCollapsedRef.current(!collapsed);
   };
   useEffect(() => {

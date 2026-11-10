@@ -700,8 +700,38 @@ describe("GraphSettingsPanel terminal key", () => {
     const refusal = container.querySelector(
       '[data-testid="terminal-key-refusal"]',
     )!;
-    expect(refusal.textContent).toContain("Ctrl+C");
-    expect(refusal.textContent).toContain("Ctrl+`");
+    expect(refusal.textContent).toBe(
+      "Can't use Ctrl+C: the terminal uses this key. The key stays Ctrl+`.",
+    );
+  });
+
+  it("refuses an unmodified key in plain words", () => {
+    render();
+    startRecording();
+    press({ code: "KeyA" });
+    expect(
+      container.querySelector('[data-testid="terminal-key-refusal"]')!
+        .textContent,
+    ).toBe("Can't use A: needs Ctrl, Alt or Meta. The key stays Ctrl+`.");
+  });
+
+  it("marks the button as a recorder only while recording", () => {
+    render();
+    senses();
+    expect(record().hasAttribute("data-key-recorder")).toBe(false);
+    act(() => record().click());
+    expect(record().hasAttribute("data-key-recorder")).toBe(true);
+    press({ code: "KeyT", altKey: true });
+    // focus stays on the button, so the new combo must reach App's listener
+    expect(record().hasAttribute("data-key-recorder")).toBe(false);
+  });
+
+  it("stores the default combo as absent", () => {
+    const { calls } = render({ terminalToggleKey: "Alt+KeyT" });
+    startRecording();
+    press({ code: "Backquote", ctrlKey: true });
+    expect(calls.settings).toHaveLength(1);
+    expect(calls.settings[0]).toHaveProperty("terminalToggleKey", undefined);
   });
 
   it("cancels recording on Escape", () => {
@@ -735,7 +765,7 @@ describe("GraphSettingsPanel terminal key", () => {
     expect(calls.settings[0].terminalToggleKey).toBeUndefined();
   });
 
-  it("drops the custom key on Restore defaults", () => {
+  it("keeps the custom key on Restore defaults", () => {
     const { calls } = render({ terminalToggleKey: "Alt+KeyT" });
     act(() =>
       (
@@ -744,6 +774,6 @@ describe("GraphSettingsPanel terminal key", () => {
         ) as HTMLButtonElement
       ).click(),
     );
-    expect(calls.settings[0].terminalToggleKey).toBeUndefined();
+    expect(calls.settings[0].terminalToggleKey).toBe("Alt+KeyT");
   });
 });

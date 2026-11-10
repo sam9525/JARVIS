@@ -33,6 +33,9 @@ vi.mock("react", async () => {
     useEffect: () => {
       return;
     },
+    useLayoutEffect: () => {
+      return;
+    },
   };
 });
 

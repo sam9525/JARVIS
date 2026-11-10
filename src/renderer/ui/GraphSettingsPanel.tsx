@@ -238,10 +238,14 @@ export default function GraphSettingsPanel({
     const reason = refusalReason(combo);
     if (reason) {
       setKeyRefusal(
-        `${formatCombo(combo)} is taken: ${reason} The key stays ${formatCombo(terminalKey)}.`,
+        `Can't use ${formatCombo(combo)}: ${reason}. The key stays ${formatCombo(terminalKey)}.`,
       );
     } else {
-      set({ terminalToggleKey: combo });
+      // the default is stored as absent, so "Default" stays disabled
+      set({
+        terminalToggleKey:
+          combo === DEFAULT_TERMINAL_TOGGLE ? undefined : combo,
+      });
     }
     setRecordingKey(false);
   };
@@ -285,6 +289,7 @@ export default function GraphSettingsPanel({
               headColor: settings.headColor,
               headMouth: settings.headMouth,
               headMouths: settings.headMouths,
+              terminalToggleKey: settings.terminalToggleKey,
             });
             onSearchChange("");
             onResetHighlights();
@@ -475,7 +480,9 @@ export default function GraphSettingsPanel({
           <div className="mb-1 flex gap-1.5">
             <button
               data-testid="terminal-key-record"
-              data-key-recorder
+              // only while recording: focus stays here afterwards, and App
+              // skips every key pressed inside a recorder
+              data-key-recorder={recordingKey || undefined}
               className={`flex-1 cursor-pointer rounded-md py-1.5 transition-colors ${
                 recordingKey
                   ? "border border-accent/35 bg-accent/15 text-accent"

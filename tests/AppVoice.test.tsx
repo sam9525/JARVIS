@@ -1084,4 +1084,45 @@ describe("App: the terminal toggle shortcut", () => {
     expect(e.defaultPrevented).toBe(false);
     expect(terminalOpen()).toBe(true);
   });
+
+  it("toggles once while the key auto-repeats", async () => {
+    await enterRepo();
+    press();
+    expect(terminalOpen()).toBe(false);
+    const e = new KeyboardEvent("keydown", {
+      code: "Backquote",
+      ctrlKey: true,
+      repeat: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      document.body.dispatchEvent(e);
+    });
+    expect(e.defaultPrevented).toBe(true);
+    expect(terminalOpen()).toBe(false);
+  });
+
+  it("keeps the caret of a field outside the terminal on fold", async () => {
+    await enterRepo();
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    field.focus();
+    press(field);
+    expect(terminalOpen()).toBe(false);
+    expect(document.activeElement).toBe(field);
+    field.remove();
+  });
+
+  it("blurs a field inside the terminal panel on fold", async () => {
+    await enterRepo();
+    const panel = document.querySelector('[data-testid="panel-terminal"]')!;
+    const field = document.createElement("input");
+    panel.appendChild(field);
+    field.focus();
+    press(field);
+    expect(terminalOpen()).toBe(false);
+    expect(document.activeElement).not.toBe(field);
+    field.remove();
+  });
 });

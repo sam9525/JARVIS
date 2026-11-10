@@ -31,6 +31,10 @@ describe("key combos", () => {
     expect(comboFromEvent(k("ControlLeft", { ctrlKey: true }))).toBeNull();
   });
 
+  it("returns null for an event with no code", () => {
+    expect(comboFromEvent(k("", { ctrlKey: true }))).toBeNull();
+  });
+
   it("matches only the exact modifiers", () => {
     expect(
       matchesCombo(k("Backquote", { ctrlKey: true }), DEFAULT_TERMINAL_TOGGLE),

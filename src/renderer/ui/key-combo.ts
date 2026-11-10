@@ -16,7 +16,7 @@ const DISPLAY_CODES: Record<string, string> = {
 };
 
 export function comboFromEvent(e: KeyLike): string | null {
-  if (MODIFIER_CODE.test(e.code)) return null;
+  if (e.code === "" || MODIFIER_CODE.test(e.code)) return null;
   const parts: string[] = [];
   if (e.ctrlKey) parts.push("Ctrl");
   if (e.altKey) parts.push("Alt");
@@ -39,13 +39,13 @@ export function refusalReason(combo: string): string | null {
   const mods = new Set(parts.slice(0, -1));
   const ctrl = mods.has("Ctrl");
   const alt = mods.has("Alt");
-  if (!ctrl && !alt && !mods.has("Meta")) return "Needs Ctrl, Alt or Meta.";
+  if (!ctrl && !alt && !mods.has("Meta")) return "needs Ctrl, Alt or Meta";
   if ((ctrl || alt) && TERMINAL_KEYS.test(code))
-    return "The terminal uses this key.";
+    return "the terminal uses this key";
   if (ctrl && !mods.has("Shift") && /^Key[A-Z]$/.test(code))
-    return "The terminal uses this key.";
+    return "the terminal uses this key";
   if (ctrl && mods.has("Shift") && (code === "KeyC" || code === "KeyV"))
-    return "The terminal uses this key.";
+    return "the terminal uses this key";
   return null;
 }
 
