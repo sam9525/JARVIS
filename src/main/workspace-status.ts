@@ -46,6 +46,9 @@ interface Entry {
   topic: string;
   // a topic named by the sender; a later title word does not replace it
   topicPinned: boolean;
+  // a Stop ended the turn and nothing has happened since; the idle_prompt timer
+  // keeps it, any other kind clears it
+  finished: boolean;
 }
 
 export interface StatusStore {
@@ -128,6 +131,7 @@ export function createStatusStore(
         ptyOwned: false,
         topic: "",
         topicPinned: false,
+        finished: false,
       };
       entries.set(key, e);
     }
@@ -205,8 +209,11 @@ export function createStatusStore(
       const stage = sessionChanged ? (ev.stage ?? "") : (ev.stage ?? e.stage);
       const message = ev.message ?? e.message;
       const messageAt = ev.message === undefined ? e.messageAt : ev.ts;
+      const finished =
+        ev.kind !== "idle" ? false : ev.finished === true || e.finished;
       const changed =
         sessionChanged ||
+        e.finished !== finished ||
         e.kind !== ev.kind ||
         e.call !== call ||
         e.step !== step ||
@@ -215,6 +222,7 @@ export function createStatusStore(
         e.messageAt !== messageAt;
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
+      e.finished = finished;
       e.call = call;
       e.step = step;
       e.stage = stage;
@@ -336,6 +344,7 @@ export function createStatusStore(
       if (e.kind === "none") return wasOwned;
       e.ptyAlive = false;
       e.kind = exitCode === 0 ? "none" : "crashed";
+      e.finished = false;
       e.call = "";
       e.step = "";
       e.since = now; // types.ts documents since as the last KIND change
@@ -414,6 +423,9 @@ export function createStatusStore(
           messageAt: latest.messageAt,
           delegatedBy: urgent.delegatedBy,
           live: all.some((e) => e.ptyOwned),
+          ...(urgent.kind === "idle" && urgent.finished
+            ? { finished: true as const }
+            : {}),
           since: urgent.since,
           reads: all.reduce((n, e) => n + e.reads.size, 0),
           edits: all.reduce((n, e) => n + e.edits.size, 0),

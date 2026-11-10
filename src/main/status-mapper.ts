@@ -70,6 +70,7 @@ export function mapStatusEvent(
         kind: "idle",
         call: "",
         step: "",
+        finished: true,
         message:
           typeof raw.last_assistant_message === "string"
             ? raw.last_assistant_message

@@ -55,6 +55,7 @@ export interface WorkspaceStatus {
   messageAt?: number; // ms epoch of the Stop that set message — tells a repeated reply from the same reply pushed again
   delegatedBy?: string; // orchestrator that submitted the current turn; "" when the user did
   live?: boolean; // this app's own pty is attached right now — not a hand-run CLI
+  finished?: true; // the urgent session is idle because a Stop ended its turn
   since: number; // ms epoch of the last kind change — drives "40s ago"
   reads: number; // distinct files read this session
   edits: number; // distinct files edited this session
@@ -72,6 +73,7 @@ export interface StatusEvent {
   step?: string; // the call's description; "" clears it, absent keeps it
   stage?: PipelineStage; // set by a pipeline Skill call; absent keeps it
   message?: string; // Stop only: the last thing Claude said, for the inbox
+  finished?: true; // Stop only: a turn ended, as opposed to the idle_prompt timer
   prompt?: string; // UserPromptSubmit only: what was submitted
   transcriptPath?: string; // any event: where the session transcript lives
   // a pty this app spawned sent it; a `claude` run by hand in the same

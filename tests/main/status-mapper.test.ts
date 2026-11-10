@@ -187,6 +187,23 @@ describe("mapStatusEvent", () => {
     expect(e?.kind).toBe("idle");
   });
 
+  it("Stop marks the turn finished; idle_prompt does not", () => {
+    expect(
+      mapStatusEvent({ ...base, hook_event_name: "Stop" }, workspaces)
+        ?.finished,
+    ).toBe(true);
+    expect(
+      mapStatusEvent(
+        {
+          ...base,
+          hook_event_name: "Notification",
+          notification_type: "idle_prompt",
+        },
+        workspaces,
+      )?.finished,
+    ).toBeUndefined();
+  });
+
   it("Stop carries the transcript path when the payload has one", () => {
     const e = mapStatusEvent(
       { ...base, hook_event_name: "Stop", transcript_path: "C:\\t\\a.jsonl" },

@@ -833,3 +833,85 @@ describe("keys that answer a prompt", () => {
     expect(kindOf(s)).toBe("working");
   });
 });
+
+describe("finished", () => {
+  const fin = (s: ReturnType<typeof createStatusStore>) =>
+    s.snapshot()[0]?.finished;
+  const stopped = () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    s.applyStatus(ev({ kind: "idle", finished: true, ts: 5000 }));
+    return s;
+  };
+
+  it("Stop sets finished, with since at the Stop", () => {
+    const s = stopped();
+    expect(fin(s)).toBe(true);
+    expect(s.snapshot()[0]?.since).toBe(5000);
+  });
+
+  it("idle_prompt after Stop keeps finished", () => {
+    const s = stopped();
+    s.applyStatus(ev({ kind: "idle", ts: 65000 }));
+    expect(fin(s)).toBe(true);
+    expect(s.snapshot()[0]?.since).toBe(5000);
+  });
+
+  it("a new prompt or tool clears finished", () => {
+    const s = stopped();
+    s.applyStatus(ev({ kind: "working", call: "Bash(ls)", ts: 6000 }));
+    expect(fin(s)).toBeUndefined();
+  });
+
+  it("asking and blocked clear finished", () => {
+    for (const kind of ["asking", "blocked"] as const) {
+      const s = stopped();
+      s.applyStatus(ev({ kind, ts: 6000 }));
+      expect(fin(s)).toBeUndefined();
+    }
+  });
+
+  it("the staleness sweep never sets finished", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    s.sweep(1000 + STALE_MS);
+    expect(kindOf(s)).toBe("idle");
+    expect(fin(s)).toBeUndefined();
+  });
+
+  it("a crash clears finished for the relaunch", () => {
+    const s = stopped();
+    s.ptyExited("w1", 7000, 1);
+    s.ptyLaunched("w1", 8000);
+    s.applyStatus(ev({ kind: "idle", ts: 9000 }));
+    expect(kindOf(s)).toBe("idle");
+    expect(fin(s)).toBeUndefined();
+  });
+
+  it("the urgent session decides", () => {
+    const s = createStatusStore();
+    s.applyStatus(
+      ev({
+        workspaceId: "d:/r",
+        sessionKey: "d:/r",
+        kind: "idle",
+        finished: true,
+        ts: 2000,
+      }),
+    );
+    s.applyStatus(
+      ev({
+        workspaceId: "d:/r",
+        sessionKey: "d:/r#2",
+        kind: "working",
+        call: "Bash(npm test)",
+        ts: 3000,
+      }),
+    );
+    const row = s.snapshot()[0];
+    expect(row?.kind).toBe("working");
+    expect(row?.call).toBe("Bash(npm test)");
+    expect(row?.finished).toBeUndefined();
+  });
+});
