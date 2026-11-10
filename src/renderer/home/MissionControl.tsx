@@ -189,12 +189,16 @@ export default function MissionControl({
               {/* the call and step lines are one line each, ellipsized, and
                   always rendered — a card's height never depends on what
                   Claude happens to be doing */}
+              {/* a finished turn replaces the last tool call, which no longer
+                  describes what the card is doing */}
               <div
                 data-testid={`call-${ws.id}`}
-                title={st?.call || undefined}
+                title={st?.finished ? undefined : st?.call || undefined}
                 className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11.5px] text-accent-soft"
               >
-                {st?.call || " "}
+                {st?.finished
+                  ? `Finished ${relativeTime(st.since, now)}`
+                  : st?.call || " "}
               </div>
               <div
                 data-testid={`step-${ws.id}`}

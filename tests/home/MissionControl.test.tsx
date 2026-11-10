@@ -424,6 +424,40 @@ describe("MissionControl", () => {
     );
     expect(screen.byTestId("call-w1").props.title).toBeUndefined();
   });
+
+  it("a finished card shows the finish marker, not the old call", () => {
+    render(
+      <MissionControl
+        {...(props({
+          now: 125_000,
+          statuses: [
+            status({
+              workspaceId: "w1",
+              kind: "idle",
+              finished: true,
+              since: 5_000,
+              call: "Bash(sed -n 1,2p x)",
+            }),
+          ],
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("call-w1").text).toBe("Finished 2m ago");
+    expect(screen.byTestId("call-w1").props.title).toBeUndefined();
+  });
+
+  it("an idle card without finished keeps its call line", () => {
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [
+            status({ workspaceId: "w1", kind: "idle", call: "Bash(ls)" }),
+          ],
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("call-w1").text).toBe("Bash(ls)");
+  });
 });
 
 describe("step line and stage chip", () => {
