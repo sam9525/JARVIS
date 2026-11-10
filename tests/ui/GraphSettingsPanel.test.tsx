@@ -218,10 +218,10 @@ describe("GraphSettingsPanel", () => {
     ).toBeNull();
     senses();
     await flush();
-    // [header, hand control, voice control, microphone, no-devices hint,
+    // [header, hand control, voice control, terminal key, terminal key buttons, microphone, no-devices hint,
     //  head model, head upload, daily notes, daily notes actions,
     //  colour head, mouth moves, pick mouth, cloud voice]
-    expect(container.firstElementChild!.children).toHaveLength(13);
+    expect(container.firstElementChild!.children).toHaveLength(15);
     expect(
       container.querySelector('[data-testid="voice-control-setting"]'),
     ).not.toBeNull();
@@ -652,5 +652,98 @@ describe("daily briefing notes folder", () => {
     expect(
       container.querySelector('[data-testid="notes-dir-path"]')?.textContent,
     ).toBe("Not set");
+  });
+});
+
+describe("GraphSettingsPanel terminal key", () => {
+  const chip = () =>
+    container.querySelector('[data-testid="terminal-key-chip"]')!;
+  const record = () =>
+    container.querySelector(
+      '[data-testid="terminal-key-record"]',
+    ) as HTMLButtonElement;
+  const press = (init: KeyboardEventInit) =>
+    act(() => {
+      record().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
+      );
+    });
+  const startRecording = () => {
+    senses();
+    act(() => record().click());
+  };
+
+  it("shows the default combo", () => {
+    render();
+    senses();
+    expect(chip().textContent).toBe("Ctrl+`");
+  });
+
+  it("records a new combo", () => {
+    const { calls } = render();
+    startRecording();
+    expect(chip().textContent).toBe("Press keys…");
+    press({ code: "KeyT", altKey: true });
+    expect(calls.settings).toHaveLength(1);
+    expect(calls.settings[0].terminalToggleKey).toBe("Alt+KeyT");
+  });
+
+  it("refuses a reserved combo", () => {
+    const { calls } = render();
+    startRecording();
+    press({ code: "KeyC", ctrlKey: true });
+    expect(calls.settings).toHaveLength(0);
+    const refusal = container.querySelector(
+      '[data-testid="terminal-key-refusal"]',
+    )!;
+    expect(refusal.textContent).toContain("Ctrl+C");
+    expect(refusal.textContent).toContain("Ctrl+`");
+  });
+
+  it("cancels recording on Escape", () => {
+    const { calls } = render();
+    startRecording();
+    press({ code: "Escape" });
+    expect(calls.settings).toHaveLength(0);
+    expect(chip().textContent).toBe("Ctrl+`");
+  });
+
+  it("ignores a modifier alone while recording", () => {
+    const { calls } = render();
+    startRecording();
+    press({ code: "ControlLeft", ctrlKey: true });
+    expect(calls.settings).toHaveLength(0);
+    expect(chip().textContent).toBe("Press keys…");
+  });
+
+  it("resets to the default", () => {
+    const { calls } = render({ terminalToggleKey: "Alt+KeyT" });
+    senses();
+    expect(chip().textContent).toBe("Alt+T");
+    act(() =>
+      (
+        container.querySelector(
+          '[data-testid="terminal-key-reset"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(calls.settings).toHaveLength(1);
+    expect(calls.settings[0].terminalToggleKey).toBeUndefined();
+  });
+
+  it("drops the custom key on Restore defaults", () => {
+    const { calls } = render({ terminalToggleKey: "Alt+KeyT" });
+    act(() =>
+      (
+        container.querySelector(
+          'button[title="Restore defaults"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(calls.settings[0].terminalToggleKey).toBeUndefined();
   });
 });

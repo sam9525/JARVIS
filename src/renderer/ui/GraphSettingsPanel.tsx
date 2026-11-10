@@ -17,6 +17,12 @@ import {
   pickHue,
 } from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
+import {
+  DEFAULT_TERMINAL_TOGGLE,
+  comboFromEvent,
+  formatCombo,
+  refusalReason,
+} from "./key-combo";
 import Segmented from "./Segmented";
 
 type Page = "graph" | "senses";
@@ -216,6 +222,29 @@ export default function GraphSettingsPanel({
       .then(setNotesDir)
       .catch(() => setNotesDir(null));
   }, []);
+
+  const terminalKey = settings.terminalToggleKey ?? DEFAULT_TERMINAL_TOGGLE;
+  const [recordingKey, setRecordingKey] = React.useState(false);
+  const [keyRefusal, setKeyRefusal] = React.useState<string | null>(null);
+  const recordKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.code === "Escape") {
+      setRecordingKey(false);
+      return;
+    }
+    const combo = comboFromEvent(e.nativeEvent);
+    if (combo === null) return;
+    const reason = refusalReason(combo);
+    if (reason) {
+      setKeyRefusal(
+        `${formatCombo(combo)} is taken: ${reason} The key stays ${formatCombo(terminalKey)}.`,
+      );
+    } else {
+      set({ terminalToggleKey: combo });
+    }
+    setRecordingKey(false);
+  };
 
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
@@ -429,6 +458,64 @@ export default function GraphSettingsPanel({
               onChange={(e) => onVoiceControl(e.target.checked)}
             />
           </label>
+
+          <div className="flex items-center justify-between gap-2 border-t border-edge py-2 text-ink-muted">
+            Terminal key
+            <span
+              data-testid="terminal-key-chip"
+              className={`rounded border bg-abyss px-1.5 py-0.5 font-mono text-[12px] ${
+                recordingKey
+                  ? "border-accent text-accent"
+                  : "border-edge text-ink"
+              }`}
+            >
+              {recordingKey ? "Press keys…" : formatCombo(terminalKey)}
+            </span>
+          </div>
+          <div className="mb-1 flex gap-1.5">
+            <button
+              data-testid="terminal-key-record"
+              data-key-recorder
+              className={`flex-1 cursor-pointer rounded-md py-1.5 transition-colors ${
+                recordingKey
+                  ? "border border-accent/35 bg-accent/15 text-accent"
+                  : "bg-edge text-ink hover:bg-edge/80"
+              }`}
+              onClick={(e) => {
+                setKeyRefusal(null);
+                setRecordingKey(true);
+                e.currentTarget.focus();
+              }}
+              onKeyDown={recordingKey ? recordKey : undefined}
+              onBlur={() => setRecordingKey(false)}
+            >
+              {recordingKey ? "Recording" : "Change"}
+            </button>
+            <button
+              data-testid="terminal-key-reset"
+              className="flex-1 cursor-pointer rounded-md bg-edge py-1.5 text-ink transition-colors hover:bg-edge/80 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-edge"
+              disabled={settings.terminalToggleKey === undefined}
+              onClick={() => {
+                setKeyRefusal(null);
+                set({ terminalToggleKey: undefined });
+              }}
+            >
+              Default
+            </button>
+          </div>
+          {recordingKey && (
+            <div className="pb-2 text-[11.5px] text-ink-dim">
+              Hold Ctrl, Alt or Meta and press a key. Esc cancels.
+            </div>
+          )}
+          {keyRefusal && !recordingKey && (
+            <div
+              data-testid="terminal-key-refusal"
+              className="pb-2 text-[11.5px] text-warm"
+            >
+              {keyRefusal}
+            </div>
+          )}
 
           <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
             Microphone
