@@ -161,6 +161,58 @@ describe("highlightCode", () => {
   });
 });
 
+describe("markdown source colors", () => {
+  it("colors markdown headings", async () => {
+    const html = await highlightCode("# hi", "a.md");
+    expect(html.toLowerCase()).toContain("#569cd6");
+  });
+});
+
+describe("failed highlights", () => {
+  afterEach(() => {
+    vi.doUnmock("shiki");
+    vi.resetModules();
+  });
+
+  async function importWithCreate(createHighlighter: () => Promise<unknown>) {
+    vi.resetModules();
+    vi.doMock("shiki", () => ({
+      createHighlighter,
+      createJavaScriptRegexEngine: () => ({}),
+    }));
+    return import("../../src/renderer/preview/code-highlight");
+  }
+
+  it("logs a failed highlight and returns the plain fallback", async () => {
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const mod = await importWithCreate(() => Promise.reject(new Error("boom")));
+    const html = await mod.highlightCode("x", "a.md");
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0][0]).toBe("code preview highlight failed");
+    expect(html).toContain("background-color:#1e1e1e;color:#d4d4d4;");
+    error.mockRestore();
+  });
+
+  it("tries again after a failure", async () => {
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const stub = {
+      codeToHtml: () => "<pre>ok</pre>",
+      getLoadedLanguages: () => ["markdown"],
+    };
+    let calls = 0;
+    const mod = await importWithCreate(() =>
+      ++calls === 1 ? Promise.reject(new Error("boom")) : Promise.resolve(stub),
+    );
+    await mod.highlightCode("x", "a.md");
+    expect(await mod.highlightCode("x", "a.md")).toBe("<pre>ok</pre>");
+    error.mockRestore();
+  });
+});
+
 describe("lineClasses", () => {
   const changes = { added: [1, 4], modified: [3], removedAfter: [0, 4] };
 
