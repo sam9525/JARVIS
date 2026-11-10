@@ -1,0 +1,61 @@
+export type KeyLike = Pick<
+  KeyboardEvent,
+  "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey"
+>;
+
+export const DEFAULT_TERMINAL_TOGGLE = "Ctrl+Backquote";
+
+const MODIFIER_CODE = /^(Control|Alt|Shift|Meta)(Left|Right)?$/;
+
+const DISPLAY_CODES: Record<string, string> = {
+  Backquote: "`",
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+  ArrowLeft: "←",
+  ArrowRight: "→",
+};
+
+export function comboFromEvent(e: KeyLike): string | null {
+  if (MODIFIER_CODE.test(e.code)) return null;
+  const parts: string[] = [];
+  if (e.ctrlKey) parts.push("Ctrl");
+  if (e.altKey) parts.push("Alt");
+  if (e.shiftKey) parts.push("Shift");
+  if (e.metaKey) parts.push("Meta");
+  parts.push(e.code);
+  return parts.join("+");
+}
+
+export function matchesCombo(e: KeyLike, combo: string): boolean {
+  return comboFromEvent(e) === combo;
+}
+
+// the keys a terminal session reads for editing, submitting and navigating
+const TERMINAL_KEYS = /^(Enter|NumpadEnter|Backspace|Tab|Space|Arrow.*)$/;
+
+export function refusalReason(combo: string): string | null {
+  const parts = combo.split("+");
+  const code = parts[parts.length - 1];
+  const mods = new Set(parts.slice(0, -1));
+  const ctrl = mods.has("Ctrl");
+  const alt = mods.has("Alt");
+  if (!ctrl && !alt && !mods.has("Meta")) return "Needs Ctrl, Alt or Meta.";
+  if ((ctrl || alt) && TERMINAL_KEYS.test(code))
+    return "The terminal uses this key.";
+  if (ctrl && !mods.has("Shift") && /^Key[A-Z]$/.test(code))
+    return "The terminal uses this key.";
+  if (ctrl && mods.has("Shift") && (code === "KeyC" || code === "KeyV"))
+    return "The terminal uses this key.";
+  return null;
+}
+
+export function formatCombo(combo: string): string {
+  return combo
+    .split("+")
+    .map((part) => {
+      if (DISPLAY_CODES[part]) return DISPLAY_CODES[part];
+      const key = /^Key([A-Z])$/.exec(part) ?? /^Digit(\d)$/.exec(part);
+      return key ? key[1] : part;
+    })
+    .join("+");
+}

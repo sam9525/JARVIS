@@ -327,6 +327,8 @@ export interface Settings {
    * standing between a restart and drawing the green you just used.
    */
   recentHues?: number[];
+  /** The key combo that folds and unfolds the terminal panel, as `comboFromEvent` writes it. Absent = `DEFAULT_TERMINAL_TOGGLE`. */
+  terminalToggleKey?: string;
 }
 
 // a workspace's groups, or NO_GROUPS if it has never been seeded — a fresh []
