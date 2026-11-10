@@ -2,6 +2,8 @@ import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
 import type { Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 
+export { docKindOf, type DocKind } from "../shared/doc-kind";
+
 export interface AskOption {
   label: string;
   description: string;

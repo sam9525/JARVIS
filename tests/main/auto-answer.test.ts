@@ -35,7 +35,7 @@ const answersOf = (raw: RawHookEvent) =>
   autoAnswerOutput(raw, NOW)?.hookSpecificOutput.updatedInput.answers;
 
 describe("autoAnswerOutput", () => {
-  it.each(["Spec", "Plan", " spec ", "PLAN"])(
+  it.each(["Spec", "Plan", " spec ", "PLAN", "Spec gate", "Plan gate"])(
     "answers a %j gate with Approve",
     (header) => {
       const raw = ask([q(header, ["Approve", "Review in browser"])]);

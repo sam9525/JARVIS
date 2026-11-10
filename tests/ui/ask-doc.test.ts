@@ -30,6 +30,14 @@ describe("docKindOf", () => {
     expect(docKindOf("PLAN")).toBe("plan");
   });
 
+  it("reads the <kind> gate form", () => {
+    expect(docKindOf("Spec gate")).toBe("spec");
+    expect(docKindOf(" PLAN GATE ")).toBe("plan");
+    expect(docKindOf("Spec review")).toBeNull();
+    expect(docKindOf("Specs gate")).toBeNull();
+    expect(docKindOf("gate")).toBeNull();
+  });
+
   it("rejects other headers", () => {
     expect(docKindOf("Specs")).toBeNull();
     expect(docKindOf("")).toBeNull();
@@ -116,6 +124,12 @@ describe("approvedDocClose", () => {
     expect(approvedDocClose(yes("Spec", "Approve"), docs, "d:/r", spec)).toBe(
       true,
     );
+  });
+
+  it("closes on Spec gate → Approve", () => {
+    expect(
+      approvedDocClose(yes("Spec gate", "Approve"), docs, "d:/r", spec),
+    ).toBe(true);
   });
 
   it("closes on plan → Approve (Recommended)", () => {

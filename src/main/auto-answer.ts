@@ -1,4 +1,4 @@
-import { toQuestions, type AskQuestion } from "./ask-mapper";
+import { docKindOf, toQuestions, type AskQuestion } from "./ask-mapper";
 import type { RawHookEvent } from "./event-mapper";
 
 export interface AutoAnswerOutput {
@@ -13,11 +13,9 @@ export interface AutoAnswerOutput {
 // than this has an open question and must map as one, not be answered.
 const MAX_EVENT_AGE_MS = 1000;
 
-const GATE_HEADERS = new Set(["spec", "plan"]);
-
 function chooseLabel(q: AskQuestion): string | null {
   if (q.multiSelect) return null;
-  if (GATE_HEADERS.has(q.header.trim().toLowerCase())) {
+  if (docKindOf(q.header) !== null) {
     const approve = q.options.find((o) =>
       o.label.trim().toLowerCase().startsWith("approve"),
     );

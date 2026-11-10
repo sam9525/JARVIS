@@ -235,6 +235,11 @@ describe("AskPanel", () => {
     };
     const path = "docs/superpowers/specs/a.md";
 
+    it("shows the preview row for a Spec gate header", () => {
+      const { html } = rowOf(docPrompt(["Spec gate"], { spec: path }), vi.fn());
+      expect(html).toContain("Preview the spec");
+    });
+
     it("opens the written spec without answering", () => {
       const onOpenDoc = vi.fn();
       const { row, html, onAnswer, options } = rowOf(

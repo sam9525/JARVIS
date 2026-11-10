@@ -1,18 +1,14 @@
 import type { AskAnswer } from "../../main/ask-mapper";
 import type { ToolEvent } from "../../shared/types";
 import type { PreviewTarget } from "../preview/preview-target";
+import { docKindOf, type DocKind } from "../../shared/doc-kind";
 
-export type DocKind = "spec" | "plan";
+export { docKindOf, type DocKind };
 
 /** Document kind → the node id of the file Claude last wrote for it. */
 export type AskDocs = Partial<Record<DocKind, string>>;
 
 const DOC_PATH = /(^|\/)docs\/superpowers\/(specs|plans)\/[^/]+$/;
-
-export function docKindOf(header: string): DocKind | null {
-  const name = header.trim().toLowerCase();
-  return name === "spec" || name === "plan" ? name : null;
-}
 
 /**
  * A finished Edit or Write of a spec or plan file. Code ids keep the
