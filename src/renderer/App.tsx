@@ -29,6 +29,8 @@ import TerminalPanel, {
   terminalSize,
 } from "./terminal/TerminalPanel";
 import SessionTabs from "./terminal/SessionTabs";
+import { hasLiveSession } from "./terminal/terminal-fold";
+import { DEFAULT_TERMINAL_TOGGLE, matchesCombo } from "./ui/key-combo";
 import {
   cardTab,
   homeTabs,
@@ -331,6 +333,15 @@ export default function App() {
     [setPanels],
   );
 
+  const setTerminalCollapsed = (collapsed: boolean) => {
+    const next = { ...panelState("terminal"), collapsed };
+    setPanel("terminal", collapsed ? next : clampToViewport(next, viewport));
+  };
+  // the entry effect and the key listener run outside render, so they reach
+  // this render's layout through the ref rather than re-subscribing each time
+  const setTerminalCollapsedRef = useRef(setTerminalCollapsed);
+  setTerminalCollapsedRef.current = setTerminalCollapsed;
+
   // Panels ride the window: maximizing, restoring or reopening at a different
   // size rescales them, and a layout saved on a bigger monitor is pulled back
   // on screen by the clamp inside.
@@ -570,6 +581,16 @@ export default function App() {
   workspacesRef.current = workspaces;
   const statusesRef = useRef(statuses);
   statusesRef.current = statuses;
+
+  // Keyed on the shown project alone: a status push or a session starting
+  // inside the project leaves the id unchanged, so it never re-folds.
+  const shownProjectId = showHome ? null : (active?.id ?? null);
+  useEffect(() => {
+    if (shownProjectId === null) return;
+    setTerminalCollapsedRef.current(
+      !hasLiveSession(statusesRef.current, shownProjectId),
+    );
+  }, [shownProjectId]);
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
@@ -929,6 +950,31 @@ export default function App() {
       runMs(showHome && homeView === "cards" ? fleet.length : 1),
     ],
   );
+
+  // Capture phase, and the key is swallowed even when nothing toggles, so a
+  // match never reaches the xterm or the composer underneath.
+  const onTerminalToggleKeyRef = useRef<(e: KeyboardEvent) => void>(
+    () => undefined,
+  );
+  onTerminalToggleKeyRef.current = (e) => {
+    if (e.target instanceof Element && e.target.closest("[data-key-recorder]"))
+      return;
+    if (!matchesCombo(e, settings.terminalToggleKey ?? DEFAULT_TERMINAL_TOGGLE))
+      return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!terminalOwner || stage < 3 || deckCleared) return;
+    const { collapsed } = panelState("terminal");
+    // folding unmounts the focused field in a project, but on home the inbox
+    // strip stays mounted and would keep the keys
+    if (!collapsed) (document.activeElement as HTMLElement | null)?.blur();
+    setTerminalCollapsedRef.current(!collapsed);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => onTerminalToggleKeyRef.current(e);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   const hands = useHandControl({
     cameraOn,

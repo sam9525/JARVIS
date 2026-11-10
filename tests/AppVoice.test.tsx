@@ -629,6 +629,17 @@ const repoRow = {
   sessions: [sessionRow("d:/r", "main"), sessionRow("d:/r#1", "1")],
 };
 
+const terminalToggle = () =>
+  container.querySelector(
+    '[data-testid="panel-collapse-terminal"]',
+  ) as HTMLButtonElement;
+const terminalOpen = () => terminalToggle().title === "Minimize";
+// the session screen shows its own question inline while the terminal is
+// open, so the question-panel suites start with it folded
+const foldTerminal = async () => {
+  if (terminalOpen()) await act(async () => terminalToggle().click());
+};
+
 describe("App: questions are kept per session", () => {
   it("does not speak a project session's question; the main agent's still is", async () => {
     settingsOnDisk = { ...defaultSettings(), voiceControl: true };
@@ -732,6 +743,7 @@ describe("App: a session's own activity clears its question", () => {
     await act(async () => statusListener!([repoRow]));
     await act(async () => captured.rail.onSelect(REPO));
     await flush();
+    await foldTerminal();
   };
 
   it("typing in #1's terminal clears #1's question, not main's", async () => {
@@ -784,6 +796,7 @@ describe("App: the preview across sessions", () => {
     await act(async () => statusListener!([repoRow]));
     await act(async () => captured.rail.onSelect(REPO));
     await flush();
+    await foldTerminal();
   };
   const event = (sessionKey: string, over: any) => ({
     sessionId: `s-${sessionKey}`,
@@ -982,5 +995,93 @@ describe("App: dictation goes where the session is shown", () => {
       false,
     );
     expect(getDraft(ORCHESTRATOR.id)).not.toContain("\r");
+  });
+});
+
+describe("App: the terminal folds on project entry", () => {
+  const idleRepoRow = {
+    ...repoRow,
+    sessions: repoRow.sessions.map((x) => ({ ...x, live: false })),
+  };
+  const enterRepo = async (row: WorkspaceStatus) => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () => statusListener!([row]));
+    await act(async () => captured.rail.onSelect(REPO));
+    await flush();
+  };
+
+  it("opens on entering a project with a live session", async () => {
+    await enterRepo(repoRow);
+    expect(terminalOpen()).toBe(true);
+  });
+
+  it("stays folded on entering a project with no live session", async () => {
+    await enterRepo(idleRepoRow);
+    expect(terminalOpen()).toBe(false);
+  });
+
+  it("does not re-fold on a status push inside the project", async () => {
+    await enterRepo(repoRow);
+    await act(async () => statusListener!([idleRepoRow]));
+    expect(terminalOpen()).toBe(true);
+    await foldTerminal();
+    await act(async () => statusListener!([repoRow]));
+    expect(terminalOpen()).toBe(false);
+  });
+});
+
+describe("App: the terminal toggle shortcut", () => {
+  // reduced motion skips the boot sequence, so stage 3 is reached at once
+  beforeEach(() =>
+    vi.stubGlobal("matchMedia", () => ({ matches: true }) as MediaQueryList),
+  );
+  afterEach(() => vi.unstubAllGlobals());
+
+  const press = (target: Element = document.body) => {
+    const e = new KeyboardEvent("keydown", {
+      code: "Backquote",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      target.dispatchEvent(e);
+    });
+    return e;
+  };
+  const enterRepo = async () => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () => statusListener!([repoRow]));
+    await act(async () => captured.rail.onSelect(REPO));
+    await flush();
+  };
+
+  it("folds and opens the terminal and swallows the key", async () => {
+    await enterRepo();
+    expect(terminalOpen()).toBe(true);
+    const below = vi.fn();
+    document.body.addEventListener("keydown", below);
+    const e = press();
+    document.body.removeEventListener("keydown", below);
+    expect(e.defaultPrevented).toBe(true);
+    expect(below).not.toHaveBeenCalled();
+    expect(terminalOpen()).toBe(false);
+    press();
+    expect(terminalOpen()).toBe(true);
+  });
+
+  it("leaves a key pressed inside the key recorder alone", async () => {
+    await enterRepo();
+    const recorder = document.createElement("button");
+    recorder.setAttribute("data-key-recorder", "");
+    document.body.appendChild(recorder);
+    const e = press(recorder);
+    recorder.remove();
+    expect(e.defaultPrevented).toBe(false);
+    expect(terminalOpen()).toBe(true);
   });
 });

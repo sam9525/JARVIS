@@ -299,13 +299,15 @@ export default function TerminalPanel({
   // Separate from the mount effect above, and keyed on visibility: the boot
   // sequence holds this panel behind `visibility: hidden` until its stage, and
   // a focus call inside a hidden subtree is a silent no-op. The screen's
-  // composer takes the keys in screen mode, the xterm in raw mode.
+  // composer takes the keys in screen mode, the xterm in raw mode. On home the
+  // panel stays mounted as the inbox strip, so opening it to the full panel
+  // is what focuses it there.
   useEffect(() => {
-    if (visible === false) return;
+    if (visible === false || inboxOnly) return;
     if (mode === "screen")
       screenRef.current?.querySelector("textarea")?.focus();
     else entryFor(sessionKey).term.focus();
-  }, [sessionKey, visible, mode]);
+  }, [sessionKey, visible, mode, inboxOnly]);
 
   const launch = (dangerous = false) => {
     const e = entryFor(sessionKey);
