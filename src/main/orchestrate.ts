@@ -41,7 +41,9 @@ export interface OrchestrateDeps {
     error?: string;
   }>;
   // ends the session; `kept` names a worktree left on disk and why
-  close: (key: string) => Promise<{ ok: boolean; kept?: string }>;
+  close: (
+    key: string,
+  ) => Promise<{ ok: boolean; kept?: string; damaged?: string }>;
   // Claude Code's own record of the folder-trust prompt; null = unreadable
   isTrusted: (folder: string) => Promise<boolean | null>;
   // resolves once the session's TUI has stopped painting (or a deadline passed)
@@ -90,7 +92,8 @@ export type LaunchResult =
   | { ok: true; session: string; worktree?: string; trustPrompt?: string }
   | Failure;
 
-export type CloseResult = { ok: true; kept?: string } | Failure;
+export type CloseResult =
+  { ok: true; kept?: string; damaged?: string } | Failure;
 
 export interface SendOptions {
   session?: string;
@@ -519,7 +522,11 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         };
       }
       const out = await deps.close(s.key);
-      return out.kept ? { ok: true, kept: out.kept } : { ok: true };
+      return {
+        ok: true,
+        ...(out.kept ? { kept: out.kept } : {}),
+        ...(out.damaged ? { damaged: out.damaged } : {}),
+      };
     },
 
     /** Closes a session by key when it is idle and quiet, under the same busy

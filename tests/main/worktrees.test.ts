@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -357,5 +357,118 @@ describe("gitignored files in a worktree", () => {
     await fs.writeFile(path.join(wt, ".claude", "settings.local.json"), "{}");
     await fs.writeFile(path.join(wt, ".mcp.json"), "{}");
     expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+  });
+});
+
+describe("removeWorktreeIfDone with links", () => {
+  let shared: string;
+
+  async function ignoreNodeModules(): Promise<void> {
+    await fs.writeFile(path.join(root, ".gitignore"), "node_modules/\n");
+    git(root, "add", ".gitignore");
+    git(root, "commit", "-m", "ignore node_modules");
+  }
+
+  async function fillShared(): Promise<void> {
+    await fs.mkdir(path.join(shared, "pkg"), { recursive: true });
+    await fs.mkdir(path.join(shared, ".bin"), { recursive: true });
+    await fs.writeFile(path.join(shared, "pkg", "a.txt"), "a");
+    await fs.writeFile(path.join(shared, ".bin", "b"), "b");
+  }
+
+  async function expectSharedIntact(): Promise<void> {
+    await expect(
+      fs.stat(path.join(shared, "pkg", "a.txt")),
+    ).resolves.toBeDefined();
+    await expect(
+      fs.stat(path.join(shared, ".bin", "b")),
+    ).resolves.toBeDefined();
+  }
+
+  beforeEach(async () => {
+    shared = await fs.mkdtemp(path.join(os.tmpdir(), "jarvis-shared-"));
+    await fillShared();
+    await ignoreNodeModules();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    for (const link of [
+      path.join(root, ".worktrees", "1", "node_modules"),
+      path.join(root, ".worktrees", "1", "node_modules", "pkg"),
+    ]) {
+      const stat = await fs.lstat(link).catch(() => null);
+      if (stat?.isSymbolicLink()) await fs.unlink(link);
+    }
+    // never rm -r a folder that still holds a link
+    const sharedLink = await fs
+      .lstat(path.join(shared, "pkg"))
+      .catch(() => null);
+    if (sharedLink?.isSymbolicLink()) await fs.unlink(path.join(shared, "pkg"));
+    await fs.rm(shared, { recursive: true, force: true, maxRetries: 5 });
+  });
+
+  // off Windows the "junction" is a folder symlink, git sees it as a file, and worktreeCheck refuses the removal
+  it.runIf(process.platform === "win32")(
+    "removes a worktree whose node_modules is a junction and keeps the shared folder",
+    async () => {
+      const wt = await createWorktree(root, "1");
+      await fs.symlink(shared, path.join(wt, "node_modules"), "junction");
+      expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+      await expect(fs.stat(wt)).rejects.toThrow();
+      await expectSharedIntact();
+    },
+  );
+
+  // off Windows the "junction" is a folder symlink, git sees it as a file, and worktreeCheck refuses the removal
+  it.runIf(process.platform === "win32")(
+    "removes a link nested inside a real ignored folder",
+    async () => {
+      const wt = await createWorktree(root, "1");
+      await fs.mkdir(path.join(wt, "node_modules"));
+      await fs.symlink(
+        shared,
+        path.join(wt, "node_modules", "pkg"),
+        "junction",
+      );
+      expect(await removeWorktreeIfDone(root, wt)).toEqual({ removed: true });
+      await expect(fs.stat(wt)).rejects.toThrow();
+      await expectSharedIntact();
+    },
+  );
+
+  // off Windows the "junction" is a folder symlink, git sees it as a file, and worktreeCheck refuses the removal
+  it.runIf(process.platform === "win32")(
+    "returns damaged when a link target loses an entry during removal",
+    async () => {
+      const wt = await createWorktree(root, "1");
+      await fs.symlink(shared, path.join(wt, "node_modules"), "junction");
+      const realUnlink = fs.unlink.bind(fs);
+      vi.spyOn(fs, "unlink").mockImplementation(async (target) => {
+        await fs.rm(path.join(shared, "pkg"), { recursive: true });
+        return realUnlink(target);
+      });
+      const result = await removeWorktreeIfDone(root, wt);
+      vi.restoreAllMocks();
+      expect(result.removed).toBe(true);
+      expect("damaged" in result ? result.damaged : undefined).toContain("pkg");
+    },
+  );
+
+  it("keeps the worktree when a link cannot be removed", async () => {
+    const wt = await createWorktree(root, "1");
+    await fs.symlink(shared, path.join(wt, "node_modules"), "junction");
+    const denied = Object.assign(new Error("EPERM"), { code: "EPERM" });
+    vi.spyOn(fs, "unlink").mockRejectedValue(denied);
+    vi.spyOn(fs, "rmdir").mockRejectedValue(denied);
+    const result = await removeWorktreeIfDone(root, wt);
+    expect(result).toEqual({
+      removed: false,
+      reason: expect.stringContaining("could not remove link"),
+    });
+    vi.restoreAllMocks();
+    await expect(fs.stat(wt)).resolves.toBeDefined();
+    expect(git(root, "worktree", "list")).toContain(".worktrees");
+    await expectSharedIntact();
   });
 });

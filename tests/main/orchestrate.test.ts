@@ -123,6 +123,7 @@ function setup(
     settles?: boolean; // waitQuiet's result; false = the deadline passed
     outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
     kept?: string; // the folder close leaves on disk
+    damaged?: string; // the link target the removal emptied
     workspaces?: Workspace[]; // the registry; defaults to the module's list
     pendingInput?: string[]; // keys whose terminal holds text the user typed
     drafts?: string[]; // keys whose session screen input holds a draft
@@ -206,7 +207,11 @@ function setup(
       live.delete(key);
       const at = registered.findIndex((s) => s.key === key);
       if (at !== -1) registered.splice(at, 1);
-      return over.kept ? { ok: true, kept: over.kept } : { ok: true };
+      return {
+        ok: true,
+        ...(over.kept ? { kept: over.kept } : {}),
+        ...(over.damaged ? { damaged: over.damaged } : {}),
+      };
     },
     isTrusted: async (folder) => {
       trustChecked.push(folder);
@@ -1278,6 +1283,17 @@ describe("orchestrate.close", () => {
       kept: "D:\\aero\\.worktrees\\1 (uncommitted changes)",
     });
     expect(closed).toEqual(["d:/aero#1"]);
+  });
+
+  it("passes on a damaged link target", async () => {
+    const { orch } = setup({
+      sessions: [mainOf("d:/aero"), worktreeOf("d:/aero", "1")],
+      damaged: "D:/app/node_modules lost 2 entries (.bin, vitest)",
+    });
+    expect(await orch.close("AeroGraph", "1")).toEqual({
+      ok: true,
+      damaged: "D:/app/node_modules lost 2 entries (.bin, vitest)",
+    });
   });
 
   it("answers ok alone when nothing stays on disk", async () => {

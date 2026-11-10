@@ -63,6 +63,19 @@ describe("closeSessionTab", () => {
     );
   });
 
+  it("warns when the removal damaged a link target", async () => {
+    ptyClose.mockResolvedValue({
+      ok: true,
+      damaged: "D:/app/node_modules lost 2 entries (.bin, vitest)",
+    });
+    const d = deps();
+    await closeSessionTab("w#1", d);
+    expect(d.notify).toHaveBeenCalledWith(
+      "Linked folder lost files: D:/app/node_modules lost 2 entries (.bin, vitest)",
+    );
+    expect(d.dispose).toHaveBeenCalled();
+  });
+
   it("frees nothing when there was nothing to close", async () => {
     ptyClose.mockResolvedValue({ ok: false });
     const d = deps();

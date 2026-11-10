@@ -390,12 +390,12 @@ async function callTool(name, args) {
         30000,
       );
       if (!out?.ok) return textResult(out?.error ?? "close failed", true);
-      return textResult(
-        out.kept
-          ? `closed ${args?.workspace} session "${args?.session}"; its ` +
-              `worktree stays on disk: ${out.kept}`
-          : `closed ${args?.workspace} session "${args?.session}"`,
-      );
+      let text = out.kept
+        ? `closed ${args?.workspace} session "${args?.session}"; its ` +
+          `worktree stays on disk: ${out.kept}`
+        : `closed ${args?.workspace} session "${args?.session}"`;
+      if (out.damaged) text += `; a link target lost files: ${out.damaged}`;
+      return textResult(text);
     }
     if (name === "jarvis_trust") {
       // the answer waits for the session to settle past the prompt

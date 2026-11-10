@@ -929,10 +929,19 @@ app.whenReady().then(async () => {
       // native load or spawn failure — the terminal reports it, app lives on
       console.error("pty launch failed:", err);
       // a worktree made for this launch holds nothing yet, so it goes too
-      if (created)
-        await removeWorktreeIfDone(ws.rootPath, cwd).catch((e) =>
-          console.error(`worktree remove failed in ${ws.rootPath}:`, e),
+      if (created) {
+        const removed = await removeWorktreeIfDone(ws.rootPath, cwd).catch(
+          (e) => {
+            console.error(`worktree remove failed in ${ws.rootPath}:`, e);
+            return null;
+          },
         );
+        if (removed?.removed && removed.damaged)
+          console.error(
+            "worktree removal damaged a link target:",
+            removed.damaged,
+          );
+      }
       return { ok: false, ...result, error: (err as Error).message };
     }
     sessions.add({
@@ -949,13 +958,19 @@ app.whenReady().then(async () => {
   // it would be lost; otherwise `kept` names the folder and why it stays. A
   // killed pty's exit is never reported by the pty manager, so the status and
   // the renderer hear about it here. The removal waits for the process to
-  // exit, because a live cwd cannot be deleted on Windows. Unless `force`, a
+  // exit, because a live cwd cannot be deleted on Windows. `damaged` names a
+  // link target that lost entries during the removal. Unless `force`, a
   // worktree holding work stops the close before anything changes and `dirty`
   // says why.
   async function closeSession(
     key: string,
     force = false,
-  ): Promise<{ ok: boolean; kept?: string; dirty?: string }> {
+  ): Promise<{
+    ok: boolean;
+    kept?: string;
+    dirty?: string;
+    damaged?: string;
+  }> {
     const pending = sessions.get(key);
     if (!force && pending?.worktree) {
       const ws = workspaces.find((w) => w.id === pending.workspaceId);
@@ -977,9 +992,11 @@ app.whenReady().then(async () => {
     if (!ws) return { ok: true, kept: `${info.cwd} (unknown workspace)` };
     try {
       const removed = await removeWorktreeIfDone(ws.rootPath, info.cwd);
-      return removed.removed
-        ? { ok: true }
-        : { ok: true, kept: `${info.cwd} (${removed.reason})` };
+      if (!removed.removed)
+        return { ok: true, kept: `${info.cwd} (${removed.reason})` };
+      if (!removed.damaged) return { ok: true };
+      console.error("worktree removal damaged a link target:", removed.damaged);
+      return { ok: true, damaged: removed.damaged };
     } catch (err) {
       console.error(`worktree remove failed in ${ws.rootPath}:`, err);
       return { ok: true, kept: `${info.cwd} (${(err as Error).message})` };

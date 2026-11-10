@@ -18,7 +18,7 @@ export function closeSessionTab(
 ): Promise<void> {
   return window.jarvis
     .ptyClose(key, force)
-    .then(({ ok, kept, dirty }) => {
+    .then(({ ok, kept, dirty, damaged }) => {
       if (dirty)
         return deps.notify(
           `This worktree has ${dirty}. Commit, merge or move them first.`,
@@ -31,6 +31,7 @@ export function closeSessionTab(
       deps.deselect(key);
       deps.dispose(key);
       if (kept) deps.notify(`Worktree kept: ${kept}`);
+      if (damaged) deps.notify(`Linked folder lost files: ${damaged}`);
     })
     .catch((err) => deps.notify(`Could not close the session: ${err}`));
 }

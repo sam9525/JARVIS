@@ -105,12 +105,17 @@ const api = {
       dangerous,
       model,
     ),
-  // `kept` names a worktree folder left on disk, and why
+  // `kept` names a worktree folder left on disk, and why; `damaged` names a
+  // link target that lost entries during the removal
   ptyClose: (
     key: string,
     force?: boolean,
-  ): Promise<{ ok: boolean; kept?: string; dirty?: string }> =>
-    ipcRenderer.invoke("pty-close", key, force),
+  ): Promise<{
+    ok: boolean;
+    kept?: string;
+    dirty?: string;
+    damaged?: string;
+  }> => ipcRenderer.invoke("pty-close", key, force),
   // returns whether a live PTY took the write, so a caller that is not a
   // keyboard (voice) can report a send into a dead session
   ptyInput: (key: string, data: string): Promise<boolean> =>

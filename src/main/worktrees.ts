@@ -1,6 +1,12 @@
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import {
+  findLinks,
+  lostEntries,
+  snapshotTargets,
+  unlinkAll,
+} from "./worktree-links";
 
 const WORKTREES_DIR = ".worktrees";
 // ensureHooks writes this into every session folder; untracked, it would make
@@ -237,7 +243,9 @@ export async function worktreeMerged(
 export async function removeWorktreeIfDone(
   root: string,
   wtPath: string,
-): Promise<{ removed: true } | { removed: false; reason: string }> {
+): Promise<
+  { removed: true; damaged?: string } | { removed: false; reason: string }
+> {
   try {
     await fs.stat(wtPath);
   } catch {
@@ -245,9 +253,17 @@ export async function removeWorktreeIfDone(
   }
   const check = await worktreeCheck(root, wtPath);
   if (!check.clean) return { removed: false, reason: check.reason };
-  // --force is safe here: worktreeCheck passed, so what remains is leftovers,
-  // rebuildable output and line-ending noise that a plain remove would refuse
+  // git for Windows follows a junction and deletes the files behind it, so
+  // links go first, as links
+  const links = await findLinks(wtPath);
+  const snapshot = await snapshotTargets(links);
+  const unlinkFailure = await unlinkAll(links);
+  if (unlinkFailure) return { removed: false, reason: unlinkFailure };
+  // --force is safe here: worktreeCheck passed and the links are gone, so git
+  // deletes only the worktree's own files (leftovers, rebuildable output and
+  // line-ending noise that a plain remove would refuse)
   await git(root, ["worktree", "remove", "--force", wtPath]);
   await git(root, ["worktree", "prune"]);
-  return { removed: true };
+  const damaged = await lostEntries(snapshot);
+  return damaged ? { removed: true, damaged } : { removed: true };
 }

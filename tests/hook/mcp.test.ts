@@ -262,6 +262,27 @@ describe("mcp.mjs", () => {
     listener.close();
   });
 
+  it("jarvis_close names a damaged link target", async () => {
+    const listener = await fakeListener({
+      ok: true,
+      damaged: "D:/app/node_modules lost 2 entries (.bin, vitest)",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 270,
+      method: "tools/call",
+      params: {
+        name: "jarvis_close",
+        arguments: { workspace: "A", session: "1" },
+      },
+    });
+    expect(res.result.content[0].text).toContain(
+      "a link target lost files: D:/app/node_modules lost 2 entries (.bin, vitest)",
+    );
+    listener.close();
+  });
+
   it("tools/call jarvis_close POSTs to /orchestrate/close with the header", async () => {
     const listener = await fakeListener({
       ok: true,
