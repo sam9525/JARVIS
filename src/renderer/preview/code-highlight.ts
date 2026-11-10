@@ -145,7 +145,7 @@ export async function highlightCode(
       ],
     });
   } catch (error) {
-    console.error("code preview highlight failed", error);
+    console.error("code preview highlight failed", path, error);
     // one span.line per source line, joined the way Shiki joins them, so the
     // line-number gutter works on the plaintext fallback too
     const lines = code

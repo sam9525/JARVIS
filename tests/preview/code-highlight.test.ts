@@ -190,7 +190,11 @@ describe("failed highlights", () => {
     const mod = await importWithCreate(() => Promise.reject(new Error("boom")));
     const html = await mod.highlightCode("x", "a.md");
     expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0][0]).toBe("code preview highlight failed");
+    expect(error).toHaveBeenCalledWith(
+      "code preview highlight failed",
+      "a.md",
+      expect.any(Error),
+    );
     expect(html).toContain("background-color:#1e1e1e;color:#d4d4d4;");
     error.mockRestore();
   });
