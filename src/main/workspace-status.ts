@@ -209,8 +209,14 @@ export function createStatusStore(
       const stage = sessionChanged ? (ev.stage ?? "") : (ev.stage ?? e.stage);
       const message = ev.message ?? e.message;
       const messageAt = ev.message === undefined ? e.messageAt : ev.ts;
+      // a Stop from another session id (a hand-run CLI in the same folder, or a
+      // late Stop from an old session) says nothing about this entry's turn;
+      // e.sessionId is already settled for this event above
       const finished =
-        ev.kind !== "idle" ? false : ev.finished === true || e.finished;
+        ev.kind !== "idle"
+          ? false
+          : (ev.finished === true && ev.sessionId === e.sessionId) ||
+            e.finished;
       const changed =
         sessionChanged ||
         e.finished !== finished ||
@@ -423,7 +429,11 @@ export function createStatusStore(
           messageAt: latest.messageAt,
           delegatedBy: urgent.delegatedBy,
           live: all.some((e) => e.ptyOwned),
-          ...(urgent.kind === "idle" && urgent.finished
+          // idle sessions tie in urgency, so one unfinished idle session (a
+          // staleness demotion) must veto the marker
+          ...(urgent.kind === "idle" &&
+          urgent.finished &&
+          all.every((e) => e.kind !== "idle" || e.finished)
             ? { finished: true as const }
             : {}),
           since: urgent.since,

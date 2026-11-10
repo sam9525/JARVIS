@@ -889,6 +889,41 @@ describe("finished", () => {
     expect(fin(s)).toBeUndefined();
   });
 
+  it("a Stop from another session id does not mark the entry finished", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", sessionId: "s1", ts: 1000 }));
+    s.applyStatus(
+      ev({ kind: "idle", finished: true, sessionId: "s2", ts: 2000 }),
+    );
+    expect(fin(s)).toBeUndefined();
+    s.applyStatus(
+      ev({ kind: "idle", finished: true, sessionId: "s1", ts: 3000 }),
+    );
+    expect(fin(s)).toBe(true);
+  });
+
+  it("a first-ever event that is a Stop adopts its id and finishes", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "idle", finished: true, ts: 1000 }));
+    expect(fin(s)).toBe(true);
+  });
+
+  it("a finished main does not hide a second session demoted to idle", () => {
+    const s = createStatusStore();
+    const ws = { workspaceId: "d:/r" };
+    s.applyStatus(ev({ ...ws, sessionKey: "d:/r", kind: "working", ts: 1000 }));
+    s.applyStatus(
+      ev({ ...ws, sessionKey: "d:/r", kind: "idle", finished: true, ts: 2000 }),
+    );
+    s.applyStatus(
+      ev({ ...ws, sessionKey: "d:/r#2", kind: "working", ts: 3000 }),
+    );
+    s.sweep(3000 + STALE_MS);
+    const row = s.snapshot()[0];
+    expect(row?.kind).toBe("idle");
+    expect(row?.finished).toBeUndefined();
+  });
+
   it("the urgent session decides", () => {
     const s = createStatusStore();
     s.applyStatus(
