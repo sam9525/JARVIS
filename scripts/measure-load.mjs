@@ -6,7 +6,9 @@
 // Writes <out>/<scenario>.csv (one row per tree process per sample) and
 // <out>/<scenario>.machine.csv (one row of machine totals per sample). Without
 // --seconds it samples until Ctrl+C. MEASURE_LOAD_FORCE_GUARD=ram is test-only:
-// it makes the guard see no free RAM.
+// it makes the guard see no free RAM. MEASURE_LOAD_TEST_FAULT is test-only too:
+// `hang` stalls the reader's second read, `badline` makes it a non-JSON line,
+// `nogpu` blanks the total GPU read.
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,6 +36,7 @@ const MACHINE_HEADER = [
 ];
 const TICK_MS = 1000;
 const CMD_MAX = 200;
+const READ_DEADLINE_MS = 5 * TICK_MS;
 
 // One long-lived PowerShell answers each line on stdin with one JSON sample.
 // Spawning powershell.exe per sample costs seconds (start-up, plus Get-Counter
@@ -52,6 +55,14 @@ $memoryCategory = New-Object System.Diagnostics.PerformanceCounterCategory 'GPU 
 $prevBusy = @{}
 $prevWall = 0
 $prevEngine = @{}
+$testFault = $env:MEASURE_LOAD_TEST_FAULT
+$requests = 0
+
+# ConvertTo-Json in PS 5.1 writes NaN and Infinity bare, which is not JSON.
+function Finite($value) {
+  if ($null -eq $value -or [double]::IsNaN($value) -or [double]::IsInfinity($value)) { return $null }
+  return $value
+}
 
 function Read-Sample {
   $sample = @{ procs = $null; engines = @(); gpuMem = @(); freeRam = $null; totalRam = $null; commit = $null; cpu = $null; gpu = $null }
@@ -67,7 +78,7 @@ function Read-Sample {
       $cpu = $null
       if ($script:prevWall -gt 0 -and $script:prevBusy.ContainsKey($id) -and $wall -gt $script:prevWall) {
         $delta = $busy - $script:prevBusy[$id]
-        if ($delta -ge 0) { $cpu = $delta / ($wall - $script:prevWall) * 100 / $cores }
+        if ($delta -ge 0) { $cpu = Finite ($delta / ($wall - $script:prevWall) * 100 / $cores) }
       }
       [void]$procs.Add(@($id, [int]$p.ParentProcessId, [string]$p.Name, [string]$p.CommandLine, [double]$p.WorkingSetSize, [double]$p.PrivatePageCount, $cpu))
     }
@@ -86,7 +97,7 @@ function Read-Sample {
       $engineNow[$inst.InstanceName] = @($raw, $stamp)
       $prev = $script:prevEngine[$inst.InstanceName]
       if ($prev -and $stamp -gt $prev[1]) {
-        $value = ($raw - $prev[0]) / ($stamp - $prev[1]) * 100
+        $value = Finite (($raw - $prev[0]) / ($stamp - $prev[1]) * 100)
         if ($value -gt 0) {
           [void]$engines.Add(@($inst.InstanceName, $value))
           if ($inst.InstanceName -like '*_engtype_3D') { $sum3d += $value }
@@ -95,7 +106,8 @@ function Read-Sample {
     }
     $script:prevEngine = $engineNow
     $sample.engines = $engines
-    $sample.gpu = [Math]::Min(100, $sum3d)
+    $sample.gpu = Finite ([Math]::Min(100, $sum3d))
+    if ($testFault -eq 'nogpu') { $sample.gpu = $null }
   } catch { [Console]::Error.WriteLine("gpu engine: $_") }
 
   try {
@@ -113,14 +125,19 @@ function Read-Sample {
   } catch { [Console]::Error.WriteLine("os memory: $_") }
 
   try { $sample.commit = [double]$committed.RawValue } catch { [Console]::Error.WriteLine("commit: $_") }
-  try { $sample.cpu = [double]$cpuTotal.NextValue() } catch { [Console]::Error.WriteLine("cpu: $_") }
+  try { $sample.cpu = Finite ([double]$cpuTotal.NextValue()) } catch { [Console]::Error.WriteLine("cpu: $_") }
 
   ConvertTo-Json -InputObject $sample -Compress -Depth 4
 }
 
 [void](Read-Sample)
 [Console]::Out.WriteLine('ready')
-while ($null -ne [Console]::In.ReadLine()) { [Console]::Out.WriteLine((Read-Sample)) }
+while ($null -ne [Console]::In.ReadLine()) {
+  $requests++
+  if ($requests -eq 2 -and $testFault -eq 'hang') { Start-Sleep -Seconds 3600 }
+  if ($requests -eq 2 -and $testFault -eq 'badline') { [Console]::Out.WriteLine('not json'); continue }
+  [Console]::Out.WriteLine((Read-Sample))
+}
 `;
 
 function usage(message) {
@@ -244,20 +261,21 @@ let rootPid = cli.root === "auto" ? null : Number(cli.root);
 let killableRoots = null;
 let stopping = false;
 let busy = false;
+let readStartedAt = 0;
 let timer = null;
 let endAt = Infinity;
 
 const reader = startReader();
 
-function stop() {
+function stop(exitCode) {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
   reader.stop();
   console.log(`wrote ${procFile} and ${machineFile}`);
-  process.exit(0);
+  process.exit(exitCode);
 }
-process.on("SIGINT", stop);
+process.on("SIGINT", () => stop(0));
 
 function record(time, sample) {
   if (sample.procs === null) return;
@@ -298,14 +316,14 @@ function record(time, sample) {
 
   const { freeRam, totalRam, cpu, gpu } = sample;
   let guardCell = "";
-  const machineRead = [freeRam, totalRam, cpu, gpu].every(
-    (value) => value !== null && Number.isFinite(value),
-  );
-  if (machineRead && totalRam > 0) {
+  // A failed CPU or GPU read counts as 0, which resets only that metric's
+  // streak, so the RAM check still runs.
+  const finiteOrZero = (value) => (Number.isFinite(value) ? value : 0);
+  if (Number.isFinite(freeRam) && Number.isFinite(totalRam) && totalRam > 0) {
     const reason = guard({
       freeRamFrac: forceGuard === "ram" ? 0 : freeRam / totalRam,
-      cpu,
-      gpu,
+      cpu: finiteOrZero(cpu),
+      gpu: finiteOrZero(gpu),
     });
     if (reason !== null) {
       guardCell = `GUARD:${reason}`;
@@ -329,17 +347,31 @@ function record(time, sample) {
 }
 
 // A read slower than TICK_MS makes the next tick find `busy` and skip, so
-// samples land on the next free tick instead of queueing up.
+// samples land on the next free tick instead of queueing up. A read that
+// outlives READ_DEADLINE_MS ends the run, since a stalled reader also means a
+// silent guard.
 async function tick() {
-  if (busy || stopping) return;
+  if (stopping) return;
   if (Date.now() >= endAt) {
-    stop();
+    stop(0);
+    return;
+  }
+  if (busy) {
+    if (Date.now() - readStartedAt > READ_DEADLINE_MS) {
+      console.error(
+        `reader gave no sample for ${READ_DEADLINE_MS / 1000} s; stopping`,
+      );
+      stop(1);
+    }
     return;
   }
   busy = true;
+  readStartedAt = Date.now();
   const time = new Date().toISOString();
   try {
     record(time, await reader.read());
+  } catch (error) {
+    console.error(`sample at ${time} skipped: ${error.message}`);
   } finally {
     busy = false;
   }
