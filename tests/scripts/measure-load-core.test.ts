@@ -26,7 +26,7 @@ const procs = [
   proc(101, 100, "electron.exe", "electron.exe --type=renderer"),
   proc(102, 100, "electron.exe", "electron.exe --type=gpu-process"),
   proc(103, 100, "electron.exe", "electron.exe --type=utility"),
-  proc(110, 100, "cmd.exe"),
+  proc(110, 100, "cmd.exe", "cmd.exe /c claude --model sonnet"),
   proc(111, 110, "claude.exe"),
   proc(112, 111, "node.exe", "node gitnexus mcp"),
   proc(113, 100, "OpenConsole.exe"),
@@ -55,6 +55,33 @@ describe("measure-load-core", () => {
 
   it("sessionRoots finds one pid per PTY", () => {
     expect(sessionRoots(procs, 100)).toEqual([110]);
+  });
+
+  it("a cmd.exe running anything but claude is not a session root", () => {
+    const withGitnexus = [
+      ...procs,
+      proc(
+        120,
+        100,
+        "cmd.exe",
+        'C:\\WINDOWS\\system32\\cmd.exe /d /s /c "gitnexus cypher MATCH (n) RETURN n"',
+      ),
+      proc(121, 120, "node.exe", "node gitnexus cypher"),
+    ];
+    expect(sessionRoots(withGitnexus, 100)).toEqual([110]);
+    expect(groupOf(withGitnexus[9], withGitnexus, 100)).toBe("other");
+    expect(groupOf(withGitnexus[10], withGitnexus, 100)).toBe("other");
+  });
+
+  it("a cmd.exe /c claude child of main is a session root", () => {
+    const shell = proc(
+      130,
+      100,
+      "cmd.exe",
+      "C:\\WINDOWS\\system32\\cmd.exe /c claude --model sonnet",
+    );
+    expect(sessionRoots([...procs, shell], 100)).toEqual([110, 130]);
+    expect(groupOf(shell, [...procs, shell], 100)).toBe("session");
   });
 
   it("protectedRoots returns only roots outside the initial set", () => {

@@ -290,6 +290,13 @@ function record(time, sample) {
     }
     console.log(`root pid ${rootPid}`);
   }
+  // A vanished root's pid can be reused, and walking or killing that tree
+  // would hit unrelated processes, so the run ends instead.
+  if (!fullProcs.some((p) => p.pid === rootPid)) {
+    console.error(`ROOT GONE ${rootPid}`);
+    stop(2);
+    return;
+  }
   const procs = fullProcs.map((p) => ({ ...p, cmd: p.cmd.slice(0, CMD_MAX) }));
   const engines = sample.engines.map(([instance, value]) => ({
     instance,
@@ -312,7 +319,13 @@ function record(time, sample) {
   }
 
   const roots = sessionRoots(procs, rootPid);
-  killableRoots ??= protectedRoots(roots);
+  if (killableRoots === null) {
+    killableRoots = protectedRoots(roots);
+    if (roots.length === 0) console.log("PROTECTED none");
+    for (const pid of roots) {
+      console.log(`PROTECTED ${pid} ${procs.find((p) => p.pid === pid).cmd}`);
+    }
+  }
 
   const { freeRam, totalRam, cpu, gpu } = sample;
   let guardCell = "";

@@ -38,7 +38,11 @@ export function treePids(procs, rootPid) {
   return tree;
 }
 
-const isSessionShell = (name) => name === "cmd.exe" || name === "claude.exe";
+// JARVIS also runs `gitnexus` through a cmd.exe child of main, so a cmd.exe
+// is a session only when it is the PTY's `cmd.exe /c claude …`.
+const isSessionShell = (proc) =>
+  proc.name === "claude.exe" ||
+  (proc.name === "cmd.exe" && /\/c\s+claude\b/i.test(proc.cmd));
 
 /**
  * @param {Proc[]} procs
@@ -47,7 +51,7 @@ const isSessionShell = (name) => name === "cmd.exe" || name === "claude.exe";
  */
 export function sessionRoots(procs, rootPid) {
   return procs
-    .filter((p) => p.ppid === rootPid && isSessionShell(p.name))
+    .filter((p) => p.ppid === rootPid && isSessionShell(p))
     .map((p) => p.pid);
 }
 
