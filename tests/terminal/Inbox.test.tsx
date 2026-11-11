@@ -263,3 +263,38 @@ describe("Inbox", () => {
     );
   });
 });
+
+describe("Inbox turn endings", () => {
+  const rowFor = (over: Partial<WorkspaceStatus>) => {
+    render(
+      <Inbox
+        workspaces={workspaces}
+        statuses={[status({ workspaceId: "w1", kind: "idle", ...over })]}
+        activeId={null}
+        onSelect={() => {}}
+      />,
+    );
+    return currentTree;
+  };
+  const has = (tree: any, fn: (n: any) => boolean) => walk(tree, fn) !== null;
+
+  it("shows an idle question with the asking dot and word", () => {
+    const tree = rowFor({ ended: "question", message: "A or B?" });
+    expect(
+      has(tree, (n) => String(n.props?.className).includes("hud-glow-warm")),
+    ).toBe(true);
+    expect(has(tree, (n) => n.props?.children === "asking")).toBe(true);
+    // the preview still reads the message: idle is the raw kind
+    expect(screen.getByTestId("inbox-preview-w1").props.children).toBe(
+      "A or B?",
+    );
+  });
+
+  it("shows an idle error with the crashed dot and word", () => {
+    const tree = rowFor({ ended: "failed", message: "boom" });
+    expect(
+      has(tree, (n) => String(n.props?.className).includes("bg-alarm")),
+    ).toBe(true);
+    expect(has(tree, (n) => n.props?.children === "crashed")).toBe(true);
+  });
+});

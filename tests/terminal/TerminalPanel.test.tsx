@@ -422,3 +422,50 @@ describe("TerminalPanel writes to a dead terminal", () => {
     );
   });
 });
+
+describe("TerminalPanel turn endings", () => {
+  const detailFor = (ended: "question" | "failed") => {
+    const inbox = {
+      workspaces: [workspace],
+      statuses: [
+        {
+          workspaceId: "w1",
+          kind: "idle" as const,
+          call: "",
+          message: "hm",
+          since: 0,
+          reads: 0,
+          edits: 0,
+          sessions: [],
+          ended,
+        },
+      ],
+    };
+    find(
+      render({ inbox }),
+      (n) => typeof n.props?.onSelect === "function",
+    ).props.onSelect(workspace);
+    return find(
+      render({ inbox }),
+      (n) => n.props?.["data-testid"] === "inbox-detail",
+    );
+  };
+
+  it("shows an idle question's detail as asking", () => {
+    expect(text(detailFor("question").props.children)).toContain("asking you");
+  });
+
+  it("shows an idle error's detail as crashed", () => {
+    expect(text(detailFor("failed").props.children)).toContain("crashed");
+  });
+
+  it("leaves the composer ungated for an idle question", () => {
+    setViewMode(workspace.id, "screen");
+    const tree = render({
+      sessionStatus: { kind: "idle", call: "", ended: "question" },
+    });
+    const footer = find(tree, (n) => n.type === SessionScreen).props.footer;
+    const composer = find(footer, (n) => "awaitingAnswer" in (n.props ?? {}));
+    expect(composer.props.awaitingAnswer).toBe(false);
+  });
+});

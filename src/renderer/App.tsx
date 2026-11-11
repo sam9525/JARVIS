@@ -122,6 +122,7 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 import { parseSessionKey } from "../shared/session-key";
+import { displayKind } from "../shared/turn-end";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
 import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
@@ -1377,9 +1378,9 @@ export default function App() {
 
   const telemetry = showHome
     ? `COMMAND CENTER · ${fleet.length} WORKSPACES · ` +
-      `${fleetStatuses.filter((s) => s.kind === "asking").length} ASKING · ` +
-      `${fleetStatuses.filter((s) => s.kind === "blocked").length} BLOCKED · ` +
-      `${fleetStatuses.filter((s) => s.kind === "working").length} WORKING`
+      `${fleetStatuses.filter((s) => displayKind(s) === "asking").length} ASKING · ` +
+      `${fleetStatuses.filter((s) => displayKind(s) === "blocked").length} BLOCKED · ` +
+      `${fleetStatuses.filter((s) => displayKind(s) === "working").length} WORKING`
     : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
       `EDGES ${graph.edges.length} · ` +
       `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;

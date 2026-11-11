@@ -450,3 +450,30 @@ describe("boot stagger", () => {
     expect(railSeats([])).toBe(2);
   });
 });
+
+describe("WorkspaceRail turn endings", () => {
+  const renderEnded = (ended: "question" | "failed") =>
+    render(
+      <WorkspaceRail
+        workspaces={workspaces}
+        activeId="w1"
+        statuses={[status({ workspaceId: "w1", kind: "idle", ended })]}
+        homeActive={false}
+        onHome={() => {}}
+        onSelect={() => {}}
+        onAddProject={() => {}}
+      />,
+    );
+
+  it("shows an idle question as asking", () => {
+    renderEnded("question");
+    expect(screen.getByTestId("badge-w1").className).toContain("bg-warm");
+    expect(screen.getByTitle(/asking you/).title).toContain("vault");
+  });
+
+  it("shows an idle error as crashed", () => {
+    renderEnded("failed");
+    expect(screen.getByTestId("badge-w1").className).toContain("bg-alarm");
+    expect(screen.getByTitle(/crashed/).title).toContain("vault");
+  });
+});

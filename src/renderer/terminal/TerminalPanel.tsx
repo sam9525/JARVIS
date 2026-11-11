@@ -13,8 +13,10 @@ import {
   releaseDetached,
 } from "./terminal-registry";
 import { MAIN_LABEL, sessionKey as keyOf } from "../../shared/session-key";
+import { displayKind } from "../../shared/turn-end";
 import type {
   StatusKind,
+  TurnEnd,
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
@@ -147,7 +149,7 @@ export default function TerminalPanel({
   visible?: boolean;
   // the session's open question, answered inline on the screen
   ask?: AskPrompt;
-  sessionStatus?: { kind: StatusKind; call: string };
+  sessionStatus?: { kind: StatusKind; call: string; ended?: TurnEnd };
   // what the composer's `@` offers: the workspace's graph files
   files?: string[];
   // resolves false when the session has no terminal to write to
@@ -379,16 +381,16 @@ export default function TerminalPanel({
         >
           {/* state bar: the panel says which state it is before you read it */}
           <span
-            className={`absolute top-3.5 bottom-3.5 -left-px w-0.5 rounded-full bg-gradient-to-b to-transparent ${BAR[detail.status.kind]}`}
+            className={`absolute top-3.5 bottom-3.5 -left-px w-0.5 rounded-full bg-gradient-to-b to-transparent ${BAR[displayKind(detail.status)]}`}
           />
           <div className="flex items-center gap-2.5 border-b border-edge px-4 pt-3 pb-2.5">
             <span className="truncate font-semibold text-ink">
               {detail.ws.name}
             </span>
             <span
-              className={`flex-none rounded-full border px-2 py-0.5 text-[10.5px] font-semibold tracking-[0.1em] uppercase ${PILL[detail.status.kind]}`}
+              className={`flex-none rounded-full border px-2 py-0.5 text-[10.5px] font-semibold tracking-[0.1em] uppercase ${PILL[displayKind(detail.status)]}`}
             >
-              {PILL_LABEL[detail.status.kind]}
+              {PILL_LABEL[displayKind(detail.status)]}
             </span>
             <span className="ml-auto flex-none text-[12px] text-ink-dim tabular-nums">
               {relativeTime(detail.status.since, Date.now())}

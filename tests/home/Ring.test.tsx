@@ -430,3 +430,22 @@ describe("Ring: refresh (layoutEpoch)", () => {
     expect(after.nodes[0].id).toBe("a");
   });
 });
+
+describe("Ring turn endings", () => {
+  it("draws an idle question like a question and an idle error like a crash", () => {
+    render(
+      <Ring
+        {...(props({
+          statuses: [
+            status({ workspaceId: "w1", kind: "idle", ended: "question" }),
+            status({ workspaceId: "w2", kind: "idle", ended: "failed" }),
+          ],
+        }) as any)}
+      />,
+    );
+    const tile = (id: string) => byTestId(`tile-${id}`)!;
+    expect(tile("w1").className).toContain("border-warm");
+    expect(tile("w2").className).not.toContain("border-warm");
+    expect(tile("w2").querySelector(".bg-alarm")).not.toBeNull();
+  });
+});
