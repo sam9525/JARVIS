@@ -62,6 +62,7 @@ import {
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { ensureScratch, scratchWorkspace } from "./scratch";
 import { createSessionRegistry } from "./sessions";
+import { closeQuietSessions } from "./idle-close";
 import {
   createWorktree,
   existingWorktreeFolders,
@@ -728,6 +729,30 @@ app.whenReady().then(async () => {
       console.error(`closing merged tabs in ${workspaceId} failed:`, err);
     }
   }
+
+  // A delegate whose terminal has been silent for IDLE_CLOSE_MS is done with
+  // its task; closing it frees its claude.exe and MCP servers. The main agent
+  // opens a fresh session for the next task.
+  const idleCloseTimer = setInterval(() => {
+    closeQuietSessions({
+      keys: () =>
+        workspaces
+          .filter((w) => !w.isSelf)
+          .flatMap((w) => sessions.forWorkspace(w.id))
+          .filter((s) => ptyManager.has(s.key)) // a crashed tab waits for the user
+          .map((s) => s.key),
+      msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
+      // orchestrator.close forces past worktreeCheck, so check it here
+      keepsWork: async (key) => {
+        const info = sessions.get(key);
+        const ws = workspaces.find((w) => w.id === info?.workspaceId);
+        if (!info?.worktree || !ws) return false;
+        return !(await worktreeCheck(ws.rootPath, info.cwd)).clean;
+      },
+      closeIfIdle: (key) => orchestrator.closeIfIdle(key),
+    }).catch((err) => console.error("idle close failed:", err));
+  }, 60 * 1000);
+  app.on("before-quit", () => clearInterval(idleCloseTimer));
 
   // sessions whose hooks have reached the listener: proof that a typed prompt
   // can be confirmed by its UserPromptSubmit
