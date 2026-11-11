@@ -57,7 +57,7 @@ export function writeLinkSegment(
 }
 
 /**
- * Fleet (`lite`) view: draw ALL edges as one merged fat-line object instead of
+ * Draw ALL edges as one merged fat-line object instead of
  * a Line2 per edge. Hundreds of link draw calls — and their transparency-sort
  * entries — collapse to one, which is the whole point of the mode.
  *
@@ -66,7 +66,6 @@ export function writeLinkSegment(
  */
 export function useMergedLinks(
   fgRef: React.MutableRefObject<SceneHandle | undefined>,
-  enabled: boolean,
   links: LinkObj[],
   nodeById: Map<string, NodeObj>,
   linkColors: Map<string, string>,
@@ -106,7 +105,6 @@ export function useMergedLinks(
   writeRef.current = writePositions;
 
   useEffect(() => {
-    if (!enabled) return;
     const scene = fgRef.current?.scene();
     if (!scene) return;
     const geo = new LineSegmentsGeometry();
@@ -144,7 +142,7 @@ export function useMergedLinks(
       geo.dispose();
       merged.current = undefined;
     };
-  }, [enabled, links, linkColors, material, fgRef]);
+  }, [links, linkColors, material, fgRef]);
 
   return writePositions;
 }

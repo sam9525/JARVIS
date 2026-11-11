@@ -132,25 +132,21 @@ describe("Graph3D component", () => {
     expect(element.props.controlType).toBe("orbit");
   });
 
-  it("renders links as custom gradient objects", async () => {
+  it("hides the library's links and drives the merged ones per tick", async () => {
     const { default: Graph3D } =
       await import("../../src/renderer/graph/Graph3D");
     const element = Graph3D(makeProps(sampleGraph) as any) as any;
-    expect(typeof element.props.linkThreeObject).toBe("function");
-    expect(typeof element.props.linkPositionUpdate).toBe("function");
-    expect(element.props.linkColor).toBeUndefined();
-    expect(element.props.linkWidth).toBeUndefined();
+    expect(element.props.linkVisibility).toBe(false);
+    expect(element.props.linkThreeObject).toBeUndefined();
+    expect(typeof element.props.onEngineTick).toBe("function");
   });
 
-  it("lite mode hides the library's links and drives merged ones per tick", async () => {
+  it("lite mode draws cheaper spheres", async () => {
     const { default: Graph3D } =
       await import("../../src/renderer/graph/Graph3D");
     const props = { ...makeProps(sampleGraph), lite: true } as any;
     const element = Graph3D(props) as any;
     expect(element.props.nodeResolution).toBe(10);
-    expect(element.props.linkVisibility).toBe(false);
-    expect(element.props.linkThreeObject).toBeUndefined();
-    expect(typeof element.props.onEngineTick).toBe("function");
   });
 
   it("grows a hot node through nodeVal, leaving node.r for forceCollide", async () => {
