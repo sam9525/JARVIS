@@ -834,36 +834,36 @@ describe("keys that answer a prompt", () => {
   });
 });
 
-describe("finished", () => {
+describe("ended", () => {
   const fin = (s: ReturnType<typeof createStatusStore>) =>
-    s.snapshot()[0]?.finished;
+    s.snapshot()[0]?.ended;
   const stopped = () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "working", ts: 1000 }));
-    s.applyStatus(ev({ kind: "idle", finished: true, ts: 5000 }));
+    s.applyStatus(ev({ kind: "idle", ended: "finished", ts: 5000 }));
     return s;
   };
 
-  it("Stop sets finished, with since at the Stop", () => {
+  it("Stop sets ended finished, with since at the Stop", () => {
     const s = stopped();
-    expect(fin(s)).toBe(true);
+    expect(fin(s)).toBe("finished");
     expect(s.snapshot()[0]?.since).toBe(5000);
   });
 
-  it("idle_prompt after Stop keeps finished", () => {
+  it("idle_prompt after Stop keeps ended", () => {
     const s = stopped();
     s.applyStatus(ev({ kind: "idle", ts: 65000 }));
-    expect(fin(s)).toBe(true);
+    expect(fin(s)).toBe("finished");
     expect(s.snapshot()[0]?.since).toBe(5000);
   });
 
-  it("a new prompt or tool clears finished", () => {
+  it("a new prompt or tool clears ended", () => {
     const s = stopped();
     s.applyStatus(ev({ kind: "working", call: "Bash(ls)", ts: 6000 }));
     expect(fin(s)).toBeUndefined();
   });
 
-  it("asking and blocked clear finished", () => {
+  it("asking and blocked clear ended", () => {
     for (const kind of ["asking", "blocked"] as const) {
       const s = stopped();
       s.applyStatus(ev({ kind, ts: 6000 }));
@@ -871,7 +871,7 @@ describe("finished", () => {
     }
   });
 
-  it("the staleness sweep never sets finished", () => {
+  it("the staleness sweep never sets ended", () => {
     const s = createStatusStore();
     s.ptyLaunched("w1", 0);
     s.applyStatus(ev({ kind: "working", ts: 1000 }));
@@ -880,7 +880,7 @@ describe("finished", () => {
     expect(fin(s)).toBeUndefined();
   });
 
-  it("a crash clears finished for the relaunch", () => {
+  it("a crash clears ended for the relaunch", () => {
     const s = stopped();
     s.ptyExited("w1", 7000, 1);
     s.ptyLaunched("w1", 8000);
@@ -889,23 +889,126 @@ describe("finished", () => {
     expect(fin(s)).toBeUndefined();
   });
 
-  it("a Stop from another session id does not mark the entry finished", () => {
+  it("a Stop from another session id does not set ended", () => {
     const s = createStatusStore();
     s.applyStatus(ev({ kind: "working", sessionId: "s1", ts: 1000 }));
     s.applyStatus(
-      ev({ kind: "idle", finished: true, sessionId: "s2", ts: 2000 }),
+      ev({ kind: "idle", ended: "finished", sessionId: "s2", ts: 2000 }),
     );
     expect(fin(s)).toBeUndefined();
     s.applyStatus(
-      ev({ kind: "idle", finished: true, sessionId: "s1", ts: 3000 }),
+      ev({ kind: "idle", ended: "finished", sessionId: "s1", ts: 3000 }),
     );
-    expect(fin(s)).toBe(true);
+    expect(fin(s)).toBe("finished");
   });
 
   it("a first-ever event that is a Stop adopts its id and finishes", () => {
     const s = createStatusStore();
-    s.applyStatus(ev({ kind: "idle", finished: true, ts: 1000 }));
-    expect(fin(s)).toBe(true);
+    s.applyStatus(ev({ kind: "idle", ended: "finished", ts: 1000 }));
+    expect(fin(s)).toBe("finished");
+  });
+
+  it("a question ending shows beside a working main", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    s.applyStatus(
+      ev({ sessionKey: "w1#1", kind: "idle", ended: "question", ts: 2000 }),
+    );
+    const row = s.snapshot()[0];
+    expect(row?.kind).toBe("idle");
+    expect(row?.ended).toBe("question");
+    expect(row?.sessions.find((x) => x.key === "w1#1")?.ended).toBe("question");
+  });
+
+  it("a failed ending is outranked by a working session", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    s.applyStatus(
+      ev({
+        sessionKey: "w1#1",
+        kind: "idle",
+        ended: "failed",
+        error: "rate_limit",
+        ts: 2000,
+      }),
+    );
+    const row = s.snapshot()[0];
+    expect(row?.kind).toBe("working");
+    expect(row?.ended).toBeUndefined();
+  });
+
+  it("a failed ending carries its error to the workspace", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    s.applyStatus(ev({ kind: "idle", ended: "finished", ts: 1500 }));
+    s.applyStatus(
+      ev({
+        sessionKey: "w1#1",
+        kind: "idle",
+        ended: "failed",
+        error: "rate_limit",
+        ts: 2000,
+      }),
+    );
+    const row = s.snapshot()[0];
+    expect(row?.kind).toBe("idle");
+    expect(row?.ended).toBe("failed");
+    expect(row?.error).toBe("rate_limit");
+    expect(row?.sessions.find((x) => x.key === "w1#1")?.error).toBe(
+      "rate_limit",
+    );
+  });
+
+  it("a question is not vetoed by a swept-to-idle sibling", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    s.sweep(1000 + STALE_MS);
+    s.applyStatus(
+      ev({
+        sessionKey: "w1#1",
+        kind: "idle",
+        ended: "question",
+        ts: 1000 + STALE_MS,
+      }),
+    );
+    expect(s.snapshot()[0]?.ended).toBe("question");
+  });
+
+  it("finished is vetoed by a swept-to-idle sibling", () => {
+    const s = createStatusStore();
+    s.ptyLaunched("w1", 0);
+    s.applyStatus(ev({ kind: "working", ts: 1000 }));
+    s.sweep(1000 + STALE_MS);
+    s.applyStatus(
+      ev({
+        sessionKey: "w1#1",
+        kind: "idle",
+        ended: "finished",
+        ts: 1000 + STALE_MS,
+      }),
+    );
+    expect(s.snapshot()[0]?.ended).toBeUndefined();
+  });
+
+  it("a Stop from another session id does not overwrite a failure", () => {
+    const s = createStatusStore();
+    s.applyStatus(ev({ kind: "working", sessionId: "s1", ts: 1000 }));
+    s.applyStatus(
+      ev({
+        kind: "idle",
+        ended: "failed",
+        error: "overloaded",
+        sessionId: "s1",
+        ts: 2000,
+      }),
+    );
+    s.applyStatus(
+      ev({ kind: "idle", ended: "finished", sessionId: "s2", ts: 3000 }),
+    );
+    const row = s.snapshot()[0];
+    expect(row?.ended).toBe("failed");
+    expect(row?.error).toBe("overloaded");
   });
 
   it("a finished main does not hide a second session demoted to idle", () => {
@@ -913,7 +1016,13 @@ describe("finished", () => {
     const ws = { workspaceId: "d:/r" };
     s.applyStatus(ev({ ...ws, sessionKey: "d:/r", kind: "working", ts: 1000 }));
     s.applyStatus(
-      ev({ ...ws, sessionKey: "d:/r", kind: "idle", finished: true, ts: 2000 }),
+      ev({
+        ...ws,
+        sessionKey: "d:/r",
+        kind: "idle",
+        ended: "finished",
+        ts: 2000,
+      }),
     );
     s.applyStatus(
       ev({ ...ws, sessionKey: "d:/r#2", kind: "working", ts: 3000 }),
@@ -921,7 +1030,7 @@ describe("finished", () => {
     s.sweep(3000 + STALE_MS);
     const row = s.snapshot()[0];
     expect(row?.kind).toBe("idle");
-    expect(row?.finished).toBeUndefined();
+    expect(row?.ended).toBeUndefined();
   });
 
   it("the urgent session decides", () => {
@@ -931,7 +1040,7 @@ describe("finished", () => {
         workspaceId: "d:/r",
         sessionKey: "d:/r",
         kind: "idle",
-        finished: true,
+        ended: "finished",
         ts: 2000,
       }),
     );
@@ -947,6 +1056,6 @@ describe("finished", () => {
     const row = s.snapshot()[0];
     expect(row?.kind).toBe("working");
     expect(row?.call).toBe("Bash(npm test)");
-    expect(row?.finished).toBeUndefined();
+    expect(row?.ended).toBeUndefined();
   });
 });
