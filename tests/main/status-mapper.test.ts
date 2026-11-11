@@ -214,6 +214,7 @@ describe("mapStatusEvent", () => {
     expect(stop("Done.\n\nMerge it?")?.ended).toBe("question");
     expect(stop("Done.")?.ended).toBe("finished");
     expect(stop()?.ended).toBe("finished");
+    expect(stop("")).toMatchObject({ message: "", ended: "finished" });
     expect(
       mapStatusEvent(
         {

@@ -83,14 +83,14 @@ export function mapStatusEvent(
       const message =
         typeof raw.last_assistant_message === "string"
           ? raw.last_assistant_message
-          : "";
+          : undefined;
       return {
         ...common,
         kind: "idle",
         call: "",
         step: "",
-        ended: endsWithQuestion(message) ? "question" : "finished",
-        message: message || undefined,
+        ended: endsWithQuestion(message ?? "") ? "question" : "finished",
+        message,
       };
     }
     case "StopFailure": {
