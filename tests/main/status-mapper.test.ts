@@ -19,7 +19,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { mapStatusEvent } from "../../src/main/status-mapper";
+import { endsWithQuestion, mapStatusEvent } from "../../src/main/status-mapper";
 import { callSignature } from "../../src/shared/call-signature";
 import { buildWorkspaces } from "../../src/main/workspaces";
 import type { Workspace } from "../../src/shared/types";
@@ -187,11 +187,33 @@ describe("mapStatusEvent", () => {
     expect(e?.kind).toBe("idle");
   });
 
-  it("Stop marks the turn finished; idle_prompt does not", () => {
+  it("endsWithQuestion reads the last paragraph only", () => {
+    expect(endsWithQuestion("Done.\n\nShould I merge it?")).toBe(true);
     expect(
-      mapStatusEvent({ ...base, hook_event_name: "Stop" }, workspaces)
-        ?.finished,
-    ).toBe(true);
+      endsWithQuestion("Should I?\n\nLet me know if you want changes."),
+    ).toBe(false);
+    expect(endsWithQuestion("**Next** - is a fresh session fine?**")).toBe(
+      true,
+    );
+    expect(endsWithQuestion("Ok?\r\n\r\nAll set.")).toBe(false);
+    expect(endsWithQuestion("Ready.\r\n\r\nShip it?")).toBe(true);
+    expect(endsWithQuestion("Is this right?\n\n```\nx?\n```")).toBe(false);
+    expect(endsWithQuestion("")).toBe(false);
+  });
+
+  it("Stop records how the turn ended; idle_prompt does not", () => {
+    const stop = (msg?: string) =>
+      mapStatusEvent(
+        {
+          ...base,
+          hook_event_name: "Stop",
+          ...(msg === undefined ? {} : { last_assistant_message: msg }),
+        },
+        workspaces,
+      );
+    expect(stop("Done.\n\nMerge it?")?.ended).toBe("question");
+    expect(stop("Done.")?.ended).toBe("finished");
+    expect(stop()?.ended).toBe("finished");
     expect(
       mapStatusEvent(
         {
@@ -200,8 +222,29 @@ describe("mapStatusEvent", () => {
           notification_type: "idle_prompt",
         },
         workspaces,
-      )?.finished,
+      )?.ended,
     ).toBeUndefined();
+  });
+
+  it("StopFailure ends the turn as failed with the error and a message", () => {
+    const fail = (extra: Record<string, unknown>) =>
+      mapStatusEvent(
+        { ...base, hook_event_name: "StopFailure", ...extra },
+        workspaces,
+      );
+    const e = fail({ error: "rate_limit", last_assistant_message: "partial" });
+    expect(e).toMatchObject({
+      kind: "idle",
+      call: "",
+      step: "",
+      ended: "failed",
+      error: "rate_limit",
+      message: "partial",
+    });
+    expect(fail({ error: "overloaded" })?.message).toBe("Overloaded");
+    const odd = fail({ error: 42 });
+    expect(odd?.error).toBe("");
+    expect(odd?.message).toBe("API error");
   });
 
   it("Stop carries the transcript path when the payload has one", () => {

@@ -15,6 +15,7 @@ export interface RawHookEvent {
   tool_input?: Record<string, unknown>;
   tool_response?: unknown; // PostToolUse only; read for Grep/Glob matches, gitnexus impact hits and AskUserQuestion answers
   notification_type?: string; // Notification only; read by status-mapper.ts
+  error?: unknown; // StopFailure only: the API error type
   last_assistant_message?: string; // Stop only; the final assistant text of the turn
   prompt?: string; // UserPromptSubmit only; read by status-mapper.ts
   transcript_path?: string; // Stop only; read by status-mapper.ts for the topic

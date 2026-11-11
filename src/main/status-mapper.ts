@@ -2,6 +2,7 @@ import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
 import type { PipelineStage, StatusEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 import { callSignature } from "../shared/call-signature";
+import { errorLabel } from "../shared/turn-end";
 
 // The question's own short chip label — what AskUserQuestion provides for
 // exactly this purpose. No questions, or no header, and the bare tool name is
@@ -11,6 +12,20 @@ function askHeader(input: Record<string, unknown>): string {
   if (!Array.isArray(qs) || qs.length === 0) return "AskUserQuestion";
   const h = (qs[0] as Record<string, unknown> | undefined)?.header;
   return typeof h === "string" && h ? h : "AskUserQuestion";
+}
+
+// A turn that stops on a plain-text question ends its last paragraph with "?".
+// Markdown emphasis or code ticks around the mark are ignored; a trailing code
+// fence makes the last paragraph a fence, so it is not a question.
+export function endsWithQuestion(text: string): boolean {
+  const paragraphs = text
+    .replace(/\r\n/g, "\n")
+    .split(/\n\s*\n/)
+    .filter((p) => p.trim() !== "");
+  const last = paragraphs[paragraphs.length - 1] ?? "";
+  const trimmed = last.trim();
+  if (trimmed.startsWith("```")) return false;
+  return trimmed.replace(/[*_`\s]+$/, "").endsWith("?");
 }
 
 const STAGE_BY_SKILL: Record<string, PipelineStage> = {
@@ -64,18 +79,39 @@ export function mapStatusEvent(
       if (t === "idle_prompt") return { ...common, kind: "idle", call: "" };
       return null; // auth, elicitation, agent-view events are not our business
     }
-    case "Stop":
+    case "Stop": {
+      const message =
+        typeof raw.last_assistant_message === "string"
+          ? raw.last_assistant_message
+          : "";
       return {
         ...common,
         kind: "idle",
         call: "",
         step: "",
-        finished: true,
-        message:
-          typeof raw.last_assistant_message === "string"
-            ? raw.last_assistant_message
-            : undefined,
+        ended: endsWithQuestion(message) ? "question" : "finished",
+        message: message || undefined,
       };
+    }
+    case "StopFailure": {
+      const error = typeof raw.error === "string" ? raw.error : "";
+      // publishFinish drops empty text, so an error without a message
+      // still needs the label to wake the agent
+      const message =
+        typeof raw.last_assistant_message === "string" &&
+        raw.last_assistant_message
+          ? raw.last_assistant_message
+          : errorLabel(error);
+      return {
+        ...common,
+        kind: "idle",
+        call: "",
+        step: "",
+        ended: "failed",
+        error,
+        message,
+      };
+    }
     case "UserPromptSubmit":
       return {
         ...common,
