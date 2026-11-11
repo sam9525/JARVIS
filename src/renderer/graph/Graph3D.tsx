@@ -43,6 +43,10 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
 
+// the library draws on every display refresh (~120 Hz); 30 fps looks the same
+// for a slow graph and costs a quarter of the renderer and GPU work
+const FRAME_MS = 1000 / 30;
+
 // idle auto-rotation: resume this long after the last interaction
 const IDLE_ROTATE_MS = 5000;
 const ROTATE_SPEED = 1;
@@ -480,8 +484,10 @@ export default function Graph3D({
     // release inertia: the drag coasts and slows to a stop instead of
     // halting dead. autoRotate already animates each frame, which proves
     // controls.update() runs per frame — damping rides the same loop.
+    // Damping is per frame, not per second: 0.12 at 30 fps glides as long as
+    // 0.03 did at 120 fps (1 - 0.97^4 ≈ 0.12).
     controls.enableDamping = true;
-    controls.dampingFactor = 0.03;
+    controls.dampingFactor = 0.12;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopRotate = () => {
       controls.autoRotate = false;
@@ -503,6 +509,26 @@ export default function Graph3D({
       controls.removeEventListener("end", armRotate);
       clearTimeout(timer);
     };
+  }, []);
+
+  // cap the library's draw loop: resumeAnimation() runs one frame (physics
+  // tick + controls + render) and schedules the next, which pauseAnimation()
+  // cancels at once. Autorotate and tweens scale by elapsed time, so their
+  // speed holds; the layout steps once per frame, so it settles 4x slower.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    fg.pauseAnimation();
+    let last = 0;
+    let raf = requestAnimationFrame(function frame(now) {
+      raf = requestAnimationFrame(frame);
+      if (now - last < FRAME_MS - 1) return; // 1 ms slack for vsync jitter
+      // step the deadline, not to `now`, so any refresh rate averages 30 fps
+      last = Math.max(last + FRAME_MS, now - FRAME_MS);
+      fg.resumeAnimation();
+      fg.pauseAnimation();
+    });
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   // keep the line material's resolution matched to the canvas so screen-space
@@ -742,7 +768,7 @@ export default function Graph3D({
       backgroundColor={COLORS.bg}
       controlType="orbit"
       nodeResolution={lite ? 10 : 16}
-      cooldownTicks={300} // settle in ~1-2s instead of the default 15s so the fit fires promptly
+      cooldownTicks={300} // one tick per frame: ~10 s at the 30 fps cap, inside the default 15 s cooldownTime
       onEngineStop={() => {
         if (lite) writeMergedPositions(); // final coords, even on a 0-tick settle
         if (didFit.current) return;
