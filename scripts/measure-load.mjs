@@ -6,9 +6,7 @@
 // Writes <out>/<scenario>.csv (one row per tree process per sample) and
 // <out>/<scenario>.machine.csv (one row of machine totals per sample). Without
 // --seconds it samples until Ctrl+C. MEASURE_LOAD_FORCE_GUARD=ram is test-only:
-// it makes the guard see no free RAM. MEASURE_LOAD_TEST_FAULT is test-only too:
-// `hang` stalls the reader's second read, `badline` makes it a non-JSON line,
-// `nogpu` blanks the total GPU read.
+// it makes the guard see no free RAM.
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,6 +20,8 @@ import {
   protectedRoots,
   sessionRoots,
   toCsvLine,
+  toMb,
+  toPct,
 } from "./measure-load-core.mjs";
 
 const MACHINE_HEADER = [
@@ -55,8 +55,6 @@ $memoryCategory = New-Object System.Diagnostics.PerformanceCounterCategory 'GPU 
 $prevBusy = @{}
 $prevWall = 0
 $prevEngine = @{}
-$testFault = $env:MEASURE_LOAD_TEST_FAULT
-$requests = 0
 
 # ConvertTo-Json in PS 5.1 writes NaN and Infinity bare, which is not JSON.
 function Finite($value) {
@@ -107,7 +105,6 @@ function Read-Sample {
     $script:prevEngine = $engineNow
     $sample.engines = $engines
     $sample.gpu = Finite ([Math]::Min(100, $sum3d))
-    if ($testFault -eq 'nogpu') { $sample.gpu = $null }
   } catch { [Console]::Error.WriteLine("gpu engine: $_") }
 
   try {
@@ -133,9 +130,6 @@ function Read-Sample {
 [void](Read-Sample)
 [Console]::Out.WriteLine('ready')
 while ($null -ne [Console]::In.ReadLine()) {
-  $requests++
-  if ($requests -eq 2 -and $testFault -eq 'hang') { Start-Sleep -Seconds 3600 }
-  if ($requests -eq 2 -and $testFault -eq 'badline') { [Console]::Out.WriteLine('not json'); continue }
   [Console]::Out.WriteLine((Read-Sample))
 }
 `;
@@ -238,9 +232,6 @@ const toProc = ([pid, ppid, name, cmd, ws, priv, cpu]) => ({
   cpu,
 });
 
-const toMb = (bytes) => (bytes === null ? "" : (bytes / 1048576).toFixed(1));
-const toPct = (value) => (value === null ? "" : value.toFixed(1));
-
 function killTree(pid) {
   spawnSync("taskkill", ["/T", "/F", "/PID", String(pid)], {
     stdio: "ignore",
@@ -298,21 +289,13 @@ function record(time, sample) {
     return;
   }
   const procs = fullProcs.map((p) => ({ ...p, cmd: p.cmd.slice(0, CMD_MAX) }));
-  const engines = sample.engines.map(([instance, value]) => ({
-    instance,
-    value,
-  }));
-  const gpuMem = sample.gpuMem.map(([instance, value]) => ({
-    instance,
-    value,
-  }));
   const rows = buildRows(
     time,
     cli.scenario,
     procs,
     rootPid,
-    gpuByPid(engines),
-    gpuByPid(gpuMem),
+    gpuByPid(sample.engines),
+    gpuByPid(sample.gpuMem),
   );
   if (rows.length > 0) {
     appendFileSync(procFile, rows.map(toCsvLine).join("\n") + "\n");

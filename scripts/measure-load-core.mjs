@@ -56,12 +56,33 @@ export function sessionRoots(procs, rootPid) {
 }
 
 /**
+ * The session roots and every pid under them, walked once per sample.
+ * @param {Proc[]} procs
+ * @param {number} rootPid
+ * @returns {{ roots: Set<number>, under: Set<number> }}
+ */
+export function sessionTrees(procs, rootPid) {
+  const roots = sessionRoots(procs, rootPid);
+  const under = new Set();
+  for (const root of roots) {
+    for (const pid of treePids(procs, root)) under.add(pid);
+  }
+  return { roots: new Set(roots), under };
+}
+
+/**
  * @param {Proc} proc
  * @param {Proc[]} procs
  * @param {number} rootPid
+ * @param {{ roots: Set<number>, under: Set<number> }} [sessions] pass from `sessionTrees` when grouping many procs
  * @returns {"main" | "window" | "gpu" | "utility" | "session" | "mcp" | "conpty" | "other"}
  */
-export function groupOf(proc, procs, rootPid) {
+export function groupOf(
+  proc,
+  procs,
+  rootPid,
+  sessions = sessionTrees(procs, rootPid),
+) {
   if (proc.pid === rootPid) return "main";
   if (proc.name === "electron.exe" && proc.cmd.includes("--type=")) {
     if (proc.cmd.includes("--type=renderer")) return "window";
@@ -71,9 +92,10 @@ export function groupOf(proc, procs, rootPid) {
   if (proc.name === "OpenConsole.exe" || proc.name === "conhost.exe") {
     return "conpty";
   }
-  const roots = sessionRoots(procs, rootPid);
-  if (roots.includes(proc.pid) || proc.name === "claude.exe") return "session";
-  if (roots.some((root) => treePids(procs, root).has(proc.pid))) return "mcp";
+  if (sessions.roots.has(proc.pid) || proc.name === "claude.exe") {
+    return "session";
+  }
+  if (sessions.under.has(proc.pid)) return "mcp";
   return "other";
 }
 
@@ -88,12 +110,12 @@ export function protectedRoots(initial) {
 }
 
 /**
- * @param {{ instance: string, value: number }[]} samples
+ * @param {[instance: string, value: number][]} samples
  * @returns {Map<number, number>}
  */
 export function gpuByPid(samples) {
   const totals = new Map();
-  for (const { instance, value } of samples) {
+  for (const [instance, value] of samples) {
     const match = /pid_(\d+)_/.exec(instance);
     if (!match) continue;
     const pid = Number(match[1]);
@@ -124,9 +146,9 @@ export function makeGuard({ ramFloor, ceiling, holdSamples }) {
   };
 }
 
-const toMb = (bytes) =>
+export const toMb = (bytes) =>
   bytes === null || bytes === undefined ? "" : (bytes / 1048576).toFixed(1);
-const toPct = (value) =>
+export const toPct = (value) =>
   value === null || value === undefined ? "" : value.toFixed(1);
 
 /**
@@ -140,6 +162,7 @@ const toPct = (value) =>
  */
 export function buildRows(ts, scenario, procs, rootPid, gpuUtil, gpuMem) {
   const tree = treePids(procs, rootPid);
+  const sessions = sessionTrees(procs, rootPid);
   return procs
     .filter((p) => tree.has(p.pid))
     .map((p) => [
@@ -148,7 +171,7 @@ export function buildRows(ts, scenario, procs, rootPid, gpuUtil, gpuMem) {
       String(p.pid),
       String(p.ppid),
       p.name,
-      groupOf(p, procs, rootPid),
+      groupOf(p, procs, rootPid, sessions),
       p.cmd,
       toMb(p.ws),
       toMb(p.priv),

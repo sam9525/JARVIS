@@ -91,12 +91,12 @@ describe("measure-load-core", () => {
   it("gpuByPid sums per pid and ignores instances without a pid", () => {
     expect(
       gpuByPid([
-        { instance: "pid_101_luid_0x0_eng_0_engtype_3D", value: 30 },
-        { instance: "pid_101_luid_0x0_eng_1_engtype_Copy", value: 5 },
-        { instance: "_total", value: 99 },
+        ["pid_101_luid_0x0_eng_0_engtype_3D", 30],
+        ["pid_101_luid_0x0_eng_1_engtype_Copy", 5],
+        ["_total", 99],
       ]).get(101),
     ).toBe(35);
-    expect(gpuByPid([{ instance: "_total", value: 99 }]).size).toBe(0);
+    expect(gpuByPid([["_total", 99]]).size).toBe(0);
   });
 
   it("guard trips on RAM at once and on CPU after a sustained hold", () => {
