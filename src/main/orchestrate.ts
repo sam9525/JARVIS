@@ -553,6 +553,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         .getWorkspaces()
         .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
       if (!owner || closeBlocker(key, owner.id, turnEnded)) return false;
+      // The user answers a question in this tab, so it must outlive the merge.
+      const row = deps
+        .snapshot()
+        .find((r) => r.workspaceId === owner.id)
+        ?.sessions.find((s) => s.key === key);
+      if (row?.ended === "question") return false;
       if (deps.hasPendingInput(key) || deps.hasDraft(key)) return false;
       await deps.close(key);
       return true;

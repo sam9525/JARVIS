@@ -1499,6 +1499,38 @@ describe("orchestrate.closeIfIdle", () => {
     expect(closed).toEqual(["d:/aero#1"]);
   });
 
+  describe("a turn that ended on a question", () => {
+    const endedOn = (ended: "question" | "finished") =>
+      withWorktree({
+        outputAgoMs: CLOSE_QUIET_MS + 1,
+        statuses: [
+          status({
+            sessions: [
+              sessionRow({
+                key: "d:/aero#1",
+                label: "1",
+                kind: "idle",
+                ended,
+              }),
+            ],
+          }),
+        ],
+      });
+
+    it("stays open, with or without turnEnded", async () => {
+      const { orch, closed } = endedOn("question");
+      expect(await orch.closeIfIdle("d:/aero#1")).toBe(false);
+      expect(await orch.closeIfIdle("d:/aero#1", true)).toBe(false);
+      expect(closed).toEqual([]);
+    });
+
+    it("closes once the turn ended as finished", async () => {
+      const { orch, closed } = endedOn("finished");
+      expect(await orch.closeIfIdle("d:/aero#1")).toBe(true);
+      expect(closed).toEqual(["d:/aero#1"]);
+    });
+  });
+
   it("leaves an unknown key alone", async () => {
     const { orch, closed } = withWorktree();
     expect(await orch.closeIfIdle("d:/aero#9")).toBe(false);

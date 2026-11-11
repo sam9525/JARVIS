@@ -11,7 +11,10 @@ const ERROR_LABELS: Record<string, string> = {
 };
 
 export function errorLabel(error: string | undefined): string {
-  return (error && ERROR_LABELS[error]) || "API error";
+  // hasOwn keeps inherited names such as "constructor" from resolving.
+  return error && Object.hasOwn(ERROR_LABELS, error)
+    ? ERROR_LABELS[error]
+    : "API error";
 }
 
 // An idle session whose turn ended on a question or an error reads as

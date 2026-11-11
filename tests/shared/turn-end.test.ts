@@ -33,6 +33,12 @@ describe("errorLabel", () => {
   });
 });
 
+describe("errorLabel on inherited keys", () => {
+  it.each(["constructor", "toString"])("falls back for %s", (key) => {
+    expect(errorLabel(key)).toBe("API error");
+  });
+});
+
 describe("endLabel", () => {
   it("labels each turn end", () => {
     expect(endLabel({ ended: "finished" })).toBe("Finished");
