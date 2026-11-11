@@ -15,7 +15,9 @@ const TOOLS = [
       "last assistant message, whether a live Claude Code session exists, who " +
       'delegated its current turn, the session label ("" when none), the ' +
       'session topic ("" when none), and the worktree folder of that session ("" when it shares the workspace ' +
-      "folder). The vault workspace is the one with kind vault, never found " +
+      "folder), and, after a turn ends, `ended`: finished, question (it asked " +
+      "the user something in plain text: relay it, don't answer it yourself) " +
+      "or failed (an API error, named in `error`; the work is not done). The vault workspace is the one with kind vault, never found " +
       "by name. Poll this after jarvis_send to watch a delegate work.",
     inputSchema: { type: "object", properties: {} },
   },
@@ -247,8 +249,11 @@ const TOOLS = [
     name: "jarvis_watch",
     description:
       "Block until a workspace other than this one finishes a turn, then " +
-      "return { workspace, session, topic?, message } with that session's " +
-      "full last assistant message; session is its label. When you speak a " +
+      "return { workspace, session, topic?, message, ended, error? } with that " +
+      "session's full last assistant message; session is its label. ended is " +
+      "finished, question (it asked the user something in plain text: relay " +
+      "it, don't answer it yourself) or failed (an API error, named in " +
+      "error; the work is not done). When you speak a " +
       "finish, name the workspace and the tab: the topic when there is one, " +
       'else the session ("main" for the main tab). Returns { timeout: true } if ' +
       "nothing finishes in time. Call it again after you handle an event to " +

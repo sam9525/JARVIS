@@ -6,6 +6,7 @@ import {
 } from "../shared/session-key";
 import type {
   StatusKind,
+  TurnEnd,
   Workspace,
   WorkspaceKind,
   WorkspaceStatus,
@@ -72,6 +73,8 @@ export interface FleetEntry {
   message: string;
   live: boolean;
   delegatedBy: string;
+  ended?: TurnEnd;
+  error?: string;
 }
 
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -139,9 +142,20 @@ type Finish = {
   session: string;
   topic?: string;
   message: string;
+  ended: TurnEnd;
+  error?: string;
 };
 
 export type WatchResult = Finish | { timeout: true };
+
+function endingOf(
+  r: { ended?: TurnEnd; error?: string } | undefined,
+): Pick<FleetEntry, "ended" | "error"> {
+  return {
+    ...(r?.ended ? { ended: r.ended } : {}),
+    ...(r?.error ? { error: r.error } : {}),
+  };
+}
 
 function findWorkspace(all: Workspace[], target: string) {
   const q = String(target ?? "")
@@ -380,6 +394,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
               // the main agent's own pty is keyed by its workspace id and is
               // not in the session registry
               live: deps.hasPty(w.id),
+              ...endingOf(row),
             },
           ];
         }
@@ -393,6 +408,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             status: own?.kind ?? "none",
             call: own?.call ?? "",
             live: true,
+            ...endingOf(own),
           };
         });
       });
@@ -589,7 +605,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       return { ok: true };
     },
 
-    publishFinish(sessionKey: string, message: string): void {
+    publishFinish(
+      sessionKey: string,
+      message: string,
+      ended: TurnEnd = "finished",
+      error?: string,
+    ): void {
       const text = String(message ?? "").trim();
       if (!text) return;
       const all = deps.getWorkspaces();
@@ -607,6 +628,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         session: label,
         ...(own?.topic ? { topic: shownName(own, siblings) } : {}),
         message: text,
+        ended,
+        ...(error ? { error } : {}),
       };
       if (waiter) {
         const w = waiter;

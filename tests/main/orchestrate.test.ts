@@ -340,6 +340,51 @@ describe("orchestrate.list", () => {
     ]);
   });
 
+  it("carries how the turn ended from the session and workspace rows", () => {
+    const { orch } = setup({
+      sessions: [mainOf("d:/aero"), worktreeOf("d:/aero", "1")],
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          kind: "idle",
+          ended: "failed",
+          error: "rate_limit",
+          sessions: [
+            sessionRow({ key: "d:/aero", label: "main", ended: "question" }),
+            sessionRow({
+              key: "d:/aero#1",
+              label: "1",
+              ended: "failed",
+              error: "overloaded",
+              worktree: true,
+            }),
+          ],
+        }),
+        status({
+          workspaceId: "d:/fin",
+          kind: "idle",
+          ended: "finished",
+        }),
+      ],
+    });
+    const rows = orch.list();
+    const aero = rows.filter((r) => r.name === "AeroGraph");
+    expect(aero[0]).toMatchObject({ ended: "question" });
+    expect(aero[0]).not.toHaveProperty("error");
+    expect(aero[1]).toMatchObject({ ended: "failed", error: "overloaded" });
+    const fin = rows.find((r) => r.name === "FinPulse");
+    expect(fin).toMatchObject({ ended: "finished" });
+    expect(fin).not.toHaveProperty("error");
+  });
+
+  it("omits ended and error when the snapshot has none", () => {
+    const { orch } = setup({ sessions: [mainOf("d:/aero")] });
+    for (const row of orch.list()) {
+      expect(row).not.toHaveProperty("ended");
+      expect(row).not.toHaveProperty("error");
+    }
+  });
+
   it("leaves out a session whose terminal has exited", () => {
     const { orch } = setup({
       sessions: [mainOf("d:/aero"), worktreeOf("d:/aero", "1")],
@@ -751,11 +796,13 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       workspace: "AeroGraph",
       session: "main",
       message: "built the panel",
+      ended: "finished",
     });
     await expect(orch.watch(1)).resolves.toEqual({
       workspace: "AeroGraph",
       session: "1",
       message: "fixed the test",
+      ended: "finished",
     });
   });
 
@@ -779,8 +826,35 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       workspace: "AeroGraph",
       session: "main",
       message: "tests are green",
+      ended: "finished",
     });
     expect(nudges).toEqual([]);
+  });
+
+  it("defaults the ending to finished", async () => {
+    const { orch } = setup();
+    orch.publishFinish("d:/aero", "done");
+    await expect(orch.watch(1)).resolves.toMatchObject({ ended: "finished" });
+  });
+
+  it("hands a parked waiter the question ending without an error", async () => {
+    const { orch } = setup();
+    const pending = orch.watch(1);
+    orch.publishFinish("d:/aero", "Merge it?", "question");
+    const got = await pending;
+    expect(got).toMatchObject({ message: "Merge it?", ended: "question" });
+    expect(got).not.toHaveProperty("error");
+  });
+
+  it("carries a failure's error and still nudges when nobody is parked", async () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/aero", "Rate limited", "failed", "rate_limit");
+    expect(nudges).toEqual([["AeroGraph", "main"]]);
+    await expect(orch.watch(1)).resolves.toMatchObject({
+      message: "Rate limited",
+      ended: "failed",
+      error: "rate_limit",
+    });
   });
 
   it("carries the finishing session's label", async () => {
@@ -790,6 +864,7 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       workspace: "AeroGraph",
       session: "2",
       message: "merged",
+      ended: "finished",
     });
   });
 
@@ -815,6 +890,7 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
         session: "first",
         topic: "review",
         message: "done",
+        ended: "finished",
       });
     });
 
@@ -963,6 +1039,7 @@ describe("orchestrate.watch", () => {
       workspace: "AeroGraph",
       session: "main",
       message: "tests are green",
+      ended: "finished",
     });
   });
 

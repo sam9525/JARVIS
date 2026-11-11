@@ -706,7 +706,12 @@ app.whenReady().then(async () => {
         // no topic this turn; the finish below is still owed
       }
     }
-    orchestrator.publishFinish(s.sessionKey, message);
+    orchestrator.publishFinish(
+      s.sessionKey,
+      message,
+      s.ended ?? "finished",
+      s.error,
+    );
   }
 
   // Any session's turn ending can be the merge that finishes a sibling's
@@ -775,7 +780,8 @@ app.whenReady().then(async () => {
       // restored inbox or a sweep demotion is never mistaken for a finish.
       if (s.message !== undefined) {
         void onStop(s, s.message);
-        void closeMergedTabs(s.workspaceId, s.sessionKey);
+        if (s.ended !== "failed")
+          void closeMergedTabs(s.workspaceId, s.sessionKey);
       }
       if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
         onMainPrompt?.(s.prompt);
