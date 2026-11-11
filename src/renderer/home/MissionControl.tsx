@@ -14,6 +14,7 @@ import { hueOfWorkspace } from "../graph/workspace-color";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { LIST_STEP_MS } from "../ui/boot-stage";
 import { relativeTime } from "./relative-time";
+import { displayKind, endLabel } from "../../shared/turn-end";
 
 const CARD_W = 220;
 const CARD_H = 150;
@@ -119,7 +120,8 @@ export default function MissionControl({
         {workspaces.map((ws, i) => {
           const e = enter(i);
           const st = byId.get(ws.id);
-          const kind: StatusKind = st?.kind ?? "none";
+          const kind: StatusKind = st ? displayKind(st) : "none";
+          const ending = st ? endLabel(st) : null;
           const g = graphs.get(ws.id);
           // absent from the map = still loading; empty = analyzed to nothing,
           // or never analyzed at all. Only the second earns the button.
@@ -189,15 +191,15 @@ export default function MissionControl({
               {/* the call and step lines are one line each, ellipsized, and
                   always rendered — a card's height never depends on what
                   Claude happens to be doing */}
-              {/* a finished turn replaces the last tool call, which no longer
+              {/* a turn ending replaces the last tool call, which no longer
                   describes what the card is doing */}
               <div
                 data-testid={`call-${ws.id}`}
-                title={st?.finished ? undefined : st?.call || undefined}
+                title={ending ? undefined : st?.call || undefined}
                 className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11.5px] text-accent-soft"
               >
-                {st?.finished
-                  ? `Finished ${relativeTime(st.since, now)}`
+                {st && ending
+                  ? `${ending} ${relativeTime(st.since, now)}`
                   : st?.call || " "}
               </div>
               <div

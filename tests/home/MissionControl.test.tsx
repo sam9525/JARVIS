@@ -434,7 +434,7 @@ describe("MissionControl", () => {
             status({
               workspaceId: "w1",
               kind: "idle",
-              finished: true,
+              ended: "finished",
               since: 5_000,
               call: "Bash(sed -n 1,2p x)",
             }),
@@ -444,6 +444,50 @@ describe("MissionControl", () => {
     );
     expect(screen.byTestId("call-w1").text).toBe("Finished 2m ago");
     expect(screen.byTestId("call-w1").props.title).toBeUndefined();
+  });
+
+  it("a question ending shows as asking, with the question marker", () => {
+    render(
+      <MissionControl
+        {...(props({
+          now: 125_000,
+          statuses: [
+            status({
+              workspaceId: "w1",
+              kind: "idle",
+              ended: "question",
+              since: 5_000,
+              call: "Bash(ls)",
+            }),
+          ],
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("call-w1").text).toBe("Asking question 2m ago");
+    expect(screen.byTestId("call-w1").props.title).toBeUndefined();
+    expect(screen.byTestId("card-w1").className).toContain("border-warm");
+    expect(screen.byTestId("status-w1").text).toContain("asking you");
+  });
+
+  it("a failed ending shows as crashed, with the error label", () => {
+    render(
+      <MissionControl
+        {...(props({
+          now: 125_000,
+          statuses: [
+            status({
+              workspaceId: "w1",
+              kind: "idle",
+              ended: "failed",
+              error: "rate_limit",
+              since: 5_000,
+            }),
+          ],
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("call-w1").text).toBe("Rate limited 2m ago");
+    expect(screen.byTestId("card-w1").className).toContain("border-alarm");
   });
 
   it("an idle card without finished keeps its call line", () => {
