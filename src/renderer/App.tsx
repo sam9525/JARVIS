@@ -31,7 +31,11 @@ import TerminalPanel, {
 } from "./terminal/TerminalPanel";
 import SessionTabs from "./terminal/SessionTabs";
 import { hasLiveSession } from "./terminal/terminal-fold";
-import { DEFAULT_TERMINAL_TOGGLE, matchesCombo } from "./ui/key-combo";
+import {
+  DEFAULT_TERMINAL_TOGGLE,
+  DEFAULT_TODO_TOGGLE,
+  matchesCombo,
+} from "./ui/key-combo";
 import {
   cardTab,
   homeTabs,
@@ -962,8 +966,28 @@ export default function App() {
   onTerminalToggleKeyRef.current = (e) => {
     if (e.target instanceof Element && e.target.closest("[data-key-recorder]"))
       return;
-    if (!matchesCombo(e, settings.terminalToggleKey ?? DEFAULT_TERMINAL_TOGGLE))
+    if (
+      !matchesCombo(e, settings.terminalToggleKey ?? DEFAULT_TERMINAL_TOGGLE)
+    ) {
+      if (!matchesCombo(e, settings.todoToggleKey ?? DEFAULT_TODO_TOGGLE))
+        return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat || stage < 0 || deckCleared) return;
+      // closing hides the panels a focused field may sit in, which would leave
+      // the keys going nowhere; a field outside the list keeps its caret
+      const focused = document.activeElement as HTMLElement | null;
+      if (
+        showTodos &&
+        focused?.closest(
+          '[data-testid="panel-todos"], [data-testid="panel-compose"], [data-testid="panel-view"]',
+        )
+      )
+        focused.blur();
+      if (!showTodos) focusPanel("todos");
+      setShowTodos(!showTodos);
       return;
+    }
     e.preventDefault();
     e.stopPropagation();
     // a held key repeats; one press is one toggle

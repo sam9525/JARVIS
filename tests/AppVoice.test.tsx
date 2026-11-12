@@ -1126,3 +1126,113 @@ describe("App: the terminal toggle shortcut", () => {
     field.remove();
   });
 });
+
+describe("App: the to-do toggle shortcut", () => {
+  beforeEach(() =>
+    vi.stubGlobal("matchMedia", () => ({ matches: true }) as MediaQueryList),
+  );
+  afterEach(() => vi.unstubAllGlobals());
+
+  const press = (target: Element = document.body, repeat = false) => {
+    const e = new KeyboardEvent("keydown", {
+      code: "KeyT",
+      ctrlKey: true,
+      shiftKey: true,
+      repeat,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      target.dispatchEvent(e);
+    });
+    return e;
+  };
+  const todosOpen = () =>
+    container
+      .querySelector('[data-testid="todo-toggle"]')!
+      .getAttribute("aria-expanded") === "true";
+  const enterRepo = async () => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () => statusListener!([repoRow]));
+    await act(async () => captured.rail.onSelect(REPO));
+    await flush();
+  };
+
+  it("opens and closes the list and swallows the key", async () => {
+    await enterRepo();
+    expect(todosOpen()).toBe(false);
+    const below = vi.fn();
+    document.body.addEventListener("keydown", below);
+    const e = press();
+    document.body.removeEventListener("keydown", below);
+    expect(e.defaultPrevented).toBe(true);
+    expect(below).not.toHaveBeenCalled();
+    expect(todosOpen()).toBe(true);
+    press();
+    expect(todosOpen()).toBe(false);
+  });
+
+  it("works while focus is in a text field", async () => {
+    await enterRepo();
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    field.focus();
+    press(field);
+    expect(todosOpen()).toBe(true);
+    expect(field.value).toBe("");
+    field.remove();
+  });
+
+  it("a held key toggles once", async () => {
+    await enterRepo();
+    press();
+    press(document.body, true);
+    expect(todosOpen()).toBe(true);
+  });
+
+  it("closing blurs a field inside the list", async () => {
+    await enterRepo();
+    press();
+    const list = container.querySelector('[data-testid="panel-todos"]')!;
+    const inner = list.querySelector(
+      'button[title^="New task"]',
+    ) as HTMLElement;
+    inner.focus();
+    act(() => {
+      inner.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "n", bubbles: true }),
+      );
+    });
+    const field = container.querySelector(
+      '[data-testid="panel-compose"] textarea, [data-testid="panel-compose"] input',
+    ) as HTMLElement;
+    field.focus();
+    expect(document.activeElement).toBe(field);
+    press(field);
+    expect(todosOpen()).toBe(false);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("keeps the caret of a field outside the list", async () => {
+    await enterRepo();
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    field.focus();
+    press(field);
+    press(field);
+    expect(todosOpen()).toBe(false);
+    expect(document.activeElement).toBe(field);
+    field.remove();
+  });
+
+  it("the terminal key wins a shared combo", async () => {
+    settingsOnDisk.terminalToggleKey = "Ctrl+Shift+KeyT";
+    await enterRepo();
+    expect(terminalOpen()).toBe(true);
+    press();
+    expect(terminalOpen()).toBe(false);
+    expect(todosOpen()).toBe(false);
+  });
+});
