@@ -19,7 +19,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { endsWithQuestion, mapStatusEvent } from "../../src/main/status-mapper";
+import { mapStatusEvent } from "../../src/main/status-mapper";
 import { callSignature } from "../../src/shared/call-signature";
 import { buildWorkspaces } from "../../src/main/workspaces";
 import type { Workspace } from "../../src/shared/types";
@@ -185,20 +185,6 @@ describe("mapStatusEvent", () => {
   it("Stop is 'idle'", () => {
     const e = mapStatusEvent({ ...base, hook_event_name: "Stop" }, workspaces);
     expect(e?.kind).toBe("idle");
-  });
-
-  it("endsWithQuestion reads the last paragraph only", () => {
-    expect(endsWithQuestion("Done.\n\nShould I merge it?")).toBe(true);
-    expect(
-      endsWithQuestion("Should I?\n\nLet me know if you want changes."),
-    ).toBe(false);
-    expect(endsWithQuestion("**Next** - is a fresh session fine?**")).toBe(
-      true,
-    );
-    expect(endsWithQuestion("Ok?\r\n\r\nAll set.")).toBe(false);
-    expect(endsWithQuestion("Ready.\r\n\r\nShip it?")).toBe(true);
-    expect(endsWithQuestion("Is this right?\n\n```\nx?\n```")).toBe(false);
-    expect(endsWithQuestion("")).toBe(false);
   });
 
   it("Stop records how the turn ended; idle_prompt does not", () => {

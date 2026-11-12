@@ -3,6 +3,7 @@ import type { PipelineStage, StatusEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 import { callSignature } from "../shared/call-signature";
 import { errorLabel } from "../shared/turn-end";
+import { parseTextQuestion } from "../shared/text-question";
 
 // The question's own short chip label — what AskUserQuestion provides for
 // exactly this purpose. No questions, or no header, and the bare tool name is
@@ -12,20 +13,6 @@ function askHeader(input: Record<string, unknown>): string {
   if (!Array.isArray(qs) || qs.length === 0) return "AskUserQuestion";
   const h = (qs[0] as Record<string, unknown> | undefined)?.header;
   return typeof h === "string" && h ? h : "AskUserQuestion";
-}
-
-// A turn that stops on a plain-text question ends its last paragraph with "?".
-// Markdown emphasis or code ticks around the mark are ignored; a trailing code
-// fence makes the last paragraph a fence, so it is not a question.
-export function endsWithQuestion(text: string): boolean {
-  const paragraphs = text
-    .replace(/\r\n/g, "\n")
-    .split(/\n\s*\n/)
-    .filter((p) => p.trim() !== "");
-  const last = paragraphs[paragraphs.length - 1] ?? "";
-  const trimmed = last.trim();
-  if (trimmed.startsWith("```")) return false;
-  return trimmed.replace(/[*_`\s]+$/, "").endsWith("?");
 }
 
 const STAGE_BY_SKILL: Record<string, PipelineStage> = {
@@ -89,7 +76,7 @@ export function mapStatusEvent(
         kind: "idle",
         call: "",
         step: "",
-        ended: endsWithQuestion(message ?? "") ? "question" : "finished",
+        ended: parseTextQuestion(message ?? "") ? "question" : "finished",
         message,
       };
     }
