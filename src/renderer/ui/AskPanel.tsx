@@ -74,6 +74,7 @@ export default function AskPanel({
     !textMode &&
     (q.multiSelect ||
       q.options.some((o) => o.label.trim().toLowerCase() === OTHER));
+  const inert = readOnly || (textMode && sent);
 
   // Claude Code lists the options, then its own "Type something." input row
   const rows = q.options.length + 1;
@@ -83,9 +84,10 @@ export default function AskPanel({
   const submit = last && prompt.questions.length > 1 ? ["\r"] : [];
 
   // a reply is typed into the composer, which refuses while the user has a
-  // draft there
+  // draft there; once one went through the panel stays inert until the
+  // session's next prompt closes it, so a late click cannot type it again
   const sendReply = async (text: string) => {
-    if (replying.current) return;
+    if (replying.current || sent) return;
     replying.current = true;
     const accepted = await Promise.resolve(onAnswer([text, "\r"])).finally(
       () => {
@@ -138,10 +140,10 @@ export default function AskPanel({
             key={o.label + i}
             data-testid={`ask-option-${i}`}
             title={o.description || o.label}
-            onClick={readOnly ? undefined : () => answer(i)}
+            onClick={inert ? undefined : () => answer(i)}
             className={
               "border border-edge px-3 py-2 " +
-              (readOnly
+              (inert
                 ? ""
                 : "cursor-pointer transition-colors hover:border-accent")
             }
@@ -180,7 +182,7 @@ export default function AskPanel({
           placeholder="Type something."
           onChange={(e) => setTyped(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") answerTyped();
+            if (e.key === "Enter" && !inert) answerTyped();
           }}
           className="border border-edge bg-transparent px-3 py-2 text-[13px] text-ink outline-none focus:border-accent"
         />

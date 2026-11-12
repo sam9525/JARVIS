@@ -1123,6 +1123,7 @@ describe("the auto-answer reply", () => {
       last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
     });
     s.close();
+    expect(spy).toHaveBeenCalled();
     spy.mockRestore();
     expect(statuses).toHaveLength(1);
   });

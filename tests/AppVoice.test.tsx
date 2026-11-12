@@ -801,8 +801,8 @@ describe("App: a plain-text question is answered as a reply", () => {
         header: "",
         multiSelect: false,
         options: [
-          { label: "1. Fast", description: "" },
-          { label: "2. Safe", description: "" },
+          { label: "Fast", description: "", reply: "1. Fast" },
+          { label: "Safe", description: "", reply: "2. Safe" },
         ],
       },
     ],
