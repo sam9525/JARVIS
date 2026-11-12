@@ -1156,6 +1156,11 @@ app.whenReady().then(async () => {
     if (has) drafted.add(String(key));
     else drafted.delete(String(key));
   });
+  ipcMain.handle(
+    "has-unsent-input",
+    (_e, key: string) =>
+      pendingInput.has(String(key)) || drafted.has(String(key)),
+  );
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
     ptyManager.resize(id, cols, rows),
   );

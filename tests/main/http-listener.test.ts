@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import * as textQuestion from "../../src/main/text-question-mapper";
 import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
 import type { StatusEvent, ToolEvent, Workspace } from "../../src/shared/types";
@@ -1073,5 +1074,56 @@ describe("the auto-answer reply", () => {
     await vi.waitFor(() => expect(s.asks).toHaveLength(1));
     expect(s.statuses).toHaveLength(1);
     s.close();
+  });
+
+  it("pushes a plain-text question on a Stop that ends on one", async () => {
+    const seen: Array<unknown> = [];
+    const server = startListener(
+      0,
+      () => {
+        /* no-op */
+      },
+      () => {
+        /* no-op */
+      },
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => seen.push(p),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const port = (server.address() as { port: number }).port;
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+    });
+    server.close();
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as { source: string }).source).toBe("text");
+  });
+
+  it("still reports status when the text mapper throws", async () => {
+    const spy = vi
+      .spyOn(textQuestion, "mapTextQuestion")
+      .mockImplementation(() => {
+        throw new Error("boom");
+      });
+    const statuses: unknown[] = [];
+    const s = await start(
+      () => {
+        /* no-op */
+      },
+      (e) => statuses.push(e),
+    );
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+    });
+    s.close();
+    spy.mockRestore();
+    expect(statuses).toHaveLength(1);
   });
 });

@@ -123,6 +123,8 @@ const api = {
   draftState: (key: string, has: boolean): void => {
     ipcRenderer.send("draft-state", key, has);
   },
+  hasUnsentInput: (key: string): Promise<boolean> =>
+    ipcRenderer.invoke("has-unsent-input", key),
   ptyResize: (key: string, cols: number, rows: number): void => {
     ipcRenderer.send("pty-resize", key, cols, rows);
   },

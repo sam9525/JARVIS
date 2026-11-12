@@ -7,6 +7,8 @@ export { docKindOf, type DocKind } from "../shared/doc-kind";
 export interface AskOption {
   label: string;
   description: string;
+  // text questions only: the words typed into the terminal when picked
+  reply?: string;
 }
 
 export interface AskQuestion {
@@ -29,6 +31,8 @@ export interface AskPrompt {
   // set only on a clear: the offered option each question was answered with
   answers?: AskAnswer[];
   ts: number;
+  // "text" marks a question read from a plain reply, not an AskUserQuestion call
+  source?: "text";
   // the renderer fills this from the session's writes; main never sets it
   docs?: Partial<Record<"spec" | "plan", string>>;
 }

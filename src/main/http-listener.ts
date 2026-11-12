@@ -2,6 +2,7 @@ import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
 import { mapStatusEvent } from "./status-mapper";
 import { mapAskEvent, type AskPrompt } from "./ask-mapper";
+import { mapTextQuestion } from "./text-question-mapper";
 import { mapSessionStart, type SessionStart } from "./session-start";
 import type {
   CloseResult,
@@ -149,6 +150,12 @@ export function startListener(
           if (a !== undefined) onAsk?.(a);
         } catch {
           /* ask mapping failed — highlights and status already went out */
+        }
+        try {
+          const t = answer === null ? mapTextQuestion(raw, ws) : undefined;
+          if (t) onAsk?.(t);
+        } catch {
+          /* text question mapping failed — the other mappers already ran */
         }
         try {
           const started = mapSessionStart(raw, ws);
