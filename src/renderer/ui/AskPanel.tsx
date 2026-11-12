@@ -8,7 +8,7 @@ type AskPanelProps = {
   workspaceName: string;
   /** separate PTY writes, in order: a chunk arriving whole reads as a paste,
    *  so the keystrokes, any typed text and each Enter must not be merged */
-  onAnswer: (writes: string[]) => void;
+  onAnswer: (writes: string[]) => void | Promise<boolean>;
   /** opens a file node in the preview; never answers the question */
   onOpenDoc?: (nodeId: string) => void;
 };
@@ -35,12 +35,11 @@ export function pickAsk(
 ): AskPrompt | undefined {
   const own =
     ownKey === undefined || ownKey === exclude ? undefined : asks.get(ownKey);
-  return (
-    own ??
-    [...asks.values()]
-      .filter((a) => a.sessionKey !== exclude)
-      .sort((a, b) => b.ts - a.ts)[0]
-  );
+  // a plain-text question is read off a reply, so any AskUserQuestion
+  // outranks it
+  const newest = (list: AskPrompt[]) => list.sort((a, b) => b.ts - a.ts)[0];
+  const open = [...asks.values()].filter((a) => a.sessionKey !== exclude);
+  return own ?? newest(open.filter((a) => a.source !== "text")) ?? newest(open);
 }
 
 // Claude Code appends this itself, and it needs typed prose rather than a
@@ -63,12 +62,15 @@ export default function AskPanel({
   const [index, setIndex] = useState(0);
   const [sent, setSent] = useState(false);
   const [typed, setTyped] = useState("");
+  const [refused, setRefused] = useState(false);
   const q = prompt.questions[Math.min(index, prompt.questions.length - 1)];
   // multi-select needs a toggle key this design cannot verify, and a wrong
   // guess submits a partial answer
+  const textMode = prompt.source === "text";
   const readOnly =
-    q.multiSelect ||
-    q.options.some((o) => o.label.trim().toLowerCase() === OTHER);
+    !textMode &&
+    (q.multiSelect ||
+      q.options.some((o) => o.label.trim().toLowerCase() === OTHER));
 
   // Claude Code lists the options, then its own "Type something." input row
   const rows = q.options.length + 1;
@@ -76,6 +78,19 @@ export default function AskPanel({
   // after the last of several questions the TUI shows a review screen whose
   // focused button is "Submit answers" — one more Enter confirms it
   const submit = last && prompt.questions.length > 1 ? ["\r"] : [];
+
+  // a reply is typed into the composer, which refuses while the user has a
+  // draft there
+  const sendReply = async (text: string) => {
+    const accepted = await onAnswer([text, "\r"]);
+    if (accepted === false) {
+      setRefused(true);
+      return;
+    }
+    setRefused(false);
+    setTyped("");
+    setSent(true);
+  };
 
   const send = (writes: string[]) => {
     onAnswer([...writes, "\r", ...submit]);
@@ -88,10 +103,15 @@ export default function AskPanel({
   };
   const docKind = docKindOf(q.header);
   const docNodeId = docKind ? prompt.docs?.[docKind] : undefined;
-  const answer = (i: number) => send([answerKeys(i, rows)]);
+  const answer = (i: number) =>
+    textMode
+      ? void sendReply(q.options[i].reply ?? q.options[i].label)
+      : send([answerKeys(i, rows)]);
   const answerTyped = () => {
     const text = typed.replace(/[\r\n]+/g, " ").trim();
-    if (text) send([answerKeys(q.options.length, rows), text]);
+    if (!text) return;
+    if (textMode) void sendReply(text);
+    else send([answerKeys(q.options.length, rows), text]);
   };
 
   return (
@@ -170,12 +190,14 @@ export default function AskPanel({
         </span>
         {/* the standing hint is not decoration: it is what makes a
             mis-driven TUI recoverable */}
-        <span>
-          {readOnly
-            ? "answer this one in the terminal"
-            : sent
-              ? "sent — waiting for Claude"
-              : "or answer in the terminal"}
+        <span className={refused ? "text-warm" : undefined}>
+          {refused
+            ? "clear the draft first, or answer in the terminal"
+            : readOnly
+              ? "answer this one in the terminal"
+              : sent
+                ? "sent — waiting for Claude"
+                : "or answer in the terminal"}
         </span>
       </div>
     </div>

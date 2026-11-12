@@ -788,6 +788,107 @@ describe("App: a session's own activity clears its question", () => {
   });
 });
 
+describe("App: a plain-text question is answered as a reply", () => {
+  const textAsk = {
+    workspaceId: "d:/r",
+    sessionKey: "d:/r",
+    sessionId: "s-d:/r",
+    ts: 1,
+    source: "text",
+    questions: [
+      {
+        question: "Which approach?",
+        header: "",
+        multiSelect: false,
+        options: [
+          { label: "1. Fast", description: "" },
+          { label: "2. Safe", description: "" },
+        ],
+      },
+    ],
+  };
+  const ptyInput = vi.fn((_key: string, _data: string) =>
+    Promise.resolve(true),
+  );
+  const hasUnsentInput = vi.fn((_key: string) => Promise.resolve(false));
+  const shownQuestion = () =>
+    container.querySelector('[data-testid="ask-question"]')?.textContent ??
+    null;
+  const openAsk = async () => {
+    await mount();
+    await act(async () => resolveWorkspaces!([ORCHESTRATOR, REPO]));
+    await flush();
+    await act(async () => statusListener!([repoRow]));
+    await act(async () => captured.rail.onSelect(REPO));
+    await flush();
+    await foldTerminal();
+    await act(async () => askListener!(textAsk));
+  };
+  const clickOption = async (i: number) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => {
+        (
+          container.querySelector(
+            `[data-testid="ask-option-${i}"]`,
+          ) as HTMLElement
+        ).click();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await flush();
+  };
+
+  beforeEach(() => {
+    ptyInput.mockClear();
+    hasUnsentInput.mockClear();
+    (window as any).jarvis.ptyInput = ptyInput;
+    (window as any).jarvis.hasUnsentInput = hasUnsentInput;
+  });
+
+  it("shows the panel for a text question", async () => {
+    await openAsk();
+    expect(shownQuestion()).toBe("Which approach?");
+  });
+
+  it("writes nothing while the composer holds a draft", async () => {
+    hasUnsentInput.mockResolvedValueOnce(true);
+    await openAsk();
+    await clickOption(1);
+    expect(hasUnsentInput).toHaveBeenCalledWith("d:/r");
+    expect(ptyInput).not.toHaveBeenCalled();
+  });
+
+  it("types the reply, then Enter, when the composer is empty", async () => {
+    await openAsk();
+    await clickOption(1);
+    expect(ptyInput.mock.calls).toEqual([
+      ["d:/r", "2. Safe"],
+      ["d:/r", "\r"],
+    ]);
+  });
+
+  it("closes on the session's next Prompt event", async () => {
+    await openAsk();
+    await act(async () =>
+      toolListener!({
+        sessionId: "s-d:/r",
+        workspaceId: "d:/r",
+        sessionKey: "d:/r",
+        phase: "pre",
+        tool: "Prompt",
+        nodeIds: [],
+        ts: 2,
+      }),
+    );
+    expect(shownQuestion()).toBeNull();
+  });
+});
+
 describe("App: the preview across sessions", () => {
   const openRepo = async () => {
     await mount();

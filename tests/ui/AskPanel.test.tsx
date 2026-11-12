@@ -4,7 +4,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-// values handed to the next useState calls in order: index, sent, typed
+// values handed to the next useState calls in order: index, sent, typed,
+// refused
 const seeded = vi.hoisted(() => [] as any[]);
 
 vi.mock("react", async () => {
@@ -271,8 +272,8 @@ describe("AskPanel", () => {
     });
 
     it("follows the current question", () => {
-      // rowOf renders twice, each render reads index, sent, typed
-      seeded.push(1, false, "", 1, false, "");
+      // rowOf renders twice, each render reads index, sent, typed, refused
+      seeded.push(1, false, "", false, 1, false, "", false);
       const { html } = rowOf(
         docPrompt(["Spec", "Plan"], {
           spec: path,
@@ -294,5 +295,89 @@ describe("AskPanel", () => {
       n?.props?.["data-testid"]?.startsWith?.("ask-option-"),
     );
     for (const r of rows) expect(r.props.onClick).toBeUndefined();
+  });
+});
+
+describe("AskPanel answering a plain-text question", () => {
+  const textPrompt = (labels = ["1. Fast", "2. Safe"]): AskPrompt => {
+    const p = prompt();
+    p.source = "text";
+    p.questions[0].options = labels.map((label) => ({
+      label,
+      description: "",
+    }));
+    return p;
+  };
+  const rowsOf = (p: AskPrompt, onAnswer: any) => {
+    const tree = (
+      <AskPanel prompt={p} workspaceName="jarvis" onAnswer={onAnswer} />
+    ) as any;
+    return walk(tree.type(tree.props));
+  };
+
+  it("sends the clicked option as a reply, with no cursor keys", () => {
+    const onAnswer = vi.fn();
+    rowsOf(textPrompt(), onAnswer)
+      .find((n: any) => n?.props?.["data-testid"] === "ask-option-1")
+      .props.onClick();
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer).toHaveBeenCalledWith(["2. Safe", "\r"]);
+  });
+
+  it("sends an option's reply text instead of its label", () => {
+    const onAnswer = vi.fn();
+    const p = textPrompt();
+    p.questions[0].options[0].reply = "fast";
+    rowsOf(p, onAnswer)
+      .find((n: any) => n?.props?.["data-testid"] === "ask-option-0")
+      .props.onClick();
+    expect(onAnswer).toHaveBeenCalledWith(["fast", "\r"]);
+  });
+
+  it("sends typed text as a reply", () => {
+    const onAnswer = vi.fn();
+    seeded.push(0, false, "use the cache");
+    rowsOf(textPrompt(), onAnswer)
+      .find((n: any) => n?.props?.["data-testid"] === "ask-typed")
+      .props.onKeyDown({ key: "Enter" });
+    expect(onAnswer).toHaveBeenCalledWith(["use the cache", "\r"]);
+  });
+
+  it("keeps an option labelled Other clickable", () => {
+    const rows = rowsOf(textPrompt(["1. Fast", "Other"]), vi.fn()).filter(
+      (n: any) => n?.props?.["data-testid"]?.startsWith?.("ask-option-"),
+    );
+    for (const r of rows) expect(r.props.onClick).toBeTypeOf("function");
+  });
+
+  it("tells the user to clear the draft when the reply is refused", () => {
+    seeded.push(0, false, "", true);
+    const html = renderToStaticMarkup(
+      <AskPanel
+        prompt={textPrompt()}
+        workspaceName="jarvis"
+        onAnswer={() => Promise.resolve(false)}
+      />,
+    );
+    expect(html).toContain("clear the draft first, or answer in the terminal");
+    expect(html).toContain("text-warm");
+  });
+
+  it("ranks an AskUserQuestion above a newer text question", () => {
+    const at = (sessionKey: string, ts: number, text: boolean) => {
+      const p = { ...prompt(), sessionKey, ts };
+      if (text) p.source = "text";
+      return p;
+    };
+    const asks = new Map([
+      ["a", at("a", 1, false)],
+      ["b", at("b", 5, true)],
+    ]);
+    expect(pickAsk(asks, undefined)?.sessionKey).toBe("a");
+    const texts = new Map([
+      ["a", at("a", 1, true)],
+      ["b", at("b", 5, true)],
+    ]);
+    expect(pickAsk(texts, undefined)?.sessionKey).toBe("b");
   });
 });

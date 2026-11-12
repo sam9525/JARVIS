@@ -906,6 +906,20 @@ export default function App() {
     return answered;
   };
 
+  // a plain-text question is answered by typing into the composer, so a draft
+  // the user has there blocks the reply
+  const answerPrompt = async (
+    key: string,
+    writes: string[],
+  ): Promise<boolean> => {
+    if (
+      asks.get(key)?.source === "text" &&
+      (await window.jarvis.hasUnsentInput(key))
+    )
+      return false;
+    return answerAsk(key, writes);
+  };
+
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
   // the main agent's row has no card, no tile and no pip to point at
   const fleetStatuses = useMemo(
@@ -1807,7 +1821,7 @@ export default function App() {
                 .flatMap((s) => s.sessions)
                 .find((x) => x.key === tab.key)}
               files={terminalFiles}
-              onAskAnswer={(writes) => answerAsk(tab.key, writes)}
+              onAskAnswer={(writes) => answerPrompt(tab.key, writes)}
               onOpenDoc={(id) => openDoc(ws.id, id)}
             />
           </Panel>
@@ -1970,7 +1984,7 @@ export default function App() {
               key={`${prompt.sessionKey}:${prompt.ts}`}
               prompt={prompt}
               workspaceName={ws.name}
-              onAnswer={(writes) => void answerAsk(prompt.sessionKey, writes)}
+              onAnswer={(writes) => answerPrompt(prompt.sessionKey, writes)}
               onOpenDoc={(id) => openDoc(prompt.workspaceId, id)}
             />
           </Panel>

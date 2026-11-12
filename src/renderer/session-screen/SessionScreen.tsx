@@ -98,7 +98,7 @@ type SessionScreenProps = {
   items: ScreenItem[];
   status: { kind: StatusKind; call: string; ended?: TurnEnd };
   ask?: AskPrompt;
-  onAskAnswer: (writes: string[]) => void;
+  onAskAnswer: (writes: string[]) => void | Promise<boolean>;
   onOpenDoc?: (nodeId: string) => void;
   onWrite: (data: string) => void;
   onShowRaw: () => void;
