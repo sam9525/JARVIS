@@ -98,15 +98,15 @@ const TOOLS = [
       "<task line 2, verbatim from TODO.md>\n\n" +
       "Run this pipeline. Stop at each gate and wait for my answer.\n" +
       "1. Use superpowers:brainstorming to decide if these tasks fit one spec.\n" +
-      "   If they do, write one spec for all of them. If not, tell me which tasks\n" +
-      "   go in which spec, then write only the first spec.\n" +
+      "   If they do, write one spec for all of them. If not, write no spec yet:\n" +
+      "   end your turn with a message whose first line is Split into N specs.,\n" +
+      "   then one line Spec K: <one-word label> per spec, each followed by its\n" +
+      "   task lines verbatim. Then wait for my next prompt.\n" +
       '2. Gate: ask me with AskUserQuestion, header "Spec", options\n' +
       '   "Approve" and "Review in browser". "Review in browser" means run\n' +
       "   interactive-html-review on the spec, then ask this gate again.\n" +
       "   Typed feedback means revise the spec, then ask this gate again.\n" +
-      '3. On "Approve", write the next spec and repeat step 2, until every\n' +
-      "   spec is approved. Never start a spec before the one before it is approved.\n" +
-      "4. Then, for each spec in order: use superpowers:writing-plans to write\n" +
+      '3. On "Approve", for each spec in order: use superpowers:writing-plans to write\n' +
       '   its plan; gate with the same question, header "Plan"; on "Approve",\n' +
       "   use superpowers:subagent-driven-development to build it.\n" +
       "   Put this in the prompt of every implementer or fix subagent:\n" +

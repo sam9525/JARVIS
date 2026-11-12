@@ -263,6 +263,15 @@ describe("ensureMainAgent", () => {
     expect(AGENT_GUIDE).toContain("jarvis_say");
   });
 
+  it("the guide tells the agent to open a tab per split spec", () => {
+    expect(AGENT_GUIDE).toContain("Split into");
+    expect(AGENT_GUIDE).toContain("Go on with spec 1 only.");
+    expect(AGENT_GUIDE).toContain(
+      "After spec 1 is built, run the same pipeline for spec",
+    );
+    expect(AGENT_GUIDE).not.toContain("writes separate specs one at a time");
+  });
+
   it("tells a fresh agent where the to-do list lives and how to write it", () => {
     expect(AGENT_GUIDE).toContain("jarvis_todos");
     expect(AGENT_GUIDE).toContain("TODO.md");

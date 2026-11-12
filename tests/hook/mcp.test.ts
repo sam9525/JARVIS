@@ -341,7 +341,8 @@ describe("mcp.mjs", () => {
       "fresh: true",
       "@project",
       "To-do tasks:",
-      "Never start a spec before the one before it is approved.",
+      "Split into N specs.",
+      "Spec K: <one-word label>",
       "for each spec in order",
       "Use the single-task prompt when only one task is chosen",
       "never share a prompt",
@@ -352,6 +353,7 @@ describe("mcp.mjs", () => {
     ]) {
       expect(description).toContain(needle);
     }
+    expect(description).not.toContain("Never start a spec before");
   });
 
   it("jarvis_send's pipelines tell every build subagent to run impact with repo", async () => {

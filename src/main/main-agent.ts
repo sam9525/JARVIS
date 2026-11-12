@@ -164,7 +164,19 @@ session that never received it cannot follow it.
 When the user asks for all open tasks of one project, or several of them,
 send those \`@project\` lines in one \`jarvis_send\`, routed as above, with the
 batch prompt from that tool's description. The workspace decides whether they
-fit one spec, and writes separate specs one at a time. Use the single-task prompt when only one task is chosen. Tasks for different projects never share a prompt.
+fit one spec. Use the single-task prompt when only one task is chosen. Tasks for different projects never share a prompt.
+
+When a finish message starts with \`Split into\`, the batch needs several
+specs. For spec 2 and each one after it, in order, \`jarvis_send\` with
+\`fresh: true\`, the spec's label, and the batch prompt with that spec's task
+lines (the single-task prompt when it has one line), plus the worktree line
+and the same \`Notes context:\` block the batch had. A send refused at the cap
+of 4 stops this loop. Then \`jarvis_send\` to the session that split:
+Go on with spec 1 only. Specs <K, ...> run in other tabs. When specs are left
+over from the cap, add:
+After spec 1 is built, run the same pipeline for spec <K>, then <K+1>. End the turn with one sentence naming the workspace and the tabs,
+such as "JARVIS split the batch into three tabs." Speak no finish summary for
+a split. The task lines are already \`- [/]\`, so \`TODO.md\` does not change.
 
 After a send succeeds, mark each sent task line \`- [/]\` in \`TODO.md\` with
 Edit, then call \`jarvis_todos\` and fix anything in \`malformed\`. "All open
