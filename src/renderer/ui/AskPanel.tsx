@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+﻿import React, { useRef, useState } from "react";
 import type { AskPrompt } from "../../main/ask-mapper";
 import { LBL_CY, LBL_DIM } from "./hud";
 import { docKindOf } from "./ask-doc";
@@ -33,13 +33,13 @@ export function pickAsk(
   ownKey: string | undefined,
   exclude?: string,
 ): AskPrompt | undefined {
-  const own =
-    ownKey === undefined || ownKey === exclude ? undefined : asks.get(ownKey);
   // a plain-text question is read off a reply, so any AskUserQuestion
-  // outranks it
-  const newest = (list: AskPrompt[]) => list.sort((a, b) => b.ts - a.ts)[0];
+  // outranks it, even over the viewer's own session
   const open = [...asks.values()].filter((a) => a.sessionKey !== exclude);
-  return own ?? newest(open.filter((a) => a.source !== "text")) ?? newest(open);
+  const pickFrom = (group: AskPrompt[]) =>
+    group.find((a) => a.sessionKey === ownKey) ??
+    group.sort((a, b) => b.ts - a.ts)[0];
+  return pickFrom(open.filter((a) => a.source !== "text")) ?? pickFrom(open);
 }
 
 // Claude Code appends this itself, and it needs typed prose rather than a
@@ -63,6 +63,9 @@ export default function AskPanel({
   const [sent, setSent] = useState(false);
   const [typed, setTyped] = useState("");
   const [refused, setRefused] = useState(false);
+  // a second click or Enter while the draft check is pending must not type
+  // the reply twice
+  const replying = useRef(false);
   const q = prompt.questions[Math.min(index, prompt.questions.length - 1)];
   // multi-select needs a toggle key this design cannot verify, and a wrong
   // guess submits a partial answer
@@ -82,7 +85,13 @@ export default function AskPanel({
   // a reply is typed into the composer, which refuses while the user has a
   // draft there
   const sendReply = async (text: string) => {
-    const accepted = await onAnswer([text, "\r"]);
+    if (replying.current) return;
+    replying.current = true;
+    const accepted = await Promise.resolve(onAnswer([text, "\r"])).finally(
+      () => {
+        replying.current = false;
+      },
+    );
     if (accepted === false) {
       setRefused(true);
       return;

@@ -20,6 +20,7 @@ vi.mock("react", async () => {
           : init,
       () => {},
     ],
+    useRef: (init: any) => ({ current: init }),
   };
 });
 
@@ -361,6 +362,32 @@ describe("AskPanel answering a plain-text question", () => {
     );
     expect(html).toContain("clear the draft first, or answer in the terminal");
     expect(html).toContain("text-warm");
+  });
+
+  it("ranks an AskUserQuestion above the viewer's own text question", () => {
+    const own = {
+      ...prompt(),
+      sessionKey: "own",
+      ts: 1,
+      source: "text" as const,
+    };
+    const live = { ...prompt(), sessionKey: "other", ts: 0 };
+    const asks = new Map([
+      ["own", own],
+      ["other", live],
+    ]);
+    expect(pickAsk(asks, "own")?.sessionKey).toBe("other");
+    expect(pickAsk(asks, "own", "other")?.sessionKey).toBe("own");
+  });
+
+  it("sends a reply once while the first send is outstanding", () => {
+    const onAnswer = vi.fn(() => new Promise<boolean>(() => {}));
+    const row = rowsOf(textPrompt(), onAnswer).find(
+      (n: any) => n?.props?.["data-testid"] === "ask-option-1",
+    );
+    row.props.onClick();
+    row.props.onClick();
+    expect(onAnswer).toHaveBeenCalledTimes(1);
   });
 
   it("ranks an AskUserQuestion above a newer text question", () => {
