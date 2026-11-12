@@ -270,6 +270,9 @@ describe("ensureMainAgent", () => {
       "After spec 1 is built, run the same pipeline for spec",
     );
     expect(AGENT_GUIDE).not.toContain("writes separate specs one at a time");
+    expect(AGENT_GUIDE).toContain("instead, with no");
+    expect(AGENT_GUIDE).toContain("is not summarised; see the");
+    expect(AGENT_GUIDE).toContain("A split turn ends with the split");
   });
 
   it("tells a fresh agent where the to-do list lives and how to write it", () => {

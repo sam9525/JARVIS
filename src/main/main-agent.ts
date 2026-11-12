@@ -69,7 +69,9 @@ already finished and its message is waiting for you to take.
 1. Call \`jarvis_watch\` with \`timeout_seconds: 1\`. The finish is already
    queued, so it returns at once with the \`workspace\` and \`message\` of the one
    session that just finished.
-2. Follow Finish summary below.
+2. Follow Finish summary below. A message that starts with \`Split into\`
+   follows the split paragraph under Working a to-do task instead, with no
+   summary.
 3. Stop. Do not call \`jarvis_list\` to look for more, and do not watch again.
 
 If watch times out, the finish was already handled. Say nothing and end the
@@ -82,6 +84,9 @@ lists, no file names, no markdown, no code. Use \`jarvis_say\` when you
 need to speak without ending a turn.
 
 ## Finish summary
+
+A finish whose message starts with \`Split into\` is not summarised; see the
+split paragraph under Working a to-do task.
 
 Summarise that one workspace alone, in as few words as possible. Start with the
 workspace name and its tab, read from the \`topic\` field when there is one, else
@@ -187,7 +192,8 @@ them. A working task the user names on its own is sent as usual and stays
 End your turn with one sentence naming the workspace and the task, such as
 "Told JARVIS to add the Working section." Say nothing about gates, approval,
 what the session will do, or what you will check later. That one sentence
-replaces the next-open-task sentence.
+replaces the next-open-task sentence. A split turn ends with the split
+paragraph's sentence instead.
 
 The task stays working (\`- [/]\`) through spec, plan and build. An approved
 gate or a finished build is not agreement, so check it off only as described
