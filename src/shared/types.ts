@@ -336,6 +336,8 @@ export interface Settings {
   recentHues?: number[];
   /** The key combo that folds and unfolds the terminal panel, as `comboFromEvent` writes it. Absent = `DEFAULT_TERMINAL_TOGGLE`. */
   terminalToggleKey?: string;
+  /** The key combo that opens and closes the to-do list, as `comboFromEvent` writes it. Absent = `DEFAULT_TODO_TOGGLE`. */
+  todoToggleKey?: string;
 }
 
 // a workspace's groups, or NO_GROUPS if it has never been seeded — a fresh []

@@ -218,10 +218,10 @@ describe("GraphSettingsPanel", () => {
     ).toBeNull();
     senses();
     await flush();
-    // [header, hand control, voice control, terminal key, terminal key buttons, microphone, no-devices hint,
+    // [header, hand control, voice control, terminal key, terminal key buttons, to-do key, to-do key buttons, microphone, no-devices hint,
     //  head model, head upload, daily notes, daily notes actions,
     //  colour head, mouth moves, pick mouth, cloud voice]
-    expect(container.firstElementChild!.children).toHaveLength(15);
+    expect(container.firstElementChild!.children).toHaveLength(17);
     expect(
       container.querySelector('[data-testid="voice-control-setting"]'),
     ).not.toBeNull();
@@ -775,5 +775,90 @@ describe("GraphSettingsPanel terminal key", () => {
       ).click(),
     );
     expect(calls.settings[0].terminalToggleKey).toBe("Alt+KeyT");
+  });
+});
+
+describe("GraphSettingsPanel to-do key", () => {
+  const chip = () => container.querySelector('[data-testid="todo-key-chip"]')!;
+  const record = () =>
+    container.querySelector(
+      '[data-testid="todo-key-record"]',
+    ) as HTMLButtonElement;
+  const press = (init: KeyboardEventInit, target: HTMLButtonElement) =>
+    act(() => {
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
+      );
+    });
+
+  it("shows the default combo", () => {
+    render();
+    senses();
+    expect(chip().textContent).toBe("Ctrl+Shift+T");
+  });
+
+  it("records a new combo", () => {
+    const { calls } = render();
+    senses();
+    act(() => record().click());
+    press({ code: "KeyY", ctrlKey: true, shiftKey: true }, record());
+    expect(calls.settings).toHaveLength(1);
+    expect(calls.settings[0].todoToggleKey).toBe("Ctrl+Shift+KeyY");
+  });
+
+  it("refuses the terminal key", () => {
+    const { calls } = render();
+    senses();
+    act(() => record().click());
+    press({ code: "Backquote", ctrlKey: true }, record());
+    expect(calls.settings).toHaveLength(0);
+    expect(
+      container.querySelector('[data-testid="todo-key-refusal"]')!.textContent,
+    ).toContain("the other shortcut uses this key");
+  });
+
+  it("makes the terminal row refuse the to-do key", () => {
+    const { calls } = render();
+    senses();
+    const terminal = container.querySelector(
+      '[data-testid="terminal-key-record"]',
+    ) as HTMLButtonElement;
+    act(() => terminal.click());
+    press({ code: "KeyT", ctrlKey: true, shiftKey: true }, terminal);
+    expect(calls.settings).toHaveLength(0);
+    expect(
+      container.querySelector('[data-testid="terminal-key-refusal"]')!
+        .textContent,
+    ).toContain("the other shortcut uses this key");
+  });
+
+  it("resets to the default", () => {
+    const { calls } = render({ todoToggleKey: "Ctrl+Shift+KeyY" });
+    senses();
+    act(() =>
+      (
+        container.querySelector(
+          '[data-testid="todo-key-reset"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(calls.settings).toHaveLength(1);
+    expect(calls.settings[0]).toHaveProperty("todoToggleKey", undefined);
+  });
+
+  it("keeps the custom key on Restore defaults", () => {
+    const { calls } = render({ todoToggleKey: "Ctrl+Shift+KeyY" });
+    act(() =>
+      (
+        container.querySelector(
+          'button[title="Restore defaults"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    expect(calls.settings[0].todoToggleKey).toBe("Ctrl+Shift+KeyY");
   });
 });
