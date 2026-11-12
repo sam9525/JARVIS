@@ -158,6 +158,34 @@ describe("callSignature names", () => {
 });
 
 describe("mapStatusEvent", () => {
+  it("Stop with background work still running is not a finish", () => {
+    const stop = (extra: Record<string, unknown>) =>
+      mapStatusEvent(
+        { ...base, hook_event_name: "Stop", ...extra },
+        workspaces,
+      );
+    const waiting = stop({
+      background_tasks: [{}],
+      last_assistant_message: "Waiting on the agent.",
+    });
+    expect(waiting).toMatchObject({ kind: "working", call: "", step: "" });
+    expect(waiting?.message).toBeUndefined();
+    expect(waiting?.ended).toBeUndefined();
+    expect(
+      stop({
+        background_tasks: [{}],
+        last_assistant_message: "Done.\n\nMerge it?",
+      }),
+    ).toMatchObject({
+      kind: "idle",
+      ended: "question",
+      message: "Done.\n\nMerge it?",
+    });
+    expect(stop({ background_tasks: [] })?.ended).toBe("finished");
+    expect(stop({ background_tasks: null })?.ended).toBe("finished");
+    expect(stop({ background_tasks: {} })?.ended).toBe("finished");
+  });
+
   it("a permission notification is 'blocked'", () => {
     const e = mapStatusEvent(
       {

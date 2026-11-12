@@ -71,6 +71,13 @@ export function mapStatusEvent(
         typeof raw.last_assistant_message === "string"
           ? raw.last_assistant_message
           : undefined;
+      // The turn waits on background work, so it is not a finish.
+      if (
+        Array.isArray(raw.background_tasks) &&
+        raw.background_tasks.length > 0 &&
+        !parseTextQuestion(message ?? "")
+      )
+        return { ...common, kind: "working", call: "", step: "" };
       return {
         ...common,
         kind: "idle",
