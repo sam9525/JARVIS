@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TERMINAL_TOGGLE,
+  DEFAULT_TODO_TOGGLE,
   comboFromEvent,
   formatCombo,
   matchesCombo,
@@ -74,6 +75,19 @@ describe("key combos", () => {
       "Ctrl+F2",
     ])
       expect(refusalReason(c)).toBeNull();
+  });
+
+  it("refuses the combo the other shortcut holds", () => {
+    expect(refusalReason("Ctrl+Backquote", "Ctrl+Backquote")).toBe(
+      "the other shortcut uses this key",
+    );
+    expect(refusalReason("Ctrl+Shift+KeyT", "Ctrl+Backquote")).toBeNull();
+  });
+
+  it("allows the to-do default", () => {
+    expect(DEFAULT_TODO_TOGGLE).toBe("Ctrl+Shift+KeyT");
+    expect(refusalReason(DEFAULT_TODO_TOGGLE)).toBeNull();
+    expect(formatCombo(DEFAULT_TODO_TOGGLE)).toBe("Ctrl+Shift+T");
   });
 
   it("formats for display", () => {

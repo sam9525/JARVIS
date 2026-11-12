@@ -4,6 +4,7 @@ export type KeyLike = Pick<
 >;
 
 export const DEFAULT_TERMINAL_TOGGLE = "Ctrl+Backquote";
+export const DEFAULT_TODO_TOGGLE = "Ctrl+Shift+KeyT";
 
 const MODIFIER_CODE = /^(Control|Alt|Shift|Meta)(Left|Right)?$/;
 
@@ -33,7 +34,7 @@ export function matchesCombo(e: KeyLike, combo: string): boolean {
 // the keys a terminal session reads for editing, submitting and navigating
 const TERMINAL_KEYS = /^(Enter|NumpadEnter|Backspace|Tab|Space|Arrow.*)$/;
 
-export function refusalReason(combo: string): string | null {
+export function refusalReason(combo: string, taken?: string): string | null {
   const parts = combo.split("+");
   const code = parts[parts.length - 1];
   const mods = new Set(parts.slice(0, -1));
@@ -46,6 +47,7 @@ export function refusalReason(combo: string): string | null {
     return "the terminal uses this key";
   if (ctrl && mods.has("Shift") && (code === "KeyC" || code === "KeyV"))
     return "the terminal uses this key";
+  if (combo === taken) return "the other shortcut uses this key";
   return null;
 }
 
