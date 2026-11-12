@@ -58,7 +58,11 @@ export interface OrchestratorLike {
   ): Promise<DeliveredResult>;
   watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
-  launch(target: string, label?: string): Promise<LaunchResult>;
+  launch(
+    target: string,
+    label?: string,
+    resume?: boolean,
+  ): Promise<LaunchResult>;
   trust(target: string, accept: boolean, session?: string): Promise<SendResult>;
   /** Ends the named session; refuses one whose turn is in flight. */
   close(target: string, session: string): Promise<CloseResult>;
@@ -241,10 +245,12 @@ export function startListener(
         if (route === "/orchestrate/launch") {
           let target: string;
           let label: string | undefined;
+          let resume: boolean;
           try {
             const p = parse();
             target = String(p.workspace ?? "");
             label = optionalString(p.label);
+            resume = p.resume === true;
           } catch (err) {
             const out = {
               ok: false,
@@ -254,7 +260,7 @@ export function startListener(
             return;
           }
           orchestrator
-            .launch(target, label)
+            .launch(target, label, resume)
             .then((out) => {
               if (res.writableEnded || res.destroyed) return;
               res.writeHead(200).end(JSON.stringify(out));

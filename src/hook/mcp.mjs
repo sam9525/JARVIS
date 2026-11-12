@@ -17,7 +17,10 @@ const TOOLS = [
       'session topic ("" when none), and the worktree folder of that session ("" when it shares the workspace ' +
       "folder), and, after a turn ends, `ended`: finished, question (it asked " +
       "the user something in plain text: relay it, don't answer it yourself) " +
-      "or failed (an API error, named in `error`; the work is not done). The vault workspace is the one with kind vault, never found " +
+      "or failed (an API error, named in `error`; the work is not done). " +
+      "A row with closed: true is a session that has closed (closedAt, its " +
+      "label and topic); jarvis_launch with resume: true continues it. " +
+      "The vault workspace is the one with kind vault, never found " +
       "by name. Poll this after jarvis_send to watch a delegate work.",
     inputSchema: { type: "object", properties: {} },
   },
@@ -45,6 +48,16 @@ const TOOLS = [
       'label: "tabs". The new tab shows it at once.\n' +
       "A follow-up on what a session already did goes to that session, with its\n" +
       "session label.\n" +
+      "Resuming: when that session has closed (a closed: true row in\n" +
+      "jarvis_list), decide whether the request continues its work: the same\n" +
+      "to-do task, or a follow-up on its last result. Only then jarvis_launch\n" +
+      "with its label and resume: true, and send just what is new: it already\n" +
+      "has the task and the pipeline. Unrelated work never resumes.\n" +
+      "A working (- [/]) task with no live or resumed session that did it gets\n" +
+      "the full pipeline prompt below, verbatim, plus the line: This task was\n" +
+      "started before; if docs/superpowers/specs has its spec, read it first.\n" +
+      'Never write "follow the pipeline" or "the Spec gate" in place of the\n' +
+      "pipeline text: a session that never received it cannot follow it.\n" +
       "If fresh is refused at the cap of 4 sessions, ask the user which to close.\n\n" +
       "Routing a project task: this applies to every new project task in a code\n" +
       "workspace, a single to-do, a batch, or the send after a note lookup, and\n" +
@@ -176,7 +189,10 @@ const TOOLS = [
       "whether they trust that folder, then call jarvis_trust with their " +
       "answer and the session. Fails if the name is unknown, the workspace " +
       "already has 4 sessions, a session with that label is live, or you omit " +
-      "the label while the main tab is live and not busy. The " +
+      "the label while the main tab is live and not busy. With resume: true " +
+      "it continues the label's closed conversation (a closed: true row in " +
+      "jarvis_list) instead of starting empty; a live idle session holding " +
+      "that label is closed first, and a busy one refuses. The " +
       "label `main` opens a code project's main-folder session, with no " +
       "worktree; if it is already live, send to it instead.",
     inputSchema: {
@@ -190,6 +206,11 @@ const TOOLS = [
           type: "string",
           description:
             "Session label, at most 20 characters of letters, digits, spaces and hyphens. Omit for the next free number.",
+        },
+        resume: {
+          type: "boolean",
+          description:
+            "true to continue this label's closed session, only when the user's request continues that session's work.",
         },
       },
       required: ["workspace"],
@@ -373,7 +394,11 @@ async function callTool(name, args) {
       // go quiet (up to 20s in main), so allow well past 1.5s
       const out = await post(
         "/orchestrate/launch",
-        { workspace: args?.workspace, label: args?.label },
+        {
+          workspace: args?.workspace,
+          label: args?.label,
+          ...(args?.resume === true ? { resume: true } : {}),
+        },
         30000,
       );
       if (!out?.ok) return textResult(out?.error ?? "launch failed", true);

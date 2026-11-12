@@ -6,6 +6,7 @@ import {
   QUEUE_MAX,
   sendPayload,
 } from "../../src/main/orchestrate";
+import type { ClosedSession } from "../../src/main/closed-sessions";
 import type {
   SessionStatus,
   Workspace,
@@ -127,6 +128,7 @@ function setup(
     workspaces?: Workspace[]; // the registry; defaults to the module's list
     pendingInput?: string[]; // keys whose terminal holds text the user typed
     drafts?: string[]; // keys whose session screen input holds a draft
+    closedSessions?: ClosedSession[]; // resumable closes, every workspace
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -137,6 +139,7 @@ function setup(
   const named: Array<[string, string]> = [];
   const namedAtWrites: number[] = [];
   const launched: Array<[string, string | undefined]> = [];
+  const resumedIds: Array<string | undefined> = [];
   const closed: string[] = [];
   const trustChecked: string[] = [];
   const registered: Sess[] = [...(over.sessions ?? [mainOf("d:/aero")])];
@@ -172,8 +175,11 @@ function setup(
     nudgeMain: (workspace, tab) => nudges.push([workspace, tab]),
     // the real launch: next free number, a worktree in a code workspace,
     // refused as "cap" at four live sessions
-    launch: async (ws, label) => {
+    closedOf: (id) =>
+      (over.closedSessions ?? []).filter((c) => c.workspaceId === id),
+    launch: async (ws, label, resumeId) => {
       launched.push([ws.id, label]);
+      resumedIds.push(resumeId);
       if (over.launchFails) return { ok: false, error: "spawn ENOENT" };
       const mine = registered.filter((s) => s.workspaceId === ws.id);
       if (mine.filter((s) => live.has(s.key)).length >= 4)
@@ -235,6 +241,7 @@ function setup(
     said,
     nudges,
     launched,
+    resumedIds,
     closed,
     trustChecked,
   };
@@ -1618,5 +1625,90 @@ describe("orchestrate.trust", () => {
     const out = await orch.trust("FinPulse", true);
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toContain("exited");
+  });
+});
+
+describe("closed sessions", () => {
+  const SID = "0b5e6c1a-7f3d-4e2b-9a8c-1d2e3f4a5b6c";
+  const closedMain: ClosedSession = {
+    workspaceId: "d:/fin",
+    label: "main",
+    sessionId: SID,
+    cwd: "D:\fin",
+    topic: "codex",
+    closedAt: Date.UTC(2026, 10, 12, 4, 0),
+  };
+
+  it("lists a closed session as its own row, beside a live one", () => {
+    const { orch } = setup({
+      sessions: [mainOf("d:/fin")],
+      closedSessions: [closedMain],
+    });
+    const rows = orch.list().filter((r) => r.name === "FinPulse");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({
+      session: "main",
+      topic: "codex",
+      live: false,
+      status: "none",
+      closed: true,
+      closedAt: "2026-11-12T04:00:00.000Z",
+    });
+  });
+
+  it("resumes a closed label in a new session", async () => {
+    const { orch, launched, resumedIds } = setup({
+      sessions: [],
+      closedSessions: [closedMain],
+    });
+    expect(await orch.launch("FinPulse", "main", true)).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(launched).toEqual([["d:/fin", "main"]]);
+    expect(resumedIds).toEqual([SID]);
+  });
+
+  it("a launch without resume starts empty", async () => {
+    const { orch, resumedIds } = setup({
+      sessions: [],
+      closedSessions: [closedMain],
+    });
+    expect((await orch.launch("FinPulse", "main")).ok).toBe(true);
+    expect(resumedIds).toEqual([undefined]);
+  });
+
+  it("refuses a resume with no closed session of that label", async () => {
+    const { orch, launched } = setup({ sessions: [] });
+    const out = await orch.launch("FinPulse", "main", true);
+    expect(out.ok).toBe(false);
+    expect(launched).toEqual([]);
+  });
+
+  it("closes an idle live session of that label, then resumes", async () => {
+    const { orch, closed, resumedIds } = setup({
+      sessions: [mainOf("d:/fin")],
+      closedSessions: [closedMain],
+    });
+    expect((await orch.launch("FinPulse", "main", true)).ok).toBe(true);
+    expect(closed).toEqual(["d:/fin"]);
+    expect(resumedIds).toEqual([SID]);
+  });
+
+  it("refuses to replace a busy live session of that label", async () => {
+    const { orch, closed, launched } = setup({
+      sessions: [mainOf("d:/fin")],
+      closedSessions: [closedMain],
+      statuses: [
+        status({
+          workspaceId: "d:/fin",
+          sessions: [sessionRow({ key: "d:/fin", kind: "working" })],
+        }),
+      ],
+    });
+    const out = await orch.launch("FinPulse", "main", true);
+    expect(out.ok).toBe(false);
+    expect(closed).toEqual([]);
+    expect(launched).toEqual([]);
   });
 });

@@ -9,7 +9,7 @@ import {
 } from "electron";
 import os from "node:os";
 import path from "node:path";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
@@ -63,6 +63,13 @@ import { createStatusStore, STALE_MS } from "./workspace-status";
 import { ensureScratch, scratchWorkspace } from "./scratch";
 import { createSessionRegistry } from "./sessions";
 import { closeQuietSessions } from "./idle-close";
+import {
+  forgetClosed,
+  readClosed,
+  recordClosed,
+  writeClosed,
+  type ClosedSession,
+} from "./closed-sessions";
 import {
   createWorktree,
   existingWorktreeFolders,
@@ -562,10 +569,28 @@ app.whenReady().then(async () => {
     () => promptOpen(mainAgent.id),
     (text) => typeNudge((data) => ptyManager.write(mainAgent.id, data), text),
   );
+  // closed project sessions the main agent may choose to resume
+  let closedSessions: ClosedSession[] = readClosed(userData);
+  const setClosed = (next: ClosedSession[]) => {
+    closedSessions = next;
+    writeClosed(userData, next);
+  };
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
     sessionsOf: (id) => sessions.forWorkspace(id),
+    // a transcript Claude Code has deleted cannot be resumed, so it is not offered
+    closedOf: (id) =>
+      closedSessions.filter(
+        (c) =>
+          c.workspaceId === id &&
+          existsSync(
+            path.join(
+              transcriptDir(os.homedir(), c.cwd),
+              `${c.sessionId}.jsonl`,
+            ),
+          ),
+      ),
     hasPty: (key) => ptyManager.has(key),
     hasPendingInput: (key) => pendingInput.has(key),
     hasDraft: (key) => drafted.has(key),
@@ -573,13 +598,14 @@ app.whenReady().then(async () => {
     // the terminal's own defaults — Opus, permissions on — at placeholder
     // geometry the panel resizes when it attaches, as with the main agent.
     // The orchestrator waits for the new TUI to go quiet itself.
-    launch: (ws, label) =>
+    launch: (ws, label, resumeId) =>
       launchSession(ws, {
         label,
         cols: 80,
         rows: 24,
         dangerous: false,
         model: "opus",
+        resumeId,
       }),
     close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
@@ -982,7 +1008,33 @@ app.whenReady().then(async () => {
       cwd,
       worktree: useWorktree,
     });
+    // live again, so it is no longer offered as closed
+    if (opts.resumeId) setClosed(forgetClosed(closedSessions, ws.id, label));
     return { ok: true, ...result };
+  }
+
+  // Keeps what a resume of this session needs. Read before the registry and
+  // resumedWith forget it; a session that never reported an id has nothing to
+  // resume.
+  function rememberClosed(key: string): void {
+    const info = sessions.get(key);
+    const sessionId = status.sessionId(key) || resumedWith.get(key);
+    if (!info || !sessionId) return;
+    const topic =
+      status
+        .snapshot()
+        .find((r) => r.workspaceId === info.workspaceId)
+        ?.sessions.find((s) => s.key === key)?.topic ?? "";
+    setClosed(
+      recordClosed(closedSessions, {
+        workspaceId: info.workspaceId,
+        label: info.label,
+        sessionId,
+        cwd: info.cwd,
+        topic,
+        closedAt: Date.now(),
+      }),
+    );
   }
 
   // Ends a session and forgets it. A worktree is removed only when nothing in
@@ -1010,6 +1062,7 @@ app.whenReady().then(async () => {
         if (!check.clean) return { ok: false, dirty: check.reason };
       }
     }
+    rememberClosed(key);
     const info = sessions.remove(key);
     resumedWith.delete(key);
     stopFeed(key);
@@ -1257,6 +1310,9 @@ app.whenReady().then(async () => {
     clearInterval(heartbeat);
     // before killAll, while every pty still counts as live
     saveSessions();
+    // ponytail: a crash or kill skips this, so those sessions are not offered
+    for (const key of ptyManager.keys())
+      if (key !== mainAgent.id) rememberClosed(key);
     feed.stopAll();
     ptyManager.killAll();
     void todosWatcher?.close();

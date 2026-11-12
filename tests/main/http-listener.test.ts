@@ -38,8 +38,10 @@ function stubOrchestrator() {
       return { ok: true as const };
     },
     launches: [] as Array<[string, string | undefined]>,
-    launch(workspace: string, label?: string) {
+    resumes: [] as boolean[],
+    launch(workspace: string, label?: string, resume = false) {
       this.launches.push([workspace, label]);
+      this.resumes.push(resume);
       return Promise.resolve({ ok: true as const, session: "1" });
     },
     trusts: [] as Array<[string, boolean, string | undefined]>,
@@ -740,6 +742,18 @@ describe("/orchestrate/launch", () => {
       { "x-jarvis": "1" },
     );
     expect(s.orch.launches).toEqual([["Obsidian-vault", "AeroGraph"]]);
+    s.close();
+  });
+
+  it("forwards resume only when it is true", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const body = (resume: unknown) =>
+      JSON.stringify({ workspace: "AeroGraph", label: "main", resume });
+    await call(s.port, body(true), { "x-jarvis": "1" });
+    await call(s.port, body("yes"), { "x-jarvis": "1" });
+    expect(s.orch.resumes).toEqual([true, false]);
     s.close();
   });
 

@@ -148,6 +148,19 @@ overrides any older text that says every task gets a fresh session or that
 \`main\` belongs to the user. A follow-up to what a session already did goes to
 that session with \`jarvis_send\` and its \`session\` label, never to a new one.
 
+A session that has closed shows in \`jarvis_list\` as a row with
+\`closed: true\`. Decide whether the user's request continues its work: the
+same to-do task, or a follow-up on its last result. Only then call
+\`jarvis_launch\` with its label and \`resume: true\`, and send just what is
+new, because it already has the task and the pipeline. Unrelated work never
+resumes. A resume closes an idle live session holding that label first.
+
+A working (\`- [/]\`) task with no live or resumed session that did it gets
+the full pipeline prompt, verbatim, plus this line: This task was started
+before; if docs/superpowers/specs has its spec, read it first. Never write
+"follow the pipeline" or "the Spec gate" in place of the pipeline text: a
+session that never received it cannot follow it.
+
 When the user asks for all open tasks of one project, or several of them,
 send those \`@project\` lines in one \`jarvis_send\`, routed as above, with the
 batch prompt from that tool's description. The workspace decides whether they
@@ -221,7 +234,7 @@ workspace.
   arrives. This is how a nudged turn reads what happened. It names the
   \`workspace\` and the \`session\`.
 - \`jarvis_list\` — every live session (one row each, with its \`session\` label
-  and \`worktree\`) and every workspace with none. For a question about the
+  and \`worktree\`), every workspace with none, and recently closed sessions. For a question about the
   whole fleet, never for a finish summary.
 - \`jarvis_send\` — write a prompt into a session of another workspace. With
   \`fresh: true\` it opens a new session and sends there; \`session: "main"\`
@@ -229,6 +242,7 @@ workspace.
   Confirm a send in a few words: the finish turn reports the result.
 - \`jarvis_launch\` — open a new session for a workspace, with an optional
   \`label\`. The label \`main\` opens a code project's main-folder session.
+  \`resume: true\` continues that label's closed session.
 - \`jarvis_close\` — close a session the user named. Refused while it is
   working, asking or blocked.
 - \`jarvis_trust\` — answer a new session's folder-trust prompt with the

@@ -554,6 +554,30 @@ describe("mcp.mjs", () => {
     listener.close();
   });
 
+  it("tools/call jarvis_launch forwards resume only when true", async () => {
+    const listener = await fakeListener({ ok: true, session: "main" });
+    const { request } = startMcp(listener.port);
+    for (const [id, resume] of [
+      [30, true],
+      [31, "yes"],
+    ] as const) {
+      await request({
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: {
+          name: "jarvis_launch",
+          arguments: { workspace: "FinPulse", label: "main", resume },
+        },
+      });
+    }
+    expect(listener.hits.map((h) => JSON.parse(h.body))).toEqual([
+      { workspace: "FinPulse", label: "main", resume: true },
+      { workspace: "FinPulse", label: "main" },
+    ]);
+    listener.close();
+  });
+
   it("a refused launch comes back as a tool error", async () => {
     const listener = await fakeListener({
       ok: false,

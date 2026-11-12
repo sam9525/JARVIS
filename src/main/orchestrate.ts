@@ -11,6 +11,7 @@ import type {
   WorkspaceKind,
   WorkspaceStatus,
 } from "../shared/types";
+import type { ClosedSession } from "./closed-sessions";
 import { PASTE_END, PASTE_START } from "./pending-input";
 import type { SessionInfo } from "./sessions";
 import { topicWord } from "./transcript-title";
@@ -24,16 +25,20 @@ export interface OrchestrateDeps {
   // every session JARVIS launched for the workspace and has not closed,
   // live or exited
   sessionsOf: (workspaceId: string) => SessionInfo[];
+  // closed sessions of the workspace whose transcript can still be resumed
+  closedOf: (workspaceId: string) => ClosedSession[];
   hasPty: (key: string) => boolean;
   // true while the user has typed into the session's terminal and not sent it
   hasPendingInput: (key: string) => boolean;
   hasDraft: (key: string) => boolean;
   write: (key: string, data: string) => boolean;
   // the launch the tab bar's `+` makes; no label means the next free number.
-  // error "cap" means the workspace already has its four live sessions
+  // error "cap" means the workspace already has its four live sessions.
+  // resumeId continues that Claude conversation instead of starting empty
   launch: (
     ws: Workspace,
     label: string | undefined,
+    resumeId?: string,
   ) => Promise<{
     ok: boolean;
     key?: string;
@@ -75,6 +80,9 @@ export interface FleetEntry {
   delegatedBy: string;
   ended?: TurnEnd;
   error?: string;
+  // a session that has closed and can be resumed with jarvis_launch
+  closed?: true;
+  closedAt?: string;
 }
 
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -322,8 +330,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
   // Opens a session and waits for its TUI to go quiet, since text written
   // before raw mode is dropped. Trust is read for the session's own folder,
   // which for a worktree is not the workspace root.
-  async function open(ws: Workspace, label: string | undefined, topic = "") {
-    const out = await deps.launch(ws, label);
+  async function open(
+    ws: Workspace,
+    label: string | undefined,
+    topic = "",
+    resumeId?: string,
+  ) {
+    const out = await deps.launch(ws, label, resumeId);
     if (!out.ok || !out.key) {
       return out.error === "cap"
         ? capError(ws)
@@ -381,6 +394,20 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           message: row?.message ?? "",
           delegatedBy: row?.delegatedBy ?? "",
         };
+        const closed = deps.closedOf(w.id).map((c): FleetEntry => ({
+          name: w.name,
+          kind: w.kind,
+          message: "",
+          delegatedBy: "",
+          session: c.label,
+          worktree: "",
+          topic: c.topic,
+          status: "none",
+          call: "",
+          live: false,
+          closed: true,
+          closedAt: new Date(c.closedAt).toISOString(),
+        }));
         const live = liveSessions(w);
         if (live.length === 0) {
           return [
@@ -396,9 +423,10 @@ export function createOrchestrator(deps: OrchestrateDeps) {
               live: deps.hasPty(w.id),
               ...endingOf(row),
             },
+            ...closed,
           ];
         }
-        return live.map((s) => {
+        const rows = live.map((s) => {
           const own = row?.sessions.find((r) => r.key === s.key);
           return {
             ...base,
@@ -411,6 +439,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             ...endingOf(own),
           };
         });
+        return [...rows, ...closed];
       });
     },
 
@@ -486,7 +515,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       };
     },
 
-    async launch(target: string, label?: string): Promise<LaunchResult> {
+    /** `resume` continues the label's last closed conversation. A live
+     * session holding that label is closed first, only when it is idle. */
+    async launch(
+      target: string,
+      label?: string,
+      resume = false,
+    ): Promise<LaunchResult> {
       const ws = delegate(target);
       if ("ok" in ws) return ws;
       const cleaned = cleanLabel(String(label ?? "")) || undefined;
@@ -501,13 +536,36 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           wanted = MAIN_LABEL;
         }
       }
+      let resumeId: string | undefined;
+      if (resume) {
+        const label = wanted ?? MAIN_LABEL;
+        const record = deps
+          .closedOf(ws.id)
+          .find((c) => sameLabel(c.label, label));
+        if (!record) {
+          return {
+            ok: false,
+            error: `${ws.name} has no closed session "${label}" to resume — launch without resume`,
+          };
+        }
+        // read before the close below, which records the live one in its place
+        resumeId = record.sessionId;
+        wanted = record.label;
+        const holder = liveSessions(ws).find((s) => s.label === record.label);
+        if (holder && !(await orchestrator.closeIfIdle(holder.key))) {
+          return {
+            ok: false,
+            error: `${ws.name}'s live session "${record.label}" is busy or holds unsent text — it was not replaced`,
+          };
+        }
+      }
       if (wanted && liveSessions(ws).some((s) => sameLabel(s.label, wanted))) {
         return {
           ok: false,
           error: `${ws.name} already has a live session "${wanted}" — jarvis_send to it`,
         };
       }
-      const opened = await open(ws, wanted);
+      const opened = await open(ws, wanted, "", resumeId);
       if (!opened.ok) return opened;
       return {
         ok: true,
