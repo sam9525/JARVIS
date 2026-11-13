@@ -421,6 +421,25 @@ describe("TerminalPanel writes to a dead terminal", () => {
       "no terminal open in that session",
     );
   });
+
+  it("hands a refused text reply back to the panel without a terminal notice", async () => {
+    const onAskAnswer = vi.fn(async () => false);
+    const ask = {
+      workspaceId: "w1",
+      sessionKey: workspace.id,
+      sessionId: "s",
+      source: "text" as const,
+      ts: 0,
+      questions: [],
+    };
+    const result = screen(
+      render({ live: true, onAskAnswer, ask }),
+    ).props.onAskAnswer(["hi", "\r"]);
+    expect(await result).toBe(false);
+    expect(noticeText(render({ live: true, onAskAnswer, ask }))).not.toContain(
+      "no terminal open in that session",
+    );
+  });
 });
 
 describe("TerminalPanel turn endings", () => {
@@ -467,5 +486,37 @@ describe("TerminalPanel turn endings", () => {
     const footer = find(tree, (n) => n.type === SessionScreen).props.footer;
     const composer = find(footer, (n) => "awaitingAnswer" in (n.props ?? {}));
     expect(composer.props.awaitingAnswer).toBe(false);
+  });
+
+  const gated = (ask: any, sessionStatus: any) => {
+    setViewMode(workspace.id, "screen");
+    const footer = find(
+      render({ ask, sessionStatus }),
+      (n) => n.type === SessionScreen,
+    ).props.footer;
+    return find(footer, (n) => "awaitingAnswer" in (n.props ?? {})).props
+      .awaitingAnswer;
+  };
+  const question = {
+    workspaceId: "w1",
+    sessionKey: workspace.id,
+    sessionId: "s",
+    ts: 0,
+    questions: [],
+  };
+  const idle = { kind: "idle", call: "" };
+
+  it("leaves the composer ungated while a text question is open", () => {
+    expect(gated({ ...question, source: "text" }, idle)).toBe(false);
+  });
+
+  it("gates the composer while a picker question is open", () => {
+    expect(gated(question, idle)).toBe(true);
+  });
+
+  it("gates the composer for a blocked session even with a text question open", () => {
+    expect(
+      gated({ ...question, source: "text" }, { kind: "blocked", call: "" }),
+    ).toBe(true);
   });
 });

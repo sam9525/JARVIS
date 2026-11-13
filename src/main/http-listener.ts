@@ -134,10 +134,9 @@ export function startListener(
         } catch {
           /* highlight mapping failed — status may still be fine */
         }
-        // an answered prompt never reaches the user, so it must not flash a
-        // panel or read as asking
+        // the reply is an offer Claude Code may not take, so every event still maps
         try {
-          const s = answer === null ? mapStatusEvent(raw, ws) : null;
+          const s = mapStatusEvent(raw, ws);
           if (s) onStatus(s);
         } catch {
           /* status mapping failed — highlights already went out */
@@ -145,14 +144,19 @@ export function startListener(
         // independent mappers, a try block each: one rejecting must never
         // take another's output with it
         try {
-          const a = answer === null ? mapAskEvent(raw, ws) : undefined;
+          const a = mapAskEvent(raw, ws);
           // undefined = not about questions; no questions = that one is over
-          if (a !== undefined) onAsk?.(a);
+          if (a !== undefined)
+            onAsk?.(
+              answer !== null && a.questions.length > 0
+                ? { ...a, offered: true }
+                : a,
+            );
         } catch {
           /* ask mapping failed — highlights and status already went out */
         }
         try {
-          const t = answer === null ? mapTextQuestion(raw, ws) : undefined;
+          const t = mapTextQuestion(raw, ws);
           if (t) onAsk?.(t);
         } catch {
           /* text question mapping failed — the other mappers already ran */

@@ -503,7 +503,12 @@ export default function TerminalPanel({
               items={itemsFor(sessionKey)}
               status={sessionStatus}
               ask={ask}
-              onAskAnswer={(writes) => reportWrite(onAskAnswer?.(writes))}
+              onAskAnswer={(writes) => {
+                const written = onAskAnswer?.(writes);
+                // a text reply that is refused stays in the caller's hands
+                if (ask?.source !== "text") reportWrite(written);
+                return written;
+              }}
               onOpenDoc={onOpenDoc}
               onWrite={(data) =>
                 reportWrite(window.jarvis.ptyInput(sessionKey, data))
@@ -517,7 +522,7 @@ export default function TerminalPanel({
                     currentModel={modelOf(statusLine)}
                     history={historyEntries(itemsFor(sessionKey))}
                     awaitingAnswer={
-                      !!ask ||
+                      (!!ask && ask.source !== "text") ||
                       sessionStatus.kind === "blocked" ||
                       sessionStatus.kind === "asking"
                     }

@@ -1017,18 +1017,71 @@ describe("the auto-answer reply", () => {
     const res = await post(s.port, readEvent);
     expect(JSON.parse(await res.text())).toEqual(answer);
     await vi.waitFor(() => expect(s.events).toHaveLength(1));
-    expect(s.statuses).toEqual([]);
+    expect(s.statuses).toHaveLength(1);
     expect(s.asks).toEqual([]);
     s.close();
   });
 
-  it("an answered AskUserQuestion reaches neither onStatus nor onAsk", async () => {
+  it("an answered AskUserQuestion still reaches onStatus and onAsk", async () => {
     const s = await startWith(() => ({ a: 1 }));
     await post(s.port, askEvent);
-    await post(s.port, readEvent);
-    await vi.waitFor(() => expect(s.events).toHaveLength(1));
-    expect(s.statuses).toEqual([]);
-    expect(s.asks).toEqual([]);
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.statuses).toHaveLength(1);
+    expect(s.statuses[0]).toMatchObject({ kind: "asking" });
+    expect((s.asks[0] as { questions: unknown[] }).questions).toHaveLength(1);
+    s.close();
+  });
+
+  it("marks an answered AskUserQuestion as offered", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, askEvent);
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { offered?: true }).offered).toBe(true);
+    s.close();
+  });
+
+  it("leaves an unanswered ask and the clear unmarked", async () => {
+    const s = await startWith(() => null);
+    await post(s.port, askEvent);
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { offered?: true }).offered).toBeUndefined();
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: { answers: { "Which?": "A" } },
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(2));
+    expect((s.asks[1] as { offered?: true }).offered).toBeUndefined();
+    s.close();
+  });
+
+  it("does not mark the clear when the PostToolUse is answered", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: { answers: { "Which?": "A" } },
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { offered?: true }).offered).toBeUndefined();
+    s.close();
+  });
+
+  it("never marks a text question", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { source: string }).source).toBe("text");
+    expect((s.asks[0] as { offered?: true }).offered).toBeUndefined();
     s.close();
   });
 

@@ -1,5 +1,7 @@
 import { docKindOf, toQuestions, type AskQuestion } from "./ask-mapper";
 import type { RawHookEvent } from "./event-mapper";
+import type { Workspace } from "../shared/types";
+import { resolveWorkspace } from "./workspaces";
 
 export interface AutoAnswerOutput {
   hookSpecificOutput: {
@@ -31,6 +33,7 @@ function chooseLabel(q: AskQuestion): string | null {
 // clear choice returns null and the picker opens for the user.
 export function autoAnswerOutput(
   raw: RawHookEvent,
+  workspaces: Workspace[],
   now: number = Date.now(),
 ): AutoAnswerOutput | null {
   if (
@@ -41,6 +44,11 @@ export function autoAnswerOutput(
     raw.tool_name !== "AskUserQuestion"
   )
     return null;
+  // only a known delegate workspace is answered; the main agent's questions
+  // and an unknown folder's stay with the user
+  if (!raw.cwd) return null;
+  const ws = resolveWorkspace(workspaces, raw.cwd);
+  if (!ws || ws.isSelf) return null;
   const rawQuestions = raw.tool_input?.questions;
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null;
   const questions = toQuestions(rawQuestions);

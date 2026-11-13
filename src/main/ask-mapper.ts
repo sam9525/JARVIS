@@ -31,6 +31,8 @@ export interface AskPrompt {
   // set only on a clear: the offered option each question was answered with
   answers?: AskAnswer[];
   ts: number;
+  // main answered this question through the hook reply; the renderer holds its panel
+  offered?: true;
   // "text" marks a question read from a plain reply, not an AskUserQuestion call
   source?: "text";
   // the renderer fills this from the session's writes; main never sets it

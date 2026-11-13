@@ -849,7 +849,7 @@ app.whenReady().then(async () => {
       hooksHeardFrom.add(s.sessionKey);
       feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
     },
-    (raw) => (autoAnswerOn ? autoAnswerOutput(raw) : null),
+    (raw) => (autoAnswerOn ? autoAnswerOutput(raw, workspaces) : null),
   );
 
   // Claude Code spawns both of these as its own child processes, so they must

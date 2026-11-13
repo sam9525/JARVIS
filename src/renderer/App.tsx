@@ -157,6 +157,9 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
   { value: "symbol", label: "Symbols" },
 ];
 
+// outlasts the hook's 1500 ms timeout, after which Claude Code opens the picker
+const OFFERED_HOLD_MS = 2000;
+
 // the same box on the home screen and in a workspace
 const SHARED_PANELS = new Set<PanelId>([
   "todos",
@@ -581,6 +584,10 @@ export default function App() {
   // spec and plan paths each session has written, for the question panel's
   // preview row; read by the once-registered subscribers
   const askDocsRef = useRef(new Map<string, AskDocs>());
+  // pending show-timers of offered asks, keyed by session key
+  const offeredHoldsRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  );
   // the Claude session each key last emitted for; a change clears its docs
   const askDocSessionRef = useRef(new Map<string, string>());
   const workspacesRef = useRef<Workspace[]>([]);
@@ -658,13 +665,16 @@ export default function App() {
       window.jarvis.onToolEvent((e) => {
         // a new turn started, so whatever the question was, it is over. This
         // is also the backstop for a session still running the old matcher.
-        if (e.tool === "Prompt")
+        if (e.tool === "Prompt") {
+          clearTimeout(offeredHoldsRef.current.get(e.sessionKey));
+          offeredHoldsRef.current.delete(e.sessionKey);
           setAsks((prev) => {
             if (!prev.has(e.sessionKey)) return prev;
             const next = new Map(prev);
             next.delete(e.sessionKey);
             return next;
           });
+        }
         if (askDocSessionRef.current.get(e.sessionKey) !== e.sessionId) {
           askDocSessionRef.current.set(e.sessionKey, e.sessionId);
           askDocsRef.current.delete(e.sessionKey);
@@ -701,42 +711,67 @@ export default function App() {
     offs.push(window.jarvis.onStatus(setStatuses));
     // typing into a session means its answer is being given there; the id is
     // that terminal's session key
-    const dropAsk = (id: string) =>
+    const holds = offeredHoldsRef.current;
+    const cancelHold = (id: string) => {
+      clearTimeout(holds.get(id));
+      holds.delete(id);
+    };
+    const dropAsk = (id: string) => {
+      cancelHold(id);
       setAsks((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Map(prev);
         next.delete(id);
         return next;
       });
+    };
     offs.push(onTerminalTyped(dropAsk));
     // an ended session cannot answer, and a later one may reuse its key
     offs.push(onTerminalExit(dropAsk));
     offs.push(
       window.jarvis.onAsk?.((p) => {
-        if (
-          p.questions.length === 0 &&
-          approvedDocClose(
-            p.answers ?? [],
-            askDocsRef.current.get(p.sessionKey),
-            p.workspaceId,
-            previewRef.current,
+        cancelHold(p.sessionKey);
+        const show = () => {
+          if (
+            p.questions.length === 0 &&
+            approvedDocClose(
+              p.answers ?? [],
+              askDocsRef.current.get(p.sessionKey),
+              p.workspaceId,
+              previewRef.current,
+            )
           )
-        )
-          setPreview(null);
-        setAsks((prev) => {
-          const next = new Map(prev);
-          if (p.questions.length === 0) next.delete(p.sessionKey);
-          else
-            next.set(p.sessionKey, {
-              ...p,
-              docs: askDocsRef.current.get(p.sessionKey),
-            });
-          return next;
-        });
+            setPreview(null);
+          setAsks((prev) => {
+            const next = new Map(prev);
+            if (p.questions.length === 0) next.delete(p.sessionKey);
+            else
+              next.set(p.sessionKey, {
+                ...p,
+                docs: askDocsRef.current.get(p.sessionKey),
+              });
+            return next;
+          });
+        };
+        // an ask that auto-answer already replied to waits out the hold, so a
+        // clear or a keystroke arriving inside it cancels it before it shows
+        if (p.offered) {
+          holds.set(
+            p.sessionKey,
+            setTimeout(() => {
+              holds.delete(p.sessionKey);
+              show();
+            }, OFFERED_HOLD_MS),
+          );
+          return;
+        }
+        show();
       }) ?? (() => undefined),
     );
     return () => {
       cancelled = true;
+      holds.forEach((timer) => clearTimeout(timer));
+      holds.clear();
       for (const off of offs) off();
     };
     // registered once — do not re-register on workspace switch
