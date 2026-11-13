@@ -20,6 +20,7 @@ All notable changes to JARVIS are listed here. The format follows [Keep a Change
 ### Fixed
 
 - Long and multi-line prompts sent by the agent arrive as one block, and removing a worktree no longer leaves its links behind.
+- The question panel no longer opens for code, quotes or a question heading over a list. It now opens for a question followed by a short note, options split by blank lines, and a closing line that asks you to choose. An old question closes when the agent's next turn ends on a statement.
 
 ## [0.5.4] - 2026-11-05
 
