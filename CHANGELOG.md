@@ -118,7 +118,7 @@ _The installers for this release are still labeled 0.4.3._
 
 ### Fixed
 
-- Hooks, the MCP server and node-pty are included in a packaged build.
+- Hooks, the MCP server and node-pty are included in a packaged build, so the main agent runs there too.
 - One answer is taken at a time, and a question clears for the workspace it names.
 - A markdown preview shows as a note in a code workspace, not as source.
 
@@ -180,8 +180,8 @@ _The installers for this release are still labeled 0.4.3._
 
 ### Added
 
-- Voice control for the main agent's session: local whisper transcribes microphone speech, a "jarvis" wake word opens a dictation, and a multi-breath command is typed into the session.
-- The main agent's status message is read aloud.
+- Voice control for the orchestrator's session: local whisper transcribes microphone speech, a "jarvis" wake word opens a dictation, and a multi-breath command is typed into the session.
+- The orchestrator's status message is read aloud.
 - A voice toggle button and a voice control setting that is remembered.
 
 ### Fixed
@@ -217,12 +217,12 @@ _The installers for this release are still labeled 0.4.3._
 
 ### Changed
 
-- Ring tiles animate by transform only, and the ring's centre graph waits for the entrance to finish and honours the view filters.
+- Ring tiles animate smoothly, and the ring's centre graph waits for the entrance to finish and honours the view filters.
 
 ### Fixed
 
 - The ring and fleet refresh storm is gone, and ring rotation no longer rebuilds the centre graph.
-- Mission-control cards repaint their highlights, and 3D nodes update in place.
+- Mission-control cards repaint their highlights, and 3D nodes no longer rebuild on each update.
 - A disarmed hand toggle no longer reads as camera-off, and home views keep their gesture map.
 
 ## [0.3.4] - 2026-08-05
@@ -262,7 +262,7 @@ _No git tag; dated by its version bump commit._
 ### Fixed
 
 - Tile clicks land and the rotation animates to the centred tile.
-- The registry's remaining gitnexus assumptions are followed through.
+- Refresh picks up a graph source added after launch, the reindex button names the right tool for each source, a graphify workspace is not offered indexing, and the mouse wheel rotates the ring instead of the 3D camera.
 
 ## [0.3.1] - 2026-07-29
 
