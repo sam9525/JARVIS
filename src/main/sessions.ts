@@ -4,6 +4,8 @@ export interface SessionInfo {
   label: string;
   cwd: string;
   worktree: boolean;
+  /** Opened by the orchestrator's jarvis_launch; only these idle-close. */
+  delegated: boolean;
 }
 
 export type Reservation = Pick<SessionInfo, "key" | "workspaceId" | "label">;

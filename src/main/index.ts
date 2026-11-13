@@ -62,7 +62,7 @@ import {
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { ensureScratch, scratchWorkspace } from "./scratch";
 import { createSessionRegistry } from "./sessions";
-import { closeQuietSessions } from "./idle-close";
+import { closeQuietSessions, idleCloseKeys } from "./idle-close";
 import {
   forgetClosed,
   readClosed,
@@ -606,6 +606,7 @@ app.whenReady().then(async () => {
         dangerous: false,
         model: "opus",
         resumeId,
+        delegated: true,
       }),
     close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
@@ -766,12 +767,13 @@ app.whenReady().then(async () => {
   // opens a fresh session for the next task.
   const idleCloseTimer = setInterval(() => {
     closeQuietSessions({
+      // a crashed tab waits for the user, as does a tab the user opened
       keys: () =>
-        workspaces
-          .filter((w) => !w.isSelf)
-          .flatMap((w) => sessions.forWorkspace(w.id))
-          .filter((s) => ptyManager.has(s.key)) // a crashed tab waits for the user
-          .map((s) => s.key),
+        idleCloseKeys(
+          workspaces,
+          (id) => sessions.forWorkspace(id),
+          (key) => ptyManager.has(key),
+        ),
       msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
       // orchestrator.close forces past worktreeCheck, so check it here
       keepsWork: async (key) => {
@@ -880,6 +882,7 @@ app.whenReady().then(async () => {
       dangerous: boolean;
       model?: string;
       resumeId?: string;
+      delegated?: boolean;
     },
   ): Promise<{
     ok: boolean;
@@ -1007,6 +1010,7 @@ app.whenReady().then(async () => {
       label,
       cwd,
       worktree: useWorktree,
+      delegated: opts.delegated === true,
     });
     // live again, so it is no longer offered as closed
     if (opts.resumeId) setClosed(forgetClosed(closedSessions, ws.id, label));

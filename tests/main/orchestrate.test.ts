@@ -61,6 +61,7 @@ interface Sess {
   label: string;
   cwd: string;
   worktree: boolean;
+  delegated: boolean;
 }
 
 const mainOf = (id: string): Sess => {
@@ -73,6 +74,7 @@ const mainOf = (id: string): Sess => {
     label: "main",
     cwd: ws.rootPath,
     worktree: false,
+    delegated: false,
   };
 };
 
@@ -86,6 +88,7 @@ const worktreeOf = (id: string, label: string): Sess => {
     label,
     cwd: `${ws.rootPath}\\.worktrees\\${label}`,
     worktree: true,
+    delegated: false,
   };
 };
 
@@ -198,6 +201,7 @@ function setup(
                 label: name,
                 cwd: ws.rootPath,
                 worktree: false,
+                delegated: true,
               };
       registered.push(s);
       live.add(s.key);

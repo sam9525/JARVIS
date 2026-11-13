@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { closeQuietSessions } from "../../src/main/idle-close";
+import { closeQuietSessions, idleCloseKeys } from "../../src/main/idle-close";
+import type { SessionInfo } from "../../src/main/sessions";
+import type { Workspace } from "../../src/shared/types";
 
 const MIN = 60 * 1000;
 
@@ -40,5 +42,53 @@ describe("closeQuietSessions", () => {
       { refuses: ["drafted"] },
     );
     expect(await closeQuietSessions(d, 30 * MIN)).toEqual(["a"]);
+  });
+});
+
+function session(key: string, delegated: boolean): SessionInfo {
+  return {
+    key,
+    workspaceId: "w",
+    label: key,
+    cwd: "/w",
+    worktree: false,
+    delegated,
+  };
+}
+
+function workspace(isSelf: boolean): Workspace {
+  return { id: "w", isSelf } as Workspace;
+}
+
+describe("idleCloseKeys", () => {
+  it("offers only delegated sessions", () => {
+    const sessions = [session("d", true), session("h", false)];
+    expect(
+      idleCloseKeys(
+        [workspace(false)],
+        () => sessions,
+        () => true,
+      ),
+    ).toEqual(["d"]);
+  });
+
+  it("skips a delegated session with no terminal", () => {
+    expect(
+      idleCloseKeys(
+        [workspace(false)],
+        () => [session("d", true)],
+        () => false,
+      ),
+    ).toEqual([]);
+  });
+
+  it("never offers the main agent's sessions", () => {
+    expect(
+      idleCloseKeys(
+        [workspace(true)],
+        () => [session("d", true)],
+        () => true,
+      ),
+    ).toEqual([]);
   });
 });

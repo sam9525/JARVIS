@@ -1,9 +1,27 @@
+import type { SessionInfo } from "./sessions";
+import type { Workspace } from "../shared/types";
+
 // ponytail: env override exists only to test the close live without waiting
 export const IDLE_CLOSE_MS =
   Number(process.env.JARVIS_IDLE_CLOSE_MS) || 30 * 60 * 1000;
 
+/** Keys of live sessions the orchestrator launched, in non-main-agent
+ * workspaces. A hand-opened tab and a session without a terminal are left
+ * alone. */
+export function idleCloseKeys(
+  workspaces: Workspace[],
+  sessionsOf: (workspaceId: string) => SessionInfo[],
+  hasPty: (key: string) => boolean,
+): string[] {
+  return workspaces
+    .filter((w) => !w.isSelf)
+    .flatMap((w) => sessionsOf(w.id))
+    .filter((s) => s.delegated && hasPty(s.key))
+    .map((s) => s.key);
+}
+
 export interface IdleCloseDeps {
-  /** Live delegate sessions; never the main agent. */
+  /** Live delegated sessions; never the main agent or a hand-opened tab. */
   keys(): string[];
   msSinceOutput(key: string): number;
   /** True for a worktree holding uncommitted or unmerged work. */
