@@ -31,10 +31,15 @@ describe("mapTextQuestion", () => {
     expect(out?.questions[0].options.every((o) => !!o.reply)).toBe(true);
   });
 
-  it("is undefined for a Stop that is not a question", () => {
+  it("returns a text clear for a Stop that is not a question", () => {
     expect(
       mapTextQuestion({ ...stop, last_assistant_message: "Done." }, workspaces),
-    ).toBeUndefined();
+    ).toMatchObject({ source: "text", questions: [] });
+    const { last_assistant_message: _omitted, ...noMessage } = stop;
+    expect(mapTextQuestion(noMessage, workspaces)).toMatchObject({
+      source: "text",
+      questions: [],
+    });
   });
 
   it("is undefined for the main agent's workspace", () => {

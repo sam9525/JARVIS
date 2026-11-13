@@ -19,24 +19,26 @@ export function mapTextQuestion(
       ? raw.last_assistant_message
       : "";
   const parsed = parseTextQuestion(message);
-  if (!parsed) return undefined;
   return {
     workspaceId: ws.id,
     sessionKey: resolveSessionKey(raw, ws),
     sessionId: raw.session_id,
     source: "text",
     ts: Date.now(),
-    questions: [
-      {
-        question: parsed.question,
-        header: "",
-        multiSelect: false,
-        options: parsed.options.map((o) => ({
-          label: o.label,
-          description: o.description,
-          reply: o.reply,
-        })),
-      },
-    ],
+    // a Stop that ends on a statement ends the earlier text question
+    questions: !parsed
+      ? []
+      : [
+          {
+            question: parsed.question,
+            header: "",
+            multiSelect: false,
+            options: parsed.options.map((o) => ({
+              label: o.label,
+              description: o.description,
+              reply: o.reply,
+            })),
+          },
+        ],
   };
 }

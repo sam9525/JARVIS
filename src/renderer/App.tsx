@@ -731,6 +731,17 @@ export default function App() {
     offs.push(onTerminalExit(dropAsk));
     offs.push(
       window.jarvis.onAsk?.((p) => {
+        // a text clear closes only a text question: an AskUserQuestion panel
+        // and its offered hold belong to the hook that raised them
+        if (p.source === "text" && p.questions.length === 0) {
+          setAsks((prev) => {
+            if (prev.get(p.sessionKey)?.source !== "text") return prev;
+            const next = new Map(prev);
+            next.delete(p.sessionKey);
+            return next;
+          });
+          return;
+        }
         cancelHold(p.sessionKey);
         const show = () => {
           if (

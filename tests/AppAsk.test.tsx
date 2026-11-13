@@ -263,6 +263,25 @@ describe("App: a plain-text question's reply", () => {
     expect(shown("Which?")).toBe(false);
   });
 
+  it("a text clear drops the session's text question", async () => {
+    await send(textAsk("Which?"));
+    await send({ ...clear(), source: "text" });
+    expect(shown("Which?")).toBe(false);
+  });
+
+  it("a text clear leaves an AskUserQuestion open", async () => {
+    await send(ask("Real?"));
+    await send({ ...clear(), source: "text" });
+    expect(shown("Real?")).toBe(true);
+  });
+
+  it("a text clear does not cancel an offered hold", async () => {
+    await send(ask("Held?", "ws-self", true));
+    await send({ ...clear(), source: "text" });
+    await advance(2000);
+    expect(shown("Held?")).toBe(true);
+  });
+
   it("keeps a text ask whose reply is refused for a draft", async () => {
     (window as any).jarvis.hasUnsentInput = () => Promise.resolve(true);
     await send(textAsk("Which?"));

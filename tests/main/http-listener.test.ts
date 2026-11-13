@@ -705,8 +705,7 @@ describe("the ask channel", () => {
     await post(port, {
       session_id: "s1",
       cwd: "D:\\vault",
-      hook_event_name: "Stop",
-      last_assistant_message: "done",
+      hook_event_name: "PreCompact",
     });
     server.close();
     expect(seen).toHaveLength(0);
@@ -1082,6 +1081,19 @@ describe("the auto-answer reply", () => {
     await vi.waitFor(() => expect(s.asks).toHaveLength(1));
     expect((s.asks[0] as { source: string }).source).toBe("text");
     expect((s.asks[0] as { offered?: true }).offered).toBeUndefined();
+    s.close();
+  });
+
+  it("clears the panel when a Stop carries no question", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Done.",
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.asks[0]).toMatchObject({ source: "text", questions: [] });
     s.close();
   });
 
