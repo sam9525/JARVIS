@@ -21,7 +21,7 @@ All notable changes to JARVIS are listed here. The format follows [Keep a Change
 
 ### Fixed
 
-- A typed "no" could approve a permission prompt. Nothing the agent sends, nudges or briefs now goes in while a prompt or question is open, and a prompt's status clears once it is answered. A question disappears when its session ends.
+- Nothing the agent sends, nudges or briefs, and nothing sent from the session screen, is typed in while a prompt or question is open. A prompt's status clears once it is answered, and a question disappears when its session ends. Launched sessions get the stored Windows PATH.
 
 ## [0.5.3] - 2026-10-22
 
