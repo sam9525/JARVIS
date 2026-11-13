@@ -367,6 +367,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-auto-answer", () => autoAnswerOn);
   ipcMain.handle("set-auto-answer", (_e, value: unknown) => {
     autoAnswerOn = value === true;
+    send("auto-answer", autoAnswerOn);
     return autoAnswerOn;
   });
   ipcMain.handle("get-settings", () => settings);

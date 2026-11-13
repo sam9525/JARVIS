@@ -67,6 +67,8 @@ const api = {
   getAutoAnswer: (): Promise<boolean> => ipcRenderer.invoke("get-auto-answer"),
   setAutoAnswer: (on: boolean): Promise<boolean> =>
     ipcRenderer.invoke("set-auto-answer", on),
+  onAutoAnswer: (cb: (on: boolean) => void) =>
+    subscribe<[boolean]>("auto-answer", cb),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),
   setSettings: (s: Settings): Promise<void> =>
     ipcRenderer.invoke("set-settings", s),

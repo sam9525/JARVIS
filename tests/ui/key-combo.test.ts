@@ -70,11 +70,31 @@ describe("key combos", () => {
   it("allows the default and other modified keys", () => {
     for (const c of [
       "Ctrl+Backquote",
-      "Alt+KeyT",
+      "Alt+Digit1",
       "Ctrl+Shift+KeyT",
       "Ctrl+F2",
+      "Meta+KeyK",
     ])
       expect(refusalReason(c)).toBeNull();
+  });
+
+  it("refuses the system clipboard, undo, select-all, quit and close keys", () => {
+    for (const c of [
+      "Meta+KeyC",
+      "Meta+KeyV",
+      "Meta+KeyX",
+      "Meta+KeyZ",
+      "Meta+KeyA",
+      "Meta+KeyQ",
+      "Meta+KeyW",
+      "Shift+Meta+KeyZ",
+    ])
+      expect(refusalReason(c)).toBe("the system uses this key");
+  });
+
+  it("refuses Alt plus a letter, which the terminal reads as meta", () => {
+    for (const c of ["Alt+KeyB", "Alt+Shift+KeyF"])
+      expect(refusalReason(c)).toBe("the terminal uses this key");
   });
 
   it("refuses the combo the other shortcut holds", () => {

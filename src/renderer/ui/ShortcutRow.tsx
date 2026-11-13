@@ -24,7 +24,13 @@ export default function ShortcutRow({
   const current = value ?? fallback;
   const [recording, setRecording] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  const labelId = React.useId();
   const record = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    // Tab moves focus on instead of being recorded; the blur ends recording
+    if (e.code === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      setRecording(false);
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     if (e.code === "Escape") {
@@ -48,7 +54,7 @@ export default function ShortcutRow({
   return (
     <>
       <div className="flex items-center justify-between gap-2 border-t border-edge py-2 text-ink-muted">
-        {label}
+        <span id={labelId}>{label}</span>
         <span
           data-testid={`${testId}-chip`}
           className={`rounded border bg-abyss px-1.5 py-0.5 font-mono text-[12px] ${
@@ -61,6 +67,7 @@ export default function ShortcutRow({
       <div className="mb-1 flex gap-1.5">
         <button
           data-testid={`${testId}-record`}
+          aria-labelledby={labelId}
           // only while recording: focus stays here afterwards, and App
           // skips every key pressed inside a recorder
           data-key-recorder={recording || undefined}
@@ -99,6 +106,7 @@ export default function ShortcutRow({
       {refusal && !recording && (
         <div
           data-testid={`${testId}-refusal`}
+          role="status"
           className="pb-2 text-[11.5px] text-warm"
         >
           {refusal}

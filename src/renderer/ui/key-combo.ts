@@ -31,6 +31,9 @@ export function matchesCombo(e: KeyLike, combo: string): boolean {
   return comboFromEvent(e) === combo;
 }
 
+// the keys the OS keeps for copy, paste, cut, undo, select-all, quit and close
+const SYSTEM_META_KEYS = /^Key[CVXZAQW]$/;
+
 // the keys a terminal session reads for editing, submitting and navigating
 const TERMINAL_KEYS = /^(Enter|NumpadEnter|Backspace|Tab|Space|Arrow.*)$/;
 
@@ -47,6 +50,10 @@ export function refusalReason(combo: string, taken?: string): string | null {
     return "the terminal uses this key";
   if (ctrl && mods.has("Shift") && (code === "KeyC" || code === "KeyV"))
     return "the terminal uses this key";
+  // the terminal reads Alt+letter as its meta key
+  if (alt && /^Key[A-Z]$/.test(code)) return "the terminal uses this key";
+  if (mods.has("Meta") && SYSTEM_META_KEYS.test(code))
+    return "the system uses this key";
   if (combo === taken) return "the other shortcut uses this key";
   return null;
 }

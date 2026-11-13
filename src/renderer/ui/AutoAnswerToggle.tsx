@@ -12,6 +12,7 @@ export default function AutoAnswerToggle({
   return (
     <button
       data-testid="auto-answer-toggle"
+      aria-label="Auto-answer"
       aria-pressed={on}
       title={
         on

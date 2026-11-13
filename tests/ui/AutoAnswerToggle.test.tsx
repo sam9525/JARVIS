@@ -25,6 +25,15 @@ describe("AutoAnswerToggle", () => {
     );
   });
 
+  it("is named Auto-answer in both states", () => {
+    for (const on of [false, true])
+      expect(
+        renderToStaticMarkup(
+          <AutoAnswerToggle on={on} onToggle={() => undefined} />,
+        ),
+      ).toContain('aria-label="Auto-answer"');
+  });
+
   it("a click calls onToggle", () => {
     const onToggle = vi.fn();
     const el = AutoAnswerToggle({ on: false, onToggle });

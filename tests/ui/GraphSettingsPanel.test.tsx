@@ -687,9 +687,9 @@ describe("GraphSettingsPanel terminal key", () => {
     const { calls } = render();
     startRecording();
     expect(chip().textContent).toBe("Press keys…");
-    press({ code: "KeyT", altKey: true });
+    press({ code: "Digit1", altKey: true });
     expect(calls.settings).toHaveLength(1);
-    expect(calls.settings[0].terminalToggleKey).toBe("Alt+KeyT");
+    expect(calls.settings[0].terminalToggleKey).toBe("Alt+Digit1");
   });
 
   it("refuses a reserved combo", () => {

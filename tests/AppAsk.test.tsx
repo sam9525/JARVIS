@@ -56,6 +56,7 @@ import App from "../src/renderer/App";
 (HTMLCanvasElement.prototype as any).getContext = () => null;
 
 let askListener: ((prompt: any) => void) | null = null;
+let autoAnswerListener: ((on: boolean) => void) | null = null;
 let toolListener: ((e: any) => void) | null = null;
 let resolveWorkspaces: ((list: Workspace[]) => void) | null = null;
 
@@ -73,6 +74,7 @@ let container: HTMLDivElement;
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   askListener = null;
+  autoAnswerListener = null;
   captured.typed = null;
   (window as any).jarvis = {
     getWorkspaces: () =>
@@ -106,6 +108,12 @@ beforeEach(async () => {
     pickNotesDir: () => Promise.resolve(null),
     clearNotesDir: () => Promise.resolve(null),
     getAutoAnswer: () => Promise.resolve(false),
+    onAutoAnswer: (cb: (on: boolean) => void) => {
+      autoAnswerListener = cb;
+      return () => {
+        autoAnswerListener = null;
+      };
+    },
     getTodos: () => Promise.resolve({ todos: [], malformed: [] }),
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,
@@ -270,5 +278,13 @@ describe("App: a plain-text question's reply", () => {
     await clickOption();
     expect(shown("Which?")).toBe(true);
     expect(shown("no terminal is open for this session")).toBe(true);
+  });
+});
+
+describe("App: the auto-answer button follows main", () => {
+  it("turns to AUTO ON when main pushes true", async () => {
+    expect(container.textContent).not.toContain("AUTO ON");
+    await act(async () => autoAnswerListener!(true));
+    expect(container.textContent).toContain("AUTO ON");
   });
 });

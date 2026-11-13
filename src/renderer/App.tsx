@@ -220,6 +220,7 @@ export default function App() {
   const [autoAnswer, setAutoAnswer] = useState(false);
   useEffect(() => {
     window.jarvis.getAutoAnswer().then(setAutoAnswer).catch(console.error);
+    return window.jarvis.onAutoAnswer(setAutoAnswer);
   }, []);
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
