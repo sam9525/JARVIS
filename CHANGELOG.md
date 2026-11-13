@@ -4,6 +4,23 @@ All notable changes to JARVIS are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Added
+
+- Plain-text questions from the agent are now detected, shown in the question panel with their options, and answered from there. A reply is sent once, and you are told why one was refused.
+- An auto-answer button for the agent's multiple-choice questions, with titled controls. A question it answered stays in the panel until you dismiss it.
+- Skills and custom commands appear in the composer's slash list when the draft starts with a slash. Built-in commands, recalled drafts and long descriptions still work there.
+- A finish marker on the mission-control card, and cards and status surfaces show when a turn ended on a question or an error. The main agent is told how each turn ended, and a turn waiting on background work is not counted as finished.
+- A to-do shortcut that opens and closes the list, and a terminal toggle key that folds the terminal when you enter a project. Both keys can be changed in settings, and risky keys are refused.
+
+### Changed
+
+- The main agent resumes a closed session for the same work instead of starting a new one. Delegate sessions it launched close after 30 minutes of silence, a batch that splits opens one tab per spec, and the finish nudge names the workspace and tab.
+- The main 3D graph draws its links as one merged layer and is capped at 60 frames a second, so it uses less of the machine. A new load sampler command line tool records how heavy the app is.
+
+### Fixed
+
+- Long and multi-line prompts sent by the agent arrive as one block, and removing a worktree no longer leaves its links behind.
+
 ## [0.5.4] - 2026-11-05
 
 ### Added
