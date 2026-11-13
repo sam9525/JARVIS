@@ -111,7 +111,6 @@ import {
   type SavedSession,
 } from "./session-restore";
 import { watch, type FSWatcher } from "chokidar";
-import type { AskPrompt } from "./ask-mapper";
 import { autoAnswerOutput } from "./auto-answer";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
@@ -212,10 +211,6 @@ app.whenReady().then(async () => {
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
-  // the open question per workspace. Deliberately not in the status store:
-  // WorkspaceStatus is persisted to the inbox file, and a question's full
-  // text and options do not belong on disk.
-  const asks = new Map<string, AskPrompt>();
   const fingerprintOf = (ws: Workspace): Promise<string | null> =>
     sourceById(ws.sourceId)?.fingerprint?.(ws) ?? Promise.resolve(null);
   // every load carries the fingerprint of the index it read, so a card's save
@@ -826,13 +821,7 @@ app.whenReady().then(async () => {
         return { path: todosPath, text, malformed: parseTodos(text).malformed };
       },
     },
-    (p) => {
-      // no questions means that one workspace's question is over — several can
-      // be open across the fleet, so only its own key goes
-      if (p.questions.length === 0) asks.delete(p.workspaceId);
-      else asks.set(p.workspaceId, p);
-      send("ask", p);
-    },
+    (p) => send("ask", p),
     (key, raw) => {
       const cwd =
         (raw.workspace as { current_dir?: string } | undefined)?.current_dir ??
