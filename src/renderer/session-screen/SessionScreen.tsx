@@ -3,7 +3,7 @@ import type { AskPrompt } from "../../main/ask-mapper";
 import type { StatusKind, TurnEnd } from "../../shared/types";
 import { displayKind } from "../../shared/turn-end";
 import { renderNote } from "../preview/markdown";
-import AskPanel from "../ui/AskPanel";
+import AskPanel, { type ReplyResult } from "../ui/AskPanel";
 import PermissionCard from "./PermissionCard";
 import TaskRow from "./TaskRow";
 import ToolRow from "./ToolRow";
@@ -98,7 +98,7 @@ type SessionScreenProps = {
   items: ScreenItem[];
   status: { kind: StatusKind; call: string; ended?: TurnEnd };
   ask?: AskPrompt;
-  onAskAnswer: (writes: string[]) => void | Promise<boolean>;
+  onAskAnswer: (writes: string[]) => void | Promise<boolean | ReplyResult>;
   onOpenDoc?: (nodeId: string) => void;
   onWrite: (data: string) => void;
   onShowRaw: () => void;

@@ -24,6 +24,7 @@ import type { AskPrompt } from "../../main/ask-mapper";
 import Segmented from "../ui/Segmented";
 import SessionScreen from "../session-screen/SessionScreen";
 import { NO_TERMINAL } from "../session-screen/composer-logic";
+import type { ReplyResult } from "../ui/AskPanel";
 import Composer from "../session-screen/Composer";
 import { historyEntries } from "../session-screen/prompt-history";
 import StatusLine from "../session-screen/StatusLine";
@@ -153,7 +154,7 @@ export default function TerminalPanel({
   // what the composer's `@` offers: the workspace's graph files
   files?: string[];
   // resolves false when the session has no terminal to write to
-  onAskAnswer?: (writes: string[]) => Promise<boolean>;
+  onAskAnswer?: (writes: string[]) => Promise<boolean | ReplyResult>;
   // opens a spec or plan the question refers to in the preview panel
   onOpenDoc?: (nodeId: string) => void;
 }) {
@@ -212,7 +213,7 @@ export default function TerminalPanel({
   const [composerError, setComposerError] = useState<string | null>(null);
   // the screen's answers write straight to the pty; a missing one is reported
   // on the composer's error line, as a failed send is
-  const reportWrite = (written: Promise<boolean> | undefined) =>
+  const reportWrite = (written: Promise<boolean | ReplyResult> | undefined) =>
     void written
       ?.then((ok) => {
         if (!ok) setComposerError(NO_TERMINAL);

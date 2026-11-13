@@ -423,7 +423,7 @@ describe("TerminalPanel writes to a dead terminal", () => {
   });
 
   it("hands a refused text reply back to the panel without a terminal notice", async () => {
-    const onAskAnswer = vi.fn(async () => false);
+    const onAskAnswer = vi.fn(async () => "draft" as const);
     const ask = {
       workspaceId: "w1",
       sessionKey: workspace.id,
@@ -435,7 +435,7 @@ describe("TerminalPanel writes to a dead terminal", () => {
     const result = screen(
       render({ live: true, onAskAnswer, ask }),
     ).props.onAskAnswer(["hi", "\r"]);
-    expect(await result).toBe(false);
+    expect(await result).toBe("draft");
     expect(noticeText(render({ live: true, onAskAnswer, ask }))).not.toContain(
       "no terminal open in that session",
     );

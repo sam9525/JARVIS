@@ -3,12 +3,16 @@ import type { AskPrompt } from "../../main/ask-mapper";
 import { LBL_CY, LBL_DIM } from "./hud";
 import { docKindOf } from "./ask-doc";
 
+/** What became of a plain-text reply: written, refused for a draft in the
+ *  composer, or nowhere to write it. */
+export type ReplyResult = "sent" | "draft" | "no-terminal";
+
 type AskPanelProps = {
   prompt: AskPrompt;
   workspaceName: string;
   /** separate PTY writes, in order: a chunk arriving whole reads as a paste,
    *  so the keystrokes, any typed text and each Enter must not be merged */
-  onAnswer: (writes: string[]) => void | Promise<boolean>;
+  onAnswer: (writes: string[]) => void | Promise<boolean | ReplyResult>;
   /** opens a file node in the preview; never answers the question */
   onOpenDoc?: (nodeId: string) => void;
 };
@@ -62,7 +66,7 @@ export default function AskPanel({
   const [index, setIndex] = useState(0);
   const [sent, setSent] = useState(false);
   const [typed, setTyped] = useState("");
-  const [refused, setRefused] = useState(false);
+  const [refused, setRefused] = useState<ReplyResult | null>(null);
   // a second click or Enter while the draft check is pending must not type
   // the reply twice
   const replying = useRef(false);
@@ -94,11 +98,11 @@ export default function AskPanel({
         replying.current = false;
       },
     );
-    if (accepted === false) {
-      setRefused(true);
+    if (accepted === "draft" || accepted === "no-terminal") {
+      setRefused(accepted);
       return;
     }
-    setRefused(false);
+    setRefused(null);
     setTyped("");
     setSent(true);
   };
@@ -203,7 +207,9 @@ export default function AskPanel({
             mis-driven TUI recoverable */}
         <span className={refused ? "text-warm" : undefined}>
           {refused
-            ? "clear the draft first, or answer in the terminal"
+            ? refused === "draft"
+              ? "clear the draft first, or answer in the terminal"
+              : "no terminal is open for this session"
             : readOnly
               ? "answer this one in the terminal"
               : sent

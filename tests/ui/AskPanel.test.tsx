@@ -352,12 +352,12 @@ describe("AskPanel answering a plain-text question", () => {
   });
 
   it("tells the user to clear the draft when the reply is refused", () => {
-    seeded.push(0, false, "", true);
+    seeded.push(0, false, "", "draft");
     const html = renderToStaticMarkup(
       <AskPanel
         prompt={textPrompt()}
         workspaceName="jarvis"
-        onAnswer={() => Promise.resolve(false)}
+        onAnswer={() => Promise.resolve("draft" as const)}
       />,
     );
     expect(html).toContain("clear the draft first, or answer in the terminal");

@@ -224,3 +224,51 @@ describe("App: an offered ask is held before it shows", () => {
     expect(shown("Alpha?")).toBe(true);
   });
 });
+
+describe("App: a plain-text question's reply", () => {
+  const textAsk = (question: string) => ({
+    ...ask(question),
+    source: "text" as const,
+    questions: [
+      {
+        question,
+        header: "",
+        multiSelect: false,
+        options: [{ label: "Fast", description: "", reply: "1. Fast" }],
+      },
+    ],
+  });
+  const clickOption = async () => {
+    await act(async () => {
+      (
+        container.querySelector('[data-testid="ask-option-0"]') as HTMLElement
+      ).click();
+    });
+    await advance(200);
+  };
+
+  it("drops a text ask once its reply is sent", async () => {
+    (window as any).jarvis.hasUnsentInput = () => Promise.resolve(false);
+    await send(textAsk("Which?"));
+    expect(shown("Which?")).toBe(true);
+    await clickOption();
+    expect(shown("Which?")).toBe(false);
+  });
+
+  it("keeps a text ask whose reply is refused for a draft", async () => {
+    (window as any).jarvis.hasUnsentInput = () => Promise.resolve(true);
+    await send(textAsk("Which?"));
+    await clickOption();
+    expect(shown("Which?")).toBe(true);
+    expect(shown("clear the draft first")).toBe(true);
+  });
+
+  it("reports no terminal for a text reply that cannot be written", async () => {
+    (window as any).jarvis.hasUnsentInput = () => Promise.resolve(false);
+    (window as any).jarvis.ptyInput = () => Promise.resolve(false);
+    await send(textAsk("Which?"));
+    await clickOption();
+    expect(shown("Which?")).toBe(true);
+    expect(shown("no terminal is open for this session")).toBe(true);
+  });
+});

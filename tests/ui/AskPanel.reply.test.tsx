@@ -2,7 +2,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import AskPanel from "../../src/renderer/ui/AskPanel";
+import AskPanel, { type ReplyResult } from "../../src/renderer/ui/AskPanel";
 import type { AskPrompt } from "../../src/main/ask-mapper";
 
 (
@@ -36,7 +36,7 @@ describe("AskPanel text reply, sent once", () => {
     container?.remove();
   });
 
-  const mountPanel = async (onAnswer: () => Promise<boolean>) => {
+  const mountPanel = async (onAnswer: () => Promise<boolean | ReplyResult>) => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -65,10 +65,25 @@ describe("AskPanel text reply, sent once", () => {
   });
 
   it("allows a retry after a refused send", async () => {
-    const onAnswer = vi.fn(() => Promise.resolve(false));
+    const onAnswer = vi.fn(() => Promise.resolve<ReplyResult>("draft"));
     await mountPanel(onAnswer);
     await click(0);
     await click(1);
     expect(onAnswer).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    ["draft", "clear the draft first, or answer in the terminal"],
+    ["no-terminal", "no terminal is open for this session"],
+  ] as const)(
+    "says why a %s refusal happened and allows a retry",
+    async (result, copy) => {
+      const onAnswer = vi.fn(() => Promise.resolve<ReplyResult>(result));
+      await mountPanel(onAnswer);
+      await click(0);
+      expect(container!.textContent).toContain(copy);
+      await click(1);
+      expect(onAnswer).toHaveBeenCalledTimes(2);
+    },
+  );
 });

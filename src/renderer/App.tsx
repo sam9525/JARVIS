@@ -11,7 +11,7 @@ import Graph3D from "./graph/Graph3D";
 import GraphSlot from "./graph/GraphSlot";
 import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
-import AskPanel, { pickAsk } from "./ui/AskPanel";
+import AskPanel, { pickAsk, type ReplyResult } from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
 import {
   approvedDocClose,
@@ -941,18 +941,23 @@ export default function App() {
     return answered;
   };
 
-  // a plain-text question is answered by typing into the composer, so a draft
-  // the user has there blocks the reply
+  // A plain-text question is answered by typing into the composer, so a draft
+  // the user has there blocks the reply. The ask is dropped once the reply is
+  // written, so a remounted panel cannot send it again. The result says which
+  // of sent, draft or no-terminal happened.
   const answerPrompt = async (
     key: string,
     writes: string[],
-  ): Promise<boolean> => {
-    if (
-      asks.get(key)?.source === "text" &&
-      (await window.jarvis.hasUnsentInput(key))
-    )
-      return false;
-    return answerAsk(key, writes);
+  ): Promise<boolean | ReplyResult> => {
+    if (asks.get(key)?.source !== "text") return answerAsk(key, writes);
+    if (await window.jarvis.hasUnsentInput(key)) return "draft";
+    if (!(await answerAsk(key, writes))) return "no-terminal";
+    setAsks((prev) => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+    return "sent";
   };
 
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
