@@ -316,6 +316,29 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     return null;
   }
 
+  /** Why `closeIfIdle` would leave a session open, phrased to follow `is `;
+   * null when it would close. A session that is unknown counts as refused. */
+  function idleCloseRefusal(key: string, turnEnded = false): string | null {
+    const owner = deps
+      .getWorkspaces()
+      .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
+    if (!owner) return "not open";
+    const blocker = closeBlocker(key, owner.id, turnEnded);
+    if (blocker) return blocker;
+    // The user answers a question in this tab, so it must outlive the merge.
+    const row = deps
+      .snapshot()
+      .find((r) => r.workspaceId === owner.id)
+      ?.sessions.find((s) => s.key === key);
+    if (row?.ended === "question") {
+      return "waiting on your answer to its question";
+    }
+    if (deps.hasPendingInput(key) || deps.hasDraft(key)) {
+      return "holding unsent text";
+    }
+    return null;
+  }
+
   function capError(ws: Workspace): Failure {
     const live = liveSessions(ws);
     const rows = live
@@ -551,12 +574,18 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         // read before the close below, which records the live one in its place
         resumeId = record.sessionId;
         wanted = record.label;
-        const holder = liveSessions(ws).find((s) => s.label === record.label);
-        if (holder && !(await orchestrator.closeIfIdle(holder.key))) {
-          return {
-            ok: false,
-            error: `${ws.name}'s live session "${record.label}" is busy or holds unsent text — it was not replaced`,
-          };
+        const holder = liveSessions(ws).find((s) =>
+          sameLabel(s.label, record.label),
+        );
+        if (holder) {
+          const reason = idleCloseRefusal(holder.key);
+          if (reason !== null) {
+            return {
+              ok: false,
+              error: `${ws.name}'s live session "${holder.label}" is ${reason} — it was not replaced`,
+            };
+          }
+          await orchestrator.closeIfIdle(holder.key);
         }
       }
       if (wanted && liveSessions(ws).some((s) => sameLabel(s.label, wanted))) {
@@ -607,17 +636,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
      * rule as `close`, and holds no unsent text or draft. False means it was left open.
      * `turnEnded` is for the session whose own Stop asked for the check. */
     async closeIfIdle(key: string, turnEnded = false): Promise<boolean> {
-      const owner = deps
-        .getWorkspaces()
-        .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
-      if (!owner || closeBlocker(key, owner.id, turnEnded)) return false;
-      // The user answers a question in this tab, so it must outlive the merge.
-      const row = deps
-        .snapshot()
-        .find((r) => r.workspaceId === owner.id)
-        ?.sessions.find((s) => s.key === key);
-      if (row?.ended === "question") return false;
-      if (deps.hasPendingInput(key) || deps.hasDraft(key)) return false;
+      if (idleCloseRefusal(key, turnEnded) !== null) return false;
       await deps.close(key);
       return true;
     },

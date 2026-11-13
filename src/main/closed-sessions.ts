@@ -46,10 +46,10 @@ export function recordClosed(
 export function forgetClosed(
   list: ClosedSession[],
   workspaceId: string,
-  label: string,
+  sessionId: string,
 ): ClosedSession[] {
   return list.filter(
-    (c) => !(c.workspaceId === workspaceId && c.label === label),
+    (c) => !(c.workspaceId === workspaceId && c.sessionId === sessionId),
   );
 }
 

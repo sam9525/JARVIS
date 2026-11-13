@@ -43,11 +43,26 @@ describe("recordClosed", () => {
 });
 
 describe("forgetClosed", () => {
-  it("drops only that workspace's label", () => {
-    const list = [entry(), entry({ label: "2" }), entry({ workspaceId: "x" })];
-    expect(forgetClosed(list, "d:/aero", "main")).toEqual([
-      entry({ label: "2" }),
+  it("drops only that workspace's resumed conversation", () => {
+    const list = [
+      entry(),
+      entry({ label: "2", sessionId: "s2" }),
       entry({ workspaceId: "x" }),
+    ];
+    expect(forgetClosed(list, "d:/aero", SID)).toEqual([
+      entry({ label: "2", sessionId: "s2" }),
+      entry({ workspaceId: "x" }),
+    ]);
+  });
+
+  it("forgets only the resumed conversation", () => {
+    const list = [
+      entry({ label: "auto", sessionId: "s2" }),
+      entry({ label: "other", sessionId: "s3" }),
+    ];
+    expect(forgetClosed(list, "d:/aero", "s1")).toEqual(list);
+    expect(forgetClosed(list, "d:/aero", "s2")).toEqual([
+      entry({ label: "other", sessionId: "s3" }),
     ]);
   });
 });

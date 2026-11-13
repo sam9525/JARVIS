@@ -1012,8 +1012,10 @@ app.whenReady().then(async () => {
       worktree: useWorktree,
       delegated: opts.delegated === true,
     });
-    // live again, so it is no longer offered as closed
-    if (opts.resumeId) setClosed(forgetClosed(closedSessions, ws.id, label));
+    // live again, so it is no longer offered as closed; matched by conversation
+    // id because the session it replaced was just recorded under the same label
+    if (opts.resumeId)
+      setClosed(forgetClosed(closedSessions, ws.id, opts.resumeId));
     return { ok: true, ...result };
   }
 

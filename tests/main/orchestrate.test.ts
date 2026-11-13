@@ -1715,4 +1715,66 @@ describe("closed sessions", () => {
     expect(closed).toEqual([]);
     expect(launched).toEqual([]);
   });
+
+  const autoHolder = (): Sess => ({
+    key: "d:/fin#auto",
+    workspaceId: "d:/fin",
+    label: "auto",
+    cwd: "D:\\fin",
+    worktree: false,
+    delegated: true,
+  });
+  const closedAuto: ClosedSession = { ...closedMain, label: "Auto" };
+
+  it("a resume replaces a holder whose label differs in case", async () => {
+    const { orch, closed, resumedIds } = setup({
+      sessions: [autoHolder()],
+      closedSessions: [closedAuto],
+    });
+    expect((await orch.launch("FinPulse", "Auto", true)).ok).toBe(true);
+    expect(closed).toEqual(["d:/fin#auto"]);
+    expect(resumedIds).toEqual([SID]);
+  });
+
+  it("a refused resume names a pending question", async () => {
+    const { orch } = setup({
+      sessions: [autoHolder()],
+      closedSessions: [closedAuto],
+      statuses: [
+        status({
+          workspaceId: "d:/fin",
+          kind: "idle",
+          sessions: [
+            sessionRow({
+              key: "d:/fin#auto",
+              label: "auto",
+              ended: "question",
+            }),
+          ],
+        }),
+      ],
+    });
+    expect(await orch.launch("FinPulse", "Auto", true)).toEqual({
+      ok: false,
+      error: `FinPulse's live session "auto" is waiting on your answer to its question — it was not replaced`,
+    });
+  });
+
+  it("closeIfIdle leaves a key no workspace owns", async () => {
+    const { orch, closed } = setup({ sessions: [] });
+    expect(await orch.closeIfIdle("d:/nowhere#9")).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
+  it("a refused resume names unsent text", async () => {
+    const { orch } = setup({
+      sessions: [autoHolder()],
+      closedSessions: [closedAuto],
+      drafts: ["d:/fin#auto"],
+    });
+    expect(await orch.launch("FinPulse", "Auto", true)).toEqual({
+      ok: false,
+      error: `FinPulse's live session "auto" is holding unsent text — it was not replaced`,
+    });
+  });
 });
