@@ -21,7 +21,7 @@ function toOption(lines: string[]): TextOption {
   return {
     label,
     description: rest.map((l) => l.trim()).join(" "),
-    reply: `${match[1]} ${label}`,
+    reply: /^[-*+]$/.test(match[1]) ? label : `${match[1]} ${label}`,
   };
 }
 

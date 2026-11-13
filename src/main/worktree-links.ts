@@ -4,21 +4,48 @@ import path from "node:path";
 export type LinkTarget = { target: string; names: string[] };
 
 const SHOWN_NAMES = 5;
+export const LINK_SCAN_CONCURRENCY = 16;
 
 /** Every link (symlink or Windows junction) under `dir`, never walking into one. */
 export async function findLinks(dir: string): Promise<string[]> {
   const found: string[] = [];
-  const walk = async (current: string, top: boolean): Promise<void> => {
-    const entries = await fs.readdir(current, { withFileTypes: true });
+  const queue: { folder: string; top: boolean }[] = [
+    { folder: dir, top: true },
+  ];
+  const scan = async (job: { folder: string; top: boolean }): Promise<void> => {
+    const entries = await fs.readdir(job.folder, { withFileTypes: true });
     for (const entry of entries) {
-      const full = path.join(current, entry.name);
+      const full = path.join(job.folder, entry.name);
       if (entry.isSymbolicLink()) found.push(full);
-      else if (top && entry.name === ".git") continue;
-      else if (entry.isDirectory()) await walk(full, false);
+      else if (job.top && entry.name === ".git") continue;
+      else if (entry.isDirectory()) queue.push({ folder: full, top: false });
     }
   };
-  await walk(dir, true);
-  return found;
+  return new Promise((resolve, reject) => {
+    let active = 0;
+    let failed = false;
+    // Starts queued folders until LINK_SCAN_CONCURRENCY reads are in flight;
+    // each finished read pumps again, and the scan ends when nothing is queued
+    // or running.
+    const pump = (): void => {
+      if (failed) return;
+      for (let job; active < LINK_SCAN_CONCURRENCY && (job = queue.pop());) {
+        active++;
+        scan(job).then(
+          () => {
+            active--;
+            pump();
+          },
+          (error: unknown) => {
+            failed = true;
+            reject(error);
+          },
+        );
+      }
+      if (active === 0 && queue.length === 0) resolve(found);
+    };
+    pump();
+  });
 }
 
 export async function snapshotTargets(links: string[]): Promise<LinkTarget[]> {

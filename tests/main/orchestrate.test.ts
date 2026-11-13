@@ -1778,3 +1778,13 @@ describe("closed sessions", () => {
     });
   });
 });
+
+describe("sendPayload control characters", () => {
+  it("sendPayload drops C0 controls but keeps tabs and newlines", () => {
+    expect(sendPayload("a\x07b\tc")).toBe("ab\tc");
+    const out = sendPayload("x\x00\ny\x7f");
+    expect(out).toContain("x\ny");
+    expect(out).not.toContain("\x00");
+    expect(out).not.toContain("\x7f");
+  });
+});

@@ -38,6 +38,16 @@ describe("parseTextQuestion", () => {
     });
   });
 
+  it("a bullet option replies with its label alone", () => {
+    const replies = (text: string) =>
+      parseTextQuestion(text)?.options.map((o) => o.reply);
+    expect(replies("Pick one?\n- Fast\n- Safe")).toEqual(["Fast", "Safe"]);
+    expect(replies("Pick one?\n1. Fast\n2. Safe")).toEqual([
+      "1. Fast",
+      "2. Safe",
+    ]);
+  });
+
   it("is not a question when the text before the list has no question mark", () => {
     expect(parseTextQuestion("Pick one:\n- **Keep** it\n- Drop it")).toBeNull();
   });

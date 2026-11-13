@@ -138,7 +138,8 @@ describe("forward.mjs", () => {
     hook_event_name: "PreToolUse",
     tool_name: "AskUserQuestion",
   });
-  const reply = '{"hookSpecificOutput":{"permissionDecision":"allow"}}';
+  const reply =
+    '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}';
 
   it("prints the reply body for an AskUserQuestion PreToolUse in a session", async () => {
     await withReply(reply, async (port) => {
@@ -147,6 +148,26 @@ describe("forward.mjs", () => {
       });
       expect(r.code).toBe(0);
       expect(r.stdout).toBe(reply);
+    });
+  });
+
+  it("prints nothing for a reply that is not a PreToolUse hook output", async () => {
+    for (const bad of ['{"foo":1}', "not json"]) {
+      await withReply(bad, async (port) => {
+        const r = await runForwardWithOutput(port, askStdin, {
+          JARVIS_SESSION: "d:/repo#2",
+        });
+        expect(r.code).toBe(0);
+        expect(r.stdout).toBe("");
+      });
+    }
+    const good =
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}';
+    await withReply(good, async (port) => {
+      const r = await runForwardWithOutput(port, askStdin, {
+        JARVIS_SESSION: "d:/repo#2",
+      });
+      expect(r.stdout).toBe(good);
     });
   });
 

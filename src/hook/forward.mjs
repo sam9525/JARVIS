@@ -22,6 +22,16 @@ if (process.env.JARVIS_SESSION) {
   }
 }
 
+// Only a PreToolUse hook output may reach Claude Code's stdout; any other
+// body would be read as the hook's own output.
+function isHookReply(text) {
+  try {
+    return JSON.parse(text)?.hookSpecificOutput?.hookEventName === "PreToolUse";
+  } catch {
+    return false;
+  }
+}
+
 let reply = "";
 let wantsReply = false;
 try {
@@ -40,7 +50,9 @@ try {
     signal: AbortSignal.timeout(1500),
   });
   const text = await res.text();
-  if (process.env.JARVIS_SESSION && res.ok && wantsReply) reply = text;
+  if (process.env.JARVIS_SESSION && res.ok && wantsReply && isHookReply(text)) {
+    reply = text;
+  }
 } catch {
   // app not running — fine, hooks must never break Claude Code
 }

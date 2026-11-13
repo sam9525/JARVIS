@@ -125,7 +125,13 @@ const MAX_PLAIN_BYTES = 1024;
  * stays plain because a slash command inside a paste is text. ESC is dropped
  * so no prompt text can close or open a block. */
 export function sendPayload(prompt: string): string {
-  const text = prompt.replace(/\r\n?/g, "\n").replaceAll("\x1b", "").trimEnd();
+  const text = prompt
+    .replace(/\r\n?/g, "\n")
+    .replaceAll("\x1b", "")
+    // every other C0 control and DEL; tab and newline stay for multi-line prompts
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "")
+    .trimEnd();
   if (!text.includes("\n") && Buffer.byteLength(text) <= MAX_PLAIN_BYTES)
     return text;
   return PASTE_START + text + PASTE_END;

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -56,6 +56,37 @@ describe("findLinks", () => {
     await fs.mkdir(outside);
     await junction(outside, path.join(wt, ".git"));
     expect(await findLinks(wt)).toEqual([path.join(wt, ".git")]);
+  });
+
+  it("reads at most 16 folders at once", async () => {
+    const wt = path.join(root, "wt");
+    for (let i = 0; i < 40; i++) {
+      await fs.mkdir(path.join(wt, `dir${i}`), { recursive: true });
+    }
+    const realReaddir = fs.readdir.bind(fs) as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    let pending = 0;
+    let peak = 0;
+    const spy = vi.spyOn(fs, "readdir").mockImplementation((async (
+      ...args: unknown[]
+    ) => {
+      pending++;
+      peak = Math.max(peak, pending);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      try {
+        return await realReaddir(...args);
+      } finally {
+        pending--;
+      }
+    }) as unknown as typeof fs.readdir);
+    try {
+      expect(await findLinks(wt)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(16);
   });
 
   it("skips the .git file", async () => {
