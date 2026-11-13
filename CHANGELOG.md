@@ -4,6 +4,8 @@ All notable changes to JARVIS are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-11-13
+
 ### Added
 
 - Plain-text questions from the agent are now detected, shown in the question panel with their options, and answered from there. A reply is sent once, and you are told why one was refused.
