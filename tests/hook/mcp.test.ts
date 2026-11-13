@@ -262,6 +262,27 @@ describe("mcp.mjs", () => {
     listener.close();
   });
 
+  it("jarvis_close names a damaged link target", async () => {
+    const listener = await fakeListener({
+      ok: true,
+      damaged: "D:/app/node_modules lost 2 entries (.bin, vitest)",
+    });
+    const { request } = startMcp(listener.port);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 270,
+      method: "tools/call",
+      params: {
+        name: "jarvis_close",
+        arguments: { workspace: "A", session: "1" },
+      },
+    });
+    expect(res.result.content[0].text).toContain(
+      "a link target lost files: D:/app/node_modules lost 2 entries (.bin, vitest)",
+    );
+    listener.close();
+  });
+
   it("tools/call jarvis_close POSTs to /orchestrate/close with the header", async () => {
     const listener = await fakeListener({
       ok: true,
@@ -320,7 +341,8 @@ describe("mcp.mjs", () => {
       "fresh: true",
       "@project",
       "To-do tasks:",
-      "Never start a spec before the one before it is approved.",
+      "Split into N specs.",
+      "Spec K: <one-word label>",
       "for each spec in order",
       "Use the single-task prompt when only one task is chosen",
       "never share a prompt",
@@ -331,6 +353,7 @@ describe("mcp.mjs", () => {
     ]) {
       expect(description).toContain(needle);
     }
+    expect(description).not.toContain("Never start a spec before");
   });
 
   it("jarvis_send's pipelines tell every build subagent to run impact with repo", async () => {
@@ -530,6 +553,30 @@ describe("mcp.mjs", () => {
       label: "AeroGraph",
     });
     expect(res.result.content[0].text).toContain('session "AeroGraph"');
+    listener.close();
+  });
+
+  it("tools/call jarvis_launch forwards resume only when true", async () => {
+    const listener = await fakeListener({ ok: true, session: "main" });
+    const { request } = startMcp(listener.port);
+    for (const [id, resume] of [
+      [30, true],
+      [31, "yes"],
+    ] as const) {
+      await request({
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: {
+          name: "jarvis_launch",
+          arguments: { workspace: "FinPulse", label: "main", resume },
+        },
+      });
+    }
+    expect(listener.hits.map((h) => JSON.parse(h.body))).toEqual([
+      { workspace: "FinPulse", label: "main", resume: true },
+      { workspace: "FinPulse", label: "main" },
+    ]);
     listener.close();
   });
 

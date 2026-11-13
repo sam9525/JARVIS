@@ -310,3 +310,36 @@ describe("pruneSelections", () => {
     expect(pruneSelections(selected, () => withOne)).toBe(selected);
   });
 });
+
+describe("turn endings in tabs", () => {
+  it("shows an idle question as asking and an idle error as crashed", () => {
+    const t = projectTabs(REPO, [
+      row("repo", [
+        session("repo", "main"),
+        session("repo#1", "1", { ended: "question" }),
+        session("repo#2", "2", { ended: "failed" }),
+      ]),
+    ]);
+    expect(t.map((x) => x.kind)).toEqual(["idle", "asking", "crashed"]);
+  });
+
+  it("sorts a question tab with the asking tabs", () => {
+    const t = projectTabs(REPO, [
+      row("repo", [
+        session("repo", "main", { kind: "working" }),
+        session("repo#1", "1", { ended: "question" }),
+      ]),
+    ]);
+    expect(cardTab(t, undefined).key).toBe("repo#1");
+  });
+
+  it("keeps an idle error's tab only while it is live", () => {
+    const t = projectTabs(REPO, [
+      row("repo", [
+        session("repo", "main"),
+        session("repo#1", "1", { ended: "failed", live: false }),
+      ]),
+    ]);
+    expect(t.map((x) => x.key)).toEqual(["repo"]);
+  });
+});

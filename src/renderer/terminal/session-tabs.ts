@@ -5,6 +5,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
+import { displayKind } from "../../shared/turn-end";
 
 export type SessionTab = {
   key: string;
@@ -32,8 +33,9 @@ function mainTab(
   statuses: WorkspaceStatus[],
 ): SessionTab {
   const key = sessionKey(ws.id, MAIN_LABEL);
-  const kind =
-    sessionsOf(ws.id, statuses).find((s) => s.key === key)?.kind ?? "none";
+  const kind = displayKind(
+    sessionsOf(ws.id, statuses).find((s) => s.key === key) ?? { kind: "none" },
+  );
   return { key, label, kind, workspaceId: ws.id, main: true };
 }
 
@@ -51,7 +53,7 @@ export function homeTabs(
     ...live.map((s, i) => ({
       key: s.key,
       label: live.length === 1 ? "SCRATCH" : `SCRATCH ${i + 1}`,
-      kind: s.kind,
+      kind: displayKind(s),
       workspaceId: scratch.id,
     })),
   ];
@@ -74,7 +76,7 @@ export function projectTabs(
     ...others.map((s) => ({
       key: s.key,
       label: shownName(s, others),
-      kind: s.kind,
+      kind: displayKind(s),
       workspaceId: ws.id,
       // a code folder that is not a git repo gets no worktree, so this session
       // edits the same files as main

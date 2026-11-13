@@ -1,5 +1,6 @@
 import React from "react";
 import { SOURCE_LABELS } from "../../shared/types";
+import { displayKind } from "../../shared/turn-end";
 import type {
   Workspace,
   WorkspaceStatus,
@@ -123,8 +124,9 @@ export default function WorkspaceRail({
             </div>
             {group.map((ws) => {
               const st = byId.get(ws.id);
-              const badge = st ? BADGE[st.kind] : null;
-              const state = st ? LABEL[st.kind] : "no session";
+              const kind = st ? displayKind(st) : "none";
+              const badge = BADGE[kind];
+              const state = st ? LABEL[kind] : "no session";
               const label = SOURCE_LABELS[ws.sourceId] ?? ws.sourceId;
               const title =
                 `${ws.name} (${ws.kind} · ${label}) — ${state}` +
@@ -138,10 +140,7 @@ export default function WorkspaceRail({
                   style={e.style}
                   className={
                     "relative cursor-pointer uppercase " +
-                    pipClass(
-                      st?.kind ?? "none",
-                      !homeActive && ws.id === activeId,
-                    ) +
+                    pipClass(kind, !homeActive && ws.id === activeId) +
                     e.className
                   }
                 >

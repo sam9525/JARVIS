@@ -2,9 +2,13 @@ import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
 import type { Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 
+export { docKindOf, type DocKind } from "../shared/doc-kind";
+
 export interface AskOption {
   label: string;
   description: string;
+  // text questions only: the words typed into the terminal when picked
+  reply?: string;
 }
 
 export interface AskQuestion {
@@ -27,6 +31,10 @@ export interface AskPrompt {
   // set only on a clear: the offered option each question was answered with
   answers?: AskAnswer[];
   ts: number;
+  // main answered this question through the hook reply; the renderer holds its panel
+  offered?: true;
+  // "text" marks a question read from a plain reply, not an AskUserQuestion call
+  source?: "text";
   // the renderer fills this from the session's writes; main never sets it
   docs?: Partial<Record<"spec" | "plan", string>>;
 }
@@ -49,7 +57,7 @@ function toOptions(v: unknown): AskOption[] {
   return out;
 }
 
-function toQuestions(v: unknown): AskQuestion[] {
+export function toQuestions(v: unknown): AskQuestion[] {
   if (!Array.isArray(v)) return [];
   const out: AskQuestion[] = [];
   for (const raw of v) {

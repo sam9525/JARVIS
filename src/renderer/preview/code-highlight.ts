@@ -1,5 +1,6 @@
 import { createHighlighter, createJavaScriptRegexEngine } from "shiki";
 import type { BundledLanguage, Highlighter } from "shiki";
+import markdown from "shiki/langs/markdown.mjs";
 import type { LineChanges } from "../../shared/types";
 
 const THEME = "dark-plus";
@@ -59,7 +60,7 @@ export function previewsAsCode(codeWorkspace: boolean, path: string): boolean {
 }
 
 // lazy singleton — created on first code preview, reused for the whole session.
-// Grammars load on first use of a language, not all upfront.
+// Other grammars load on first use of a language, not all upfront.
 let highlighterPromise: Promise<Highlighter> | null = null;
 
 function getHighlighter(): Promise<Highlighter> {
@@ -70,7 +71,9 @@ function getHighlighter(): Promise<Highlighter> {
     // regex engine gets the same grammars with no WASM involved.
     highlighterPromise = createHighlighter({
       themes: [THEME],
-      langs: [],
+      // markdown ships with the preview chunk: its lazy grammar chunk can fail
+      // to load in a long-running window, leaving the Source view uncolored
+      langs: [markdown],
       engine: createJavaScriptRegexEngine(),
     }).catch((err) => {
       // don't memoize a rejection — one bad init would mean colorless
@@ -142,6 +145,7 @@ export async function highlightCode(
       ],
     });
   } catch (error) {
+    console.error("code preview highlight failed", path, error);
     // one span.line per source line, joined the way Shiki joins them, so the
     // line-number gutter works on the plaintext fallback too
     const lines = code

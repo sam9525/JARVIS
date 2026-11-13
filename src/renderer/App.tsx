@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,7 @@ import Graph3D from "./graph/Graph3D";
 import GraphSlot from "./graph/GraphSlot";
 import Preview from "./preview/Preview";
 import GraphSettingsPanel from "./ui/GraphSettingsPanel";
-import AskPanel, { pickAsk } from "./ui/AskPanel";
+import AskPanel, { pickAsk, type ReplyResult } from "./ui/AskPanel";
 import type { AskPrompt } from "../main/ask-mapper";
 import {
   approvedDocClose,
@@ -29,6 +30,12 @@ import TerminalPanel, {
   terminalSize,
 } from "./terminal/TerminalPanel";
 import SessionTabs from "./terminal/SessionTabs";
+import { hasLiveSession } from "./terminal/terminal-fold";
+import {
+  DEFAULT_TERMINAL_TOGGLE,
+  DEFAULT_TODO_TOGGLE,
+  matchesCombo,
+} from "./ui/key-combo";
 import {
   cardTab,
   homeTabs,
@@ -57,6 +64,7 @@ import Panel from "./ui/Panel";
 import TodoPanel from "./todos/TodoPanel";
 import TodoComposer, { type ComposeRequest } from "./todos/TodoComposer";
 import TodoToggle from "./todos/TodoToggle";
+import AutoAnswerToggle from "./ui/AutoAnswerToggle";
 import TodoView from "./todos/TodoView";
 import { todosGrew } from "./todos/todo-growth";
 import { ENTER_MS, runMs, useBootStage } from "./ui/boot-stage";
@@ -118,6 +126,7 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 import { parseSessionKey } from "../shared/session-key";
+import { displayKind } from "../shared/turn-end";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
 import HandCursor, { type HandCursorHandle } from "./hands/HandCursor";
@@ -147,6 +156,9 @@ const GRAPH_LEVEL_OPTIONS: { value: CodeGraphLevel; label: string }[] = [
   { value: "file", label: "Files" },
   { value: "symbol", label: "Symbols" },
 ];
+
+// outlasts the hook's 1500 ms timeout, after which Claude Code opens the picker
+const OFFERED_HOLD_MS = 2000;
 
 // the same box on the home screen and in a workspace
 const SHARED_PANELS = new Set<PanelId>([
@@ -205,6 +217,11 @@ export default function App() {
   const [showHome, setShowHome] = useState(true); // open on the command center
   const [homeView, setHomeView] = useState<HomeView>("cards");
   const [ringCentreId, setRingCentreId] = useState<string | null>(null);
+  const [autoAnswer, setAutoAnswer] = useState(false);
+  useEffect(() => {
+    window.jarvis.getAutoAnswer().then(setAutoAnswer).catch(console.error);
+    return window.jarvis.onAutoAnswer(setAutoAnswer);
+  }, []);
   // MissionControl is hook-free so it stays testable without a DOM — the
   // clock that keeps its "40s ago" honest therefore lives here.
   const [cardNow, setCardNow] = useState(() => Date.now());
@@ -325,6 +342,15 @@ export default function App() {
     (id: PanelId, next: PanelState) => setPanels({ [id]: next }),
     [setPanels],
   );
+
+  const setTerminalCollapsed = (collapsed: boolean) => {
+    const next = { ...panelState("terminal"), collapsed };
+    setPanel("terminal", collapsed ? next : clampToViewport(next, viewport));
+  };
+  // the entry effect and the key listener run outside render, so they reach
+  // this render's layout through the ref rather than re-subscribing each time
+  const setTerminalCollapsedRef = useRef(setTerminalCollapsed);
+  setTerminalCollapsedRef.current = setTerminalCollapsed;
 
   // Panels ride the window: maximizing, restoring or reopening at a different
   // size rescales them, and a layout saved on a bigger monitor is pulled back
@@ -559,12 +585,27 @@ export default function App() {
   // spec and plan paths each session has written, for the question panel's
   // preview row; read by the once-registered subscribers
   const askDocsRef = useRef(new Map<string, AskDocs>());
+  // pending show-timers of offered asks, keyed by session key
+  const offeredHoldsRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  );
   // the Claude session each key last emitted for; a change clears its docs
   const askDocSessionRef = useRef(new Map<string, string>());
   const workspacesRef = useRef<Workspace[]>([]);
   workspacesRef.current = workspaces;
   const statusesRef = useRef(statuses);
   statusesRef.current = statuses;
+
+  // Keyed on the shown project alone: a status push or a session starting
+  // inside the project leaves the id unchanged, so it never re-folds. A layout
+  // effect, so a project without a live session never paints an open terminal.
+  const shownProjectId = showHome ? null : (active?.id ?? null);
+  useLayoutEffect(() => {
+    if (shownProjectId === null) return;
+    setTerminalCollapsedRef.current(
+      !hasLiveSession(statusesRef.current, shownProjectId),
+    );
+  }, [shownProjectId]);
 
   const openWorkspace = useCallback(
     (ws: Workspace) => {
@@ -625,13 +666,16 @@ export default function App() {
       window.jarvis.onToolEvent((e) => {
         // a new turn started, so whatever the question was, it is over. This
         // is also the backstop for a session still running the old matcher.
-        if (e.tool === "Prompt")
+        if (e.tool === "Prompt") {
+          clearTimeout(offeredHoldsRef.current.get(e.sessionKey));
+          offeredHoldsRef.current.delete(e.sessionKey);
           setAsks((prev) => {
             if (!prev.has(e.sessionKey)) return prev;
             const next = new Map(prev);
             next.delete(e.sessionKey);
             return next;
           });
+        }
         if (askDocSessionRef.current.get(e.sessionKey) !== e.sessionId) {
           askDocSessionRef.current.set(e.sessionKey, e.sessionId);
           askDocsRef.current.delete(e.sessionKey);
@@ -668,42 +712,78 @@ export default function App() {
     offs.push(window.jarvis.onStatus(setStatuses));
     // typing into a session means its answer is being given there; the id is
     // that terminal's session key
-    const dropAsk = (id: string) =>
+    const holds = offeredHoldsRef.current;
+    const cancelHold = (id: string) => {
+      clearTimeout(holds.get(id));
+      holds.delete(id);
+    };
+    const dropAsk = (id: string) => {
+      cancelHold(id);
       setAsks((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Map(prev);
         next.delete(id);
         return next;
       });
+    };
     offs.push(onTerminalTyped(dropAsk));
     // an ended session cannot answer, and a later one may reuse its key
     offs.push(onTerminalExit(dropAsk));
     offs.push(
       window.jarvis.onAsk?.((p) => {
-        if (
-          p.questions.length === 0 &&
-          approvedDocClose(
-            p.answers ?? [],
-            askDocsRef.current.get(p.sessionKey),
-            p.workspaceId,
-            previewRef.current,
+        // a text clear closes only a text question: an AskUserQuestion panel
+        // and its offered hold belong to the hook that raised them
+        if (p.source === "text" && p.questions.length === 0) {
+          setAsks((prev) => {
+            if (prev.get(p.sessionKey)?.source !== "text") return prev;
+            const next = new Map(prev);
+            next.delete(p.sessionKey);
+            return next;
+          });
+          return;
+        }
+        cancelHold(p.sessionKey);
+        const show = () => {
+          if (
+            p.questions.length === 0 &&
+            approvedDocClose(
+              p.answers ?? [],
+              askDocsRef.current.get(p.sessionKey),
+              p.workspaceId,
+              previewRef.current,
+            )
           )
-        )
-          setPreview(null);
-        setAsks((prev) => {
-          const next = new Map(prev);
-          if (p.questions.length === 0) next.delete(p.sessionKey);
-          else
-            next.set(p.sessionKey, {
-              ...p,
-              docs: askDocsRef.current.get(p.sessionKey),
-            });
-          return next;
-        });
+            setPreview(null);
+          setAsks((prev) => {
+            const next = new Map(prev);
+            if (p.questions.length === 0) next.delete(p.sessionKey);
+            else
+              next.set(p.sessionKey, {
+                ...p,
+                docs: askDocsRef.current.get(p.sessionKey),
+              });
+            return next;
+          });
+        };
+        // an ask that auto-answer already replied to waits out the hold, so a
+        // clear or a keystroke arriving inside it cancels it before it shows
+        if (p.offered) {
+          holds.set(
+            p.sessionKey,
+            setTimeout(() => {
+              holds.delete(p.sessionKey);
+              show();
+            }, OFFERED_HOLD_MS),
+          );
+          return;
+        }
+        show();
       }) ?? (() => undefined),
     );
     return () => {
       cancelled = true;
+      holds.forEach((timer) => clearTimeout(timer));
+      holds.clear();
       for (const off of offs) off();
     };
     // registered once — do not re-register on workspace switch
@@ -873,6 +953,25 @@ export default function App() {
     return answered;
   };
 
+  // A plain-text question is answered by typing into the composer, so a draft
+  // the user has there blocks the reply. The ask is dropped once the reply is
+  // written, so a remounted panel cannot send it again. The result says which
+  // of sent, draft or no-terminal happened.
+  const answerPrompt = async (
+    key: string,
+    writes: string[],
+  ): Promise<boolean | ReplyResult> => {
+    if (asks.get(key)?.source !== "text") return answerAsk(key, writes);
+    if (await window.jarvis.hasUnsentInput(key)) return "draft";
+    if (!(await answerAsk(key, writes))) return "no-terminal";
+    setAsks((prev) => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+    return "sent";
+  };
+
   // the header sits over Cards, Ring and Fleet, so it counts what they render:
   // the main agent's row has no card, no tile and no pip to point at
   const fleetStatuses = useMemo(
@@ -924,6 +1023,56 @@ export default function App() {
       runMs(showHome && homeView === "cards" ? fleet.length : 1),
     ],
   );
+
+  // Capture phase, and the key is swallowed even when nothing toggles, so a
+  // match never reaches the xterm or the composer underneath.
+  const onTerminalToggleKeyRef = useRef<(e: KeyboardEvent) => void>(
+    () => undefined,
+  );
+  onTerminalToggleKeyRef.current = (e) => {
+    if (e.target instanceof Element && e.target.closest("[data-key-recorder]"))
+      return;
+    if (
+      !matchesCombo(e, settings.terminalToggleKey ?? DEFAULT_TERMINAL_TOGGLE)
+    ) {
+      if (!matchesCombo(e, settings.todoToggleKey ?? DEFAULT_TODO_TOGGLE))
+        return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat || stage < 0 || deckCleared) return;
+      // closing hides the panels a focused field may sit in, which would leave
+      // the keys going nowhere; a field outside the list keeps its caret
+      const focused = document.activeElement as HTMLElement | null;
+      if (
+        showTodos &&
+        focused?.closest(
+          '[data-testid="panel-todos"], [data-testid="panel-compose"], [data-testid="panel-view"]',
+        )
+      )
+        focused.blur();
+      if (!showTodos) focusPanel("todos");
+      setShowTodos(!showTodos);
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    // a held key repeats; one press is one toggle
+    if (e.repeat) return;
+    if (!terminalOwner || stage < 3 || deckCleared) return;
+    const { collapsed } = panelState("terminal");
+    // folding unmounts the focused field in a project, but on home the inbox
+    // strip stays mounted and would keep the keys; a field outside the
+    // terminal keeps its caret
+    const focused = document.activeElement as HTMLElement | null;
+    if (!collapsed && focused?.closest('[data-testid="panel-terminal"]'))
+      focused.blur();
+    setTerminalCollapsedRef.current(!collapsed);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => onTerminalToggleKeyRef.current(e);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   const hands = useHandControl({
     cameraOn,
@@ -1319,9 +1468,9 @@ export default function App() {
 
   const telemetry = showHome
     ? `COMMAND CENTER · ${fleet.length} WORKSPACES · ` +
-      `${fleetStatuses.filter((s) => s.kind === "asking").length} ASKING · ` +
-      `${fleetStatuses.filter((s) => s.kind === "blocked").length} BLOCKED · ` +
-      `${fleetStatuses.filter((s) => s.kind === "working").length} WORKING`
+      `${fleetStatuses.filter((s) => displayKind(s) === "asking").length} ASKING · ` +
+      `${fleetStatuses.filter((s) => displayKind(s) === "blocked").length} BLOCKED · ` +
+      `${fleetStatuses.filter((s) => displayKind(s) === "working").length} WORKING`
     : `FLEET ${workspaces.length} · NODES ${graph.nodes.length} · ` +
       `EDGES ${graph.edges.length} · ` +
       `SRC ${(active?.sourceId ?? "unknown").toUpperCase()}`;
@@ -1364,6 +1513,15 @@ export default function App() {
           if (!showTodos) focusPanel("todos");
           setShowTodos(!showTodos);
         }}
+      />
+      <AutoAnswerToggle
+        on={autoAnswer}
+        onToggle={() =>
+          window.jarvis
+            .setAutoAnswer(!autoAnswer)
+            .then(setAutoAnswer)
+            .catch(console.error)
+        }
       />
       <button
         className={BTN_IDLE + " text-[13px]"}
@@ -1715,7 +1873,7 @@ export default function App() {
                 .flatMap((s) => s.sessions)
                 .find((x) => x.key === tab.key)}
               files={terminalFiles}
-              onAskAnswer={(writes) => answerAsk(tab.key, writes)}
+              onAskAnswer={(writes) => answerPrompt(tab.key, writes)}
               onOpenDoc={(id) => openDoc(ws.id, id)}
             />
           </Panel>
@@ -1878,7 +2036,7 @@ export default function App() {
               key={`${prompt.sessionKey}:${prompt.ts}`}
               prompt={prompt}
               workspaceName={ws.name}
-              onAnswer={(writes) => void answerAsk(prompt.sessionKey, writes)}
+              onAnswer={(writes) => answerPrompt(prompt.sessionKey, writes)}
               onOpenDoc={(id) => openDoc(prompt.workspaceId, id)}
             />
           </Panel>

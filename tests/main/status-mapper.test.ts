@@ -158,6 +158,34 @@ describe("callSignature names", () => {
 });
 
 describe("mapStatusEvent", () => {
+  it("Stop with background work still running is not a finish", () => {
+    const stop = (extra: Record<string, unknown>) =>
+      mapStatusEvent(
+        { ...base, hook_event_name: "Stop", ...extra },
+        workspaces,
+      );
+    const waiting = stop({
+      background_tasks: [{}],
+      last_assistant_message: "Waiting on the agent.",
+    });
+    expect(waiting).toMatchObject({ kind: "working", call: "", step: "" });
+    expect(waiting?.message).toBeUndefined();
+    expect(waiting?.ended).toBeUndefined();
+    expect(
+      stop({
+        background_tasks: [{}],
+        last_assistant_message: "Done.\n\nMerge it?",
+      }),
+    ).toMatchObject({
+      kind: "idle",
+      ended: "question",
+      message: "Done.\n\nMerge it?",
+    });
+    expect(stop({ background_tasks: [] })?.ended).toBe("finished");
+    expect(stop({ background_tasks: null })?.ended).toBe("finished");
+    expect(stop({ background_tasks: {} })?.ended).toBe("finished");
+  });
+
   it("a permission notification is 'blocked'", () => {
     const e = mapStatusEvent(
       {
@@ -185,6 +213,53 @@ describe("mapStatusEvent", () => {
   it("Stop is 'idle'", () => {
     const e = mapStatusEvent({ ...base, hook_event_name: "Stop" }, workspaces);
     expect(e?.kind).toBe("idle");
+  });
+
+  it("Stop records how the turn ended; idle_prompt does not", () => {
+    const stop = (msg?: string) =>
+      mapStatusEvent(
+        {
+          ...base,
+          hook_event_name: "Stop",
+          ...(msg === undefined ? {} : { last_assistant_message: msg }),
+        },
+        workspaces,
+      );
+    expect(stop("Done.\n\nMerge it?")?.ended).toBe("question");
+    expect(stop("Done.")?.ended).toBe("finished");
+    expect(stop()?.ended).toBe("finished");
+    expect(stop("")).toMatchObject({ message: "", ended: "finished" });
+    expect(
+      mapStatusEvent(
+        {
+          ...base,
+          hook_event_name: "Notification",
+          notification_type: "idle_prompt",
+        },
+        workspaces,
+      )?.ended,
+    ).toBeUndefined();
+  });
+
+  it("StopFailure ends the turn as failed with the error and a message", () => {
+    const fail = (extra: Record<string, unknown>) =>
+      mapStatusEvent(
+        { ...base, hook_event_name: "StopFailure", ...extra },
+        workspaces,
+      );
+    const e = fail({ error: "rate_limit", last_assistant_message: "partial" });
+    expect(e).toMatchObject({
+      kind: "idle",
+      call: "",
+      step: "",
+      ended: "failed",
+      error: "rate_limit",
+      message: "partial",
+    });
+    expect(fail({ error: "overloaded" })?.message).toBe("Overloaded");
+    const odd = fail({ error: 42 });
+    expect(odd?.error).toBe("");
+    expect(odd?.message).toBe("API error");
   });
 
   it("Stop carries the transcript path when the payload has one", () => {

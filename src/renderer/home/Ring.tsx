@@ -8,6 +8,7 @@ import type {
   WorkspaceStatus,
 } from "../../shared/types";
 import { NO_GROUPS, SOURCE_LABELS } from "../../shared/types";
+import { displayKind } from "../../shared/turn-end";
 import { emptyState, type HighlightState } from "../session/highlight-store";
 import Graph3D, { type Graph3DHandle } from "../graph/Graph3D";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
@@ -326,7 +327,7 @@ export default function Ring({
       {tiles.map((t, i) => {
         const w = workspaces[i];
         const st = byId.get(w.id);
-        const kind: StatusKind = st?.kind ?? "none";
+        const kind: StatusKind = st ? displayKind(st) : "none";
         return (
           <div
             key={w.id}

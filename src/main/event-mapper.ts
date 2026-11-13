@@ -9,12 +9,15 @@ export interface RawHookEvent {
   session_id?: string;
   cwd?: string;
   jarvis_session?: string; // set by forward.mjs from the PTY's JARVIS_SESSION
+  jarvis_sent_at?: number; // epoch ms, set by forward.mjs beside jarvis_session
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   tool_response?: unknown; // PostToolUse only; read for Grep/Glob matches, gitnexus impact hits and AskUserQuestion answers
   notification_type?: string; // Notification only; read by status-mapper.ts
+  error?: unknown; // StopFailure only: the API error type
   last_assistant_message?: string; // Stop only; the final assistant text of the turn
+  background_tasks?: unknown; // Stop only; tasks still running when the turn ends. Read by status-mapper.ts
   prompt?: string; // UserPromptSubmit only; read by status-mapper.ts
   transcript_path?: string; // Stop only; read by status-mapper.ts for the topic
 }

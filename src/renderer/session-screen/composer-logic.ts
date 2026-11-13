@@ -1,3 +1,5 @@
+import type { SlashCommand } from "../../main/slash-commands";
+
 export const FLIP_COMMANDS: readonly string[] = [
   "/config",
   "/permissions",
@@ -15,6 +17,27 @@ export const FLIP_COMMANDS: readonly string[] = [
   "/vim",
   "/theme",
   "/export",
+];
+
+/** Commands that run as typed on an exact Enter; they never appear in the slash list. */
+export const BUILT_IN_COMMANDS: readonly string[] = [
+  ...new Set([
+    ...FLIP_COMMANDS,
+    "/add-dir",
+    "/agents",
+    "/clear",
+    "/compact",
+    "/context",
+    "/cost",
+    "/help",
+    "/init",
+    "/model",
+    "/plan",
+    "/resume",
+    "/review",
+    "/skills",
+    "/usage",
+  ]),
 ];
 
 export const BOX_MIN_PX = 54;
@@ -63,6 +86,27 @@ export function matchFiles(
   return files
     .filter((f) => f.toLowerCase().includes(needle))
     .sort((a, b) => a.length - b.length)
+    .slice(0, limit);
+}
+
+/** The command name being typed: a draft that is one `/word` and nothing else. */
+export function slashQuery(text: string): string | null {
+  return /^\/\S*$/.test(text) ? text.slice(1) : null;
+}
+
+export function matchCommands(
+  list: SlashCommand[],
+  query: string,
+  limit = 8,
+): SlashCommand[] {
+  const needle = query.toLowerCase();
+  const rank = (name: string) =>
+    name.toLowerCase().startsWith(needle) ? 0 : 1;
+  return list
+    .filter((c) => c.name.toLowerCase().includes(needle))
+    .sort(
+      (a, b) => rank(a.name) - rank(b.name) || a.name.length - b.name.length,
+    )
     .slice(0, limit);
 }
 

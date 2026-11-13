@@ -2,13 +2,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BOX_KEY_STEP_PX,
   BOX_MIN_PX,
+  BUILT_IN_COMMANDS,
+  FLIP_COMMANDS,
   atQuery,
   dragMinHeight,
   fileList,
   flipsToRaw,
   insertAt,
+  matchCommands,
   matchFiles,
   pickerFor,
+  slashQuery,
   sendPrompt,
 } from "../../src/renderer/session-screen/composer-logic";
 
@@ -125,5 +129,51 @@ describe("dragMinHeight", () => {
   it("exposes the default height and the key step", () => {
     expect(BOX_MIN_PX).toBe(54);
     expect(BOX_KEY_STEP_PX).toBe(20);
+  });
+});
+
+describe("slashQuery", () => {
+  it("reads the name being typed", () => {
+    expect(slashQuery("/")).toBe("");
+    expect(slashQuery("/wri")).toBe("wri");
+    expect(slashQuery("/superpowers:w")).toBe("superpowers:w");
+  });
+  it("is null once the draft is anything but one slash word", () => {
+    expect(slashQuery("hello /x")).toBeNull();
+    expect(slashQuery("/x y")).toBeNull();
+    expect(slashQuery("/x\ny")).toBeNull();
+    expect(slashQuery("")).toBeNull();
+  });
+});
+
+describe("matchCommands", () => {
+  const cmd = (name: string) => ({ name, description: "" });
+  it("puts a prefix match before a contains match, then the shorter name", () => {
+    const list = [
+      cmd("my-review"),
+      cmd("review-long"),
+      cmd("review"),
+      cmd("x"),
+    ];
+    expect(matchCommands(list, "rev").map((c) => c.name)).toEqual([
+      "review",
+      "review-long",
+      "my-review",
+    ]);
+  });
+  it("ignores case", () => {
+    expect(matchCommands([cmd("Review")], "REV")).toHaveLength(1);
+  });
+  it("returns at most 8 rows", () => {
+    const list = Array.from({ length: 20 }, (_, i) => cmd(`a${i}`));
+    expect(matchCommands(list, "a")).toHaveLength(8);
+  });
+});
+
+describe("BUILT_IN_COMMANDS", () => {
+  it("has no duplicates and includes the flip commands", () => {
+    expect(new Set(BUILT_IN_COMMANDS).size).toBe(BUILT_IN_COMMANDS.length);
+    for (const name of FLIP_COMMANDS) expect(BUILT_IN_COMMANDS).toContain(name);
+    expect(BUILT_IN_COMMANDS).toContain("/init");
   });
 });

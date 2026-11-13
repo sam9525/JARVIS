@@ -78,6 +78,7 @@ beforeEach(() => {
   (window as any).jarvis = {
     ptyInput,
     listTranscripts: vi.fn(async () => []),
+    listCommands: vi.fn(async () => []),
     savePastedImage: vi.fn(),
   };
   HTMLElement.prototype.setPointerCapture = vi.fn();

@@ -2,6 +2,7 @@ import http from "node:http";
 import { mapHookEvent, type RawHookEvent } from "./event-mapper";
 import { mapStatusEvent } from "./status-mapper";
 import { mapAskEvent, type AskPrompt } from "./ask-mapper";
+import { mapTextQuestion } from "./text-question-mapper";
 import { mapSessionStart, type SessionStart } from "./session-start";
 import type {
   CloseResult,
@@ -58,7 +59,11 @@ export interface OrchestratorLike {
   ): Promise<DeliveredResult>;
   watch(timeoutSeconds?: number, signal?: AbortSignal): Promise<unknown>;
   say(text: string): SendResult;
-  launch(target: string, label?: string): Promise<LaunchResult>;
+  launch(
+    target: string,
+    label?: string,
+    resume?: boolean,
+  ): Promise<LaunchResult>;
   trust(target: string, accept: boolean, session?: string): Promise<SendResult>;
   /** Ends the named session; refuses one whose turn is in flight. */
   close(target: string, session: string): Promise<CloseResult>;
@@ -77,6 +82,9 @@ export function startListener(
   onAsk?: (p: AskPrompt) => void,
   onStatusLine?: (sessionKey: string, raw: Record<string, unknown>) => void,
   onSessionStart?: (s: SessionStart) => void,
+  // the hook output to print for this event, or null to leave the prompt to
+  // the user; the reply to /event carries it back to forward.mjs
+  autoAnswer?: (raw: RawHookEvent) => unknown | null,
 ): http.Server {
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
@@ -88,7 +96,9 @@ export function startListener(
       // but application/json is outside the CORS simple-request set — so a web
       // page has to preflight, and we never answer preflights. forward.mjs
       // already sends this header; the Stop message it carries is persisted and
-      // rendered as HTML, so the body must not be page-writable.
+      // rendered as HTML, so the body must not be page-writable. The reply body
+      // is printed by forward.mjs as the hook output, so it must not be
+      // page-writable either.
       if (
         !String(req.headers["content-type"] ?? "").startsWith(
           "application/json",
@@ -98,13 +108,23 @@ export function startListener(
         return;
       }
       readBody(req, (body) => {
-        res.writeHead(200).end(); // ack immediately — never make Claude Code wait
         let raw: RawHookEvent;
         try {
           raw = JSON.parse(body) as RawHookEvent;
         } catch {
-          return; // malformed hook payload → ignore
+          res.writeHead(200).end(); // malformed hook payload → ack and ignore
+          return;
         }
+        // the answer is computed synchronously and the mappers run after the
+        // reply, so Claude Code waits for nothing but the callback
+        let answer: unknown = null;
+        try {
+          answer = autoAnswer?.(raw) ?? null;
+        } catch {
+          /* a failing answerer leaves the prompt to the user */
+        }
+        if (answer === null) res.writeHead(200).end();
+        else res.writeHead(200).end(JSON.stringify(answer));
         const ws = getWorkspaces();
         // the two mappers are independent: one rejecting must not affect the
         // other, so they get a try each rather than sharing one
@@ -114,6 +134,7 @@ export function startListener(
         } catch {
           /* highlight mapping failed — status may still be fine */
         }
+        // the reply is an offer Claude Code may not take, so every event still maps
         try {
           const s = mapStatusEvent(raw, ws);
           if (s) onStatus(s);
@@ -125,9 +146,20 @@ export function startListener(
         try {
           const a = mapAskEvent(raw, ws);
           // undefined = not about questions; no questions = that one is over
-          if (a !== undefined) onAsk?.(a);
+          if (a !== undefined)
+            onAsk?.(
+              answer !== null && a.questions.length > 0
+                ? { ...a, offered: true }
+                : a,
+            );
         } catch {
           /* ask mapping failed — highlights and status already went out */
+        }
+        try {
+          const t = mapTextQuestion(raw, ws);
+          if (t) onAsk?.(t);
+        } catch {
+          /* text question mapping failed — the other mappers already ran */
         }
         try {
           const started = mapSessionStart(raw, ws);
@@ -224,10 +256,12 @@ export function startListener(
         if (route === "/orchestrate/launch") {
           let target: string;
           let label: string | undefined;
+          let resume: boolean;
           try {
             const p = parse();
             target = String(p.workspace ?? "");
             label = optionalString(p.label);
+            resume = p.resume === true;
           } catch (err) {
             const out = {
               ok: false,
@@ -237,7 +271,7 @@ export function startListener(
             return;
           }
           orchestrator
-            .launch(target, label)
+            .launch(target, label, resume)
             .then((out) => {
               if (res.writableEnded || res.destroyed) return;
               res.writeHead(200).end(JSON.stringify(out));

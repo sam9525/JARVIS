@@ -2,6 +2,8 @@ import { resolveSessionKey, type RawHookEvent } from "./event-mapper";
 import type { PipelineStage, StatusEvent, Workspace } from "../shared/types";
 import { resolveWorkspace } from "./workspaces";
 import { callSignature } from "../shared/call-signature";
+import { errorLabel } from "../shared/turn-end";
+import { parseTextQuestion } from "../shared/text-question";
 
 // The question's own short chip label — what AskUserQuestion provides for
 // exactly this purpose. No questions, or no header, and the bare tool name is
@@ -64,17 +66,46 @@ export function mapStatusEvent(
       if (t === "idle_prompt") return { ...common, kind: "idle", call: "" };
       return null; // auth, elicitation, agent-view events are not our business
     }
-    case "Stop":
+    case "Stop": {
+      const message =
+        typeof raw.last_assistant_message === "string"
+          ? raw.last_assistant_message
+          : undefined;
+      // The turn waits on background work, so it is not a finish.
+      if (
+        Array.isArray(raw.background_tasks) &&
+        raw.background_tasks.length > 0 &&
+        !parseTextQuestion(message ?? "")
+      )
+        return { ...common, kind: "working", call: "", step: "" };
       return {
         ...common,
         kind: "idle",
         call: "",
         step: "",
-        message:
-          typeof raw.last_assistant_message === "string"
-            ? raw.last_assistant_message
-            : undefined,
+        ended: parseTextQuestion(message ?? "") ? "question" : "finished",
+        message,
       };
+    }
+    case "StopFailure": {
+      const error = typeof raw.error === "string" ? raw.error : "";
+      // publishFinish drops empty text, so an error without a message
+      // still needs the label to wake the agent
+      const message =
+        typeof raw.last_assistant_message === "string" &&
+        raw.last_assistant_message
+          ? raw.last_assistant_message
+          : errorLabel(error);
+      return {
+        ...common,
+        kind: "idle",
+        call: "",
+        step: "",
+        ended: "failed",
+        error,
+        message,
+      };
+    }
     case "UserPromptSubmit":
       return {
         ...common,

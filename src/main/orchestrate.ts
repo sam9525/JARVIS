@@ -6,10 +6,13 @@ import {
 } from "../shared/session-key";
 import type {
   StatusKind,
+  TurnEnd,
   Workspace,
   WorkspaceKind,
   WorkspaceStatus,
 } from "../shared/types";
+import type { ClosedSession } from "./closed-sessions";
+import { PASTE_END, PASTE_START } from "./pending-input";
 import type { SessionInfo } from "./sessions";
 import { topicWord } from "./transcript-title";
 
@@ -22,16 +25,20 @@ export interface OrchestrateDeps {
   // every session JARVIS launched for the workspace and has not closed,
   // live or exited
   sessionsOf: (workspaceId: string) => SessionInfo[];
+  // closed sessions of the workspace whose transcript can still be resumed
+  closedOf: (workspaceId: string) => ClosedSession[];
   hasPty: (key: string) => boolean;
   // true while the user has typed into the session's terminal and not sent it
   hasPendingInput: (key: string) => boolean;
   hasDraft: (key: string) => boolean;
   write: (key: string, data: string) => boolean;
   // the launch the tab bar's `+` makes; no label means the next free number.
-  // error "cap" means the workspace already has its four live sessions
+  // error "cap" means the workspace already has its four live sessions.
+  // resumeId continues that Claude conversation instead of starting empty
   launch: (
     ws: Workspace,
     label: string | undefined,
+    resumeId?: string,
   ) => Promise<{
     ok: boolean;
     key?: string;
@@ -40,7 +47,9 @@ export interface OrchestrateDeps {
     error?: string;
   }>;
   // ends the session; `kept` names a worktree left on disk and why
-  close: (key: string) => Promise<{ ok: boolean; kept?: string }>;
+  close: (
+    key: string,
+  ) => Promise<{ ok: boolean; kept?: string; damaged?: string }>;
   // Claude Code's own record of the folder-trust prompt; null = unreadable
   isTrusted: (folder: string) => Promise<boolean | null>;
   // resolves once the session's TUI has stopped painting (or a deadline passed)
@@ -52,9 +61,9 @@ export interface OrchestrateDeps {
   nameSession: (key: string, word: string) => void;
   // false = no renderer listening; say() reports that rather than going silent
   say: (text: string) => boolean;
-  // types the fixed nudge into the main agent's own session, so a finish
-  // reaches it without anyone having parked on jarvis_watch first
-  nudgeMain: () => void;
+  // types the nudge naming the workspace and tab into the main agent's own
+  // session, so a finish reaches it without anyone having parked on jarvis_watch first
+  nudgeMain: (workspace: string, tab: string) => void;
 }
 
 // one jarvis_list row per live session, or one per workspace that has none
@@ -69,6 +78,11 @@ export interface FleetEntry {
   message: string;
   live: boolean;
   delegatedBy: string;
+  ended?: TurnEnd;
+  error?: string;
+  // a session that has closed and can be resumed with jarvis_launch
+  closed?: true;
+  closedAt?: string;
 }
 
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -89,7 +103,8 @@ export type LaunchResult =
   | { ok: true; session: string; worktree?: string; trustPrompt?: string }
   | Failure;
 
-export type CloseResult = { ok: true; kept?: string } | Failure;
+export type CloseResult =
+  { ok: true; kept?: string; damaged?: string } | Failure;
 
 export interface SendOptions {
   session?: string;
@@ -101,6 +116,27 @@ export interface SendOptions {
 // the trust prompt opens on "No, exit": Down moves to "Yes", Enter confirms
 const TRUST_DOWN = "\x1b[B";
 const KEY_GAP_MS = 80;
+// A prompt over 1024 bytes reaches the TUI in 1024-byte pieces, and a busy TUI
+// can keep only the last piece.
+const MAX_PLAIN_BYTES = 1024;
+
+/** The bytes to write for a prompt. A paste block has an explicit end marker,
+ * so it does not depend on how the TUI reads the pieces. A short single line
+ * stays plain because a slash command inside a paste is text. ESC is dropped
+ * so no prompt text can close or open a block. */
+export function sendPayload(prompt: string): string {
+  const text = prompt
+    .replace(/\r\n?/g, "\n")
+    .replaceAll("\x1b", "")
+    // every other C0 control and DEL; tab and newline stay for multi-line prompts
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "")
+    .trimEnd();
+  if (!text.includes("\n") && Buffer.byteLength(text) <= MAX_PLAIN_BYTES)
+    return text;
+  return PASTE_START + text + PASTE_END;
+}
+
 const BUSY: ReadonlySet<StatusKind> = new Set(["working", "asking", "blocked"]);
 
 /** Only a summary is spoken, and this cap is what enforces that: a whole
@@ -120,9 +156,20 @@ type Finish = {
   session: string;
   topic?: string;
   message: string;
+  ended: TurnEnd;
+  error?: string;
 };
 
 export type WatchResult = Finish | { timeout: true };
+
+function endingOf(
+  r: { ended?: TurnEnd; error?: string } | undefined,
+): Pick<FleetEntry, "ended" | "error"> {
+  return {
+    ...(r?.ended ? { ended: r.ended } : {}),
+    ...(r?.error ? { error: r.error } : {}),
+  };
+}
 
 function findWorkspace(all: Workspace[], target: string) {
   const q = String(target ?? "")
@@ -275,6 +322,29 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     return null;
   }
 
+  /** Why `closeIfIdle` would leave a session open, phrased to follow `is `;
+   * null when it would close. A session that is unknown counts as refused. */
+  function idleCloseRefusal(key: string, turnEnded = false): string | null {
+    const owner = deps
+      .getWorkspaces()
+      .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
+    if (!owner) return "not open";
+    const blocker = closeBlocker(key, owner.id, turnEnded);
+    if (blocker) return blocker;
+    // The user answers a question in this tab, so it must outlive the merge.
+    const row = deps
+      .snapshot()
+      .find((r) => r.workspaceId === owner.id)
+      ?.sessions.find((s) => s.key === key);
+    if (row?.ended === "question") {
+      return "waiting on your answer to its question";
+    }
+    if (deps.hasPendingInput(key) || deps.hasDraft(key)) {
+      return "holding unsent text";
+    }
+    return null;
+  }
+
   function capError(ws: Workspace): Failure {
     const live = liveSessions(ws);
     const rows = live
@@ -289,8 +359,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
   // Opens a session and waits for its TUI to go quiet, since text written
   // before raw mode is dropped. Trust is read for the session's own folder,
   // which for a worktree is not the workspace root.
-  async function open(ws: Workspace, label: string | undefined, topic = "") {
-    const out = await deps.launch(ws, label);
+  async function open(
+    ws: Workspace,
+    label: string | undefined,
+    topic = "",
+    resumeId?: string,
+  ) {
+    const out = await deps.launch(ws, label, resumeId);
     if (!out.ok || !out.key) {
       return out.error === "cap"
         ? capError(ws)
@@ -323,11 +398,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     const by = deps.getWorkspaces().find((w) => w.isSelf)?.name ?? "JARVIS";
     // the session can die between the hasPty probe and the write, so mark the
     // delegation only once the prompt is actually in the PTY
-    if (!deps.write(key, prompt)) return false;
+    if (!deps.write(key, sendPayload(prompt))) return false;
     deps.markDelegated(key, by);
     // Claude Code's TUI treats one arriving chunk as a paste, so a trailing
     // "\r" lands as a newline in the composer instead of submitting. Send the
-    // CR as its own write a beat later — indistinguishable from typing Enter.
+    // CR as its own write a beat later, after the end marker of a paste block —
+    // indistinguishable from typing Enter.
     // ponytail: fixed 80ms, not a prompt-ready probe — bump if a busy TUI misses it
     // ponytail: send has already returned by the time the CR lands, so a session
     // that dies inside the 80ms leaves the prompt unsubmitted and only surfaces
@@ -347,6 +423,20 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           message: row?.message ?? "",
           delegatedBy: row?.delegatedBy ?? "",
         };
+        const closed = deps.closedOf(w.id).map((c): FleetEntry => ({
+          name: w.name,
+          kind: w.kind,
+          message: "",
+          delegatedBy: "",
+          session: c.label,
+          worktree: "",
+          topic: c.topic,
+          status: "none",
+          call: "",
+          live: false,
+          closed: true,
+          closedAt: new Date(c.closedAt).toISOString(),
+        }));
         const live = liveSessions(w);
         if (live.length === 0) {
           return [
@@ -360,10 +450,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
               // the main agent's own pty is keyed by its workspace id and is
               // not in the session registry
               live: deps.hasPty(w.id),
+              ...endingOf(row),
             },
+            ...closed,
           ];
         }
-        return live.map((s) => {
+        const rows = live.map((s) => {
           const own = row?.sessions.find((r) => r.key === s.key);
           return {
             ...base,
@@ -373,8 +465,10 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             status: own?.kind ?? "none",
             call: own?.call ?? "",
             live: true,
+            ...endingOf(own),
           };
         });
+        return [...rows, ...closed];
       });
     },
 
@@ -450,7 +544,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       };
     },
 
-    async launch(target: string, label?: string): Promise<LaunchResult> {
+    /** `resume` continues the label's last closed conversation. A live
+     * session holding that label is closed first, only when it is idle. */
+    async launch(
+      target: string,
+      label?: string,
+      resume = false,
+    ): Promise<LaunchResult> {
       const ws = delegate(target);
       if ("ok" in ws) return ws;
       const cleaned = cleanLabel(String(label ?? "")) || undefined;
@@ -465,13 +565,42 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           wanted = MAIN_LABEL;
         }
       }
+      let resumeId: string | undefined;
+      if (resume) {
+        const label = wanted ?? MAIN_LABEL;
+        const record = deps
+          .closedOf(ws.id)
+          .find((c) => sameLabel(c.label, label));
+        if (!record) {
+          return {
+            ok: false,
+            error: `${ws.name} has no closed session "${label}" to resume — launch without resume`,
+          };
+        }
+        // read before the close below, which records the live one in its place
+        resumeId = record.sessionId;
+        wanted = record.label;
+        const holder = liveSessions(ws).find((s) =>
+          sameLabel(s.label, record.label),
+        );
+        if (holder) {
+          const reason = idleCloseRefusal(holder.key);
+          if (reason !== null) {
+            return {
+              ok: false,
+              error: `${ws.name}'s live session "${holder.label}" is ${reason} — it was not replaced`,
+            };
+          }
+          await orchestrator.closeIfIdle(holder.key);
+        }
+      }
       if (wanted && liveSessions(ws).some((s) => sameLabel(s.label, wanted))) {
         return {
           ok: false,
           error: `${ws.name} already has a live session "${wanted}" — jarvis_send to it`,
         };
       }
-      const opened = await open(ws, wanted);
+      const opened = await open(ws, wanted, "", resumeId);
       if (!opened.ok) return opened;
       return {
         ok: true,
@@ -502,18 +631,18 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         };
       }
       const out = await deps.close(s.key);
-      return out.kept ? { ok: true, kept: out.kept } : { ok: true };
+      return {
+        ok: true,
+        ...(out.kept ? { kept: out.kept } : {}),
+        ...(out.damaged ? { damaged: out.damaged } : {}),
+      };
     },
 
     /** Closes a session by key when it is idle and quiet, under the same busy
      * rule as `close`, and holds no unsent text or draft. False means it was left open.
      * `turnEnded` is for the session whose own Stop asked for the check. */
     async closeIfIdle(key: string, turnEnded = false): Promise<boolean> {
-      const owner = deps
-        .getWorkspaces()
-        .find((w) => deps.sessionsOf(w.id).some((s) => s.key === key));
-      if (!owner || closeBlocker(key, owner.id, turnEnded)) return false;
-      if (deps.hasPendingInput(key) || deps.hasDraft(key)) return false;
+      if (idleCloseRefusal(key, turnEnded) !== null) return false;
       await deps.close(key);
       return true;
     },
@@ -565,7 +694,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       return { ok: true };
     },
 
-    publishFinish(sessionKey: string, message: string): void {
+    publishFinish(
+      sessionKey: string,
+      message: string,
+      ended: TurnEnd = "finished",
+      error?: string,
+    ): void {
       const text = String(message ?? "").trim();
       if (!text) return;
       const all = deps.getWorkspaces();
@@ -583,6 +717,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         session: label,
         ...(own?.topic ? { topic: shownName(own, siblings) } : {}),
         message: text,
+        ended,
+        ...(error ? { error } : {}),
       };
       if (waiter) {
         const w = waiter;
@@ -596,7 +732,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       // Claude Code session at an idle prompt does not act. The nudge is what
       // starts the turn that drains it. A parked waiter returned above and
       // never reaches here, so a finish wakes the agent exactly one way.
-      deps.nudgeMain();
+      deps.nudgeMain(finish.workspace, finish.topic ?? finish.session);
     },
 
     watch(

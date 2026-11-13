@@ -16,6 +16,7 @@ import type {
 } from "../shared/types";
 import type { AskPrompt } from "./ask-mapper";
 import type { TtsOption } from "./tts";
+import type { SlashCommand } from "./slash-commands";
 import type { TranscriptSummary } from "./transcript-list";
 
 // Every subscription hands back its own disposer. Without one, a second mount
@@ -63,6 +64,11 @@ const api = {
     ipcRenderer.invoke("read-note", workspaceId, nodeId),
   lineChanges: (workspaceId: string, nodeId: string): Promise<LineChanges> =>
     ipcRenderer.invoke("line-changes", workspaceId, nodeId),
+  getAutoAnswer: (): Promise<boolean> => ipcRenderer.invoke("get-auto-answer"),
+  setAutoAnswer: (on: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("set-auto-answer", on),
+  onAutoAnswer: (cb: (on: boolean) => void) =>
+    subscribe<[boolean]>("auto-answer", cb),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("get-settings"),
   setSettings: (s: Settings): Promise<void> =>
     ipcRenderer.invoke("set-settings", s),
@@ -101,12 +107,17 @@ const api = {
       dangerous,
       model,
     ),
-  // `kept` names a worktree folder left on disk, and why
+  // `kept` names a worktree folder left on disk, and why; `damaged` names a
+  // link target that lost entries during the removal
   ptyClose: (
     key: string,
     force?: boolean,
-  ): Promise<{ ok: boolean; kept?: string; dirty?: string }> =>
-    ipcRenderer.invoke("pty-close", key, force),
+  ): Promise<{
+    ok: boolean;
+    kept?: string;
+    dirty?: string;
+    damaged?: string;
+  }> => ipcRenderer.invoke("pty-close", key, force),
   // returns whether a live PTY took the write, so a caller that is not a
   // keyboard (voice) can report a send into a dead session
   ptyInput: (key: string, data: string): Promise<boolean> =>
@@ -114,6 +125,8 @@ const api = {
   draftState: (key: string, has: boolean): void => {
     ipcRenderer.send("draft-state", key, has);
   },
+  hasUnsentInput: (key: string): Promise<boolean> =>
+    ipcRenderer.invoke("has-unsent-input", key),
   ptyResize: (key: string, cols: number, rows: number): void => {
     ipcRenderer.send("pty-resize", key, cols, rows);
   },
@@ -155,6 +168,8 @@ const api = {
     subscribe<[string]>("user-submitted", cb),
   listTranscripts: (key: string): Promise<TranscriptSummary[]> =>
     ipcRenderer.invoke("list-transcripts", key),
+  listCommands: (key: string): Promise<SlashCommand[]> =>
+    ipcRenderer.invoke("list-commands", key),
   savePastedImage: (
     bytes: Uint8Array,
     ext: "png" | "jpg" | "gif" | "webp",

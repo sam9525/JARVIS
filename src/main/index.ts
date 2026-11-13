@@ -9,7 +9,7 @@ import {
 } from "electron";
 import os from "node:os";
 import path from "node:path";
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
 import { startListener, DEFAULT_PORT } from "./http-listener";
 import { watchVault } from "./watcher";
@@ -43,11 +43,12 @@ import { createPtyManager, type SpawnFn } from "./pty-manager";
 import { createTranscriptFeed, newestTranscript } from "./transcript-feed";
 import { gitHead, toStatusLineView, userStatusLine } from "./status-line";
 import { feedStatusEvent } from "./feed-follow";
+import { listSlashCommands } from "./slash-commands";
 import { listTranscripts } from "./transcript-list";
 import { savePastedImage } from "./pasted-images";
 import {
   BRIEF_AFTER_HOUR,
-  FINISH_NUDGE,
+  finishNudge,
   LAUNCH_SETTLE_DEADLINE_MS,
   MAIN_AGENT_MODEL,
   SETTLE_DEADLINE_MS,
@@ -61,6 +62,14 @@ import {
 import { createStatusStore, STALE_MS } from "./workspace-status";
 import { ensureScratch, scratchWorkspace } from "./scratch";
 import { createSessionRegistry } from "./sessions";
+import { closeQuietSessions, idleCloseKeys } from "./idle-close";
+import {
+  forgetClosed,
+  readClosed,
+  recordClosed,
+  writeClosed,
+  type ClosedSession,
+} from "./closed-sessions";
 import {
   createWorktree,
   existingWorktreeFolders,
@@ -102,7 +111,7 @@ import {
   type SavedSession,
 } from "./session-restore";
 import { watch, type FSWatcher } from "chokidar";
-import type { AskPrompt } from "./ask-mapper";
+import { autoAnswerOutput } from "./auto-answer";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
 import { createNudgeGate } from "./nudge-gate";
@@ -202,10 +211,6 @@ app.whenReady().then(async () => {
 
   // graphs load lazily per workspace and stay cached until rescan
   const graphs = new Map<string, Promise<VaultGraph>>();
-  // the open question per workspace. Deliberately not in the status store:
-  // WorkspaceStatus is persisted to the inbox file, and a question's full
-  // text and options do not belong on disk.
-  const asks = new Map<string, AskPrompt>();
   const fingerprintOf = (ws: Workspace): Promise<string | null> =>
     sourceById(ws.sourceId)?.fingerprint?.(ws) ?? Promise.resolve(null);
   // every load carries the fingerprint of the index it read, so a card's save
@@ -352,6 +357,14 @@ app.whenReady().then(async () => {
     "jarvis-settings.json",
   );
   let settings = await loadSettings(settingsPath);
+  // session-only: a restart never answers a question on its own
+  let autoAnswerOn = false;
+  ipcMain.handle("get-auto-answer", () => autoAnswerOn);
+  ipcMain.handle("set-auto-answer", (_e, value: unknown) => {
+    autoAnswerOn = value === true;
+    send("auto-answer", autoAnswerOn);
+    return autoAnswerOn;
+  });
   ipcMain.handle("get-settings", () => settings);
   ipcMain.handle("set-settings", async (_e, s: Settings) => {
     settings = s;
@@ -548,15 +561,32 @@ app.whenReady().then(async () => {
       .find((s) => s.key === key)?.kind;
     return kind === "asking" || kind === "blocked";
   };
-  const finishNudge = createNudgeGate(
+  const nudgeGate = createNudgeGate(
     () => promptOpen(mainAgent.id),
-    () =>
-      typeNudge((data) => ptyManager.write(mainAgent.id, data), FINISH_NUDGE),
+    (text) => typeNudge((data) => ptyManager.write(mainAgent.id, data), text),
   );
+  // closed project sessions the main agent may choose to resume
+  let closedSessions: ClosedSession[] = readClosed(userData);
+  const setClosed = (next: ClosedSession[]) => {
+    closedSessions = next;
+    writeClosed(userData, next);
+  };
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
     sessionsOf: (id) => sessions.forWorkspace(id),
+    // a transcript Claude Code has deleted cannot be resumed, so it is not offered
+    closedOf: (id) =>
+      closedSessions.filter(
+        (c) =>
+          c.workspaceId === id &&
+          existsSync(
+            path.join(
+              transcriptDir(os.homedir(), c.cwd),
+              `${c.sessionId}.jsonl`,
+            ),
+          ),
+      ),
     hasPty: (key) => ptyManager.has(key),
     hasPendingInput: (key) => pendingInput.has(key),
     hasDraft: (key) => drafted.has(key),
@@ -564,13 +594,15 @@ app.whenReady().then(async () => {
     // the terminal's own defaults — Opus, permissions on — at placeholder
     // geometry the panel resizes when it attaches, as with the main agent.
     // The orchestrator waits for the new TUI to go quiet itself.
-    launch: (ws, label) =>
+    launch: (ws, label, resumeId) =>
       launchSession(ws, {
         label,
         cols: 80,
         rows: 24,
         dangerous: false,
         model: "opus",
+        resumeId,
+        delegated: true,
       }),
     close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
@@ -589,13 +621,13 @@ app.whenReady().then(async () => {
     },
     // No session yet means the write fails and the finish just waits in the
     // queue for whenever one starts.
-    nudgeMain: () => finishNudge.nudge(),
+    nudgeMain: (workspace, tab) => nudgeGate.nudge(finishNudge(workspace, tab)),
   });
 
   let savedInbox = "";
   const pushStatus = (changed: boolean) => {
     if (!changed) return;
-    finishNudge.statusChanged();
+    nudgeGate.statusChanged();
     const snap = status.snapshot();
     send("status", snap);
     // only Stop carries a message, so this writes rarely despite the call site
@@ -697,7 +729,12 @@ app.whenReady().then(async () => {
         // no topic this turn; the finish below is still owed
       }
     }
-    orchestrator.publishFinish(s.sessionKey, message);
+    orchestrator.publishFinish(
+      s.sessionKey,
+      message,
+      s.ended ?? "finished",
+      s.error,
+    );
   }
 
   // Any session's turn ending can be the merge that finishes a sibling's
@@ -721,6 +758,31 @@ app.whenReady().then(async () => {
     }
   }
 
+  // A delegate whose terminal has been silent for IDLE_CLOSE_MS is done with
+  // its task; closing it frees its claude.exe and MCP servers. The main agent
+  // opens a fresh session for the next task.
+  const idleCloseTimer = setInterval(() => {
+    closeQuietSessions({
+      // a crashed tab waits for the user, as does a tab the user opened
+      keys: () =>
+        idleCloseKeys(
+          workspaces,
+          (id) => sessions.forWorkspace(id),
+          (key) => ptyManager.has(key),
+        ),
+      msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
+      // orchestrator.close forces past worktreeCheck, so check it here
+      keepsWork: async (key) => {
+        const info = sessions.get(key);
+        const ws = workspaces.find((w) => w.id === info?.workspaceId);
+        if (!info?.worktree || !ws) return false;
+        return !(await worktreeCheck(ws.rootPath, info.cwd)).clean;
+      },
+      closeIfIdle: (key) => orchestrator.closeIfIdle(key),
+    }).catch((err) => console.error("idle close failed:", err));
+  }, 60 * 1000);
+  app.on("before-quit", () => clearInterval(idleCloseTimer));
+
   // sessions whose hooks have reached the listener: proof that a typed prompt
   // can be confirmed by its UserPromptSubmit
   const hooksHeardFrom = new Set<string>();
@@ -742,7 +804,8 @@ app.whenReady().then(async () => {
       // restored inbox or a sweep demotion is never mistaken for a finish.
       if (s.message !== undefined) {
         void onStop(s, s.message);
-        void closeMergedTabs(s.workspaceId, s.sessionKey);
+        if (s.ended !== "failed")
+          void closeMergedTabs(s.workspaceId, s.sessionKey);
       }
       if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
         onMainPrompt?.(s.prompt);
@@ -758,13 +821,7 @@ app.whenReady().then(async () => {
         return { path: todosPath, text, malformed: parseTodos(text).malformed };
       },
     },
-    (p) => {
-      // no questions means that one workspace's question is over — several can
-      // be open across the fleet, so only its own key goes
-      if (p.questions.length === 0) asks.delete(p.workspaceId);
-      else asks.set(p.workspaceId, p);
-      send("ask", p);
-    },
+    (p) => send("ask", p),
     (key, raw) => {
       const cwd =
         (raw.workspace as { current_dir?: string } | undefined)?.current_dir ??
@@ -784,6 +841,7 @@ app.whenReady().then(async () => {
       hooksHeardFrom.add(s.sessionKey);
       feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
     },
+    (raw) => (autoAnswerOn ? autoAnswerOutput(raw, workspaces) : null),
   );
 
   // Claude Code spawns both of these as its own child processes, so they must
@@ -814,6 +872,7 @@ app.whenReady().then(async () => {
       dangerous: boolean;
       model?: string;
       resumeId?: string;
+      delegated?: boolean;
     },
   ): Promise<{
     ok: boolean;
@@ -920,10 +979,19 @@ app.whenReady().then(async () => {
       // native load or spawn failure — the terminal reports it, app lives on
       console.error("pty launch failed:", err);
       // a worktree made for this launch holds nothing yet, so it goes too
-      if (created)
-        await removeWorktreeIfDone(ws.rootPath, cwd).catch((e) =>
-          console.error(`worktree remove failed in ${ws.rootPath}:`, e),
+      if (created) {
+        const removed = await removeWorktreeIfDone(ws.rootPath, cwd).catch(
+          (e) => {
+            console.error(`worktree remove failed in ${ws.rootPath}:`, e);
+            return null;
+          },
         );
+        if (removed?.removed && removed.damaged)
+          console.error(
+            "worktree removal damaged a link target:",
+            removed.damaged,
+          );
+      }
       return { ok: false, ...result, error: (err as Error).message };
     }
     sessions.add({
@@ -932,21 +1000,56 @@ app.whenReady().then(async () => {
       label,
       cwd,
       worktree: useWorktree,
+      delegated: opts.delegated === true,
     });
+    // live again, so it is no longer offered as closed; matched by conversation
+    // id because the session it replaced was just recorded under the same label
+    if (opts.resumeId)
+      setClosed(forgetClosed(closedSessions, ws.id, opts.resumeId));
     return { ok: true, ...result };
+  }
+
+  // Keeps what a resume of this session needs. Read before the registry and
+  // resumedWith forget it; a session that never reported an id has nothing to
+  // resume.
+  function rememberClosed(key: string): void {
+    const info = sessions.get(key);
+    const sessionId = status.sessionId(key) || resumedWith.get(key);
+    if (!info || !sessionId) return;
+    const topic =
+      status
+        .snapshot()
+        .find((r) => r.workspaceId === info.workspaceId)
+        ?.sessions.find((s) => s.key === key)?.topic ?? "";
+    setClosed(
+      recordClosed(closedSessions, {
+        workspaceId: info.workspaceId,
+        label: info.label,
+        sessionId,
+        cwd: info.cwd,
+        topic,
+        closedAt: Date.now(),
+      }),
+    );
   }
 
   // Ends a session and forgets it. A worktree is removed only when nothing in
   // it would be lost; otherwise `kept` names the folder and why it stays. A
   // killed pty's exit is never reported by the pty manager, so the status and
   // the renderer hear about it here. The removal waits for the process to
-  // exit, because a live cwd cannot be deleted on Windows. Unless `force`, a
+  // exit, because a live cwd cannot be deleted on Windows. `damaged` names a
+  // link target that lost entries during the removal. Unless `force`, a
   // worktree holding work stops the close before anything changes and `dirty`
   // says why.
   async function closeSession(
     key: string,
     force = false,
-  ): Promise<{ ok: boolean; kept?: string; dirty?: string }> {
+  ): Promise<{
+    ok: boolean;
+    kept?: string;
+    dirty?: string;
+    damaged?: string;
+  }> {
     const pending = sessions.get(key);
     if (!force && pending?.worktree) {
       const ws = workspaces.find((w) => w.id === pending.workspaceId);
@@ -955,6 +1058,7 @@ app.whenReady().then(async () => {
         if (!check.clean) return { ok: false, dirty: check.reason };
       }
     }
+    rememberClosed(key);
     const info = sessions.remove(key);
     resumedWith.delete(key);
     stopFeed(key);
@@ -968,9 +1072,11 @@ app.whenReady().then(async () => {
     if (!ws) return { ok: true, kept: `${info.cwd} (unknown workspace)` };
     try {
       const removed = await removeWorktreeIfDone(ws.rootPath, info.cwd);
-      return removed.removed
-        ? { ok: true }
-        : { ok: true, kept: `${info.cwd} (${removed.reason})` };
+      if (!removed.removed)
+        return { ok: true, kept: `${info.cwd} (${removed.reason})` };
+      if (!removed.damaged) return { ok: true };
+      console.error("worktree removal damaged a link target:", removed.damaged);
+      return { ok: true, damaged: removed.damaged };
     } catch (err) {
       console.error(`worktree remove failed in ${ws.rootPath}:`, err);
       return { ok: true, kept: `${info.cwd} (${(err as Error).message})` };
@@ -1018,6 +1124,13 @@ app.whenReady().then(async () => {
       ? listTranscripts(transcriptDir(os.homedir(), cwd))
       : Promise.resolve([]);
   });
+  ipcMain.handle("list-commands", (_e, key: string) => {
+    const cwd =
+      String(key) === mainAgent.id
+        ? mainAgent.rootPath
+        : sessions.get(String(key))?.cwd;
+    return cwd ? listSlashCommands(cwd, os.homedir()) : Promise.resolve([]);
+  });
   ipcMain.handle("save-pasted-image", (_e, bytes: Uint8Array, ext: string) => {
     if (!["png", "jpg", "gif", "webp"].includes(ext))
       throw new Error("unsupported image type");
@@ -1039,6 +1152,11 @@ app.whenReady().then(async () => {
     if (has) drafted.add(String(key));
     else drafted.delete(String(key));
   });
+  ipcMain.handle(
+    "has-unsent-input",
+    (_e, key: string) =>
+      pendingInput.has(String(key)) || drafted.has(String(key)),
+  );
   ipcMain.on("pty-resize", (_e, id: string, cols: number, rows: number) =>
     ptyManager.resize(id, cols, rows),
   );
@@ -1193,6 +1311,9 @@ app.whenReady().then(async () => {
     clearInterval(heartbeat);
     // before killAll, while every pty still counts as live
     saveSessions();
+    // ponytail: a crash or kill skips this, so those sessions are not offered
+    for (const key of ptyManager.keys())
+      if (key !== mainAgent.id) rememberClosed(key);
     feed.stopAll();
     ptyManager.killAll();
     void todosWatcher?.close();

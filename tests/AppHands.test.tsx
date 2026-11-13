@@ -92,6 +92,8 @@ beforeEach(() => {
     getNotesDir: () => Promise.resolve(null),
     pickNotesDir: () => Promise.resolve(null),
     clearNotesDir: () => Promise.resolve(null),
+    getAutoAnswer: () => Promise.resolve(false),
+    onAutoAnswer: () => () => undefined,
     getTodos: () => Promise.resolve({ todos: [], malformed: [] }),
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,

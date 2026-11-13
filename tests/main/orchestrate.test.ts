@@ -4,12 +4,16 @@ import {
   CLOSE_QUIET_MS,
   MAX_SAY,
   QUEUE_MAX,
+  sendPayload,
 } from "../../src/main/orchestrate";
+import type { ClosedSession } from "../../src/main/closed-sessions";
 import type {
   SessionStatus,
   Workspace,
   WorkspaceStatus,
 } from "../../src/shared/types";
+
+const PASTED = (body: string) => "\x1b[200~" + body + "\x1b[201~";
 
 const workspaces: Workspace[] = [
   {
@@ -57,6 +61,7 @@ interface Sess {
   label: string;
   cwd: string;
   worktree: boolean;
+  delegated: boolean;
 }
 
 const mainOf = (id: string): Sess => {
@@ -69,6 +74,7 @@ const mainOf = (id: string): Sess => {
     label: "main",
     cwd: ws.rootPath,
     worktree: false,
+    delegated: false,
   };
 };
 
@@ -82,6 +88,7 @@ const worktreeOf = (id: string, label: string): Sess => {
     label,
     cwd: `${ws.rootPath}\\.worktrees\\${label}`,
     worktree: true,
+    delegated: false,
   };
 };
 
@@ -120,19 +127,22 @@ function setup(
     settles?: boolean; // waitQuiet's result; false = the deadline passed
     outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
     kept?: string; // the folder close leaves on disk
+    damaged?: string; // the link target the removal emptied
     workspaces?: Workspace[]; // the registry; defaults to the module's list
     pendingInput?: string[]; // keys whose terminal holds text the user typed
     drafts?: string[]; // keys whose session screen input holds a draft
+    closedSessions?: ClosedSession[]; // resumable closes, every workspace
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
   const attempted: string[] = []; // every write, delivered or not
   const delegated: Array<[string, string]> = [];
   const said: string[] = [];
-  const nudges: number[] = [];
+  const nudges: Array<[string, string]> = [];
   const named: Array<[string, string]> = [];
   const namedAtWrites: number[] = [];
   const launched: Array<[string, string | undefined]> = [];
+  const resumedIds: Array<string | undefined> = [];
   const closed: string[] = [];
   const trustChecked: string[] = [];
   const registered: Sess[] = [...(over.sessions ?? [mainOf("d:/aero")])];
@@ -165,13 +175,14 @@ function setup(
       said.push(text);
       return true;
     },
-    nudgeMain: () => {
-      nudges.push(Date.now());
-    },
+    nudgeMain: (workspace, tab) => nudges.push([workspace, tab]),
     // the real launch: next free number, a worktree in a code workspace,
     // refused as "cap" at four live sessions
-    launch: async (ws, label) => {
+    closedOf: (id) =>
+      (over.closedSessions ?? []).filter((c) => c.workspaceId === id),
+    launch: async (ws, label, resumeId) => {
       launched.push([ws.id, label]);
+      resumedIds.push(resumeId);
       if (over.launchFails) return { ok: false, error: "spawn ENOENT" };
       const mine = registered.filter((s) => s.workspaceId === ws.id);
       if (mine.filter((s) => live.has(s.key)).length >= 4)
@@ -190,6 +201,7 @@ function setup(
                 label: name,
                 cwd: ws.rootPath,
                 worktree: false,
+                delegated: true,
               };
       registered.push(s);
       live.add(s.key);
@@ -205,7 +217,11 @@ function setup(
       live.delete(key);
       const at = registered.findIndex((s) => s.key === key);
       if (at !== -1) registered.splice(at, 1);
-      return over.kept ? { ok: true, kept: over.kept } : { ok: true };
+      return {
+        ok: true,
+        ...(over.kept ? { kept: over.kept } : {}),
+        ...(over.damaged ? { damaged: over.damaged } : {}),
+      };
     },
     isTrusted: async (folder) => {
       trustChecked.push(folder);
@@ -229,10 +245,41 @@ function setup(
     said,
     nudges,
     launched,
+    resumedIds,
     closed,
     trustChecked,
   };
 }
+
+describe("sendPayload", () => {
+  it("leaves a short single line plain", () => {
+    expect(sendPayload("/clear")).toBe("/clear");
+    expect(sendPayload("run the fix")).toBe("run the fix");
+  });
+  it("removes trailing whitespace first, so a command stays a command", () => {
+    expect(sendPayload("/clear\n")).toBe("/clear");
+    expect(sendPayload("a\nb\n")).toBe(PASTED("a\nb"));
+  });
+  it("wraps a multi-line prompt", () => {
+    expect(sendPayload("a\nb")).toBe(PASTED("a\nb"));
+  });
+  it("measures the limit in UTF-8 bytes", () => {
+    expect(sendPayload("x".repeat(1024))).toBe("x".repeat(1024));
+    expect(sendPayload("x".repeat(1025))).toBe(PASTED("x".repeat(1025)));
+    // 513 three-byte characters are 513 characters and 1539 bytes
+    expect(sendPayload("—".repeat(513))).toBe(PASTED("—".repeat(513)));
+  });
+  it("turns CRLF and a lone CR into a newline", () => {
+    expect(sendPayload("a\r\nb\rc")).toBe(PASTED("a\nb\nc"));
+  });
+  it("lets no text close or open a block", () => {
+    const out = sendPayload("a\n\x1b[201~b\x1b[200~c");
+    expect(out).toBe(PASTED("a\n[201~b[200~c"));
+  });
+  it("strips escapes before trimming, so a trailing escape leaves no newline behind", () => {
+    expect(sendPayload("a\n\x1b")).toBe("a");
+  });
+});
 
 describe("orchestrate.list", () => {
   it("gives a workspace with no session one row, with an empty label", () => {
@@ -302,6 +349,51 @@ describe("orchestrate.list", () => {
         delegatedBy: "JARVIS",
       },
     ]);
+  });
+
+  it("carries how the turn ended from the session and workspace rows", () => {
+    const { orch } = setup({
+      sessions: [mainOf("d:/aero"), worktreeOf("d:/aero", "1")],
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          kind: "idle",
+          ended: "failed",
+          error: "rate_limit",
+          sessions: [
+            sessionRow({ key: "d:/aero", label: "main", ended: "question" }),
+            sessionRow({
+              key: "d:/aero#1",
+              label: "1",
+              ended: "failed",
+              error: "overloaded",
+              worktree: true,
+            }),
+          ],
+        }),
+        status({
+          workspaceId: "d:/fin",
+          kind: "idle",
+          ended: "finished",
+        }),
+      ],
+    });
+    const rows = orch.list();
+    const aero = rows.filter((r) => r.name === "AeroGraph");
+    expect(aero[0]).toMatchObject({ ended: "question" });
+    expect(aero[0]).not.toHaveProperty("error");
+    expect(aero[1]).toMatchObject({ ended: "failed", error: "overloaded" });
+    const fin = rows.find((r) => r.name === "FinPulse");
+    expect(fin).toMatchObject({ ended: "finished" });
+    expect(fin).not.toHaveProperty("error");
+  });
+
+  it("omits ended and error when the snapshot has none", () => {
+    const { orch } = setup({ sessions: [mainOf("d:/aero")] });
+    for (const row of orch.list()) {
+      expect(row).not.toHaveProperty("ended");
+      expect(row).not.toHaveProperty("error");
+    }
   });
 
   it("leaves out a session whose terminal has exited", () => {
@@ -456,6 +548,33 @@ describe("orchestrate.send", () => {
     expect(delegated).toEqual([]);
   });
 
+  it("writes a multi-line prompt as one paste block, then the CR", async () => {
+    const { orch, writes, delegated } = setup();
+    await orch.send("AeroGraph", "a\nb");
+    expect(writes).toEqual([["d:/aero", PASTED("a\nb")]]);
+    vi.runAllTimers();
+    expect(writes[1]).toEqual(["d:/aero", "\r"]);
+    expect(delegated).toHaveLength(1);
+  });
+
+  it("refuses a prompt of only whitespace and newlines", async () => {
+    const { orch, writes } = setup();
+    expect(await orch.send("AeroGraph", "  \n")).toEqual({
+      ok: false,
+      error: "empty prompt",
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it("sends no Enter and marks nothing when the paste block fails to write", async () => {
+    const { orch, writes, delegated, attempted } = setup({ writeFails: true });
+    expect((await orch.send("AeroGraph", "a\nb")).ok).toBe(false);
+    vi.runAllTimers();
+    expect(writes).toEqual([]);
+    expect(delegated).toEqual([]);
+    expect(attempted).toHaveLength(1);
+  });
+
   it("rejects an empty prompt", async () => {
     const { orch, writes, delegated } = setup();
     const out = await orch.send("AeroGraph", "   ");
@@ -484,6 +603,18 @@ describe("orchestrate.send with fresh", () => {
     expect(writes).toEqual([
       ["d:/aero#1", "<wait>"],
       ["d:/aero#1", "To-do task: x"],
+      ["d:/aero#1", "\r"],
+    ]);
+  });
+
+  it("writes a multi-line prompt to the new session as one paste block", async () => {
+    const { orch, writes } = setup();
+    const out = orch.send("AeroGraph", "a\nb", { fresh: true });
+    await vi.runAllTimersAsync();
+    await out;
+    expect(writes.filter(([k]) => k === "d:/aero#1")).toEqual([
+      ["d:/aero#1", "<wait>"],
+      ["d:/aero#1", PASTED("a\nb")],
       ["d:/aero#1", "\r"],
     ]);
   });
@@ -676,11 +807,13 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       workspace: "AeroGraph",
       session: "main",
       message: "built the panel",
+      ended: "finished",
     });
     await expect(orch.watch(1)).resolves.toEqual({
       workspace: "AeroGraph",
       session: "1",
       message: "fixed the test",
+      ended: "finished",
     });
   });
 
@@ -688,6 +821,12 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
     const { orch, nudges } = setup();
     orch.publishFinish("d:/aero", "tests are green");
     expect(nudges).toHaveLength(1);
+  });
+
+  it("passes the workspace and the label when there is no topic", () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/aero", "done");
+    expect(nudges).toEqual([["AeroGraph", "main"]]);
   });
 
   it("does not nudge a parked watcher — one finish wakes the agent one way", async () => {
@@ -698,8 +837,35 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       workspace: "AeroGraph",
       session: "main",
       message: "tests are green",
+      ended: "finished",
     });
     expect(nudges).toEqual([]);
+  });
+
+  it("defaults the ending to finished", async () => {
+    const { orch } = setup();
+    orch.publishFinish("d:/aero", "done");
+    await expect(orch.watch(1)).resolves.toMatchObject({ ended: "finished" });
+  });
+
+  it("hands a parked waiter the question ending without an error", async () => {
+    const { orch } = setup();
+    const pending = orch.watch(1);
+    orch.publishFinish("d:/aero", "Merge it?", "question");
+    const got = await pending;
+    expect(got).toMatchObject({ message: "Merge it?", ended: "question" });
+    expect(got).not.toHaveProperty("error");
+  });
+
+  it("carries a failure's error and still nudges when nobody is parked", async () => {
+    const { orch, nudges } = setup();
+    orch.publishFinish("d:/aero", "Rate limited", "failed", "rate_limit");
+    expect(nudges).toEqual([["AeroGraph", "main"]]);
+    await expect(orch.watch(1)).resolves.toMatchObject({
+      message: "Rate limited",
+      ended: "failed",
+      error: "rate_limit",
+    });
   });
 
   it("carries the finishing session's label", async () => {
@@ -709,6 +875,7 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       workspace: "AeroGraph",
       session: "2",
       message: "merged",
+      ended: "finished",
     });
   });
 
@@ -734,7 +901,17 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
         session: "first",
         topic: "review",
         message: "done",
+        ended: "finished",
       });
+    });
+
+    it("passes the topic as the tab", () => {
+      const { orch, nudges } = setup({
+        sessions: aeroSessions,
+        statuses: topicStatus({ first: "review" }),
+      });
+      orch.publishFinish("d:/aero#first", "done");
+      expect(nudges).toEqual([["AeroGraph", "review"]]);
     });
 
     it("sends to a session named by its topic", async () => {
@@ -763,6 +940,17 @@ describe("orchestrate.publishFinish nudges the main agent", () => {
       worktreeOf("d:/aero", "first"),
       worktreeOf("d:/aero", "second"),
     ];
+
+    it("passes the clash name when two tabs share a topic", async () => {
+      const { orch, nudges } = setup({
+        sessions: twinSessions,
+        statuses: topicStatus({ first: "review", second: "review" }),
+      });
+      orch.publishFinish("d:/aero#first", "done");
+      const finish = await orch.watch(1);
+      expect(finish).toMatchObject({ topic: "review first" });
+      expect(nudges).toEqual([["AeroGraph", "review first"]]);
+    });
 
     it("sends to the name a finish speaks for a shared topic", async () => {
       const { orch, writes } = setup({
@@ -862,6 +1050,7 @@ describe("orchestrate.watch", () => {
       workspace: "AeroGraph",
       session: "main",
       message: "tests are green",
+      ended: "finished",
     });
   });
 
@@ -1184,6 +1373,17 @@ describe("orchestrate.close", () => {
     expect(closed).toEqual(["d:/aero#1"]);
   });
 
+  it("passes on a damaged link target", async () => {
+    const { orch } = setup({
+      sessions: [mainOf("d:/aero"), worktreeOf("d:/aero", "1")],
+      damaged: "D:/app/node_modules lost 2 entries (.bin, vitest)",
+    });
+    expect(await orch.close("AeroGraph", "1")).toEqual({
+      ok: true,
+      damaged: "D:/app/node_modules lost 2 entries (.bin, vitest)",
+    });
+  });
+
   it("answers ok alone when nothing stays on disk", async () => {
     const { orch, closed } = setup();
     expect(await orch.close("AeroGraph", "main")).toEqual({ ok: true });
@@ -1310,6 +1510,38 @@ describe("orchestrate.closeIfIdle", () => {
     expect(closed).toEqual(["d:/aero#1"]);
   });
 
+  describe("a turn that ended on a question", () => {
+    const endedOn = (ended: "question" | "finished") =>
+      withWorktree({
+        outputAgoMs: CLOSE_QUIET_MS + 1,
+        statuses: [
+          status({
+            sessions: [
+              sessionRow({
+                key: "d:/aero#1",
+                label: "1",
+                kind: "idle",
+                ended,
+              }),
+            ],
+          }),
+        ],
+      });
+
+    it("stays open, with or without turnEnded", async () => {
+      const { orch, closed } = endedOn("question");
+      expect(await orch.closeIfIdle("d:/aero#1")).toBe(false);
+      expect(await orch.closeIfIdle("d:/aero#1", true)).toBe(false);
+      expect(closed).toEqual([]);
+    });
+
+    it("closes once the turn ended as finished", async () => {
+      const { orch, closed } = endedOn("finished");
+      expect(await orch.closeIfIdle("d:/aero#1")).toBe(true);
+      expect(closed).toEqual(["d:/aero#1"]);
+    });
+  });
+
   it("leaves an unknown key alone", async () => {
     const { orch, closed } = withWorktree();
     expect(await orch.closeIfIdle("d:/aero#9")).toBe(false);
@@ -1397,5 +1629,162 @@ describe("orchestrate.trust", () => {
     const out = await orch.trust("FinPulse", true);
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toContain("exited");
+  });
+});
+
+describe("closed sessions", () => {
+  const SID = "0b5e6c1a-7f3d-4e2b-9a8c-1d2e3f4a5b6c";
+  const closedMain: ClosedSession = {
+    workspaceId: "d:/fin",
+    label: "main",
+    sessionId: SID,
+    cwd: "D:\fin",
+    topic: "codex",
+    closedAt: Date.UTC(2026, 10, 12, 4, 0),
+  };
+
+  it("lists a closed session as its own row, beside a live one", () => {
+    const { orch } = setup({
+      sessions: [mainOf("d:/fin")],
+      closedSessions: [closedMain],
+    });
+    const rows = orch.list().filter((r) => r.name === "FinPulse");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({
+      session: "main",
+      topic: "codex",
+      live: false,
+      status: "none",
+      closed: true,
+      closedAt: "2026-11-12T04:00:00.000Z",
+    });
+  });
+
+  it("resumes a closed label in a new session", async () => {
+    const { orch, launched, resumedIds } = setup({
+      sessions: [],
+      closedSessions: [closedMain],
+    });
+    expect(await orch.launch("FinPulse", "main", true)).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(launched).toEqual([["d:/fin", "main"]]);
+    expect(resumedIds).toEqual([SID]);
+  });
+
+  it("a launch without resume starts empty", async () => {
+    const { orch, resumedIds } = setup({
+      sessions: [],
+      closedSessions: [closedMain],
+    });
+    expect((await orch.launch("FinPulse", "main")).ok).toBe(true);
+    expect(resumedIds).toEqual([undefined]);
+  });
+
+  it("refuses a resume with no closed session of that label", async () => {
+    const { orch, launched } = setup({ sessions: [] });
+    const out = await orch.launch("FinPulse", "main", true);
+    expect(out.ok).toBe(false);
+    expect(launched).toEqual([]);
+  });
+
+  it("closes an idle live session of that label, then resumes", async () => {
+    const { orch, closed, resumedIds } = setup({
+      sessions: [mainOf("d:/fin")],
+      closedSessions: [closedMain],
+    });
+    expect((await orch.launch("FinPulse", "main", true)).ok).toBe(true);
+    expect(closed).toEqual(["d:/fin"]);
+    expect(resumedIds).toEqual([SID]);
+  });
+
+  it("refuses to replace a busy live session of that label", async () => {
+    const { orch, closed, launched } = setup({
+      sessions: [mainOf("d:/fin")],
+      closedSessions: [closedMain],
+      statuses: [
+        status({
+          workspaceId: "d:/fin",
+          sessions: [sessionRow({ key: "d:/fin", kind: "working" })],
+        }),
+      ],
+    });
+    const out = await orch.launch("FinPulse", "main", true);
+    expect(out.ok).toBe(false);
+    expect(closed).toEqual([]);
+    expect(launched).toEqual([]);
+  });
+
+  const autoHolder = (): Sess => ({
+    key: "d:/fin#auto",
+    workspaceId: "d:/fin",
+    label: "auto",
+    cwd: "D:\\fin",
+    worktree: false,
+    delegated: true,
+  });
+  const closedAuto: ClosedSession = { ...closedMain, label: "Auto" };
+
+  it("a resume replaces a holder whose label differs in case", async () => {
+    const { orch, closed, resumedIds } = setup({
+      sessions: [autoHolder()],
+      closedSessions: [closedAuto],
+    });
+    expect((await orch.launch("FinPulse", "Auto", true)).ok).toBe(true);
+    expect(closed).toEqual(["d:/fin#auto"]);
+    expect(resumedIds).toEqual([SID]);
+  });
+
+  it("a refused resume names a pending question", async () => {
+    const { orch } = setup({
+      sessions: [autoHolder()],
+      closedSessions: [closedAuto],
+      statuses: [
+        status({
+          workspaceId: "d:/fin",
+          kind: "idle",
+          sessions: [
+            sessionRow({
+              key: "d:/fin#auto",
+              label: "auto",
+              ended: "question",
+            }),
+          ],
+        }),
+      ],
+    });
+    expect(await orch.launch("FinPulse", "Auto", true)).toEqual({
+      ok: false,
+      error: `FinPulse's live session "auto" is waiting on your answer to its question — it was not replaced`,
+    });
+  });
+
+  it("closeIfIdle leaves a key no workspace owns", async () => {
+    const { orch, closed } = setup({ sessions: [] });
+    expect(await orch.closeIfIdle("d:/nowhere#9")).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
+  it("a refused resume names unsent text", async () => {
+    const { orch } = setup({
+      sessions: [autoHolder()],
+      closedSessions: [closedAuto],
+      drafts: ["d:/fin#auto"],
+    });
+    expect(await orch.launch("FinPulse", "Auto", true)).toEqual({
+      ok: false,
+      error: `FinPulse's live session "auto" is holding unsent text — it was not replaced`,
+    });
+  });
+});
+
+describe("sendPayload control characters", () => {
+  it("sendPayload drops C0 controls but keeps tabs and newlines", () => {
+    expect(sendPayload("a\x07b\tc")).toBe("ab\tc");
+    const out = sendPayload("x\x00\ny\x7f");
+    expect(out).toContain("x\ny");
+    expect(out).not.toContain("\x00");
+    expect(out).not.toContain("\x7f");
   });
 });

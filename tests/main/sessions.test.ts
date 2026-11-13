@@ -7,6 +7,7 @@ const main = {
   label: "main",
   cwd: "D:\\repo",
   worktree: false,
+  delegated: false,
 };
 const second = {
   key: "d:/repo#1",
@@ -14,6 +15,7 @@ const second = {
   label: "1",
   cwd: "D:\\repo\\.worktrees\\1",
   worktree: true,
+  delegated: false,
 };
 const other = {
   key: "d:/vault",
@@ -21,6 +23,7 @@ const other = {
   label: "main",
   cwd: "D:\\vault",
   worktree: false,
+  delegated: false,
 };
 
 describe("createSessionRegistry", () => {

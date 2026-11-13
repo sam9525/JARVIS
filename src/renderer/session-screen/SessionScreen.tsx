@@ -1,8 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AskPrompt } from "../../main/ask-mapper";
-import type { StatusKind } from "../../shared/types";
+import type { StatusKind, TurnEnd } from "../../shared/types";
+import { displayKind } from "../../shared/turn-end";
 import { renderNote } from "../preview/markdown";
-import AskPanel from "../ui/AskPanel";
+import AskPanel, { type ReplyResult } from "../ui/AskPanel";
 import PermissionCard from "./PermissionCard";
 import TaskRow from "./TaskRow";
 import ToolRow from "./ToolRow";
@@ -95,9 +96,9 @@ function Item({
 type SessionScreenProps = {
   sessionKey: string;
   items: ScreenItem[];
-  status: { kind: StatusKind; call: string };
+  status: { kind: StatusKind; call: string; ended?: TurnEnd };
   ask?: AskPrompt;
-  onAskAnswer: (writes: string[]) => void;
+  onAskAnswer: (writes: string[]) => void | Promise<boolean | ReplyResult>;
   onOpenDoc?: (nodeId: string) => void;
   onWrite: (data: string) => void;
   onShowRaw: () => void;
@@ -163,7 +164,7 @@ export default function SessionScreen({
     el.scrollTop = el.scrollHeight;
   }, [lastPromptId]);
 
-  const liveLabel = LIVE_LABEL[status.kind];
+  const liveLabel = LIVE_LABEL[displayKind(status)];
 
   return (
     <div

@@ -33,6 +33,9 @@ vi.mock("react", async () => {
     useEffect: () => {
       return;
     },
+    useLayoutEffect: () => {
+      return;
+    },
   };
 });
 
@@ -68,6 +71,8 @@ const walk = (n: any): any[] =>
     getNotesDir: () => Promise.resolve(null),
     pickNotesDir: () => Promise.resolve(null),
     clearNotesDir: () => Promise.resolve(null),
+    getAutoAnswer: () => Promise.resolve(false),
+    onAutoAnswer: () => () => undefined,
     getTodos: () => Promise.resolve({ todos: [], malformed: [] }),
     todoOp: () => Promise.resolve({ ok: true }),
     onTodos: () => () => undefined,
@@ -179,6 +184,33 @@ describe("App shell", () => {
     expect(source.indexOf("// (end of openDoc)", start)).toBeGreaterThan(start);
     expect(body).not.toContain("setShowHome");
     expect(body).not.toContain("openWorkspace");
+  });
+
+  it("counts an idle question as asking in the telemetry line", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const { default: Bezel } = await import("../src/renderer/ui/Bezel");
+    const repo = {
+      id: "r",
+      name: "Repo",
+      rootPath: "/r",
+      kind: "vault",
+      sourceId: "unknown",
+    };
+    const status = {
+      workspaceId: "r",
+      kind: "idle",
+      ended: "question",
+      call: "",
+      since: 0,
+      reads: 0,
+      edits: 0,
+      sessions: [],
+    };
+    // statuses is App's third useState
+    stateOverrides = { 0: [repo], 2: [status] };
+    stateCall = 0;
+    const bezel = walk((App as any)({})).find((n: any) => n.type === Bezel);
+    expect(bezel.props.telemetry).toContain("1 ASKING");
   });
 
   describe("Scratch is hidden", () => {

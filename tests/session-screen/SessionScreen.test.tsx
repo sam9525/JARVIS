@@ -201,3 +201,30 @@ describe("SessionScreen", () => {
     });
   });
 });
+
+describe("SessionScreen turn endings", () => {
+  const renderEnded = (ended: "question" | "failed") =>
+    renderToStaticMarkup(
+      <SessionScreen
+        sessionKey="s"
+        items={[]}
+        status={{ kind: "idle", call: "", ended }}
+        onAskAnswer={noop}
+        onWrite={noop}
+        onShowRaw={noop}
+        footer={<div>FOOTER</div>}
+      />,
+    );
+
+  it("labels an idle question as asking you, without the permission card", () => {
+    const html = renderEnded("question");
+    expect(html).toContain("asking you");
+    expect(html).not.toContain("waiting on you");
+  });
+
+  it("gives an idle error no live line, as a crash has none", () => {
+    const html = renderEnded("failed");
+    expect(html).not.toContain("asking you");
+    expect(html).not.toContain("waiting on you");
+  });
+});

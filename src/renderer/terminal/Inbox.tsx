@@ -4,6 +4,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
+import { displayKind } from "../../shared/turn-end";
 
 const DOT: Record<StatusKind, string> = {
   working: "bg-accent",
@@ -57,7 +58,7 @@ export default function Inbox({
             }`}
           >
             <span
-              className={`mt-1.5 h-2 w-2 flex-none rounded-full ${DOT[s.kind]}`}
+              className={`mt-1.5 h-2 w-2 flex-none rounded-full ${DOT[displayKind(s)]}`}
             />
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-2">
@@ -65,7 +66,7 @@ export default function Inbox({
                   {w.name}
                 </span>
                 <span className="text-[11px] uppercase tracking-wide text-ink-dim">
-                  {s.kind}
+                  {displayKind(s)}
                 </span>
                 {s.delegatedBy && (
                   <span

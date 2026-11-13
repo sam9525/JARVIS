@@ -20,13 +20,12 @@ import { useForceTuning, type ForceHandle } from "./use-force-tuning";
 import { useGroupHalos, type HaloSceneHandle } from "./use-group-halos";
 import { RING_SCALE, useSpriteMaterials } from "./sprite-materials";
 import { useMergedLinks } from "./use-merged-links";
-import { endId, type LinkObj, type NodeObj } from "./link-ends";
+import { type NodeObj } from "./link-ends";
 import { clampSpin, decaySpin, SPIN_PER_RAD_S } from "./spin";
 import SpriteText from "three-spritetext";
 import { nodeLabelColor, nodeLabelText } from "./node-label";
 import {
   ArrowHelper,
-  Color,
   DoubleSide,
   Group,
   LineBasicMaterial,
@@ -36,12 +35,14 @@ import {
   Sprite,
   Vector3,
 } from "three";
-import { Line2 } from "three/examples/jsm/lines/Line2.js";
-import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 
 // camera distance bounds — the 3D analog of 2D's minZoom/maxZoom
 const CAM = { min: 20, max: 3000 } as const;
+
+// the library draws on every display refresh (120-160 Hz); 60 fps looks the same
+// for a slow graph and costs about half of the renderer and GPU work
+const FRAME_MS = 1000 / 60;
 
 // idle auto-rotation: resume this long after the last interaction
 const IDLE_ROTATE_MS = 5000;
@@ -60,8 +61,6 @@ type NodeAdornment = {
   focusRing: Sprite;
   label: SpriteText;
 };
-
-type Coords = { x: number; y: number; z: number };
 
 export type Graph3DHandle = {
   spin(v: number): void; // engine rad/s — a fresh throw of the flywheel
@@ -277,25 +276,10 @@ export default function Graph3D({
     return m;
   }, [graph, domains, groups, baseHue]);
 
-  // one material shared by every link line; linewidth is screen-space px.
-  // refresh() flush-disposes each link object's material, but this one is
-  // shared and component-owned — no-op those disposals (they'd force a
-  // shader recompile 2×/s during highlights) and do the real one on unmount.
+  // the merged link layer's material; linewidth is screen-space px. depthWrite
+  // off so the layer can't punch the depth buffer and sit over the node
+  // spheres (the spheres still occlude lines behind them — depthTest stays on).
   const linkMaterial = useMemo(() => {
-    const m = new LineMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: display.linkOpacity,
-    });
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    m.dispose = () => {};
-    return m;
-  }, []);
-
-  // lite (fleet) merged lines get their own material: depthWrite off so the
-  // link layer can't punch the depth buffer and sit over the node spheres
-  // (the spheres still occlude lines behind them — depthTest stays on).
-  const liteLinkMaterial = useMemo(() => {
     const m = new LineMaterial({
       vertexColors: true,
       transparent: true,
@@ -303,52 +287,18 @@ export default function Graph3D({
       opacity: display.linkOpacity,
       linewidth: display.linkThickness * 2,
     });
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    m.dispose = () => {};
     return m;
   }, []);
-  useEffect(
-    () => () => LineMaterial.prototype.dispose.call(liteLinkMaterial),
-    [liteLinkMaterial],
-  );
-
-  useEffect(
-    () => () => LineMaterial.prototype.dispose.call(linkMaterial),
-    [linkMaterial],
-  );
-
-  const linkThreeObject = useCallback(
-    (link: LinkObj) => {
-      const geometry = new LineGeometry();
-      // seed real endpoint positions when nodes are already resolved so a
-      // refresh() at rest doesn't leave lines collapsed at the origin
-      const s = typeof link.source === "object" ? link.source : undefined;
-      const t = typeof link.target === "object" ? link.target : undefined;
-      geometry.setPositions([
-        s?.x ?? 0,
-        s?.y ?? 0,
-        s?.z ?? 0,
-        t?.x ?? 0,
-        t?.y ?? 0,
-        t?.z ?? 0,
-      ]);
-      const sc = new Color(linkColors.get(endId(link.source)) ?? COLORS.link);
-      const tc = new Color(linkColors.get(endId(link.target)) ?? COLORS.link);
-      geometry.setColors([sc.r, sc.g, sc.b, tc.r, tc.g, tc.b]);
-      return new Line2(geometry, linkMaterial);
-    },
-    [linkColors, linkMaterial],
-  );
+  useEffect(() => () => linkMaterial.dispose(), [linkMaterial]);
 
   const writeMergedPositions = useMergedLinks(
     fgRef as unknown as React.MutableRefObject<
       { scene(): { add(o: object): void; remove(o: object): void } } | undefined
     >,
-    lite,
     data.links,
     nodeById,
     linkColors,
-    liteLinkMaterial,
+    linkMaterial,
     display.nodeSize,
   );
 
@@ -480,8 +430,10 @@ export default function Graph3D({
     // release inertia: the drag coasts and slows to a stop instead of
     // halting dead. autoRotate already animates each frame, which proves
     // controls.update() runs per frame — damping rides the same loop.
+    // Damping is per frame, not per second: 0.06 at 60 fps glides as long as
+    // 0.03 did at 120 fps (1 - 0.97^2 ≈ 0.06).
     controls.enableDamping = true;
-    controls.dampingFactor = 0.03;
+    controls.dampingFactor = 0.06;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopRotate = () => {
       controls.autoRotate = false;
@@ -505,12 +457,31 @@ export default function Graph3D({
     };
   }, []);
 
+  // cap the library's draw loop: resumeAnimation() runs one frame (physics
+  // tick + controls + render) and schedules the next, which pauseAnimation()
+  // cancels at once. Autorotate and tweens scale by elapsed time, so their
+  // speed holds; the layout steps once per frame, so it settles 2x slower.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    fg.pauseAnimation();
+    let last = 0;
+    let raf = requestAnimationFrame(function frame(now) {
+      raf = requestAnimationFrame(frame);
+      if (now - last < FRAME_MS - 1) return; // 1 ms slack for vsync jitter
+      // step the deadline, not to `now`, so any refresh rate averages 60 fps
+      last = Math.max(last + FRAME_MS, now - FRAME_MS);
+      fg.resumeAnimation();
+      fg.pauseAnimation();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   // keep the line material's resolution matched to the canvas so screen-space
   // linewidth stays correct across resizes (panel open/close, window resize)
   useEffect(() => {
     linkMaterial.resolution.set(width, height);
-    liteLinkMaterial.resolution.set(width, height);
-  }, [width, height, linkMaterial, liteLinkMaterial]);
+  }, [width, height, linkMaterial]);
 
   // preview open ⇒ stop now and stay stopped; close ⇒ normal idle re-arm
   useEffect(() => {
@@ -688,12 +659,10 @@ export default function Graph3D({
     }
     linkMaterial.linewidth = display.linkThickness * 2;
     linkMaterial.opacity = display.linkOpacity;
-    liteLinkMaterial.linewidth = display.linkThickness * 2;
-    liteLinkMaterial.opacity = display.linkOpacity;
     materials.setGlowOpacity(display.nodeOpacity);
-    writeMergedPositions(); // re-seat link ends on the resized spheres (lite no-ops if idle)
+    writeMergedPositions(); // re-seat link ends on the resized spheres
     fgRef.current?.refresh();
-  }, [display, groups, linkMaterial, liteLinkMaterial]);
+  }, [display, groups, linkMaterial]);
 
   const nodeThreeObject = useCallback(
     (node: NodeObj) => {
@@ -742,9 +711,9 @@ export default function Graph3D({
       backgroundColor={COLORS.bg}
       controlType="orbit"
       nodeResolution={lite ? 10 : 16}
-      cooldownTicks={300} // settle in ~1-2s instead of the default 15s so the fit fires promptly
+      cooldownTicks={300} // one tick per frame: ~5 s at the 60 fps cap, inside the default 15 s cooldownTime
       onEngineStop={() => {
-        if (lite) writeMergedPositions(); // final coords, even on a 0-tick settle
+        writeMergedPositions(); // final coords, even on a 0-tick settle
         if (didFit.current) return;
         didFit.current = true;
         fgRef.current?.zoomToFit(300, -400);
@@ -763,26 +732,10 @@ export default function Graph3D({
       nodeThreeObjectExtend={true}
       nodeThreeObject={nodeThreeObject}
       nodeColor={displayColor}
-      // lite: links are drawn by the single merged LineSegments2 above, so the
+      // links are drawn by the single merged LineSegments2 above, so the
       // library renders none of its own; onEngineTick keeps them following nodes
-      linkVisibility={!lite}
-      onEngineTick={lite ? writeMergedPositions : undefined}
-      linkThreeObject={lite ? undefined : linkThreeObject}
-      linkPositionUpdate={
-        lite
-          ? undefined
-          : (obj: Line2, ends: { start: Coords; end: Coords }) => {
-              obj.geometry.setPositions([
-                ends.start.x,
-                ends.start.y,
-                ends.start.z,
-                ends.end.x,
-                ends.end.y,
-                ends.end.z,
-              ]);
-              return true; // we own positioning — skip the default handler
-            }
-      }
+      linkVisibility={false}
+      onEngineTick={writeMergedPositions}
       onNodeClick={(node: NodeObj) => {
         if (node.type === "note") onNodeClick(String(node.id));
       }}

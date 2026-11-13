@@ -13,8 +13,10 @@ import {
   releaseDetached,
 } from "./terminal-registry";
 import { MAIN_LABEL, sessionKey as keyOf } from "../../shared/session-key";
+import { displayKind } from "../../shared/turn-end";
 import type {
   StatusKind,
+  TurnEnd,
   Workspace,
   WorkspaceStatus,
 } from "../../shared/types";
@@ -22,6 +24,7 @@ import type { AskPrompt } from "../../main/ask-mapper";
 import Segmented from "../ui/Segmented";
 import SessionScreen from "../session-screen/SessionScreen";
 import { NO_TERMINAL } from "../session-screen/composer-logic";
+import type { ReplyResult } from "../ui/AskPanel";
 import Composer from "../session-screen/Composer";
 import { historyEntries } from "../session-screen/prompt-history";
 import StatusLine from "../session-screen/StatusLine";
@@ -147,11 +150,11 @@ export default function TerminalPanel({
   visible?: boolean;
   // the session's open question, answered inline on the screen
   ask?: AskPrompt;
-  sessionStatus?: { kind: StatusKind; call: string };
+  sessionStatus?: { kind: StatusKind; call: string; ended?: TurnEnd };
   // what the composer's `@` offers: the workspace's graph files
   files?: string[];
   // resolves false when the session has no terminal to write to
-  onAskAnswer?: (writes: string[]) => Promise<boolean>;
+  onAskAnswer?: (writes: string[]) => Promise<boolean | ReplyResult>;
   // opens a spec or plan the question refers to in the preview panel
   onOpenDoc?: (nodeId: string) => void;
 }) {
@@ -210,7 +213,7 @@ export default function TerminalPanel({
   const [composerError, setComposerError] = useState<string | null>(null);
   // the screen's answers write straight to the pty; a missing one is reported
   // on the composer's error line, as a failed send is
-  const reportWrite = (written: Promise<boolean> | undefined) =>
+  const reportWrite = (written: Promise<boolean | ReplyResult> | undefined) =>
     void written
       ?.then((ok) => {
         if (!ok) setComposerError(NO_TERMINAL);
@@ -299,13 +302,15 @@ export default function TerminalPanel({
   // Separate from the mount effect above, and keyed on visibility: the boot
   // sequence holds this panel behind `visibility: hidden` until its stage, and
   // a focus call inside a hidden subtree is a silent no-op. The screen's
-  // composer takes the keys in screen mode, the xterm in raw mode.
+  // composer takes the keys in screen mode, the xterm in raw mode. On home the
+  // panel stays mounted as the inbox strip, so opening it to the full panel
+  // is what focuses it there.
   useEffect(() => {
-    if (visible === false) return;
+    if (visible === false || inboxOnly) return;
     if (mode === "screen")
       screenRef.current?.querySelector("textarea")?.focus();
     else entryFor(sessionKey).term.focus();
-  }, [sessionKey, visible, mode]);
+  }, [sessionKey, visible, mode, inboxOnly]);
 
   const launch = (dangerous = false) => {
     const e = entryFor(sessionKey);
@@ -377,16 +382,16 @@ export default function TerminalPanel({
         >
           {/* state bar: the panel says which state it is before you read it */}
           <span
-            className={`absolute top-3.5 bottom-3.5 -left-px w-0.5 rounded-full bg-gradient-to-b to-transparent ${BAR[detail.status.kind]}`}
+            className={`absolute top-3.5 bottom-3.5 -left-px w-0.5 rounded-full bg-gradient-to-b to-transparent ${BAR[displayKind(detail.status)]}`}
           />
           <div className="flex items-center gap-2.5 border-b border-edge px-4 pt-3 pb-2.5">
             <span className="truncate font-semibold text-ink">
               {detail.ws.name}
             </span>
             <span
-              className={`flex-none rounded-full border px-2 py-0.5 text-[10.5px] font-semibold tracking-[0.1em] uppercase ${PILL[detail.status.kind]}`}
+              className={`flex-none rounded-full border px-2 py-0.5 text-[10.5px] font-semibold tracking-[0.1em] uppercase ${PILL[displayKind(detail.status)]}`}
             >
-              {PILL_LABEL[detail.status.kind]}
+              {PILL_LABEL[displayKind(detail.status)]}
             </span>
             <span className="ml-auto flex-none text-[12px] text-ink-dim tabular-nums">
               {relativeTime(detail.status.since, Date.now())}
@@ -499,7 +504,12 @@ export default function TerminalPanel({
               items={itemsFor(sessionKey)}
               status={sessionStatus}
               ask={ask}
-              onAskAnswer={(writes) => reportWrite(onAskAnswer?.(writes))}
+              onAskAnswer={(writes) => {
+                const written = onAskAnswer?.(writes);
+                // a text reply that is refused stays in the caller's hands
+                if (ask?.source !== "text") reportWrite(written);
+                return written;
+              }}
               onOpenDoc={onOpenDoc}
               onWrite={(data) =>
                 reportWrite(window.jarvis.ptyInput(sessionKey, data))
@@ -513,7 +523,7 @@ export default function TerminalPanel({
                     currentModel={modelOf(statusLine)}
                     history={historyEntries(itemsFor(sessionKey))}
                     awaitingAnswer={
-                      !!ask ||
+                      (!!ask && ask.source !== "text") ||
                       sessionStatus.kind === "blocked" ||
                       sessionStatus.kind === "asking"
                     }

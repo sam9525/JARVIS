@@ -29,6 +29,9 @@ export type StatusKind =
   | "crashed" // the PTY exited non-zero
   | "none"; // no session
 
+// how a turn ended: it ran to completion, closed on a plain-text question, or hit an API error
+export type TurnEnd = "finished" | "question" | "failed";
+
 // one Claude Code session of a workspace; `main` is the one in the folder itself
 export interface SessionStatus {
   key: string;
@@ -39,6 +42,8 @@ export interface SessionStatus {
   since: number; // ms epoch of the last kind change
   worktree: boolean; // runs in its own git worktree rather than the folder
   topic?: string; // one word for what the last turn was about; absent until a Stop sets it
+  ended?: TurnEnd; // how the idle session's last turn ended; absent while working
+  error?: string; // the API error type when ended is "failed"
 }
 
 // what the rail badge and the mission-control cards read: the aggregate of the
@@ -55,6 +60,8 @@ export interface WorkspaceStatus {
   messageAt?: number; // ms epoch of the Stop that set message — tells a repeated reply from the same reply pushed again
   delegatedBy?: string; // orchestrator that submitted the current turn; "" when the user did
   live?: boolean; // this app's own pty is attached right now — not a hand-run CLI
+  ended?: TurnEnd; // how the urgent session's turn ended, when it is idle because of one
+  error?: string; // the API error type when ended is "failed"
   since: number; // ms epoch of the last kind change — drives "40s ago"
   reads: number; // distinct files read this session
   edits: number; // distinct files edited this session
@@ -72,6 +79,8 @@ export interface StatusEvent {
   step?: string; // the call's description; "" clears it, absent keeps it
   stage?: PipelineStage; // set by a pipeline Skill call; absent keeps it
   message?: string; // Stop only: the last thing Claude said, for the inbox
+  ended?: TurnEnd; // Stop and StopFailure only: a turn ended, as opposed to the idle_prompt timer
+  error?: string; // StopFailure only: the API error type
   prompt?: string; // UserPromptSubmit only: what was submitted
   transcriptPath?: string; // any event: where the session transcript lives
   // a pty this app spawned sent it; a `claude` run by hand in the same
@@ -325,6 +334,10 @@ export interface Settings {
    * standing between a restart and drawing the green you just used.
    */
   recentHues?: number[];
+  /** The key combo that folds and unfolds the terminal panel, as `comboFromEvent` writes it. Absent = `DEFAULT_TERMINAL_TOGGLE`. */
+  terminalToggleKey?: string;
+  /** The key combo that opens and closes the to-do list, as `comboFromEvent` writes it. Absent = `DEFAULT_TODO_TOGGLE`. */
+  todoToggleKey?: string;
 }
 
 // a workspace's groups, or NO_GROUPS if it has never been seeded — a fresh []

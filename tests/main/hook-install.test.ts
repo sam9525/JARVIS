@@ -30,6 +30,7 @@ describe("ensureHooks", () => {
       "UserPromptSubmit",
       "Notification",
       "Stop",
+      "StopFailure",
       "SessionStart",
     ]) {
       expect(JSON.stringify(s.hooks[ev]).includes("forward.mjs"), ev).toBe(
@@ -120,8 +121,15 @@ describe("mergeHooks", () => {
       "PreToolUse",
       "SessionStart",
       "Stop",
+      "StopFailure",
       "UserPromptSubmit",
     ]);
+  });
+
+  it("StopFailure is registered matcher-less and points at the command", () => {
+    const out = mergeHooks({}, "node forward.mjs");
+    expect(out.hooks.StopFailure[0].matcher).toBeUndefined();
+    expect(out.hooks.StopFailure[0].hooks[0].command).toBe("node forward.mjs");
   });
 
   it("PreToolUse matches every tool; PostToolUse stays narrow", () => {

@@ -5,8 +5,10 @@ import type {
   StatusEvent,
   StatusKind,
   ToolEvent,
+  TurnEnd,
   WorkspaceStatus,
 } from "../shared/types";
+import { displayKind } from "../shared/turn-end";
 
 // Stop does not fire when the user hits Esc, so a workspace could sit reading
 // "running" forever. Staleness closes that gap.
@@ -46,6 +48,11 @@ interface Entry {
   topic: string;
   // a topic named by the sender; a later title word does not replace it
   topicPinned: boolean;
+  // how the last turn ended, while nothing has happened since; the idle_prompt
+  // timer keeps it, any other kind clears it
+  ended: TurnEnd | "";
+  // the API error name behind a failed ending
+  error: string;
 }
 
 export interface StatusStore {
@@ -128,6 +135,8 @@ export function createStatusStore(
         ptyOwned: false,
         topic: "",
         topicPinned: false,
+        ended: "",
+        error: "",
       };
       entries.set(key, e);
     }
@@ -205,8 +214,18 @@ export function createStatusStore(
       const stage = sessionChanged ? (ev.stage ?? "") : (ev.stage ?? e.stage);
       const message = ev.message ?? e.message;
       const messageAt = ev.message === undefined ? e.messageAt : ev.ts;
+      // a turn end from another session id (a hand-run CLI in the same folder,
+      // or a late Stop from an old session) says nothing about this entry's
+      // turn; e.sessionId is already settled for this event above
+      const incoming = ev.sessionId === e.sessionId ? ev.ended : undefined;
+      const ended: TurnEnd | "" =
+        ev.kind !== "idle" ? "" : (incoming ?? e.ended);
+      const error =
+        ev.kind !== "idle" ? "" : incoming ? (ev.error ?? "") : e.error;
       const changed =
         sessionChanged ||
+        e.ended !== ended ||
+        e.error !== error ||
         e.kind !== ev.kind ||
         e.call !== call ||
         e.step !== step ||
@@ -215,6 +234,8 @@ export function createStatusStore(
         e.messageAt !== messageAt;
       if (e.kind !== ev.kind) e.since = ev.ts;
       e.kind = ev.kind;
+      e.ended = ended;
+      e.error = error;
       e.call = call;
       e.step = step;
       e.stage = stage;
@@ -336,6 +357,8 @@ export function createStatusStore(
       if (e.kind === "none") return wasOwned;
       e.ptyAlive = false;
       e.kind = exitCode === 0 ? "none" : "crashed";
+      e.ended = "";
+      e.error = "";
       e.call = "";
       e.step = "";
       e.since = now; // types.ts documents since as the last KIND change
@@ -388,8 +411,9 @@ export function createStatusStore(
         group.sort((x, y) => bySessionOrder(x[1], y[1]));
         const all = group.map(([, e]) => e);
         // the sort is stable, so ties keep the main-first order
+        // ranked by display kind, so a failed idle session outranks a plain one
         const urgent = all.reduce((best, e) =>
-          URGENCY[e.kind] < URGENCY[best.kind] ? e : best,
+          URGENCY[displayKind(e)] < URGENCY[displayKind(best)] ? e : best,
         );
         const latest = all.reduce((best, e) =>
           e.messageAt > best.messageAt ? e : best,
@@ -403,7 +427,19 @@ export function createStatusStore(
           since: e.since,
           worktree: e.worktree,
           ...(e.topic ? { topic: e.topic } : {}),
+          ...(e.ended ? { ended: e.ended } : {}),
+          ...(e.ended === "failed" && e.error ? { error: e.error } : {}),
         }));
+        // idle sessions tie in urgency, so one unended idle session (a
+        // staleness demotion) vetoes a finished marker; a question or failure
+        // is worth showing whatever its siblings did
+        const workspaceEnded =
+          urgent.kind === "idle" && urgent.ended
+            ? urgent.ended !== "finished" ||
+              all.every((e) => e.kind !== "idle" || e.ended)
+              ? urgent.ended
+              : undefined
+            : undefined;
         return {
           workspaceId,
           kind: urgent.kind,
@@ -414,6 +450,10 @@ export function createStatusStore(
           messageAt: latest.messageAt,
           delegatedBy: urgent.delegatedBy,
           live: all.some((e) => e.ptyOwned),
+          ...(workspaceEnded ? { ended: workspaceEnded } : {}),
+          ...(workspaceEnded === "failed" && urgent.error
+            ? { error: urgent.error }
+            : {}),
           since: urgent.since,
           reads: all.reduce((n, e) => n + e.reads.size, 0),
           edits: all.reduce((n, e) => n + e.edits.size, 0),

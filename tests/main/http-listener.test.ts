@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import * as textQuestion from "../../src/main/text-question-mapper";
 import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
 import type { StatusEvent, ToolEvent, Workspace } from "../../src/shared/types";
@@ -38,8 +39,10 @@ function stubOrchestrator() {
       return { ok: true as const };
     },
     launches: [] as Array<[string, string | undefined]>,
-    launch(workspace: string, label?: string) {
+    resumes: [] as boolean[],
+    launch(workspace: string, label?: string, resume = false) {
       this.launches.push([workspace, label]);
+      this.resumes.push(resume);
       return Promise.resolve({ ok: true as const, session: "1" });
     },
     trusts: [] as Array<[string, boolean, string | undefined]>,
@@ -702,8 +705,7 @@ describe("the ask channel", () => {
     await post(port, {
       session_id: "s1",
       cwd: "D:\\vault",
-      hook_event_name: "Stop",
-      last_assistant_message: "done",
+      hook_event_name: "PreCompact",
     });
     server.close();
     expect(seen).toHaveLength(0);
@@ -740,6 +742,18 @@ describe("/orchestrate/launch", () => {
       { "x-jarvis": "1" },
     );
     expect(s.orch.launches).toEqual([["Obsidian-vault", "AeroGraph"]]);
+    s.close();
+  });
+
+  it("forwards resume only when it is true", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    const body = (resume: unknown) =>
+      JSON.stringify({ workspace: "AeroGraph", label: "main", resume });
+    await call(s.port, body(true), { "x-jarvis": "1" });
+    await call(s.port, body("yes"), { "x-jarvis": "1" });
+    expect(s.orch.resumes).toEqual([true, false]);
     s.close();
   });
 
@@ -955,5 +969,227 @@ describe("SessionStart on /event", () => {
     });
     expect(statuses).toEqual([]);
     server.close();
+  });
+});
+
+describe("the auto-answer reply", () => {
+  const readEvent = {
+    session_id: "s1",
+    cwd: "D:\\vault",
+    hook_event_name: "PreToolUse",
+    tool_name: "Read",
+    tool_input: { file_path: "D:\\vault\\notes\\beta.md" },
+  };
+  const askEvent = {
+    session_id: "s1",
+    cwd: "D:\\vault",
+    hook_event_name: "PreToolUse",
+    tool_name: "AskUserQuestion",
+    tool_input: {
+      questions: [{ question: "Which?", header: "H", options: [] }],
+    },
+  };
+
+  async function startWith(autoAnswer: (raw: unknown) => unknown) {
+    const events: ToolEvent[] = [];
+    const statuses: StatusEvent[] = [];
+    const asks: unknown[] = [];
+    const server = startListener(
+      0,
+      (e) => events.push(e),
+      (s) => statuses.push(s),
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => asks.push(p),
+      undefined,
+      undefined,
+      autoAnswer,
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return { port, events, statuses, asks, close: () => server.close() };
+  }
+
+  it("replies with the hook output when autoAnswer answers", async () => {
+    const answer = { hookSpecificOutput: { permissionDecision: "allow" } };
+    const s = await startWith(() => answer);
+    const res = await post(s.port, readEvent);
+    expect(JSON.parse(await res.text())).toEqual(answer);
+    await vi.waitFor(() => expect(s.events).toHaveLength(1));
+    expect(s.statuses).toHaveLength(1);
+    expect(s.asks).toEqual([]);
+    s.close();
+  });
+
+  it("an answered AskUserQuestion still reaches onStatus and onAsk", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, askEvent);
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.statuses).toHaveLength(1);
+    expect(s.statuses[0]).toMatchObject({ kind: "asking" });
+    expect((s.asks[0] as { questions: unknown[] }).questions).toHaveLength(1);
+    s.close();
+  });
+
+  it("marks an answered AskUserQuestion as offered", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, askEvent);
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { offered?: true }).offered).toBe(true);
+    s.close();
+  });
+
+  it("leaves an unanswered ask and the clear unmarked", async () => {
+    const s = await startWith(() => null);
+    await post(s.port, askEvent);
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { offered?: true }).offered).toBeUndefined();
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: { answers: { "Which?": "A" } },
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(2));
+    expect((s.asks[1] as { offered?: true }).offered).toBeUndefined();
+    s.close();
+  });
+
+  it("does not mark the clear when the PostToolUse is answered", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: { answers: { "Which?": "A" } },
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { offered?: true }).offered).toBeUndefined();
+    s.close();
+  });
+
+  it("never marks a text question", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect((s.asks[0] as { source: string }).source).toBe("text");
+    expect((s.asks[0] as { offered?: true }).offered).toBeUndefined();
+    s.close();
+  });
+
+  it("clears the panel when a Stop carries no question", async () => {
+    const s = await startWith(() => ({ a: 1 }));
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Done.",
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.asks[0]).toMatchObject({ source: "text", questions: [] });
+    s.close();
+  });
+
+  it("replies empty when autoAnswer gives null", async () => {
+    const s = await startWith(() => null);
+    const res = await post(s.port, askEvent);
+    expect(await res.text()).toBe("");
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.statuses).toHaveLength(1);
+    s.close();
+  });
+
+  it("replies empty on a body that is not JSON", async () => {
+    const autoAnswer = vi.fn(() => ({ a: 1 }));
+    const s = await startWith(autoAnswer);
+    const res = await postRaw(s.port, "{not json");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+    expect(autoAnswer).not.toHaveBeenCalled();
+    s.close();
+  });
+
+  it("a throwing autoAnswer replies empty", async () => {
+    const s = await startWith(() => {
+      throw new Error("boom");
+    });
+    const res = await post(s.port, askEvent);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+  });
+
+  it("a PostToolUse after an answer still reaches onStatus and onAsk", async () => {
+    const s = await startWith(() => null);
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+      tool_response: { answers: { "Which?": "A" } },
+    });
+    await vi.waitFor(() => expect(s.asks).toHaveLength(1));
+    expect(s.statuses).toHaveLength(1);
+    s.close();
+  });
+
+  it("pushes a plain-text question on a Stop that ends on one", async () => {
+    const seen: Array<unknown> = [];
+    const server = startListener(
+      0,
+      () => {
+        /* no-op */
+      },
+      () => {
+        /* no-op */
+      },
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => seen.push(p),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const port = (server.address() as { port: number }).port;
+    await post(port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+    });
+    server.close();
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as { source: string }).source).toBe("text");
+  });
+
+  it("still reports status when the text mapper throws", async () => {
+    const spy = vi
+      .spyOn(textQuestion, "mapTextQuestion")
+      .mockImplementation(() => {
+        throw new Error("boom");
+      });
+    const statuses: unknown[] = [];
+    const s = await start(
+      () => {
+        /* no-op */
+      },
+      (e) => statuses.push(e),
+    );
+    await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "Stop",
+      last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+    });
+    s.close();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+    expect(statuses).toHaveLength(1);
   });
 });

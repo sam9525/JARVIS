@@ -105,3 +105,15 @@ describe("summary over six kinds", () => {
     expect(html).toContain("no active sessions");
   });
 });
+
+describe("HomeHeader turn endings", () => {
+  it("counts an idle question as asking and an idle error as crashed", () => {
+    expect(
+      summaryOf([
+        status({ workspaceId: "w1", ended: "question" }),
+        status({ workspaceId: "w2", ended: "failed" }),
+        status({ workspaceId: "w3", ended: "finished" }),
+      ]),
+    ).toBe("1 asking · 1 crashed · 1 idle");
+  });
+});

@@ -15,6 +15,7 @@ const EVENTS = [
   "UserPromptSubmit",
   "Notification",
   "Stop",
+  "StopFailure",
   "SessionStart",
 ];
 
@@ -38,13 +39,14 @@ function withoutOurHooks(settings) {
 
 export function mergeHooks(settings, command) {
   const hooks = [{ type: "command", command }];
-  // Stop, Notification and SessionStart take no matcher — they always fire
+  // Stop, StopFailure, Notification and SessionStart take no matcher — they always fire
   const entries = {
     PreToolUse: { matcher: PRE_MATCHER, hooks },
     PostToolUse: { matcher: POST_MATCHER, hooks },
     UserPromptSubmit: { hooks },
     Notification: { hooks },
     Stop: { hooks },
+    StopFailure: { hooks },
     SessionStart: { hooks },
   };
   const out = withoutOurHooks(settings);

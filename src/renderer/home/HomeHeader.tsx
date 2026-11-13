@@ -1,5 +1,6 @@
 import React from "react";
 import type { StatusKind, WorkspaceStatus } from "../../shared/types";
+import { displayKind } from "../../shared/turn-end";
 import { LBL, LBL_DIM, TOP_ROW } from "../ui/hud";
 
 type HomeHeaderProps = {
@@ -29,7 +30,8 @@ export default function HomeHeader({
 }
 
 function summary(statuses: WorkspaceStatus[]): string {
-  const n = (k: StatusKind) => statuses.filter((s) => s.kind === k).length;
+  const n = (k: StatusKind) =>
+    statuses.filter((s) => displayKind(s) === k).length;
   // stopped-and-wants-you first: that is what the header exists to surface
   const parts = [
     n("asking") && `${n("asking")} asking`,

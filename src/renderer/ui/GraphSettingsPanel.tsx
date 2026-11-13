@@ -17,7 +17,9 @@ import {
   pickHue,
 } from "../graph/workspace-color";
 import { useMicDevices } from "../voice/use-mic-devices";
+import { DEFAULT_TERMINAL_TOGGLE, DEFAULT_TODO_TOGGLE } from "./key-combo";
 import Segmented from "./Segmented";
+import ShortcutRow from "./ShortcutRow";
 
 type Page = "graph" | "senses";
 
@@ -217,6 +219,9 @@ export default function GraphSettingsPanel({
       .catch(() => setNotesDir(null));
   }, []);
 
+  const terminalKey = settings.terminalToggleKey ?? DEFAULT_TERMINAL_TOGGLE;
+  const todoKey = settings.todoToggleKey ?? DEFAULT_TODO_TOGGLE;
+
   return (
     <div className="h-full overflow-y-auto px-3 py-2.5 font-sans text-[13px] text-ink">
       <div className="mb-2.5 flex items-center justify-between gap-1.5">
@@ -256,6 +261,8 @@ export default function GraphSettingsPanel({
               headColor: settings.headColor,
               headMouth: settings.headMouth,
               headMouths: settings.headMouths,
+              terminalToggleKey: settings.terminalToggleKey,
+              todoToggleKey: settings.todoToggleKey,
             });
             onSearchChange("");
             onResetHighlights();
@@ -429,6 +436,23 @@ export default function GraphSettingsPanel({
               onChange={(e) => onVoiceControl(e.target.checked)}
             />
           </label>
+
+          <ShortcutRow
+            label="Terminal key"
+            testId="terminal-key"
+            value={settings.terminalToggleKey}
+            fallback={DEFAULT_TERMINAL_TOGGLE}
+            taken={todoKey}
+            onChange={(combo) => set({ terminalToggleKey: combo })}
+          />
+          <ShortcutRow
+            label="To-do key"
+            testId="todo-key"
+            value={settings.todoToggleKey}
+            fallback={DEFAULT_TODO_TOGGLE}
+            taken={terminalKey}
+            onChange={(combo) => set({ todoToggleKey: combo })}
+          />
 
           <label className="flex items-center justify-between gap-2 py-1 text-ink-muted">
             Microphone
