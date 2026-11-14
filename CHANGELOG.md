@@ -8,21 +8,39 @@ All notable changes to JARVIS are listed here. The format follows [Keep a Change
 
 ### Added
 
-- Plain-text questions from the agent are now detected, shown in the question panel with their options, and answered from there. A reply is sent once, and you are told why one was refused.
-- An auto-answer button for the agent's multiple-choice questions, with titled controls. A question it answered stays in the panel until you dismiss it.
-- Skills and custom commands appear in the composer's slash list when the draft starts with a slash. Built-in commands, recalled drafts and long descriptions still work there.
-- A finish marker on the mission-control card, and cards and status surfaces show when a turn ended on a question or an error. The main agent is told how each turn ended, and a turn waiting on background work is not counted as finished.
-- A to-do shortcut that opens and closes the list, and a terminal toggle key that folds the terminal when you enter a project. Both keys can be changed in settings, and risky keys are refused.
+- Plain-text questions at turn end are parsed by `src/shared/text-question.ts`, shown in the question panel with their options, and answered from it (`77ceec1`, `9627beb`, `ea4db6e`).
+- Auto-answer button (`AutoAnswerToggle`) answers `AskUserQuestion` through the `PreToolUse` hook reply: `Approve` on a Spec or Plan gate, or the `(Recommended)` option; it is off at every start (`ebb357b`, `da76614`, `4ee0d74`).
+- Composer slash list shows the session's skills and custom commands when the draft starts with `/` (`98c7891`, `ad05a1e`).
+- Mission-control cards show a finish marker, and every status surface shows a turn that ended on a question or an API error (`246b51f`, `e7ab5d9`, `0cde60a`).
+- `jarvis_list` and `jarvis_watch` return `ended` (`finished`, `question` or `failed`) and `error` for each turn (`65e38d2`).
+- `src/hook/merge.mjs` registers a `StopFailure` hook, which reports API errors at turn end (`0926aca`).
+- `jarvis_launch` takes `resume: true` to continue a closed session for the same work (`239311b`).
+- Delegate sessions the main agent launched close after 30 minutes of silence; `JARVIS_IDLE_CLOSE_MS` overrides the delay (`f73697c`, `c24d5c0`).
+- A batch that splits opens one tab per spec (`7e087a6`, `d46a293`).
+- `Ctrl+Shift+T` opens and closes the to-do list; the `todoToggleKey` setting changes it (`05afcf5`, `55cd324`).
+- `Ctrl+Backquote` folds and unfolds the terminal, which folds on project entry; the `terminalToggleKey` setting changes it (`26c36ed`, `01dbe2c`).
+- `scripts/measure-load.mjs` samples the JARVIS process tree once a second into CSV per scenario (`a83d194`).
 
 ### Changed
 
-- The main agent resumes a closed session for the same work instead of starting a new one. Delegate sessions it launched close after 30 minutes of silence, a batch that splits opens one tab per spec, and the finish nudge names the workspace and tab.
-- The main 3D graph draws its links as one merged layer and is capped at 60 frames a second, so it uses less of the machine. A new load sampler command line tool records how heavy the app is.
+- The finish nudge names the workspace and the tab (`0b1f826`).
+- The main 3D graph draws its links as one merged layer and runs at up to 60 fps (`371a94b`, `93a2566`).
 
 ### Fixed
 
-- Long and multi-line prompts sent by the agent arrive as one block, and removing a worktree no longer leaves its links behind.
-- The question panel no longer opens for code, quotes or a question heading over a list. It now opens for a question followed by a short note, options split by blank lines, and a closing line that asks you to choose. An old question closes when the agent's next turn ends on a statement.
+- A `jarvis_send` prompt with a newline, or over 1024 bytes, arrives as one paste block, with control characters removed (`2ba5986`, `85f3ff4`, `9122d86`).
+- A text reply from the question panel is sent once, and a refused reply names its reason (`274a121`, `20a2a85`).
+- The question panel ignores code, quotes and a question heading over a list, and catches loose lists, short tails and choice requests (`b126dfe`).
+- An old text question closes when the session's next turn ends on a statement (`f3f99b6`).
+- A question that auto-answer answered stays in the panel until it is dismissed (`fa033ac`).
+- A turn that waits on background work no longer counts as finished (`bca09fe`).
+- Finished shows only for the session's own `Stop`, and only when no idle session is unfinished (`98d6886`).
+- Closing a worktree removes its links as links before git deletes the worktree (`600098c`).
+- Spec gate and Plan gate headers count as gates (`effe47f`).
+- The preview loads the markdown grammar, and a failed highlight is logged with its file name (`8147bda`, `86fe66e`).
+- `forward.mjs` prints only a `PreToolUse` reply, and auto-answer answers only fresh events (`1666e31`, `9122d86`).
+- Shortcut settings refuse risky keys and a key the other shortcut uses (`a753b2e`, `8a20c4c`).
+- `jarvis_launch` with `resume: true` keeps the replaced conversation on offer, and its refusal names the real reason (`3734436`).
 
 ## [0.5.4] - 2026-11-05
 
