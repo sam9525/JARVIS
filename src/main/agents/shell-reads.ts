@@ -10,6 +10,7 @@ const READERS = new Set(
 const SEARCHERS = new Set(
   "rg grep select-string sls findstr fd find get-childitem ls dir".split(" "),
 );
+const FOLDER_CHANGERS = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
 const SHELLS = new Set(["powershell", "pwsh", "bash", "sh", "cmd"]);
 const COMMAND_FLAGS = new Set(["-command", "-c", "-lc", "/c"]);
 
@@ -72,8 +73,10 @@ function payloadOf(parts: string[][]): string | null {
   return payload.length === 1 ? unquote(payload[0]) : payload.join(" ");
 }
 
-function toCommandText(command: unknown): string | null {
-  if (typeof command === "string") return command;
+function toCommandText(
+  command: unknown,
+): { text: string; unwrapped: boolean } | null {
+  if (typeof command === "string") return { text: command, unwrapped: false };
   if (
     !Array.isArray(command) ||
     !command.every((item) => typeof item === "string")
@@ -88,14 +91,16 @@ function toCommandText(command: unknown): string | null {
     SHELLS.has(commandName(items[0])) &&
     flagAt > 0 &&
     flagAt === items.length - 2;
-  return wrapped ? items[flagAt + 1] : items.join(" ");
+  return wrapped
+    ? { text: items[flagAt + 1], unwrapped: true }
+    : { text: items.join(" "), unwrapped: false };
 }
 
 export function parseShellCommand(command: unknown): ShellActivity {
   const reads: string[] = [];
   const searches: string[] = [];
-  const text = toCommandText(command);
-  if (text === null) return { reads, searches };
+  const source = toCommandText(command);
+  if (source === null) return { reads, searches };
 
   const push = (list: string[], value: string) => {
     if (value && !list.includes(value)) list.push(value);
@@ -103,8 +108,10 @@ export function parseShellCommand(command: unknown): ShellActivity {
   const isFlag = (word: string) => word.startsWith("-");
   const isPath = (word: string) => /[./\\]/.test(word);
 
-  const unwrapped = payloadOf(tokenize(text));
-  for (const part of tokenize(unwrapped ?? text)) {
+  const payload = source.unwrapped ? null : payloadOf(tokenize(source.text));
+  // A path after a folder change is relative to another folder, so later reads are dropped.
+  let folderChanged = false;
+  for (const part of tokenize(payload ?? source.text)) {
     const name = commandName(part[0]);
     const isGitGrep =
       name === "git" &&
@@ -114,7 +121,9 @@ export function parseShellCommand(command: unknown): ShellActivity {
     if (isGitGrep || SEARCHERS.has(name)) {
       const pattern = args.find((word) => !isFlag(word));
       if (pattern !== undefined) push(searches, pattern);
-    } else if (READERS.has(name)) {
+    } else if (FOLDER_CHANGERS.has(name)) {
+      folderChanged = true;
+    } else if (READERS.has(name) && !folderChanged) {
       const operands = args.filter((word) => !isFlag(word));
       // The first operand of sed is its script, never a file.
       for (const word of name === "sed" ? operands.slice(1) : operands) {

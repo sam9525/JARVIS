@@ -127,4 +127,23 @@ describe("parseShellCommand", () => {
   it("gives nothing for an array with a non-string item", () => {
     expect(parseShellCommand(["cat", 5])).toEqual(none);
   });
+
+  it("removes a wrapper once even when the array form was unwrapped", () => {
+    expect(parseShellCommand(["bash", "-lc", "bash -c 'cat a.ts'"])).toEqual(
+      none,
+    );
+  });
+
+  it("drops reads after a folder change", () => {
+    expect(parseShellCommand("cd src && cat a.ts")).toEqual(none);
+    expect(parseShellCommand("cat a.ts; cd src; cat b.ts")).toEqual({
+      reads: ["a.ts"],
+      searches: [],
+    });
+    expect(parseShellCommand("cd src && rg foo .")).toEqual({
+      reads: [],
+      searches: ["foo"],
+    });
+    expect(parseShellCommand('bash -lc "cd src && cat a.ts"')).toEqual(none);
+  });
 });
