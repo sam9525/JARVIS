@@ -80,8 +80,11 @@ export default function AskPanel({
       q.options.some((o) => o.label.trim().toLowerCase() === OTHER));
   const inert = readOnly || (textMode && sent);
 
-  // Claude Code lists the options, then its own "Type something." input row
-  const rows = q.options.length + 1;
+  // Claude Code lists the options, then its own "Type something." input row.
+  // A confirm has no such row, and its list wraps: one Up too many moves the
+  // cursor off the option the downs count from.
+  const confirm = prompt.source === "confirm";
+  const rows = q.options.length + (confirm ? 0 : 1);
   const last = index >= prompt.questions.length - 1;
   // after the last of several questions the TUI shows a review screen whose
   // focused button is "Submit answers" — one more Enter confirms it
@@ -179,7 +182,7 @@ export default function AskPanel({
           <span className={LBL_CY}>open ›</span>
         </button>
       )}
-      {!readOnly && (
+      {!readOnly && !confirm && (
         <input
           data-testid="ask-typed"
           value={typed}

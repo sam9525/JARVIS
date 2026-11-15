@@ -423,6 +423,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       deps.ask({
         ...base,
         ts: Date.now(),
+        source: "confirm",
         questions: [
           {
             question: "Switch model?",

@@ -635,6 +635,7 @@ describe("orchestrate.send with a slash command", () => {
     expect(asked[0]).toMatchObject({
       workspaceId: "d:/aero",
       sessionKey: "d:/aero",
+      source: "confirm",
       questions: [
         {
           question: "Switch model?",
