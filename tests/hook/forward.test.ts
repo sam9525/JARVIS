@@ -216,6 +216,32 @@ describe("forward.mjs", () => {
     });
   });
 
+  it("adds jarvis_agent from JARVIS_AGENT in a session", async () => {
+    const body = await captureBody('{"tool_name":"Read"}', {
+      JARVIS_SESSION: "s",
+      JARVIS_AGENT: "codex",
+    });
+    expect(JSON.parse(body).jarvis_agent).toBe("codex");
+  });
+
+  it("adds no jarvis_agent key without JARVIS_AGENT", async () => {
+    const body = await captureBody('{"tool_name":"Read"}', {
+      JARVIS_SESSION: "s",
+    });
+    expect(JSON.parse(body)).not.toHaveProperty("jarvis_agent");
+  });
+
+  it("prints nothing for a Bash PreToolUse from codex", async () => {
+    await withReply(reply, async (port) => {
+      const r = await runForwardWithOutput(
+        port,
+        '{"hook_event_name":"PreToolUse","tool_name":"Bash"}',
+        { JARVIS_SESSION: "s", JARVIS_AGENT: "codex" },
+      );
+      expect(r.stdout).toBe("");
+    });
+  });
+
   it("prints nothing when the app is not running", async () => {
     const r = await runForwardWithOutput(1, '{"tool_name":"Read"}');
     expect(r.code).toBe(0);

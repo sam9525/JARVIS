@@ -16,6 +16,9 @@ if (process.env.JARVIS_SESSION) {
       ...JSON.parse(body),
       jarvis_session: process.env.JARVIS_SESSION,
       jarvis_sent_at: Date.now(),
+      ...(process.env.JARVIS_AGENT
+        ? { jarvis_agent: process.env.JARVIS_AGENT }
+        : {}),
     });
   } catch {
     // not JSON — forward it untouched
