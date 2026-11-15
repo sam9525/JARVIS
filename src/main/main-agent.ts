@@ -148,7 +148,9 @@ tool's description, routed to the project's main tab first:
 
 When the task relates to the main tab's current conversation, send on top of
 it. When it is unrelated, first \`jarvis_send\` \`/clear\` to \`session: "main"\`,
-then the task. A freshly launched main tab needs no \`/clear\`. This rule
+then the task. A slash command send returns once it has run; if it says it had
+not finished, do not send the task — check the tab first. A freshly launched
+main tab needs no \`/clear\`. This rule
 overrides any older text that says every task gets a fresh session or that
 \`main\` belongs to the user. A follow-up to what a session already did goes to
 that session with \`jarvis_send\` and its \`session\` label, never to a new one.

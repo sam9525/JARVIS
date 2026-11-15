@@ -125,6 +125,7 @@ function setup(
     trusted?: boolean | null; // ~/.claude.json's answer for every folder
     exitsOnKeys?: boolean; // the session exits while JARVIS waits on it
     settles?: boolean; // waitQuiet's result; false = the deadline passed
+    commandFinishes?: boolean | Promise<boolean>; // waitCommand's result
     outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
     kept?: string; // the folder close leaves on disk
     damaged?: string; // the link target the removal emptied
@@ -145,6 +146,7 @@ function setup(
   const resumedIds: Array<string | undefined> = [];
   const closed: string[] = [];
   const trustChecked: string[] = [];
+  const delivered: string[] = [];
   const registered: Sess[] = [...(over.sessions ?? [mainOf("d:/aero")])];
   const live = new Set(
     registered.map((s) => s.key).filter((k) => !over.dead?.includes(k)),
@@ -234,6 +236,13 @@ function setup(
       return over.settles ?? true;
     },
     msSinceOutput: () => over.outputAgoMs ?? Infinity,
+    waitCommand: async (key) => {
+      writes.push([key, "<cmd-wait>"]);
+      return over.commandFinishes ?? true;
+    },
+    noteDelivered: (key) => {
+      delivered.push(key);
+    },
   });
   return {
     orch,
@@ -248,6 +257,7 @@ function setup(
     resumedIds,
     closed,
     trustChecked,
+    delivered,
   };
 }
 
@@ -581,6 +591,67 @@ describe("orchestrate.send", () => {
     expect(out.ok).toBe(false);
     expect(writes).toEqual([]);
     expect(delegated).toEqual([]);
+  });
+});
+
+describe("orchestrate.send with a slash command", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("waits for a slash command before returning", async () => {
+    let finish!: (done: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => (finish = resolve));
+    const { orch, writes } = setup({ commandFinishes: gate });
+    let settled = false;
+    const out = orch
+      .send("AeroGraph", "/model claude-fable-5-2", { session: "main" })
+      .then((r) => {
+        settled = true;
+        return r;
+      });
+    await vi.runAllTimersAsync();
+    expect(writes.map((w) => w[1])).toContain("/model claude-fable-5-2");
+    expect(settled).toBe(false);
+    finish(true);
+    expect(await out).toEqual({ ok: true, session: "main", finished: true });
+  });
+
+  it("registers the wait before the write", async () => {
+    const { orch, writes } = setup();
+    await orch.send("AeroGraph", "/model claude-fable-5-2");
+    expect(writes.map((w) => w[1])).toEqual([
+      "<cmd-wait>",
+      "/model claude-fable-5-2",
+    ]);
+  });
+
+  it("returns finished false at the deadline", async () => {
+    const { orch } = setup({ commandFinishes: false });
+    const out = await orch.send("AeroGraph", "/compact");
+    expect(out).toEqual({ ok: true, session: "main", finished: false });
+  });
+
+  it("does not wait for a plain prompt", async () => {
+    const { orch, writes } = setup();
+    const out = await orch.send("AeroGraph", "run the fix");
+    expect(writes.map((w) => w[1])).not.toContain("<cmd-wait>");
+    expect(out).toEqual({ ok: true, session: "main" });
+    expect("finished" in out).toBe(false);
+  });
+
+  it("waits for a slash command sent to a fresh session too", async () => {
+    const { orch, writes } = setup();
+    const out = orch.send("AeroGraph", "/clear", { fresh: true });
+    await vi.runAllTimersAsync();
+    const result = await out;
+    expect(writes.map((w) => w[1])).toContain("<cmd-wait>");
+    expect(result).toMatchObject({ ok: true, finished: true });
+  });
+
+  it("marks the delivery", async () => {
+    const { orch, delivered } = setup();
+    await orch.send("AeroGraph", "run the fix");
+    expect(delivered).toEqual(["d:/aero"]);
   });
 });
 

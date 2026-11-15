@@ -68,6 +68,7 @@ describe("idleCloseKeys", () => {
         [workspace(false)],
         () => sessions,
         () => true,
+        () => false,
       ),
     ).toEqual(["d"]);
   });
@@ -78,8 +79,21 @@ describe("idleCloseKeys", () => {
         [workspace(false)],
         () => [session("d", true)],
         () => false,
+        () => false,
       ),
     ).toEqual([]);
+  });
+
+  it("leaves out a session whose delivered prompt has not run", () => {
+    const sessions = [session("a", true), session("b", true)];
+    expect(
+      idleCloseKeys(
+        [workspace(false)],
+        () => sessions,
+        () => true,
+        (key) => key === "a",
+      ),
+    ).toEqual(["b"]);
   });
 
   it("never offers the main agent's sessions", () => {
@@ -88,6 +102,7 @@ describe("idleCloseKeys", () => {
         [workspace(true)],
         () => [session("d", true)],
         () => true,
+        () => false,
       ),
     ).toEqual([]);
   });

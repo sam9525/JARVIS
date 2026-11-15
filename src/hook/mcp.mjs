@@ -28,7 +28,9 @@ const TOOLS = [
     name: "jarvis_send",
     description:
       "Send a prompt into a Claude Code session of another workspace, as if " +
-      "typed there. Returns as soon as the prompt is submitted — it does NOT " +
+      "typed there. Returns as soon as the prompt is submitted; a prompt that " +
+      "starts with / (a slash command such as /model or /clear) returns only " +
+      "once the command has run — it does NOT " +
       "wait for the delegate to finish; poll jarvis_list to follow progress.\n\n" +
       'After a send, confirm it in a few words, such as "Sent to JARVIS ' +
       'main.": the user hears your reply, and the finish turn reports the ' +
@@ -70,7 +72,9 @@ const TOOLS = [
       "one-word label.\n" +
       "When the task relates to the main tab's current conversation, send on top\n" +
       'of it. When it is unrelated, first jarvis_send /clear to session: "main",\n' +
-      "then the task. A freshly launched main tab needs no /clear.\n\n" +
+      "then the task. A slash command send returns once it has run; if it says it\n" +
+      "had not finished, do not send the task — check the tab first. A freshly\n" +
+      "launched main tab needs no /clear.\n\n" +
       "To-do task: <task text, verbatim from TODO.md>\n\n" +
       "Run this pipeline. Stop at each gate and wait for my answer.\n" +
       "1. Use superpowers:brainstorming to write a spec for this task.\n" +
@@ -365,8 +369,11 @@ async function callTool(name, args) {
     }
     if (name === "jarvis_send") {
       const fresh = args?.fresh === true;
-      // a fresh send opens a session and waits up to 20s for its TUI to
-      // settle before sending, so give it the same bound as jarvis_launch
+      const slash = String(args?.prompt ?? "")
+        .trim()
+        .startsWith("/");
+      // a fresh send waits up to 20s for the TUI to settle, and a slash
+      // command then waits up to 30s for the transcript to show it ran
       const out = await post(
         "/orchestrate/send",
         {
@@ -376,7 +383,7 @@ async function callTool(name, args) {
           session: args?.session,
           label: args?.label,
         },
-        fresh ? 30000 : undefined,
+        fresh || slash ? 65000 : undefined,
       );
       if (!out?.ok) return textResult(out?.error ?? "send failed", true);
       if (out.trustPrompt)
@@ -386,6 +393,17 @@ async function callTool(name, args) {
             "prompt was not sent. Ask the user if they trust it, then call " +
             `jarvis_trust with their answer and session "${out.session}", ` +
             `then jarvis_send the prompt with session "${out.session}".`,
+        );
+      if (out.finished === false)
+        return textResult(
+          `sent "${
+            String(args?.prompt ?? "")
+              .trim()
+              .split(/\s+/)[0]
+          }" to ` +
+            `${args?.workspace}${where(out)}, but it had not finished after ` +
+            "30 s (it may be waiting on a picker). Check the tab before " +
+            "sending more.",
         );
       return textResult(`sent to ${args?.workspace}${where(out)}`);
     }

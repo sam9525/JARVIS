@@ -12,6 +12,7 @@ import type {
   WorkspaceStatus,
 } from "../shared/types";
 import type { ClosedSession } from "./closed-sessions";
+import { commandWord } from "./command-wait";
 import { PASTE_END, PASTE_START } from "./pending-input";
 import type { SessionInfo } from "./sessions";
 import { topicWord } from "./transcript-title";
@@ -64,6 +65,9 @@ export interface OrchestrateDeps {
   // types the nudge naming the workspace and tab into the main agent's own
   // session, so a finish reaches it without anyone having parked on jarvis_watch first
   nudgeMain: (workspace: string, tab: string) => void;
+  // registers before the write; true when the transcript shows the command ran
+  waitCommand: (key: string, word: string) => Promise<boolean>;
+  noteDelivered: (key: string) => void;
 }
 
 // one jarvis_list row per live session, or one per workspace that has none
@@ -96,6 +100,8 @@ export type DeliveredResult =
       session?: string;
       worktree?: string;
       trustPrompt?: string;
+      // set for a slash command: false = the wait ran out before it showed
+      finished?: boolean;
     }
   | Failure;
 
@@ -400,6 +406,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     // delegation only once the prompt is actually in the PTY
     if (!deps.write(key, sendPayload(prompt))) return false;
     deps.markDelegated(key, by);
+    deps.noteDelivered(key);
     // Claude Code's TUI treats one arriving chunk as a paste, so a trailing
     // "\r" lands as a newline in the composer instead of submitting. Send the
     // CR as its own write a beat later, after the end marker of a paste block —
@@ -506,13 +513,15 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             error: `${ws.name}'s new session "${opened.session}" did not settle — prompt not sent`,
           };
         }
+        const command = commandWord(prompt);
+        const ran = command ? deps.waitCommand(opened.key, command) : null;
         if (!deps.hasPty(opened.key) || !deliver(opened.key, prompt)) {
           return {
             ok: false,
             error: `${ws.name}'s new session "${opened.session}" ended before the prompt`,
           };
         }
-        return { ok: true, ...where };
+        return { ok: true, ...where, ...(ran ? { finished: await ran } : {}) };
       }
       const s = pickSession(ws, opts.session);
       if ("ok" in s) return s;
@@ -531,6 +540,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session "${s.label}" is ${kind}, waiting on the user — ask them to answer it, or send with fresh: true`,
         };
       }
+      const command = commandWord(prompt);
+      const ran = command ? deps.waitCommand(s.key, command) : null;
       if (!deliver(s.key, prompt)) {
         return {
           ok: false,
@@ -541,6 +552,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         ok: true,
         session: s.label,
         ...(s.worktree ? { worktree: s.cwd } : {}),
+        ...(ran ? { finished: await ran } : {}),
       };
     },
 

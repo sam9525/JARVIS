@@ -35,6 +35,7 @@ import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath, windowsPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
+import { createCommandWait } from "./command-wait";
 import { createPendingInput } from "./pending-input";
 import { createSettle } from "./settle";
 import { deliverBriefing } from "./brief-delivery";
@@ -571,6 +572,7 @@ app.whenReady().then(async () => {
     closedSessions = next;
     writeClosed(userData, next);
   };
+  const commandWait = createCommandWait();
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
@@ -607,6 +609,11 @@ app.whenReady().then(async () => {
     close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
     waitQuiet: (key) => settle.wait(key, LAUNCH_SETTLE_DEADLINE_MS),
+    waitCommand: (key, word) => commandWait.expect(key, word),
+    // Only a key whose hooks are heard has its feed followed, so only it can clear.
+    noteDelivered: (key) => {
+      if (hooksHeardFrom.has(key)) commandWait.delivered(key);
+    },
     msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (key, by) =>
@@ -680,9 +687,10 @@ app.whenReady().then(async () => {
   // set only while a typed briefing waits for its UserPromptSubmit
   let onMainPrompt: ((prompt: string) => void) | null = null;
   // one feed for every session: the screen reads the transcript, never the pty
-  const feed = createTranscriptFeed((key, entries, reset) =>
-    send("transcript", key, entries, reset),
-  );
+  const feed = createTranscriptFeed((key, entries, reset) => {
+    send("transcript", key, entries, reset);
+    commandWait.seen(key, entries, reset);
+  });
   const lastStatusLine = new Map<string, StatusLineView>();
   // the renderer caches per key, so a key that may be reused is cleared there too
   function stopFeed(key: string): void {
@@ -702,6 +710,7 @@ app.whenReady().then(async () => {
       onExit: (id, code) => {
         send("pty-exit", id, code);
         pendingInput.clear(id);
+        commandWait.forget(id);
         // a crashed session's tab stays, and its screen with it
         if (id.includes("#") && code === 0) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
@@ -769,6 +778,7 @@ app.whenReady().then(async () => {
           workspaces,
           (id) => sessions.forWorkspace(id),
           (key) => ptyManager.has(key),
+          (key) => commandWait.unconfirmed(key),
         ),
       msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
       // orchestrator.close forces past worktreeCheck, so check it here
@@ -795,6 +805,8 @@ app.whenReady().then(async () => {
     },
     (s) => {
       hooksHeardFrom.add(s.sessionKey);
+      if (s.prompt !== undefined || s.ended !== undefined)
+        commandWait.ran(s.sessionKey);
       pushStatus(status.applyStatus(s));
       feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
       if (s.prompt !== undefined) send("prompt-submitted", s.sessionKey);
