@@ -25,28 +25,44 @@ function appExe(hash: string): string {
 }
 
 describe("locateCodex", () => {
-  it("picks the codex.exe with the newest mtime among the app folders", async () => {
-    await writeExe(appExe("aaa"), 2_000);
-    await writeExe(appExe("bbb"), 1_000);
-    const env = { LOCALAPPDATA: root, PATH: "" };
-    expect(await locateCodex(env, "win32")).toBe(appExe("aaa"));
-    await fs.utimes(appExe("bbb"), 3_000, 3_000);
-    expect(await locateCodex(env, "win32")).toBe(appExe("bbb"));
-  });
+  it.skipIf(process.platform !== "win32")(
+    "picks the codex.exe with the newest mtime among the app folders",
+    async () => {
+      await writeExe(appExe("aaa"), 2_000);
+      await writeExe(appExe("bbb"), 1_000);
+      const env = { LOCALAPPDATA: root, PATH: "" };
+      expect(await locateCodex(env, "win32")).toBe(appExe("aaa"));
+      await fs.utimes(appExe("bbb"), 3_000, 3_000);
+      expect(await locateCodex(env, "win32")).toBe(appExe("bbb"));
+    },
+  );
 
   it("returns null when nothing is installed", async () => {
     const env = { LOCALAPPDATA: root, PATH: "" };
     expect(await locateCodex(env, "win32")).toBeNull();
   });
 
-  it("prefers a codex.exe on PATH over the app folder", async () => {
-    await writeExe(appExe("aaa"), 2_000);
-    const pathDir = join(root, "tools");
-    const onPath = join(pathDir, "codex.exe");
-    await writeExe(onPath, 1_000);
-    const env = { LOCALAPPDATA: root, PATH: pathDir };
-    expect(await locateCodex(env, "win32")).toBe(onPath);
-  });
+  it.skipIf(process.platform !== "win32")(
+    "prefers a codex.exe on PATH over the app folder",
+    async () => {
+      await writeExe(appExe("aaa"), 2_000);
+      const pathDir = join(root, "tools");
+      const onPath = join(pathDir, "codex.exe");
+      await writeExe(onPath, 1_000);
+      const env = { LOCALAPPDATA: root, PATH: pathDir };
+      expect(await locateCodex(env, "win32")).toBe(onPath);
+    },
+  );
+
+  // A Windows temp folder holds ":" so it cannot sit in a posix PATH.
+  it.skipIf(process.platform === "win32")(
+    "finds codex on a posix PATH",
+    async () => {
+      const onPath = join(root, "codex");
+      await writeExe(onPath, 1_000);
+      expect(await locateCodex({ PATH: root }, "linux")).toBe(onPath);
+    },
+  );
 
   it("returns null on darwin with an empty PATH and no app file", async () => {
     expect(await locateCodex({ PATH: "" }, "darwin")).toBeNull();
