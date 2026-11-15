@@ -136,6 +136,8 @@ export const SOURCE_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
+export type AgentId = "claude" | "codex";
+
 export interface Workspace {
   id: string; // normalized absolute root path (lowercased, POSIX separators)
   name: string;

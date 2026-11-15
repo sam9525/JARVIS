@@ -9,6 +9,7 @@ export interface RawHookEvent {
   session_id?: string;
   cwd?: string;
   jarvis_session?: string; // set by forward.mjs from the PTY's JARVIS_SESSION
+  jarvis_agent?: string; // set by forward.mjs from the PTY's JARVIS_AGENT
   jarvis_sent_at?: number; // epoch ms, set by forward.mjs beside jarvis_session
   hook_event_name?: string;
   tool_name?: string;
