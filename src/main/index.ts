@@ -614,6 +614,7 @@ app.whenReady().then(async () => {
     noteDelivered: (key) => {
       if (hooksHeardFrom.has(key)) commandWait.delivered(key);
     },
+    ask: (p) => send("ask", p),
     msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (key, by) =>

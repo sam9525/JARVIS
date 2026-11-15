@@ -3,10 +3,12 @@ import {
   createOrchestrator,
   CLOSE_QUIET_MS,
   MAX_SAY,
+  MODEL_CONFIRM_MS,
   QUEUE_MAX,
   sendPayload,
 } from "../../src/main/orchestrate";
 import type { ClosedSession } from "../../src/main/closed-sessions";
+import type { AskPrompt } from "../../src/main/ask-mapper";
 import type {
   SessionStatus,
   Workspace,
@@ -147,6 +149,7 @@ function setup(
   const closed: string[] = [];
   const trustChecked: string[] = [];
   const delivered: string[] = [];
+  const asked: AskPrompt[] = [];
   const registered: Sess[] = [...(over.sessions ?? [mainOf("d:/aero")])];
   const live = new Set(
     registered.map((s) => s.key).filter((k) => !over.dead?.includes(k)),
@@ -243,6 +246,9 @@ function setup(
     noteDelivered: (key) => {
       delivered.push(key);
     },
+    ask: (p) => {
+      asked.push(p);
+    },
   });
   return {
     orch,
@@ -258,6 +264,7 @@ function setup(
     closed,
     trustChecked,
     delivered,
+    asked,
   };
 }
 
@@ -614,6 +621,50 @@ describe("orchestrate.send with a slash command", () => {
     expect(settled).toBe(false);
     finish(true);
     expect(await out).toEqual({ ok: true, session: "main", finished: true });
+  });
+
+  it("opens the question panel while /model sits on its confirm", async () => {
+    let finish!: (done: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => (finish = resolve));
+    const { orch, asked } = setup({ commandFinishes: gate });
+    const out = orch.send("AeroGraph", "/model claude-fable-5-2", {
+      session: "main",
+    });
+    await vi.advanceTimersByTimeAsync(MODEL_CONFIRM_MS);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({
+      workspaceId: "d:/aero",
+      sessionKey: "d:/aero",
+      questions: [
+        {
+          question: "Switch model?",
+          multiSelect: false,
+          options: [
+            { label: "Yes, switch to claude-fable-5-2" },
+            { label: "No, go back" },
+          ],
+        },
+      ],
+    });
+    finish(true);
+    await out;
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toMatchObject({ sessionKey: "d:/aero", questions: [] });
+  });
+
+  it("opens no panel when /model runs at once", async () => {
+    const { orch, asked } = setup({ commandFinishes: true });
+    await orch.send("AeroGraph", "/model claude-fable-5-2");
+    await vi.advanceTimersByTimeAsync(MODEL_CONFIRM_MS);
+    expect(asked).toEqual([]);
+  });
+
+  it("opens no panel for another slash command", async () => {
+    const gate = new Promise<boolean>(vi.fn());
+    const { orch, asked } = setup({ commandFinishes: gate });
+    void orch.send("AeroGraph", "/compact");
+    await vi.advanceTimersByTimeAsync(MODEL_CONFIRM_MS);
+    expect(asked).toEqual([]);
   });
 
   it("registers the wait before the write", async () => {

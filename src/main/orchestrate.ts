@@ -11,6 +11,7 @@ import type {
   WorkspaceKind,
   WorkspaceStatus,
 } from "../shared/types";
+import type { AskPrompt } from "./ask-mapper";
 import type { ClosedSession } from "./closed-sessions";
 import { commandWord } from "./command-wait";
 import { PASTE_END, PASTE_START } from "./pending-input";
@@ -68,7 +69,14 @@ export interface OrchestrateDeps {
   // registers before the write; true when the transcript shows the command ran
   waitCommand: (key: string, word: string) => Promise<boolean>;
   noteDelivered: (key: string) => void;
+  // shows or (no questions) clears the question panel for a session
+  ask: (prompt: AskPrompt) => void;
 }
+
+// "/model <name>" in a conversation with history stops on Claude Code's own
+// "Switch model?" confirm, which no hook reports. A transcript that stays
+// silent this long after the write is read as that confirm being open.
+export const MODEL_CONFIRM_MS = 1500;
 
 // one jarvis_list row per live session, or one per workspace that has none
 export interface FleetEntry {
@@ -398,6 +406,43 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     };
   }
 
+  // A fresh session has no history, so only a send to a live one can hit the
+  // confirm. The panel closes when the transcript shows /model ran; a confirm
+  // left past the command deadline keeps its panel until the user types in
+  // the terminal or the session ends.
+  function askModelConfirm(
+    workspaceId: string,
+    key: string,
+    model: string,
+    ran: Promise<boolean>,
+  ): void {
+    const base = { workspaceId, sessionKey: key, sessionId: "" };
+    let shown = false;
+    const timer = setTimeout(() => {
+      shown = true;
+      deps.ask({
+        ...base,
+        ts: Date.now(),
+        questions: [
+          {
+            question: "Switch model?",
+            header: "",
+            multiSelect: false,
+            options: [
+              { label: `Yes, switch to ${model}`, description: "" },
+              { label: "No, go back", description: "" },
+            ],
+          },
+        ],
+      });
+    }, MODEL_CONFIRM_MS);
+    void ran.then((confirmed) => {
+      clearTimeout(timer);
+      if (shown && confirmed)
+        deps.ask({ ...base, ts: Date.now(), questions: [] });
+    });
+  }
+
   function deliver(key: string, prompt: string): boolean {
     // the caller sends no identity — it can only be the one workspace that
     // has the tools, which mcp-install pins to isSelf
@@ -548,6 +593,9 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session ended before delivery`,
         };
       }
+      const model = prompt.trim().split(/\s+/);
+      if (ran && command === "/model" && model.length === 2)
+        askModelConfirm(ws.id, s.key, model[1], ran);
       return {
         ok: true,
         session: s.label,
