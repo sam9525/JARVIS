@@ -5,7 +5,7 @@ import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
 import { LBL_AM, LBL_DIM } from "../ui/hud";
 import { PILL } from "./status-colours";
-import type { NoticeAction } from "./tab-actions";
+import type { NoticeAction, NoticeTone } from "./tab-actions";
 import {
   ensureSubscribed,
   entryFor,
@@ -123,6 +123,7 @@ export default function TerminalPanel({
   live,
   notice,
   noticeAction,
+  noticeTone,
   onDismissNotice,
   inbox,
   inboxOnly,
@@ -145,6 +146,7 @@ export default function TerminalPanel({
   // a one-line message from a tab action, such as a worktree kept on close
   notice?: string | null;
   noticeAction?: NoticeAction;
+  noticeTone?: NoticeTone;
   onDismissNotice?: () => void;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
@@ -439,7 +441,14 @@ export default function TerminalPanel({
       )}
       {(notice || composerError) && !inboxOnly && (
         <div
-          className="flex flex-none items-center gap-2 border-b border-edge px-3 py-1 text-[12px] text-warm"
+          className={
+            "flex flex-none items-center gap-2 border-b border-edge px-3 py-1 text-[12px] " +
+            // the tone belongs to the notice; a composer error shown in its
+            // place stays amber
+            (notice && noticeTone === "neutral"
+              ? "text-ink-muted"
+              : "text-warm")
+          }
           data-testid="terminal-notice"
         >
           <span className="min-w-0 flex-1 break-words">

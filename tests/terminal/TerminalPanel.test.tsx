@@ -606,3 +606,22 @@ describe("TerminalPanel next-tab agent line", () => {
     ).toBeUndefined();
   });
 });
+
+describe("TerminalPanel notice tone", () => {
+  const notice = (tree: any) =>
+    find(tree, (n) => n.props?.["data-testid"] === "terminal-notice");
+
+  it("shows a neutral notice in ink-muted, not amber", () => {
+    const cls = notice(
+      render({ notice: "Codex not found", noticeTone: "neutral" }),
+    ).props.className;
+    expect(cls).toContain("text-ink-muted");
+    expect(cls).not.toContain("text-warm");
+  });
+
+  it("keeps every other notice amber", () => {
+    const cls = notice(render({ notice: "Worktree kept: x" })).props.className;
+    expect(cls).toContain("text-warm");
+    expect(cls).not.toContain("text-ink-muted");
+  });
+});

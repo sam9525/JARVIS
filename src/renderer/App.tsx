@@ -48,6 +48,7 @@ import {
   closeSessionTab,
   openSessionTab,
   type NoticeAction,
+  type NoticeTone,
 } from "./terminal/tab-actions";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
@@ -261,6 +262,7 @@ export default function App() {
     ownerId: string;
     text: string;
     action?: NoticeAction;
+    tone?: NoticeTone;
   } | null>(null);
   // the agent the next + opens; back to Claude after every launch, and never
   // stored
@@ -1824,8 +1826,11 @@ export default function App() {
             }),
           );
         };
-        const notify = (text: string, action?: NoticeAction) =>
-          setTerminalNotice({ ownerId: owner.id, text, action });
+        const notify = (
+          text: string,
+          action?: NoticeAction,
+          tone?: NoticeTone,
+        ) => setTerminalNotice({ ownerId: owner.id, text, action, tone });
         const closeTab = (key: string) =>
           closeSessionTab(key, {
             deselect: (closed) =>
@@ -1891,6 +1896,11 @@ export default function App() {
               noticeAction={
                 terminalNotice?.ownerId === owner.id
                   ? terminalNotice.action
+                  : undefined
+              }
+              noticeTone={
+                terminalNotice?.ownerId === owner.id
+                  ? terminalNotice.tone
                   : undefined
               }
               onDismissNotice={() => setTerminalNotice(null)}

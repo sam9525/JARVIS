@@ -453,12 +453,36 @@ describe("App: Codex sessions", () => {
     const { default: App } = await import("../src/renderer/App");
     const { default: TerminalPanel } =
       await import("../src/renderer/terminal/TerminalPanel");
-    stateOverrides = {};
+    const self = { ...repo, id: "self", name: "Main agent", isSelf: true };
+    stateOverrides = { 0: [self] };
     stateCall = 0;
     const panel = walk((App as any)({})).find(
       (n: any) => n.type === TerminalPanel,
     );
-    if (panel) expect(panel.props.onNextAgent).toBeUndefined();
+    expect(panel).toBeDefined();
+    expect(panel.props.nextAgent).toBeUndefined();
+    expect(panel.props.onNextAgent).toBeUndefined();
+  });
+
+  it("hands the terminal a notice's neutral tone", async () => {
+    // terminalNotice is App's 23rd useState
+    const panel = await terminal(
+      await renderRepo([session("r", "main")], {
+        22: { ownerId: "r", text: "Codex not found", tone: "neutral" },
+      }),
+    );
+    expect(panel.props.notice).toBe("Codex not found");
+    expect(panel.props.noticeTone).toBe("neutral");
+  });
+
+  it("hands it no tone for a plain notice", async () => {
+    const panel = await terminal(
+      await renderRepo([session("r", "main")], {
+        22: { ownerId: "r", text: "Worktree kept: x" },
+      }),
+    );
+    expect(panel.props.notice).toBe("Worktree kept: x");
+    expect(panel.props.noticeTone).toBeUndefined();
   });
 
   it("passes the session row's agent to the terminal", async () => {

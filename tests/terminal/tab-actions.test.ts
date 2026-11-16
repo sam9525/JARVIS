@@ -163,6 +163,10 @@ describe("openSessionTab with an agent", () => {
     const d = deps();
     await openSessionTab("w", { cols: 80, rows: 24 }, d, "codex");
     expect(d.select).not.toHaveBeenCalled();
-    expect(d.notify).toHaveBeenCalledWith("Codex not found");
+    expect(d.notify).toHaveBeenCalledWith(
+      "Codex not found",
+      undefined,
+      "neutral",
+    );
   });
 });

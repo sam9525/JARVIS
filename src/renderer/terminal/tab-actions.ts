@@ -2,6 +2,8 @@ import { MAX_SESSIONS } from "../../shared/session-key";
 import type { AgentId } from "../../shared/types";
 
 export type NoticeAction = { label: string; run: () => void };
+// absent means the notice line's amber
+export type NoticeTone = "neutral";
 
 /**
  * Ends a tab's session. The panel moves off the tab before its terminal is
@@ -44,7 +46,10 @@ export function closeSessionTab(
 export function openSessionTab(
   ownerId: string,
   size: { cols: number; rows: number },
-  deps: { select(key: string): void; notify(text: string): void },
+  deps: {
+    select(key: string): void;
+    notify(text: string, action?: NoticeAction, tone?: NoticeTone): void;
+  },
   agent?: AgentId,
 ): Promise<void> {
   const launched = agent
@@ -61,12 +66,13 @@ export function openSessionTab(
   return launched
     .then((r) => {
       if (r.ok && r.key) return deps.select(r.key);
+      // a missing CLI is a fact to read, not a fault, so it reads neutral
+      if (r.error === "Codex not found")
+        return deps.notify(r.error, undefined, "neutral");
       deps.notify(
         r.error === "cap"
           ? `${MAX_SESSIONS} sessions are already open`
-          : r.error === "Codex not found"
-            ? r.error
-            : `Could not open a session${r.error ? `: ${r.error}` : ""}`,
+          : `Could not open a session${r.error ? `: ${r.error}` : ""}`,
       );
     })
     .catch((err) => deps.notify(`Could not open a session: ${err}`));
