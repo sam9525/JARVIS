@@ -104,3 +104,16 @@ describe("pipClass over six kinds", () => {
     expect(pipClass("asking", true)).toContain("border-accent");
   });
 });
+
+describe("AGENT_MARK", () => {
+  it("is LBL's type with one tighter tracking, framed, and no glow", async () => {
+    const { AGENT_MARK } = await import("../../src/renderer/ui/hud");
+    expect(AGENT_MARK).toContain("font-hud text-[9px] uppercase");
+    expect(AGENT_MARK.match(/tracking-/g)).toHaveLength(1);
+    expect(AGENT_MARK).toContain("tracking-[0.16em]");
+    expect(AGENT_MARK).toContain("border border-ink-dim");
+    expect(AGENT_MARK).toContain("text-ink-muted");
+    expect(AGENT_MARK).toContain("px-1");
+    expect(AGENT_MARK).not.toMatch(/bloom|glow/);
+  });
+});

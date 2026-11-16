@@ -128,3 +128,41 @@ describe("openSessionTab", () => {
     expect(d.notify.mock.calls[0][0]).toContain("spawn");
   });
 });
+
+describe("openSessionTab with an agent", () => {
+  const deps = () => ({ select: vi.fn(), notify: vi.fn() });
+
+  it("passes codex as the last launch argument", async () => {
+    ptyLaunch.mockResolvedValue({ ok: true, hooksOk: true, key: "w#2" });
+    const d = deps();
+    await openSessionTab("w", { cols: 120, rows: 40 }, d, "codex");
+    expect(ptyLaunch.mock.calls[0]).toEqual([
+      "w",
+      null,
+      120,
+      40,
+      false,
+      undefined,
+      "codex",
+    ]);
+    expect(d.select).toHaveBeenCalledWith("w#2");
+  });
+
+  it("passes no agent argument when none is given", async () => {
+    ptyLaunch.mockResolvedValue({ ok: true, hooksOk: true, key: "w#2" });
+    await openSessionTab("w", { cols: 80, rows: 24 }, deps());
+    expect(ptyLaunch.mock.calls[0]).toEqual(["w", null, 80, 24]);
+  });
+
+  it("says Codex not found when the CLI is missing", async () => {
+    ptyLaunch.mockResolvedValue({
+      ok: false,
+      hooksOk: false,
+      error: "Codex not found",
+    });
+    const d = deps();
+    await openSessionTab("w", { cols: 80, rows: 24 }, d, "codex");
+    expect(d.select).not.toHaveBeenCalled();
+    expect(d.notify).toHaveBeenCalledWith("Codex not found");
+  });
+});

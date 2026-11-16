@@ -343,3 +343,28 @@ describe("turn endings in tabs", () => {
     expect(t.map((x) => x.key)).toEqual(["repo"]);
   });
 });
+
+describe("agent in tabs", () => {
+  it("carries a Codex session's agent onto its tab", () => {
+    const tabs = projectTabs(REPO, [
+      row("repo", [
+        session("repo", "main"),
+        session("repo#1", "1", { agent: "codex" }),
+      ]),
+    ]);
+    expect(tabs[0].agent).toBeUndefined();
+    expect(tabs[1].agent).toBe("codex");
+  });
+
+  it("carries it onto a main tab and a scratch tab", () => {
+    expect(
+      projectTabs(REPO, [
+        row("repo", [session("repo", "main", { agent: "codex" })]),
+      ])[0].agent,
+    ).toBe("codex");
+    const tabs = homeTabs(SELF, SCRATCH, [
+      row("scr", [session("scr#1", "1", { agent: "codex" })]),
+    ]);
+    expect(tabs[1].agent).toBe("codex");
+  });
+});

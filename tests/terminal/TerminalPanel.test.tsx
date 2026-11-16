@@ -520,3 +520,89 @@ describe("TerminalPanel turn endings", () => {
     ).toBe(true);
   });
 });
+
+describe("TerminalPanel on a Codex session", () => {
+  const codex = { kind: "idle" as const, call: "", agent: "codex" as const };
+  const byTestId = (tree: any, id: string) =>
+    find(tree, (n) => n.props?.["data-testid"] === id);
+  const viewSwitch = (tree: any) =>
+    find(
+      tree,
+      (n) =>
+        n.type === Segmented &&
+        n.props.options.some((o: any) => o.value === "raw"),
+    );
+
+  beforeEach(() => setViewMode(workspace.id, "screen"));
+
+  it("shows the terminal only: no view switch and no session screen", () => {
+    const tree = render({ live: true, sessionStatus: codex });
+    expect(viewSwitch(tree)).toBeUndefined();
+    expect(byTestId(tree, "session-screen-layer")).toBeUndefined();
+    expect(find(tree, (n) => n.type === SessionScreen)).toBeUndefined();
+    expect(byTestId(tree, "terminal-host")).toBeDefined();
+  });
+
+  it("keeps the screen and its switch for a Claude session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "claude" },
+    });
+    expect(viewSwitch(tree)).toBeDefined();
+    expect(find(tree, (n) => n.type === SessionScreen)).toBeDefined();
+  });
+});
+
+describe("TerminalPanel next-tab agent line", () => {
+  const line = (tree: any) =>
+    find(tree, (n) => n.props?.["data-testid"] === "next-agent");
+
+  it("offers Claude and Codex on the bottom line, left, after a Next tab label", () => {
+    const onNextAgent = vi.fn();
+    const tree = render({ live: true, nextAgent: "claude", onNextAgent });
+    const l = line(tree);
+    expect(l).toBeDefined();
+    expect(l.props.className).toContain("border-t border-accent/20");
+    expect(l.props.className).toContain("px-2.5 py-1.5");
+    expect(l.props.className).toContain("gap-2.5");
+    expect(l.props.className).not.toContain("justify-end");
+    expect(text(l.props.children[0])).toBe("Next tab");
+    expect(l.props.children[0].props.className).toContain("text-ink-dim");
+    const seg = find(l, (n) => n.type === Segmented);
+    expect(seg.props.options.map((o: any) => o.label)).toEqual([
+      "Claude",
+      "Codex",
+    ]);
+    expect(seg.props.strip).toBeUndefined();
+    expect(seg.props.value).toBe("claude");
+    seg.props.onChange("codex");
+    expect(onNextAgent).toHaveBeenCalledWith("codex");
+  });
+
+  it("is the panel's last line", () => {
+    const tree = render({
+      live: true,
+      nextAgent: "claude",
+      onNextAgent: vi.fn(),
+    });
+    const kids = tree.props.children.filter(Boolean);
+    expect(kids[kids.length - 1].props["data-testid"]).toBe("next-agent");
+  });
+
+  it("is absent where no tab can be opened", () => {
+    expect(line(render({ live: true }))).toBeUndefined();
+  });
+
+  it("is absent on the collapsed inbox strip", () => {
+    expect(
+      line(
+        render({
+          live: true,
+          inboxOnly: true,
+          nextAgent: "claude",
+          onNextAgent: vi.fn(),
+        }),
+      ),
+    ).toBeUndefined();
+  });
+});

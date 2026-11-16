@@ -27,6 +27,14 @@ export const LBL_CY = LBL + " text-accent hud-bloom";
 export const LBL_AM = LBL + " text-warm hud-bloom-warm";
 
 /**
+ * The agent chip after a Codex tab's or card's label. LBL's tracking is
+ * swapped rather than appended to, for the same two-utilities reason as above.
+ */
+export const AGENT_MARK =
+  LBL.replace("tracking-[0.22em]", "tracking-[0.16em]") +
+  " flex-none border border-ink-dim px-1 text-ink-muted";
+
+/**
  * The top-right control row, sharing the bezel's title line. Home and the
  * workspace view both hang their controls here, so the ✋ ↻ ⚙ cluster never
  * moves when you open a workspace. Transparent to the pointer except its

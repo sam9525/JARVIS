@@ -110,6 +110,7 @@ import {
   type PreviewTarget,
 } from "./preview/preview-target";
 import type {
+  AgentId,
   CodeGraphLevel,
   HomeView,
   PanelId,
@@ -125,7 +126,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
-import { parseSessionKey } from "../shared/session-key";
+import { MAX_SESSIONS, parseSessionKey } from "../shared/session-key";
 import { displayKind } from "../shared/turn-end";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
@@ -261,6 +262,9 @@ export default function App() {
     text: string;
     action?: NoticeAction;
   } | null>(null);
+  // the agent the next + opens; back to Claude after every launch, and never
+  // stored
+  const [nextAgent, setNextAgent] = useState<AgentId>("claude");
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
   // than a visible failure
@@ -901,6 +905,19 @@ export default function App() {
     return storeFor(cardTab(tabs, selectedTabs.get(ws.id)?.key).key);
   };
 
+  // the agent of the session a card shows, the same one selectedStoreOf draws
+  const cardAgentOf = (workspaceId: string): AgentId | undefined => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return undefined;
+    const { tabs } = shownTabs(ws, false);
+    return cardTab(tabs, selectedTabs.get(ws.id)?.key).agent;
+  };
+  // a Codex session's questions and permissions are answered in its terminal
+  const isCodexSession = (key: string | undefined): boolean =>
+    statuses.some((s) =>
+      s.sessions.some((x) => x.key === key && x.agent === "codex"),
+    );
+
   // The terminal panel's session and workspace. Its `@` picker offers the
   // workspace's files, read from the card graph cache that the cards and the
   // open graph already fill, so a workspace's graph loads at most once.
@@ -1514,15 +1531,17 @@ export default function App() {
           setShowTodos(!showTodos);
         }}
       />
-      <AutoAnswerToggle
-        on={autoAnswer}
-        onToggle={() =>
-          window.jarvis
-            .setAutoAnswer(!autoAnswer)
-            .then(setAutoAnswer)
-            .catch(console.error)
-        }
-      />
+      {!isCodexSession(terminalTab?.key) && (
+        <AutoAnswerToggle
+          on={autoAnswer}
+          onToggle={() =>
+            window.jarvis
+              .setAutoAnswer(!autoAnswer)
+              .then(setAutoAnswer)
+              .catch(console.error)
+          }
+        />
+      )}
       <button
         className={BTN_IDLE + " text-[13px]"}
         title="Refresh graph (F5)"
@@ -1609,6 +1628,7 @@ export default function App() {
                     statuses={statuses}
                     graphs={cardGraphs}
                     getStore={selectedStoreOf}
+                    cardAgent={cardAgentOf}
                     groups={settings.groups}
                     view={settings.views["2d"]}
                     filters={{
@@ -1818,8 +1838,17 @@ export default function App() {
             dispose: disposeTerminal,
             notify,
           });
-        const newTab = () =>
-          openSessionTab(owner.id, terminalSize(tab.key), { select, notify });
+        const newTab = () => {
+          void openSessionTab(
+            owner.id,
+            terminalSize(tab.key),
+            { select, notify },
+            nextAgent === "codex" ? nextAgent : undefined,
+          );
+          setNextAgent("claude");
+        };
+        // the same test SessionTabs draws its + by
+        const canOpen = !showHome && tabs.length < MAX_SESSIONS;
         return (
           <Panel
             id="terminal"
@@ -1875,6 +1904,8 @@ export default function App() {
               files={terminalFiles}
               onAskAnswer={(writes) => answerPrompt(tab.key, writes)}
               onOpenDoc={(id) => openDoc(ws.id, id)}
+              nextAgent={canOpen ? nextAgent : undefined}
+              onNextAgent={canOpen ? setNextAgent : undefined}
             />
           </Panel>
         );
@@ -2007,7 +2038,10 @@ export default function App() {
           !panelState("terminal").collapsed
             ? terminalTab.key
             : undefined;
-        const prompt = pickAsk(asks, ownKey ?? undefined, screenKey);
+        const askable = new Map(
+          [...asks].filter(([key]) => !isCodexSession(key)),
+        );
+        const prompt = pickAsk(askable, ownKey ?? undefined, screenKey);
         const ws =
           prompt && workspaces.find((w) => w.id === prompt.workspaceId);
         if (!ws || !prompt) return null;

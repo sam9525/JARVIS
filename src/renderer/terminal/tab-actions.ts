@@ -1,4 +1,5 @@
 import { MAX_SESSIONS } from "../../shared/session-key";
+import type { AgentId } from "../../shared/types";
 
 export type NoticeAction = { label: string; run: () => void };
 
@@ -36,20 +37,36 @@ export function closeSessionTab(
     .catch((err) => deps.notify(`Could not close the session: ${err}`));
 }
 
-/** Opens the owner's next numbered session and selects its tab. */
+/**
+ * Opens the owner's next numbered session and selects its tab. Without an
+ * agent the launch runs Claude.
+ */
 export function openSessionTab(
   ownerId: string,
   size: { cols: number; rows: number },
   deps: { select(key: string): void; notify(text: string): void },
+  agent?: AgentId,
 ): Promise<void> {
-  return window.jarvis
-    .ptyLaunch(ownerId, null, size.cols, size.rows)
+  const launched = agent
+    ? window.jarvis.ptyLaunch(
+        ownerId,
+        null,
+        size.cols,
+        size.rows,
+        false,
+        undefined,
+        agent,
+      )
+    : window.jarvis.ptyLaunch(ownerId, null, size.cols, size.rows);
+  return launched
     .then((r) => {
       if (r.ok && r.key) return deps.select(r.key);
       deps.notify(
         r.error === "cap"
           ? `${MAX_SESSIONS} sessions are already open`
-          : `Could not open a session${r.error ? `: ${r.error}` : ""}`,
+          : r.error === "Codex not found"
+            ? r.error
+            : `Could not open a session${r.error ? `: ${r.error}` : ""}`,
       );
     })
     .catch((err) => deps.notify(`Could not open a session: ${err}`));

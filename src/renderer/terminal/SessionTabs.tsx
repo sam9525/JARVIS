@@ -1,9 +1,9 @@
 import React, { useMemo, useRef } from "react";
 import Segmented from "../ui/Segmented";
-import { LBL_DIM } from "../ui/hud";
+import { AGENT_MARK, LBL_DIM } from "../ui/hud";
 import { MAX_SESSIONS } from "../../shared/session-key";
 import { PILL } from "./status-colours";
-import type { StatusKind } from "../../shared/types";
+import type { AgentId, StatusKind } from "../../shared/types";
 
 const Dot = ({ kind }: { kind: StatusKind }) => (
   <span
@@ -19,6 +19,7 @@ type Tab = {
   kind: StatusKind;
   main?: boolean;
   hint?: string;
+  agent?: AgentId;
 };
 
 // One tab per session, drawn by the app's one segmented control stretched
@@ -66,7 +67,9 @@ export default function SessionTabs({
   const spellKind = tabs.length === 2;
   const showHints = tabs.length < MAX_SESSIONS;
   const shape = tabs
-    .map((t) => [t.key, t.label, t.kind, t.main, t.hint].join("\u0000"))
+    .map((t) =>
+      [t.key, t.label, t.kind, t.main, t.hint, t.agent].join("\u0000"),
+    )
     .join("\u0001");
   const options = useMemo(
     () =>
@@ -88,6 +91,11 @@ export default function SessionTabs({
             >
               <Dot kind={t.kind} />
               <span className="truncate">{t.label}</span>
+              {t.agent === "codex" && (
+                <span data-testid="codex-mark" className={AGENT_MARK}>
+                  Codex
+                </span>
+              )}
               {showHints && t.hint && (
                 <span className="truncate text-ink-dim">· {t.hint}</span>
               )}

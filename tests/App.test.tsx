@@ -366,3 +366,154 @@ describe("App shell", () => {
     });
   });
 });
+
+describe("App: Codex sessions", () => {
+  const repo = {
+    id: "r",
+    name: "Repo",
+    rootPath: "/r",
+    kind: "vault",
+    sourceId: "unknown",
+  };
+  const session = (key: string, label: string, extra: any = {}) => ({
+    key,
+    label,
+    kind: "idle",
+    live: true,
+    call: "",
+    since: 0,
+    worktree: false,
+    ...extra,
+  });
+  const row = (sessions: any[]) => ({
+    workspaceId: "r",
+    kind: "idle",
+    call: "",
+    since: 0,
+    reads: 0,
+    edits: 0,
+    sessions,
+  });
+  const ask = (sessionKey: string) => ({
+    workspaceId: "r",
+    sessionKey,
+    sessionId: `s-${sessionKey}`,
+    ts: 1,
+    questions: [
+      {
+        question: "Which?",
+        header: "",
+        multiSelect: false,
+        options: [{ label: "A", description: "" }],
+      },
+    ],
+  });
+  // workspaces, active, statuses, showHome (12th) and asks (17th useState);
+  // `extra` overrides any other state by index
+  const renderRepo = async (
+    sessions: any[],
+    extra: Record<number, any> = {},
+  ) => {
+    const { default: App } = await import("../src/renderer/App");
+    stateOverrides = {
+      0: [repo],
+      1: repo,
+      2: [row(sessions)],
+      11: false,
+      ...extra,
+    };
+    stateCall = 0;
+    return walk((App as any)({}));
+  };
+  const terminal = async (nodes: any[]) => {
+    const { default: TerminalPanel } =
+      await import("../src/renderer/terminal/TerminalPanel");
+    return nodes.find((n: any) => n.type === TerminalPanel);
+  };
+
+  it("hands the terminal the next-tab agent where + shows", async () => {
+    const panel = await terminal(await renderRepo([session("r", "main")]));
+    expect(panel.props.nextAgent).toBe("claude");
+    expect(typeof panel.props.onNextAgent).toBe("function");
+  });
+
+  it("hands it none at the session cap", async () => {
+    const panel = await terminal(
+      await renderRepo([
+        session("r", "main"),
+        session("r#1", "1"),
+        session("r#2", "2"),
+        session("r#3", "3"),
+      ]),
+    );
+    expect(panel.props.onNextAgent).toBeUndefined();
+  });
+
+  it("hands it none on home, where + never shows", async () => {
+    const { default: App } = await import("../src/renderer/App");
+    const { default: TerminalPanel } =
+      await import("../src/renderer/terminal/TerminalPanel");
+    stateOverrides = {};
+    stateCall = 0;
+    const panel = walk((App as any)({})).find(
+      (n: any) => n.type === TerminalPanel,
+    );
+    if (panel) expect(panel.props.onNextAgent).toBeUndefined();
+  });
+
+  it("passes the session row's agent to the terminal", async () => {
+    const panel = await terminal(
+      await renderRepo([session("r", "main", { agent: "codex" })]),
+    );
+    expect(panel.props.sessionStatus.agent).toBe("codex");
+  });
+
+  it("hides the auto-answer button while the terminal shows a Codex session", async () => {
+    const { default: AutoAnswerToggle } =
+      await import("../src/renderer/ui/AutoAnswerToggle");
+    const codex = await renderRepo([session("r", "main", { agent: "codex" })]);
+    expect(codex.some((n: any) => n.type === AutoAnswerToggle)).toBe(false);
+    const claude = await renderRepo([session("r", "main")]);
+    expect(claude.some((n: any) => n.type === AutoAnswerToggle)).toBe(true);
+  });
+
+  it("shows no question panel for a Codex session", async () => {
+    const asks = (key: string) => ({ 16: new Map([[key, ask(key)]]) });
+    const codex = await renderRepo(
+      [session("r", "main"), session("r#1", "1", { agent: "codex" })],
+      asks("r#1"),
+    );
+    expect(codex.some((n: any) => n.props?.id === "ask")).toBe(false);
+    const claude = await renderRepo(
+      [session("r", "main"), session("r#1", "1")],
+      asks("r#1"),
+    );
+    expect(claude.some((n: any) => n.props?.id === "ask")).toBe(true);
+  });
+
+  it("launches the chosen agent from +", async () => {
+    const ptyLaunch = vi.fn(() => new Promise(() => undefined));
+    (window as any).jarvis.ptyLaunch = ptyLaunch;
+    const { default: SessionTabs } =
+      await import("../src/renderer/terminal/SessionTabs");
+    const tabsOf = (nodes: any[]) =>
+      walk(nodes.find((n: any) => n.props?.id === "terminal").props.badge).find(
+        (n: any) => n.type === SessionTabs,
+      );
+    // nextAgent is App's 24th useState
+    tabsOf(
+      await renderRepo([session("r", "main")], { 23: "codex" }),
+    ).props.onNew();
+    expect(ptyLaunch.mock.calls[0]).toEqual([
+      "r",
+      null,
+      80,
+      24,
+      false,
+      undefined,
+      "codex",
+    ]);
+    tabsOf(await renderRepo([session("r", "main")])).props.onNew();
+    expect(ptyLaunch.mock.calls[1]).toEqual(["r", null, 80, 24]);
+  });
+});

@@ -3,7 +3,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
-import { LBL_AM } from "../ui/hud";
+import { LBL_AM, LBL_DIM } from "../ui/hud";
 import { PILL } from "./status-colours";
 import type { NoticeAction } from "./tab-actions";
 import {
@@ -15,6 +15,7 @@ import {
 import { MAIN_LABEL, sessionKey as keyOf } from "../../shared/session-key";
 import { displayKind } from "../../shared/turn-end";
 import type {
+  AgentId,
   StatusKind,
   TurnEnd,
   Workspace,
@@ -93,6 +94,11 @@ const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
   { value: "raw", label: "raw terminal" },
 ];
 
+const AGENT_OPTIONS: { value: AgentId; label: string }[] = [
+  { value: "claude", label: "Claude" },
+  { value: "codex", label: "Codex" },
+];
+
 const NO_STATUS = { kind: "none" as const, call: "" };
 
 const BAR: Record<StatusKind, string> = {
@@ -126,6 +132,8 @@ export default function TerminalPanel({
   files = [],
   onAskAnswer,
   onOpenDoc,
+  nextAgent,
+  onNextAgent,
 }: {
   workspace: Workspace;
   // which of the workspace's sessions this panel shows
@@ -150,13 +158,22 @@ export default function TerminalPanel({
   visible?: boolean;
   // the session's open question, answered inline on the screen
   ask?: AskPrompt;
-  sessionStatus?: { kind: StatusKind; call: string; ended?: TurnEnd };
+  sessionStatus?: {
+    kind: StatusKind;
+    call: string;
+    ended?: TurnEnd;
+    agent?: AgentId;
+  };
   // what the composer's `@` offers: the workspace's graph files
   files?: string[];
   // resolves false when the session has no terminal to write to
   onAskAnswer?: (writes: string[]) => Promise<boolean | ReplyResult>;
   // opens a spec or plan the question refers to in the preview panel
   onOpenDoc?: (nodeId: string) => void;
+  // the agent the next tab opened from + runs; both are given only where +
+  // shows
+  nextAgent?: AgentId;
+  onNextAgent?: (agent: AgentId) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
@@ -296,7 +313,9 @@ export default function TerminalPanel({
       offMode();
     };
   }, [sessionKey]);
-  const mode = getViewMode(sessionKey);
+  // a Codex session has no transcript, so it shows the terminal only
+  const codex = sessionStatus.agent === "codex";
+  const mode: ViewMode = codex ? "raw" : getViewMode(sessionKey);
   const statusLine = statusLineFor(sessionKey);
 
   // Separate from the mount effect above, and keyed on visibility: the boot
@@ -467,11 +486,13 @@ export default function TerminalPanel({
               index stale
             </button>
           )}
-          <Segmented
-            options={VIEW_OPTIONS}
-            value={mode}
-            onChange={(next) => setViewMode(sessionKey, next)}
-          />
+          {!codex && (
+            <Segmented
+              options={VIEW_OPTIONS}
+              value={mode}
+              onChange={(next) => setViewMode(sessionKey, next)}
+            />
+          )}
         </div>
         {!isMain && status.kind === "exited" && (
           <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
@@ -479,7 +500,7 @@ export default function TerminalPanel({
             disk. Close the tab when you are done with it.
           </div>
         )}
-        {mode === "raw" && wasAutoFlipped(sessionKey) && (
+        {!codex && mode === "raw" && wasAutoFlipped(sessionKey) && (
           <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
             Close it here, then switch back to screen. Your next prompt also
             switches back.
@@ -493,47 +514,49 @@ export default function TerminalPanel({
             className="h-full w-full"
             data-testid="terminal-host"
           />
-          <div
-            ref={screenRef}
-            className="absolute inset-0 bg-panel"
-            data-testid="session-screen-layer"
-            hidden={mode === "raw"}
-          >
-            <SessionScreen
-              sessionKey={sessionKey}
-              items={itemsFor(sessionKey)}
-              status={sessionStatus}
-              ask={ask}
-              onAskAnswer={(writes) => {
-                const written = onAskAnswer?.(writes);
-                // a text reply that is refused stays in the caller's hands
-                if (ask?.source !== "text") reportWrite(written);
-                return written;
-              }}
-              onOpenDoc={onOpenDoc}
-              onWrite={(data) =>
-                reportWrite(window.jarvis.ptyInput(sessionKey, data))
-              }
-              onShowRaw={() => setViewMode(sessionKey, "raw")}
-              footer={
-                <>
-                  <Composer
-                    sessionKey={sessionKey}
-                    files={files}
-                    currentModel={modelOf(statusLine)}
-                    history={historyEntries(itemsFor(sessionKey))}
-                    awaitingAnswer={
-                      (!!ask && ask.source !== "text") ||
-                      sessionStatus.kind === "blocked" ||
-                      sessionStatus.kind === "asking"
-                    }
-                    onError={setComposerError}
-                  />
-                  <StatusLine view={statusLine} now={Date.now()} />
-                </>
-              }
-            />
-          </div>
+          {!codex && (
+            <div
+              ref={screenRef}
+              className="absolute inset-0 bg-panel"
+              data-testid="session-screen-layer"
+              hidden={mode === "raw"}
+            >
+              <SessionScreen
+                sessionKey={sessionKey}
+                items={itemsFor(sessionKey)}
+                status={sessionStatus}
+                ask={ask}
+                onAskAnswer={(writes) => {
+                  const written = onAskAnswer?.(writes);
+                  // a text reply that is refused stays in the caller's hands
+                  if (ask?.source !== "text") reportWrite(written);
+                  return written;
+                }}
+                onOpenDoc={onOpenDoc}
+                onWrite={(data) =>
+                  reportWrite(window.jarvis.ptyInput(sessionKey, data))
+                }
+                onShowRaw={() => setViewMode(sessionKey, "raw")}
+                footer={
+                  <>
+                    <Composer
+                      sessionKey={sessionKey}
+                      files={files}
+                      currentModel={modelOf(statusLine)}
+                      history={historyEntries(itemsFor(sessionKey))}
+                      awaitingAnswer={
+                        (!!ask && ask.source !== "text") ||
+                        sessionStatus.kind === "blocked" ||
+                        sessionStatus.kind === "asking"
+                      }
+                      onError={setComposerError}
+                    />
+                    <StatusLine view={statusLine} now={Date.now()} />
+                  </>
+                }
+              />
+            </div>
+          )}
         </div>
         {isMain && status.kind !== "running" && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-panel/80">
@@ -580,6 +603,19 @@ export default function TerminalPanel({
           </div>
         )}
       </div>
+      {nextAgent && onNextAgent && !inboxOnly && (
+        <div
+          className="flex flex-none items-center gap-2.5 border-t border-accent/20 px-2.5 py-1.5"
+          data-testid="next-agent"
+        >
+          <span className={LBL_DIM}>Next tab</span>
+          <Segmented
+            options={AGENT_OPTIONS}
+            value={nextAgent}
+            onChange={onNextAgent}
+          />
+        </div>
+      )}
     </div>
   );
 }

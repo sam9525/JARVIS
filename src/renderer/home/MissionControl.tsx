@@ -1,5 +1,6 @@
 import React from "react";
 import type {
+  AgentId,
   GraphGroup,
   StatusKind,
   VaultGraph,
@@ -13,6 +14,7 @@ import MiniGraph from "../graph/MiniGraph";
 import { hueOfWorkspace } from "../graph/workspace-color";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { LIST_STEP_MS } from "../ui/boot-stage";
+import { AGENT_MARK } from "../ui/hud";
 import { relativeTime } from "./relative-time";
 import { displayKind, endLabel } from "../../shared/turn-end";
 
@@ -78,6 +80,8 @@ type MissionControlProps = {
   snapshotsReady: boolean;
   /** Play the entrance run across the cards. App passes `stage >= 2`. */
   stagger?: boolean;
+  // the agent of the session a card shows; absent means Claude
+  cardAgent?: (workspaceId: string) => AgentId | undefined;
 };
 
 // Every workspace at a glance. Presentation only — the status array arrives
@@ -98,6 +102,7 @@ export default function MissionControl({
   onNeedGraph,
   snapshotsReady,
   stagger,
+  cardAgent,
 }: MissionControlProps) {
   const byId = new Map(statuses.map((s) => [s.workspaceId, s]));
   // same shape as the rail's run: held closed until the stage opens, then one
@@ -173,6 +178,14 @@ export default function MissionControl({
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${DOT[kind]}`} />
                 {LABEL[kind]}
+                {cardAgent?.(ws.id) === "codex" && (
+                  <span
+                    data-testid={`codex-mark-${ws.id}`}
+                    className={AGENT_MARK}
+                  >
+                    Codex
+                  </span>
+                )}
                 {st?.delegatedBy && (
                   <span className="truncate normal-case text-ink-dim">
                     ↳ delegated by {st.delegatedBy}
