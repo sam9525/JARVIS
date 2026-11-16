@@ -48,7 +48,6 @@ import {
   closeSessionTab,
   openSessionTab,
   type NoticeAction,
-  type NoticeTone,
 } from "./terminal/tab-actions";
 import FleetGraph from "./graph/FleetGraph";
 import Ring from "./home/Ring";
@@ -127,7 +126,7 @@ import type {
   Workspace,
   WorkspaceStatus,
 } from "../shared/types";
-import { MAX_SESSIONS, parseSessionKey } from "../shared/session-key";
+import { parseSessionKey } from "../shared/session-key";
 import { displayKind } from "../shared/turn-end";
 import { buildWikilinkResolver } from "../shared/wikilink";
 import HandToggle from "./hands/HandToggle";
@@ -262,11 +261,7 @@ export default function App() {
     ownerId: string;
     text: string;
     action?: NoticeAction;
-    tone?: NoticeTone;
   } | null>(null);
-  // the agent the next + opens; back to Claude after every launch, and never
-  // stored
-  const [nextAgent, setNextAgent] = useState<AgentId>("claude");
   // fallbacks are not defensive padding: tests/App.test.tsx stubs `window` as
   // `{ jarvis: {} }`, so an unguarded read here yields NaN geometry rather
   // than a visible failure
@@ -1826,11 +1821,8 @@ export default function App() {
             }),
           );
         };
-        const notify = (
-          text: string,
-          action?: NoticeAction,
-          tone?: NoticeTone,
-        ) => setTerminalNotice({ ownerId: owner.id, text, action, tone });
+        const notify = (text: string, action?: NoticeAction) =>
+          setTerminalNotice({ ownerId: owner.id, text, action });
         const closeTab = (key: string) =>
           closeSessionTab(key, {
             deselect: (closed) =>
@@ -1843,17 +1835,11 @@ export default function App() {
             dispose: disposeTerminal,
             notify,
           });
-        const newTab = () => {
-          void openSessionTab(
-            owner.id,
-            terminalSize(tab.key),
-            { select, notify },
-            nextAgent === "codex" ? nextAgent : undefined,
-          );
-          setNextAgent("claude");
-        };
-        // the same test SessionTabs draws its + by
-        const canOpen = !showHome && tabs.length < MAX_SESSIONS;
+        const newTab = () =>
+          void openSessionTab(owner.id, terminalSize(tab.key), {
+            select,
+            notify,
+          });
         return (
           <Panel
             id="terminal"
@@ -1898,11 +1884,6 @@ export default function App() {
                   ? terminalNotice.action
                   : undefined
               }
-              noticeTone={
-                terminalNotice?.ownerId === owner.id
-                  ? terminalNotice.tone
-                  : undefined
-              }
               onDismissNotice={() => setTerminalNotice(null)}
               inbox={showHome ? { workspaces, statuses } : undefined}
               inboxOnly={inboxOnly}
@@ -1914,8 +1895,6 @@ export default function App() {
               files={terminalFiles}
               onAskAnswer={(writes) => answerPrompt(tab.key, writes)}
               onOpenDoc={(id) => openDoc(ws.id, id)}
-              nextAgent={canOpen ? nextAgent : undefined}
-              onNextAgent={canOpen ? setNextAgent : undefined}
             />
           </Panel>
         );

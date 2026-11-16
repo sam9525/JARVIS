@@ -27,7 +27,8 @@ export const LBL_CY = LBL + " text-accent hud-bloom";
 export const LBL_AM = LBL + " text-warm hud-bloom-warm";
 
 /**
- * The agent chip after a Codex tab's or card's label. LBL's tracking is
+ * The agent chip after a Codex tab's or card's label, and on the terminal's
+ * view line. LBL's tracking is
  * swapped rather than appended to, for the same two-utilities reason as above.
  */
 export const AGENT_MARK =

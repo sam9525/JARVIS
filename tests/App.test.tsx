@@ -431,60 +431,6 @@ describe("App: Codex sessions", () => {
     return nodes.find((n: any) => n.type === TerminalPanel);
   };
 
-  it("hands the terminal the next-tab agent where + shows", async () => {
-    const panel = await terminal(await renderRepo([session("r", "main")]));
-    expect(panel.props.nextAgent).toBe("claude");
-    expect(typeof panel.props.onNextAgent).toBe("function");
-  });
-
-  it("hands it none at the session cap", async () => {
-    const panel = await terminal(
-      await renderRepo([
-        session("r", "main"),
-        session("r#1", "1"),
-        session("r#2", "2"),
-        session("r#3", "3"),
-      ]),
-    );
-    expect(panel.props.onNextAgent).toBeUndefined();
-  });
-
-  it("hands it none on home, where + never shows", async () => {
-    const { default: App } = await import("../src/renderer/App");
-    const { default: TerminalPanel } =
-      await import("../src/renderer/terminal/TerminalPanel");
-    const self = { ...repo, id: "self", name: "Main agent", isSelf: true };
-    stateOverrides = { 0: [self] };
-    stateCall = 0;
-    const panel = walk((App as any)({})).find(
-      (n: any) => n.type === TerminalPanel,
-    );
-    expect(panel).toBeDefined();
-    expect(panel.props.nextAgent).toBeUndefined();
-    expect(panel.props.onNextAgent).toBeUndefined();
-  });
-
-  it("hands the terminal a notice's neutral tone", async () => {
-    // terminalNotice is App's 23rd useState
-    const panel = await terminal(
-      await renderRepo([session("r", "main")], {
-        22: { ownerId: "r", text: "Codex not found", tone: "neutral" },
-      }),
-    );
-    expect(panel.props.notice).toBe("Codex not found");
-    expect(panel.props.noticeTone).toBe("neutral");
-  });
-
-  it("hands it no tone for a plain notice", async () => {
-    const panel = await terminal(
-      await renderRepo([session("r", "main")], {
-        22: { ownerId: "r", text: "Worktree kept: x" },
-      }),
-    );
-    expect(panel.props.notice).toBe("Worktree kept: x");
-    expect(panel.props.noticeTone).toBeUndefined();
-  });
-
   it("passes the session row's agent to the terminal", async () => {
     const panel = await terminal(
       await renderRepo([session("r", "main", { agent: "codex" })]),
@@ -513,31 +459,5 @@ describe("App: Codex sessions", () => {
       asks("r#1"),
     );
     expect(claude.some((n: any) => n.props?.id === "ask")).toBe(true);
-  });
-
-  it("launches the chosen agent from +", async () => {
-    const ptyLaunch = vi.fn(() => new Promise(() => undefined));
-    (window as any).jarvis.ptyLaunch = ptyLaunch;
-    const { default: SessionTabs } =
-      await import("../src/renderer/terminal/SessionTabs");
-    const tabsOf = (nodes: any[]) =>
-      walk(nodes.find((n: any) => n.props?.id === "terminal").props.badge).find(
-        (n: any) => n.type === SessionTabs,
-      );
-    // nextAgent is App's 24th useState
-    tabsOf(
-      await renderRepo([session("r", "main")], { 23: "codex" }),
-    ).props.onNew();
-    expect(ptyLaunch.mock.calls[0]).toEqual([
-      "r",
-      null,
-      80,
-      24,
-      false,
-      undefined,
-      "codex",
-    ]);
-    tabsOf(await renderRepo([session("r", "main")])).props.onNew();
-    expect(ptyLaunch.mock.calls[1]).toEqual(["r", null, 80, 24]);
   });
 });

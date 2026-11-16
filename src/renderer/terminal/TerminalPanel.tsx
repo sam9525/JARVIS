@@ -3,9 +3,9 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
-import { LBL_AM, LBL_DIM } from "../ui/hud";
+import { AGENT_MARK, LBL_AM } from "../ui/hud";
 import { PILL } from "./status-colours";
-import type { NoticeAction, NoticeTone } from "./tab-actions";
+import type { NoticeAction } from "./tab-actions";
 import {
   ensureSubscribed,
   entryFor,
@@ -94,11 +94,6 @@ const VIEW_OPTIONS: { value: ViewMode; label: string }[] = [
   { value: "raw", label: "raw terminal" },
 ];
 
-const AGENT_OPTIONS: { value: AgentId; label: string }[] = [
-  { value: "claude", label: "Claude" },
-  { value: "codex", label: "Codex" },
-];
-
 const NO_STATUS = { kind: "none" as const, call: "" };
 
 const BAR: Record<StatusKind, string> = {
@@ -123,7 +118,6 @@ export default function TerminalPanel({
   live,
   notice,
   noticeAction,
-  noticeTone,
   onDismissNotice,
   inbox,
   inboxOnly,
@@ -133,8 +127,6 @@ export default function TerminalPanel({
   files = [],
   onAskAnswer,
   onOpenDoc,
-  nextAgent,
-  onNextAgent,
 }: {
   workspace: Workspace;
   // which of the workspace's sessions this panel shows
@@ -146,7 +138,6 @@ export default function TerminalPanel({
   // a one-line message from a tab action, such as a worktree kept on close
   notice?: string | null;
   noticeAction?: NoticeAction;
-  noticeTone?: NoticeTone;
   onDismissNotice?: () => void;
   // the inbox is the fleet view — home only. A workspace's terminal is just
   // its own, so there is nothing there for a cross-workspace list to do.
@@ -172,10 +163,6 @@ export default function TerminalPanel({
   onAskAnswer?: (writes: string[]) => Promise<boolean | ReplyResult>;
   // opens a spec or plan the question refers to in the preview panel
   onOpenDoc?: (nodeId: string) => void;
-  // the agent the next tab opened from + runs; both are given only where +
-  // shows
-  nextAgent?: AgentId;
-  onNextAgent?: (agent: AgentId) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
@@ -441,14 +428,7 @@ export default function TerminalPanel({
       )}
       {(notice || composerError) && !inboxOnly && (
         <div
-          className={
-            "flex flex-none items-center gap-2 border-b border-edge px-3 py-1 text-[12px] " +
-            // the tone belongs to the notice; a composer error shown in its
-            // place stays amber
-            (notice && noticeTone === "neutral"
-              ? "text-ink-muted"
-              : "text-warm")
-          }
+          className="flex flex-none items-center gap-2 border-b border-edge px-3 py-1 text-[12px] text-warm"
           data-testid="terminal-notice"
         >
           <span className="min-w-0 flex-1 break-words">
@@ -482,6 +462,11 @@ export default function TerminalPanel({
         hidden={inboxOnly}
       >
         <div className="flex flex-none items-center justify-end gap-3 border-b border-accent/20 px-2.5 py-1">
+          {/* mr-auto holds the mark on the left while the view switch
+              stays on the right */}
+          <span data-testid="agent-mark" className={AGENT_MARK + " mr-auto"}>
+            {codex ? "Codex" : "Claude"}
+          </span>
           {reindexCommand && status.kind === "running" && (
             <button
               className={LBL_AM + " cursor-pointer"}
@@ -612,19 +597,6 @@ export default function TerminalPanel({
           </div>
         )}
       </div>
-      {nextAgent && onNextAgent && !inboxOnly && (
-        <div
-          className="flex flex-none items-center gap-2.5 border-t border-accent/20 px-2.5 py-1.5"
-          data-testid="next-agent"
-        >
-          <span className={LBL_DIM}>Next tab</span>
-          <Segmented
-            options={AGENT_OPTIONS}
-            value={nextAgent}
-            onChange={onNextAgent}
-          />
-        </div>
-      )}
     </div>
   );
 }

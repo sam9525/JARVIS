@@ -553,75 +553,36 @@ describe("TerminalPanel on a Codex session", () => {
   });
 });
 
-describe("TerminalPanel next-tab agent line", () => {
-  const line = (tree: any) =>
-    find(tree, (n) => n.props?.["data-testid"] === "next-agent");
+describe("TerminalPanel agent mark", () => {
+  const mark = (tree: any) =>
+    find(tree, (n) => n.props?.["data-testid"] === "agent-mark");
 
-  it("offers Claude and Codex on the bottom line, left, after a Next tab label", () => {
-    const onNextAgent = vi.fn();
-    const tree = render({ live: true, nextAgent: "claude", onNextAgent });
-    const l = line(tree);
-    expect(l).toBeDefined();
-    expect(l.props.className).toContain("border-t border-accent/20");
-    expect(l.props.className).toContain("px-2.5 py-1.5");
-    expect(l.props.className).toContain("gap-2.5");
-    expect(l.props.className).not.toContain("justify-end");
-    expect(text(l.props.children[0])).toBe("Next tab");
-    expect(l.props.children[0].props.className).toContain("text-ink-dim");
-    const seg = find(l, (n) => n.type === Segmented);
-    expect(seg.props.options.map((o: any) => o.label)).toEqual([
-      "Claude",
-      "Codex",
-    ]);
-    expect(seg.props.strip).toBeUndefined();
-    expect(seg.props.value).toBe("claude");
-    seg.props.onChange("codex");
-    expect(onNextAgent).toHaveBeenCalledWith("codex");
-  });
-
-  it("is the panel's last line", () => {
+  it("names Claude on the left of the screen | raw line", () => {
     const tree = render({
       live: true,
-      nextAgent: "claude",
-      onNextAgent: vi.fn(),
+      sessionStatus: { kind: "idle", call: "", agent: "claude" },
     });
-    const kids = tree.props.children.filter(Boolean);
-    expect(kids[kids.length - 1].props["data-testid"]).toBe("next-agent");
-  });
-
-  it("is absent where no tab can be opened", () => {
-    expect(line(render({ live: true }))).toBeUndefined();
-  });
-
-  it("is absent on the collapsed inbox strip", () => {
+    const m = mark(tree);
+    expect(text(m)).toBe("Claude");
+    expect(m.props.className).toContain("mr-auto");
+    const row = find(
+      tree,
+      (n) =>
+        Array.isArray(n.props?.children) &&
+        n.props.children.some(
+          (c: any) => c?.props?.["data-testid"] === "agent-mark",
+        ),
+    );
     expect(
-      line(
-        render({
-          live: true,
-          inboxOnly: true,
-          nextAgent: "claude",
-          onNextAgent: vi.fn(),
-        }),
-      ),
-    ).toBeUndefined();
-  });
-});
-
-describe("TerminalPanel notice tone", () => {
-  const notice = (tree: any) =>
-    find(tree, (n) => n.props?.["data-testid"] === "terminal-notice");
-
-  it("shows a neutral notice in ink-muted, not amber", () => {
-    const cls = notice(
-      render({ notice: "Codex not found", noticeTone: "neutral" }),
-    ).props.className;
-    expect(cls).toContain("text-ink-muted");
-    expect(cls).not.toContain("text-warm");
+      find(row, (n) => n.type === Segmented && n.props.value === "screen"),
+    ).toBeDefined();
   });
 
-  it("keeps every other notice amber", () => {
-    const cls = notice(render({ notice: "Worktree kept: x" })).props.className;
-    expect(cls).toContain("text-warm");
-    expect(cls).not.toContain("text-ink-muted");
+  it("names Codex for a Codex session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "codex" },
+    });
+    expect(text(mark(tree))).toBe("Codex");
   });
 });
