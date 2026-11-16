@@ -116,6 +116,7 @@ import { autoAnswerOutput } from "./auto-answer";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
 import { createNudgeGate } from "./nudge-gate";
+import { resumeMenuLikely } from "./resume-menu";
 import type {
   CardLayout,
   LineChanges,
@@ -615,6 +616,17 @@ app.whenReady().then(async () => {
       if (hooksHeardFrom.has(key)) commandWait.delivered(key);
     },
     ask: (p) => send("ask", p),
+    resumeMenuLikely: async (key, resumeId) => {
+      const cwd = sessions.get(key)?.cwd;
+      if (!cwd) return false;
+      const file = path.join(
+        transcriptDir(os.homedir(), cwd),
+        `${resumeId}.jsonl`,
+      );
+      // an unreadable transcript is resumed with no guess, as before
+      const text = await fs.readFile(file, "utf8").catch(() => "");
+      return resumeMenuLikely(text, Date.now());
+    },
     msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (key, by) =>
@@ -712,6 +724,7 @@ app.whenReady().then(async () => {
         send("pty-exit", id, code);
         pendingInput.clear(id);
         commandWait.forget(id);
+        orchestrator.resumeMenuEnded(id);
         // a crashed session's tab stays, and its screen with it
         if (id.includes("#") && code === 0) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
@@ -1158,7 +1171,10 @@ app.whenReady().then(async () => {
     // a session asking or blocked shows a picker, where a key is a choice
     if (pendingInput.note(id, data, promptOpen(id))) send("user-submitted", id);
     const written = ptyManager.write(id, data);
-    if (written) pushStatus(status.promptKeyed(id, data, Date.now()));
+    if (written) {
+      pushStatus(status.promptKeyed(id, data, Date.now()));
+      orchestrator.resumeMenuKeyed(id, data);
+    }
     return written;
   });
   ipcMain.on("draft-state", (_e, key: string, has: boolean) => {

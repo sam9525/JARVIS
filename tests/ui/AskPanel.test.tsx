@@ -114,6 +114,24 @@ describe("AskPanel", () => {
     ).toBe(false);
   });
 
+  it("types an option's own keys, with no Enter after them", () => {
+    const onAnswer = vi.fn();
+    const p: AskPrompt = { ...prompt(), source: "confirm" };
+    p.questions = [
+      {
+        ...p.questions[0],
+        options: [{ label: "Resume as-is", description: "", keys: "\x1b" }],
+      },
+    ];
+    const tree = (
+      <AskPanel prompt={p} workspaceName="jarvis" onAnswer={onAnswer} />
+    ) as any;
+    walk(tree.type(tree.props))
+      .find((n: any) => n?.props?.["data-testid"] === "ask-option-0")
+      .props.onClick();
+    expect(onAnswer).toHaveBeenCalledWith(["\x1b"]);
+  });
+
   it("types a free answer into the Type something row", () => {
     const onAnswer = vi.fn();
     seeded.push(0, false, "  use JWT\n");

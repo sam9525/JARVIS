@@ -9,6 +9,8 @@ export interface AskOption {
   description: string;
   // text questions only: the words typed into the terminal when picked
   reply?: string;
+  // app-raised confirms only: the exact keys typed when picked, with no Enter
+  keys?: string;
 }
 
 export interface AskQuestion {

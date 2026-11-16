@@ -135,6 +135,7 @@ function setup(
     pendingInput?: string[]; // keys whose terminal holds text the user typed
     drafts?: string[]; // keys whose session screen input holds a draft
     closedSessions?: ClosedSession[]; // resumable closes, every workspace
+    resumeMenu?: boolean; // resumeMenuLikely's answer
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -249,6 +250,7 @@ function setup(
     ask: (p) => {
       asked.push(p);
     },
+    resumeMenuLikely: async () => over.resumeMenu ?? false,
   });
   return {
     orch,
@@ -1898,6 +1900,73 @@ describe("closed sessions", () => {
     expect(await orch.launch("FinPulse", "Auto", true)).toEqual({
       ok: false,
       error: `FinPulse's live session "auto" is holding unsent text — it was not replaced`,
+    });
+  });
+
+  describe("resume menu", () => {
+    const resumed = async (resumeMenu: boolean) => {
+      const t = setup({
+        sessions: [],
+        closedSessions: [closedMain],
+        resumeMenu,
+      });
+      expect((await t.orch.launch("FinPulse", "main", true)).ok).toBe(true);
+      return t;
+    };
+
+    it("raises an Esc-only panel when the menu is likely", async () => {
+      const { asked } = await resumed(true);
+      expect(asked).toHaveLength(1);
+      expect(asked[0]).toMatchObject({
+        sessionKey: "d:/fin",
+        source: "confirm",
+        questions: [{ options: [{ label: "Resume as-is", keys: "\x1b" }] }],
+      });
+    });
+
+    it("raises nothing when the menu is unlikely", async () => {
+      const { orch, asked } = await resumed(false);
+      expect(asked).toEqual([]);
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(true);
+    });
+
+    it("raises nothing for a launch without resume", async () => {
+      const t = setup({ sessions: [], resumeMenu: true });
+      expect((await t.orch.launch("FinPulse", "main")).ok).toBe(true);
+      expect(t.asked).toEqual([]);
+    });
+
+    it("refuses a send while the menu may be open", async () => {
+      const { orch, attempted } = await resumed(true);
+      const out = await orch.send("FinPulse", "hi");
+      expect(out.ok).toBe(false);
+      expect(attempted).toEqual([]);
+    });
+
+    it("an arrow key leaves the gate shut", async () => {
+      const { orch, asked } = await resumed(true);
+      orch.resumeMenuKeyed("d:/fin", "\x1b[B");
+      expect(asked).toHaveLength(1);
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(false);
+    });
+
+    it("any other key closes the panel and opens the gate", async () => {
+      const { orch, asked } = await resumed(true);
+      orch.resumeMenuKeyed("d:/fin", "\x1b");
+      expect(asked[1]).toMatchObject({ sessionKey: "d:/fin", questions: [] });
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(true);
+    });
+
+    it("a key in another session changes nothing", async () => {
+      const { orch, asked } = await resumed(true);
+      orch.resumeMenuKeyed("d:/aero", "\r");
+      expect(asked).toHaveLength(1);
+    });
+
+    it("the session's exit opens the gate", async () => {
+      const { orch } = await resumed(true);
+      orch.resumeMenuEnded("d:/fin");
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(true);
     });
   });
 });

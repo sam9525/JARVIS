@@ -121,10 +121,14 @@ export default function AskPanel({
   };
   const docKind = docKindOf(q.header);
   const docNodeId = docKind ? prompt.docs?.[docKind] : undefined;
-  const answer = (i: number) =>
-    textMode
-      ? void sendReply(q.options[i].reply ?? q.options[i].label)
-      : send([answerKeys(i, rows)]);
+  const answer = (i: number) => {
+    const { keys } = q.options[i];
+    if (textMode) void sendReply(q.options[i].reply ?? q.options[i].label);
+    else if (keys !== undefined) {
+      onAnswer([keys]);
+      setSent(true);
+    } else send([answerKeys(i, rows)]);
+  };
   const answerTyped = () => {
     const text = typed.replace(/[\r\n]+/g, " ").trim();
     if (!text) return;

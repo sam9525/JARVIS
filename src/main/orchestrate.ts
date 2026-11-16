@@ -71,7 +71,12 @@ export interface OrchestrateDeps {
   noteDelivered: (key: string) => void;
   // shows or (no questions) clears the question panel for a session
   ask: (prompt: AskPrompt) => void;
+  // whether resuming this transcript likely opens Claude Code's resume menu
+  resumeMenuLikely: (key: string, resumeId: string) => Promise<boolean>;
 }
+
+// An arrow only moves the resume menu's cursor; any other key answers it.
+const ARROWS = new Set(["\x1b[A", "\x1b[B"]);
 
 // "/model <name>" in a conversation with history stops on Claude Code's own
 // "Switch model?" confirm, which no hook reports. A transcript that stays
@@ -444,6 +449,52 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     });
   }
 
+  // sessions whose resume menu may be open: an Enter there picks a row, and
+  // the focused row can be "Resume from summary", which runs /compact
+  // session key → workspace id
+  const resumeMenus = new Map<string, string>();
+
+  // Esc is the only key that means the same in every resume menu: resume the
+  // full session as-is. The other rows are left to the terminal.
+  function askResumeMenu(workspaceId: string, key: string): void {
+    resumeMenus.set(key, workspaceId);
+    deps.ask({
+      workspaceId,
+      sessionKey: key,
+      sessionId: "",
+      ts: Date.now(),
+      source: "confirm",
+      questions: [
+        {
+          question: "Resume this session?",
+          header: "",
+          multiSelect: false,
+          options: [
+            {
+              label: "Resume as-is",
+              description:
+                "Keeps the full session. For a summary, pick it in the terminal.",
+              keys: "\x1b",
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  function closeResumeMenu(key: string): void {
+    const workspaceId = resumeMenus.get(key);
+    if (workspaceId === undefined) return;
+    resumeMenus.delete(key);
+    deps.ask({
+      workspaceId,
+      sessionKey: key,
+      sessionId: "",
+      ts: Date.now(),
+      questions: [],
+    });
+  }
+
   function deliver(key: string, prompt: string): boolean {
     // the caller sends no identity — it can only be the one workspace that
     // has the tools, which mcp-install pins to isSelf
@@ -525,6 +576,15 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       });
     },
 
+    /** A key the user typed into a session, from the terminal or the panel. */
+    resumeMenuKeyed(key: string, data: string): void {
+      if (!ARROWS.has(data)) closeResumeMenu(key);
+    },
+
+    resumeMenuEnded(key: string): void {
+      closeResumeMenu(key);
+    },
+
     /** `fresh` opens a new session and sends there; otherwise the prompt goes
      * to the named session, or the only live one. */
     async send(
@@ -576,6 +636,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         return {
           ok: false,
           error: `${ws.name}'s session "${s.label}" has text the user has not sent — send with fresh: true instead`,
+        };
+      }
+      if (resumeMenus.has(s.key)) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session "${s.label}" may be showing Claude Code's resume menu — ask the user to answer it, or send with fresh: true`,
         };
       }
       // the Enter would pick an option in the open prompt
@@ -663,6 +729,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       }
       const opened = await open(ws, wanted, "", resumeId);
       if (!opened.ok) return opened;
+      if (resumeId && (await deps.resumeMenuLikely(opened.key, resumeId)))
+        askResumeMenu(ws.id, opened.key);
       return {
         ok: true,
         session: opened.session,
