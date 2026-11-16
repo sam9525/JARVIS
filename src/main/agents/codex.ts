@@ -140,12 +140,13 @@ export function createCodexAdapter(
     command: async ({ dangerous, resume, forwardPath }) => {
       const file = await locate();
       if (file === null) return null;
+      // The recording proved the flags first, then `resume <id>`.
       const args = [
+        ...(dangerous ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
+        ...codexHookFlags(forwardPath, WITH_INTERRUPT),
         ...(typeof resume === "string" && isSessionId(resume)
           ? ["resume", resume]
           : []),
-        ...(dangerous ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
-        ...codexHookFlags(forwardPath, WITH_INTERRUPT),
       ];
       return { file, args };
     },

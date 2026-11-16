@@ -255,7 +255,16 @@ describe("codex command", () => {
 
   it("resumes a session id and ignores anything else", async () => {
     const byId = await adapter.command({ ...opts, resume: UUID });
-    expect(byId?.args.slice(0, 2)).toEqual(["resume", UUID]);
+    const args = byId?.args ?? [];
+    expect(args.slice(-2)).toEqual(["resume", UUID]);
+    expect(args.lastIndexOf("-c")).toBeLessThan(args.indexOf("resume"));
+    const dangerous = await adapter.command({
+      ...opts,
+      dangerous: true,
+      resume: UUID,
+    });
+    expect(dangerous?.args[0]).toBe(SANDBOX_FLAG);
+    expect(dangerous?.args.slice(-2)).toEqual(["resume", UUID]);
     for (const resume of ["a & b", true]) {
       const cmd = await adapter.command({ ...opts, resume });
       expect(cmd?.args).not.toContain("resume");
