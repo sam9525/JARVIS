@@ -34,6 +34,7 @@ function runForwardWithOutput(
       ...extraEnv,
     };
     if (!("JARVIS_SESSION" in extraEnv)) delete env.JARVIS_SESSION;
+    if (!("JARVIS_AGENT" in extraEnv)) delete env.JARVIS_AGENT;
     const child = spawn(process.execPath, [FORWARD], { env });
     let stdout = "";
     child.stdout.on("data", (c) => (stdout += c));

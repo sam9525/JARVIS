@@ -53,9 +53,11 @@ export function createPtyManager(spawnFn: SpawnFn, events: PtyManagerEvents) {
       if (ptys.has(key)) return; // one live pty per session key
       const { file, args } = agent ?? claudeCommand(dangerous, model, resume);
       // an app started from inside a JARVIS terminal inherits that session's
-      // JARVIS_STATUSLINE, so the inherited value is dropped, not passed on
+      // JARVIS_STATUSLINE and JARVIS_AGENT, so the inherited values are
+      // dropped, not passed on
       const parentEnv = { ...process.env };
       delete parentEnv.JARVIS_STATUSLINE;
+      delete parentEnv.JARVIS_AGENT;
       const p = spawnFn(file, args, {
         cwd,
         cols,
