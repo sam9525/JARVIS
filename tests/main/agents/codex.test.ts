@@ -181,17 +181,12 @@ describe("codex normalize", () => {
     ]);
   });
 
-  it("keeps the last message of Stop, also when it is null", () => {
+  it("keeps the last message of Stop", () => {
     const [out] = normalize("stop");
     expect(out.hook_event_name).toBe("Stop");
     expect(out.last_assistant_message).toBe(
       fixture("stop").last_assistant_message,
     );
-    const [nulled] = adapter.normalize({
-      ...fixture("stop"),
-      last_assistant_message: null,
-    });
-    expect(nulled.last_assistant_message).toBeNull();
   });
 
   it("gives nothing for an empty or unknown body", () => {
@@ -329,5 +324,51 @@ describe("codexHookFlags", () => {
 
   it("leaves out Interrupt when asked", () => {
     expect(codexHookFlags("a", false).join(" ")).not.toContain("Interrupt");
+  });
+});
+
+describe("codex Stop before the plan choice", () => {
+  const workspaces = buildWorkspaces("D:\\vault", [
+    { name: "demo", path: "C:\\work\\demo" },
+  ]);
+  const stopWith = (message: unknown) =>
+    adapter.normalize({
+      ...fixture("stop"),
+      last_assistant_message: message,
+      jarvis_session: "c:/work/demo#2",
+      jarvis_sent_at: 1,
+      jarvis_agent: "codex",
+    });
+
+  it("maps a null last message to a permission_prompt Notification", () => {
+    expect(stopWith(null)).toEqual([
+      {
+        session_id: UUID,
+        cwd: "C:\\work\\demo",
+        jarvis_session: "c:/work/demo#2",
+        jarvis_sent_at: 1,
+        jarvis_agent: "codex",
+        hook_event_name: "Notification",
+        notification_type: "permission_prompt",
+      },
+    ]);
+  });
+
+  it("reads blocked through the status mapper", () => {
+    expect(mapStatusEvent(stopWith(null)[0], workspaces)?.kind).toBe("blocked");
+  });
+
+  it("keeps a Stop with an empty message a Stop", () => {
+    const [out] = stopWith("");
+    expect(out.hook_event_name).toBe("Stop");
+    expect(out.last_assistant_message).toBe("");
+  });
+
+  it("leaves the recorded stop.json a finished Stop", () => {
+    const [out] = adapter.normalize(fixture("stop"));
+    expect(out.hook_event_name).toBe("Stop");
+    expect(out.last_assistant_message).toBe(
+      fixture("stop").last_assistant_message,
+    );
   });
 });

@@ -22,9 +22,9 @@ const TOOLS = [
       "List the JARVIS cockpit: one row per live session, plus one row for " +
       "each workspace that has none. A row has the workspace name, kind " +
       "(vault/code), status (waiting/running/idle/none), current tool call, " +
-      "last assistant message, whether a live Claude Code session exists, who " +
+      "last assistant message, whether a live session exists, who " +
       'delegated its current turn, the session label ("" when none), the ' +
-      'session topic ("" when none), and the worktree folder of that session ("" when it shares the workspace ' +
+      'session topic ("" when none), agent ("claude" or "codex"), and the worktree folder of that session ("" when it shares the workspace ' +
       "folder), and, after a turn ends, `ended`: finished, question (it asked " +
       "the user something in plain text: relay it, don't answer it yourself) " +
       "or failed (an API error, named in `error`; the work is not done). " +

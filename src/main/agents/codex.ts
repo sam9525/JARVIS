@@ -5,7 +5,7 @@ import { isSessionId } from "../../shared/session-id";
 import { parsePatch } from "./patch-paths";
 import { parseShellCommand } from "./shell-reads";
 
-// The recording showed no "clamping Interrupt hook timeout" warning.
+// Codex accepts an Interrupt hook, so the hook is registered.
 const WITH_INTERRUPT = true;
 
 const MATCHERS: [event: string, matcher: string][] = [
@@ -73,6 +73,14 @@ function normalizeCodex(raw: Record<string, unknown>): RawHookEvent[] {
     case "UserPromptSubmit":
       return [payload({ prompt: raw.prompt })];
     case "Stop":
+      // A null message comes before Codex's unhooked plan choice, which waits on the user.
+      if (raw.last_assistant_message === null)
+        return [
+          payload({
+            hook_event_name: "Notification",
+            notification_type: "permission_prompt",
+          }),
+        ];
       return [payload({ last_assistant_message: raw.last_assistant_message })];
     case "PermissionRequest":
       return [
@@ -140,7 +148,7 @@ export function createCodexAdapter(
     command: async ({ dangerous, resume, forwardPath }) => {
       const file = await locate();
       if (file === null) return null;
-      // The recording proved the flags first, then `resume <id>`.
+      // the flags go before the `resume <id>` subcommand
       const args = [
         ...(dangerous ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
         // without it Codex holds the session on its "Hooks need review" screen

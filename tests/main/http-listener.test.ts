@@ -1305,6 +1305,32 @@ describe("startListener with an agent tag", () => {
     expect(autoAnswer).not.toHaveBeenCalled();
   });
 
+  it("asks autoAnswer about a body tagged claude, as about an untagged one", async () => {
+    const answer = { hookSpecificOutput: { permissionDecision: "allow" } };
+    const autoAnswer = vi.fn(() => answer);
+    const s = await startTagged(autoAnswer);
+    const res = await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PreToolUse",
+      tool_name: "Read",
+      tool_input: { file_path: "D:\\vault\\notes\\beta.md" },
+      jarvis_agent: "claude",
+    });
+    expect(JSON.parse(await res.text())).toEqual(answer);
+    s.close();
+    expect(autoAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the panel for the same Stop tagged claude", async () => {
+    const s = await startTagged();
+    await post(s.port, { ...codexStop, jarvis_agent: "claude" });
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+    expect(s.asks).toHaveLength(1);
+    expect((s.asks[0] as { source: string }).source).toBe("text");
+  });
+
   it("hands onHook the session key and the event name", async () => {
     const s = await startTagged();
     await post(s.port, codexRead);

@@ -67,4 +67,28 @@ describe("locateCodex", () => {
   it("returns null on darwin with an empty PATH and no app file", async () => {
     expect(await locateCodex({ PATH: "" }, "darwin")).toBeNull();
   });
+
+  it.skipIf(process.platform !== "win32")(
+    "skips a codex.cmd or an extensionless codex on PATH",
+    async () => {
+      const cmdDir = join(root, "npm");
+      const shimDir = join(root, "shim");
+      await writeExe(join(cmdDir, "codex.cmd"), 1_000);
+      await writeExe(join(shimDir, "codex"), 1_000);
+      const env = { LOCALAPPDATA: root, PATH: `${cmdDir};${shimDir}` };
+      expect(await locateCodex(env, "win32")).toBeNull();
+    },
+  );
+
+  it.skipIf(process.platform !== "win32")(
+    "passes a codex.cmd for a codex.exe in a later PATH folder",
+    async () => {
+      const cmdDir = join(root, "npm");
+      const exeDir = join(root, "tools");
+      await writeExe(join(cmdDir, "codex.cmd"), 1_000);
+      await writeExe(join(exeDir, "codex.exe"), 1_000);
+      const env = { LOCALAPPDATA: root, PATH: `${cmdDir};${exeDir}` };
+      expect(await locateCodex(env, "win32")).toBe(join(exeDir, "codex.exe"));
+    },
+  );
 });

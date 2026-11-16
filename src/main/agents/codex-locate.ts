@@ -17,16 +17,14 @@ async function findOnPath(
   platform: NodeJS.Platform,
 ): Promise<string | null> {
   const flavor = platform === "win32" ? win32 : posix;
-  const names =
-    platform === "win32" ? ["codex.exe", "codex.cmd", "codex"] : ["codex"];
+  // Only a real program is spawned without a shell, so Windows takes codex.exe alone.
+  const name = platform === "win32" ? "codex.exe" : "codex";
   const folders = (env.PATH ?? env.Path ?? "")
     .split(flavor.delimiter)
     .filter(Boolean);
   for (const folder of folders) {
-    for (const name of names) {
-      const candidate = flavor.join(folder, name);
-      if ((await modifiedTimeOfFile(candidate)) !== null) return candidate;
-    }
+    const candidate = flavor.join(folder, name);
+    if ((await modifiedTimeOfFile(candidate)) !== null) return candidate;
   }
   return null;
 }

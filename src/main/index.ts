@@ -718,7 +718,7 @@ app.whenReady().then(async () => {
     send("transcript", key, [], true);
     send("statusline", key, null);
   }
-  // Codex sessions from launch until their first hook
+  // each Codex session's turn state, from its launch or resume until its exit
   const readyGate = createReadyGate();
   // restored Codex sessions, keyed by session, with the time their resumed
   // launch returned, which isFailedResume reads at exit

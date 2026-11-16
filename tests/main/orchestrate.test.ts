@@ -9,7 +9,10 @@ import {
 } from "../../src/main/orchestrate";
 import type { ClosedSession } from "../../src/main/closed-sessions";
 import type { AskPrompt } from "../../src/main/ask-mapper";
-import type { ReadyState } from "../../src/main/agents/ready-gate";
+import {
+  createReadyGate,
+  type ReadyState,
+} from "../../src/main/agents/ready-gate";
 import type {
   AgentId,
   SessionStatus,
@@ -127,6 +130,7 @@ function setup(
     writeFails?: boolean; // PTY died between the probe and the write
     sayFails?: boolean; // no renderer window listening
     launchFails?: boolean; // spawn threw — no claude on PATH
+    launchError?: string; // the failed launch's error; "spawn ENOENT" if unset
     trusted?: boolean | null; // ~/.claude.json's answer for every folder
     exitsOnKeys?: boolean; // the session exits while JARVIS waits on it
     settles?: boolean; // waitQuiet's result; false = the deadline passed
@@ -195,7 +199,8 @@ function setup(
       launched.push([ws.id, label]);
       resumedIds.push(resumeId);
       launchedAgents.push(agent);
-      if (over.launchFails) return { ok: false, error: "spawn ENOENT" };
+      if (over.launchFails)
+        return { ok: false, error: over.launchError ?? "spawn ENOENT" };
       const mine = registered.filter((s) => s.workspaceId === ws.id);
       if (mine.filter((s) => live.has(s.key)).length >= 4)
         return { ok: false, error: "cap" };
@@ -2132,5 +2137,78 @@ describe("orchestrate with a Codex session", () => {
     await vi.runAllTimersAsync();
     expect((await back).ok).toBe(true);
     expect(resumed.launchedAgents).toEqual([undefined]);
+  });
+});
+
+describe("orchestrate after the final Codex fixes", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("delivers to a Codex session interrupted mid-turn, idle without an ending", async () => {
+    const gate = createReadyGate();
+    gate.open("d:/aero");
+    gate.note("d:/aero", "UserPromptSubmit");
+    gate.note("d:/aero", "Interrupt");
+    const state = gate.state("d:/aero");
+    const { orch, writes } = setup({
+      sessions: [{ ...mainOf("d:/aero"), agent: "codex" }],
+      readyStates: state === undefined ? {} : { "d:/aero": state },
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          sessions: [sessionRow({ key: "d:/aero", kind: "idle" })],
+        }),
+      ],
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("trust types nothing into a Codex session", async () => {
+    const { orch, writes, trustChecked } = setup({
+      sessions: [{ ...mainOf("d:/fin"), agent: "codex" }],
+      trusted: false,
+    });
+    expect(await orch.trust("FinPulse", true)).toEqual({
+      ok: false,
+      error:
+        'FinPulse\'s session "main" runs Codex, which answers its own trust question in its terminal',
+    });
+    expect(writes).toEqual([]);
+    expect(trustChecked).toEqual([]);
+  });
+
+  it("trust answers a Claude session as before", async () => {
+    const { orch, writes } = setup({
+      sessions: [{ ...mainOf("d:/fin"), agent: "claude" }],
+      trusted: false,
+    });
+    expect(await orch.trust("FinPulse", false)).toEqual({ ok: true });
+    expect(writes).toEqual([["d:/fin", "\r"]]);
+  });
+
+  it("points a failed Codex launch at the Codex app or codex.exe", async () => {
+    const { orch } = setup({
+      sessions: [],
+      launchFails: true,
+      launchError: "Codex not found",
+    });
+    expect(await orch.launch("FinPulse", undefined, false, "codex")).toEqual({
+      ok: false,
+      error:
+        "FinPulse's session failed to start — Codex not found: install the Codex app or put codex.exe on PATH",
+    });
+  });
+
+  it("keeps the claude CLI advice for every other launch failure", async () => {
+    const { orch } = setup({ sessions: [], launchFails: true });
+    expect(await orch.launch("FinPulse")).toEqual({
+      ok: false,
+      error:
+        "FinPulse's session failed to start — is the claude CLI on PATH? (spawn ENOENT)",
+    });
   });
 });

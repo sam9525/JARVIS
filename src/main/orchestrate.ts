@@ -397,12 +397,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
   ) {
     const out = await deps.launch(ws, label, resumeId, agent);
     if (!out.ok || !out.key) {
-      return out.error === "cap"
-        ? capError(ws)
-        : {
-            ok: false as const,
-            error: `${ws.name}'s session failed to start — is the claude CLI on PATH? (${out.error ?? "unknown error"})`,
-          };
+      if (out.error === "cap") return capError(ws);
+      return {
+        ok: false as const,
+        error:
+          out.error === "Codex not found"
+            ? `${ws.name}'s session failed to start — Codex not found: install the Codex app or put codex.exe on PATH`
+            : `${ws.name}'s session failed to start — is the claude CLI on PATH? (${out.error ?? "unknown error"})`,
+      };
     }
     if (topic) deps.nameSession(out.key, topic);
     // The spawn is synchronous and PTY output arrives as I/O callbacks, which
@@ -828,6 +830,12 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       if ("ok" in ws) return ws;
       const s = pickSession(ws, session);
       if ("ok" in s) return s;
+      if (agentById(s.agent).features.trustCheck === false) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session "${s.label}" runs Codex, which answers its own trust question in its terminal`,
+        };
+      }
       const trusted = await deps.isTrusted(s.cwd);
       if (trusted === null) {
         return {
