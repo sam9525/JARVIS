@@ -1,6 +1,8 @@
 import type { AgentId, Workspace } from "../../shared/types";
 import type { RawHookEvent } from "../event-mapper";
 import { claudeAdapter } from "./claude";
+import { createCodexAdapter } from "./codex";
+import { locateCodex } from "./codex-locate";
 
 export interface AgentFeatures {
   transcript: boolean;
@@ -36,7 +38,10 @@ export interface AgentAdapter {
   normalize(raw: Record<string, unknown>): RawHookEvent[];
 }
 
-export const AGENTS: readonly AgentAdapter[] = [claudeAdapter];
+export const AGENTS: readonly AgentAdapter[] = [
+  claudeAdapter,
+  createCodexAdapter(locateCodex),
+];
 
 export function agentById(id: unknown): AgentAdapter {
   return AGENTS.find((a) => a.id === id) ?? claudeAdapter;

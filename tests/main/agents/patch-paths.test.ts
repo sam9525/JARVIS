@@ -1,5 +1,21 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parsePatch } from "../../../src/main/agents/patch-paths";
+
+const recordedPatch = JSON.parse(
+  readFileSync(
+    path.join(
+      __dirname,
+      "..",
+      "..",
+      "fixtures",
+      "codex",
+      "post-apply-patch.json",
+    ),
+    "utf8",
+  ),
+).tool_input.command;
 
 const PATCH = [
   "*** Begin Patch",
@@ -34,5 +50,12 @@ describe("parsePatch", () => {
   it("lists a path once and reads CRLF text", () => {
     const text = "*** Update File: a.ts\r\n*** Update File: a.ts\r\n";
     expect(parsePatch(text)).toEqual({ edited: ["a.ts"], added: [] });
+  });
+
+  it("reads the recorded Codex patch", () => {
+    expect(parsePatch(recordedPatch)).toEqual({
+      edited: ["C:\\work\\demo\\greet.js"],
+      added: [],
+    });
   });
 });

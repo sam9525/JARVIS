@@ -1,7 +1,17 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseShellCommand } from "../../../src/main/agents/shell-reads";
 
 const none = { reads: [], searches: [] };
+
+const fixtureCommand = (name: string): unknown =>
+  JSON.parse(
+    readFileSync(
+      path.join(__dirname, "..", "..", "fixtures", "codex", `${name}.json`),
+      "utf8",
+    ),
+  ).tool_input.command;
 
 describe("parseShellCommand", () => {
   it("reads the file of cat", () => {
@@ -145,5 +155,20 @@ describe("parseShellCommand", () => {
       searches: ["foo"],
     });
     expect(parseShellCommand('bash -lc "cd src && cat a.ts"')).toEqual(none);
+  });
+
+  it("reads the recorded Codex read and search commands", () => {
+    expect(parseShellCommand(fixtureCommand("pre-bash-read")).reads).toEqual([
+      "README.md",
+    ]);
+    expect(
+      parseShellCommand(fixtureCommand("pre-bash-search")).searches,
+    ).toEqual(["greet"]);
+  });
+
+  it("skips the value of a search flag that takes one", () => {
+    expect(parseShellCommand("rg -g '*.ts' -t ts foo src").searches).toEqual([
+      "foo",
+    ]);
   });
 });

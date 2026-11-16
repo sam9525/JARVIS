@@ -25,4 +25,13 @@ describe("agent registry", () => {
     });
     expect(cmd).toEqual(claudeCommand(true, "opus", false));
   });
+
+  it("finds codex, which supports only resume", () => {
+    const codex = agentById("codex");
+    expect(codex.id).toBe("codex");
+    const enabled = Object.entries(codex.features)
+      .filter(([, on]) => on)
+      .map(([name]) => name);
+    expect(enabled).toEqual(["resume"]);
+  });
 });

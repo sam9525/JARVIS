@@ -10,6 +10,12 @@ const READERS = new Set(
 const SEARCHERS = new Set(
   "rg grep select-string sls findstr fd find get-childitem ls dir".split(" "),
 );
+// Searcher flags whose next word is their value, not the pattern (case matters: grep -c takes none).
+const VALUE_FLAGS = new Set(
+  "-g --glob --iglob -t --type -T --type-not -m --max-count -A -B -C --context".split(
+    " ",
+  ),
+);
 const FOLDER_CHANGERS = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
 const SHELLS = new Set(["powershell", "pwsh", "bash", "sh", "cmd"]);
 const COMMAND_FLAGS = new Set(["-command", "-c", "-lc", "/c"]);
@@ -119,7 +125,9 @@ export function parseShellCommand(command: unknown): ShellActivity {
       commandName(part[1]) === "grep";
     const args = part.slice(isGitGrep ? 2 : 1).map(unquote);
     if (isGitGrep || SEARCHERS.has(name)) {
-      const pattern = args.find((word) => !isFlag(word));
+      const pattern = args.find(
+        (word, i) => !isFlag(word) && !VALUE_FLAGS.has(args[i - 1]),
+      );
       if (pattern !== undefined) push(searches, pattern);
     } else if (FOLDER_CHANGERS.has(name)) {
       folderChanged = true;
