@@ -9,7 +9,9 @@ import {
 } from "../../src/main/orchestrate";
 import type { ClosedSession } from "../../src/main/closed-sessions";
 import type { AskPrompt } from "../../src/main/ask-mapper";
+import type { ReadyState } from "../../src/main/agents/ready-gate";
 import type {
+  AgentId,
   SessionStatus,
   Workspace,
   WorkspaceStatus,
@@ -64,6 +66,7 @@ interface Sess {
   cwd: string;
   worktree: boolean;
   delegated: boolean;
+  agent?: AgentId;
 }
 
 const mainOf = (id: string): Sess => {
@@ -136,6 +139,7 @@ function setup(
     drafts?: string[]; // keys whose session screen input holds a draft
     closedSessions?: ClosedSession[]; // resumable closes, every workspace
     resumeMenu?: boolean; // resumeMenuLikely's answer
+    readyStates?: Record<string, ReadyState>; // Codex sessions' gate states
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -147,6 +151,7 @@ function setup(
   const namedAtWrites: number[] = [];
   const launched: Array<[string, string | undefined]> = [];
   const resumedIds: Array<string | undefined> = [];
+  const launchedAgents: Array<AgentId | undefined> = [];
   const closed: string[] = [];
   const trustChecked: string[] = [];
   const delivered: string[] = [];
@@ -186,9 +191,10 @@ function setup(
     // refused as "cap" at four live sessions
     closedOf: (id) =>
       (over.closedSessions ?? []).filter((c) => c.workspaceId === id),
-    launch: async (ws, label, resumeId) => {
+    launch: async (ws, label, resumeId, agent) => {
       launched.push([ws.id, label]);
       resumedIds.push(resumeId);
+      launchedAgents.push(agent);
       if (over.launchFails) return { ok: false, error: "spawn ENOENT" };
       const mine = registered.filter((s) => s.workspaceId === ws.id);
       if (mine.filter((s) => live.has(s.key)).length >= 4)
@@ -240,6 +246,7 @@ function setup(
       return over.settles ?? true;
     },
     msSinceOutput: () => over.outputAgoMs ?? Infinity,
+    readyState: (key) => over.readyStates?.[key],
     waitCommand: async (key) => {
       writes.push([key, "<cmd-wait>"]);
       return over.commandFinishes ?? true;
@@ -263,6 +270,7 @@ function setup(
     nudges,
     launched,
     resumedIds,
+    launchedAgents,
     closed,
     trustChecked,
     delivered,
@@ -316,6 +324,7 @@ describe("orchestrate.list", () => {
       message: "",
       live: false,
       delegatedBy: "",
+      agent: "claude",
     });
   });
 
@@ -354,6 +363,7 @@ describe("orchestrate.list", () => {
         message: "hi",
         live: true,
         delegatedBy: "JARVIS",
+        agent: "claude",
       },
       {
         name: "AeroGraph",
@@ -366,6 +376,7 @@ describe("orchestrate.list", () => {
         message: "hi",
         live: true,
         delegatedBy: "JARVIS",
+        agent: "claude",
       },
     ]);
   });
@@ -1978,5 +1989,148 @@ describe("sendPayload control characters", () => {
     expect(out).toContain("x\ny");
     expect(out).not.toContain("\x00");
     expect(out).not.toContain("\x7f");
+  });
+});
+
+describe("orchestrate with a Codex session", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const UNFINISHED =
+    'AeroGraph\'s Codex session "main" has not ended its turn — wait for its finish, or send with fresh: true';
+
+  const liveCodex = (
+    state: ReadyState | undefined,
+    row: Partial<SessionStatus>,
+  ) =>
+    setup({
+      sessions: [{ ...mainOf("d:/aero"), agent: "codex" }],
+      readyStates: state === undefined ? {} : { "d:/aero": state },
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          sessions: [sessionRow({ key: "d:/aero", label: "main", ...row })],
+        }),
+      ],
+    });
+
+  it("a fresh send launches Codex, skips the trust check and writes the prompt", async () => {
+    const { orch, writes, launchedAgents, trustChecked } = setup({
+      trusted: false,
+    });
+    const out = orch.send("AeroGraph", "To-do task: x", {
+      fresh: true,
+      agent: "codex",
+    });
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({
+      ok: true,
+      session: "1",
+      worktree: "D:\\aero\\.worktrees\\1",
+    });
+    expect(launchedAgents).toEqual(["codex"]);
+    expect(trustChecked).toEqual([]);
+    expect(writes).toEqual([
+      ["d:/aero#1", "<wait>"],
+      ["d:/aero#1", "To-do task: x"],
+      ["d:/aero#1", "\r"],
+    ]);
+  });
+
+  it.each(["starting", "ready"] as const)(
+    "delivers to a live session that is %s",
+    async (state) => {
+      const { orch, writes } = liveCodex(state, { kind: "working" });
+      expect(await orch.send("AeroGraph", "go")).toEqual({
+        ok: true,
+        session: "main",
+      });
+      expect(writes).toEqual([["d:/aero", "go"]]);
+    },
+  );
+
+  it("refuses a used session that is still working", async () => {
+    const { orch, writes } = liveCodex("used", { kind: "working" });
+    const out = await orch.send("AeroGraph", "go");
+    expect(out).toEqual({ ok: false, error: UNFINISHED });
+    expect(out.ok === false && out.error).toContain("fresh: true");
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a used session that is idle without an ending", async () => {
+    const { orch, writes } = liveCodex("used", { kind: "idle" });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: false,
+      error: UNFINISHED,
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it("delivers to a used session whose turn finished", async () => {
+    const { orch, writes } = liveCodex("used", {
+      kind: "idle",
+      ended: "finished",
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("keeps the asking refusal first", async () => {
+    const { orch } = liveCodex("used", { kind: "asking" });
+    const out = await orch.send("AeroGraph", "go");
+    expect(out.ok === false && out.error).toContain("is asking");
+  });
+
+  it("sends to a working Claude session as before", async () => {
+    const { orch, writes } = liveCodex(undefined, { kind: "working" });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("lists each session's agent, Claude when none is recorded", () => {
+    const { orch } = setup({
+      sessions: [
+        mainOf("d:/aero"),
+        { ...worktreeOf("d:/aero", "1"), agent: "codex" },
+      ],
+    });
+    const aero = orch.list().filter((r) => r.name === "AeroGraph");
+    expect(aero.map((r) => [r.session, r.agent])).toEqual([
+      ["main", "claude"],
+      ["1", "codex"],
+    ]);
+  });
+
+  it("launches Codex, and a resume ignores the agent", async () => {
+    const fresh = setup({ sessions: [], trusted: false });
+    const out = fresh.orch.launch("FinPulse", undefined, false, "codex");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({ ok: true, session: "main" });
+    expect(fresh.launchedAgents).toEqual(["codex"]);
+    expect(fresh.trustChecked).toEqual([]);
+
+    const resumed = setup({
+      sessions: [],
+      closedSessions: [
+        {
+          workspaceId: "d:/fin",
+          label: "main",
+          sessionId: "0c6f0e4e-6b8c-4a43-9d39-0f1d6b2c3a10",
+          cwd: "D:\\fin",
+          topic: "",
+          closedAt: 0,
+        },
+      ],
+    });
+    const back = resumed.orch.launch("FinPulse", "main", true, "codex");
+    await vi.runAllTimersAsync();
+    expect((await back).ok).toBe(true);
+    expect(resumed.launchedAgents).toEqual([undefined]);
   });
 });

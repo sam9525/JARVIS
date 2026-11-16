@@ -41,9 +41,11 @@ function stubOrchestrator() {
     },
     launches: [] as Array<[string, string | undefined]>,
     resumes: [] as boolean[],
-    launch(workspace: string, label?: string, resume = false) {
+    agents: [] as Array<string | undefined>,
+    launch(workspace: string, label?: string, resume = false, agent?: string) {
       this.launches.push([workspace, label]);
       this.resumes.push(resume);
+      this.agents.push(agent);
       return Promise.resolve({ ok: true as const, session: "1" });
     },
     trusts: [] as Array<[string, boolean, string | undefined]>,
@@ -316,6 +318,25 @@ describe("orchestrate routes", () => {
       worktree: "D:\\a\\.wt\\2",
     });
     expect(orch.sends).toEqual([["A", "p", { session: "2", fresh: true }]]);
+    close();
+  });
+
+  it("send passes agent codex through and drops any other value", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    for (const agent of ["codex", "claude", "Codex", 1]) {
+      await post(
+        port,
+        "/orchestrate/send",
+        JSON.stringify({ workspace: "A", prompt: "p", fresh: true, agent }),
+        { "x-jarvis": "1" },
+      );
+    }
+    const agents = orch.sends.map(([, , opts]) => opts);
+    expect(agents[0]).toHaveProperty("agent", "codex");
+    for (const opts of agents.slice(1))
+      expect(opts).not.toHaveProperty("agent");
     close();
   });
 
@@ -755,6 +776,19 @@ describe("/orchestrate/launch", () => {
     await call(s.port, body(true), { "x-jarvis": "1" });
     await call(s.port, body("yes"), { "x-jarvis": "1" });
     expect(s.orch.resumes).toEqual([true, false]);
+    s.close();
+  });
+
+  it("passes agent codex through and drops any other value", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    for (const agent of ["codex", "claude", "CODEX", null]) {
+      await call(s.port, JSON.stringify({ workspace: "AeroGraph", agent }), {
+        "x-jarvis": "1",
+      });
+    }
+    expect(s.orch.agents).toEqual(["codex", undefined, undefined, undefined]);
     s.close();
   });
 

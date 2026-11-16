@@ -5,12 +5,15 @@ import {
   shownName,
 } from "../shared/session-key";
 import type {
+  AgentId,
   StatusKind,
   TurnEnd,
   Workspace,
   WorkspaceKind,
   WorkspaceStatus,
 } from "../shared/types";
+import { agentById } from "./agents";
+import type { ReadyState } from "./agents/ready-gate";
 import type { AskPrompt } from "./ask-mapper";
 import type { ClosedSession } from "./closed-sessions";
 import { commandWord } from "./command-wait";
@@ -36,11 +39,13 @@ export interface OrchestrateDeps {
   write: (key: string, data: string) => boolean;
   // the launch the tab bar's `+` makes; no label means the next free number.
   // error "cap" means the workspace already has its four live sessions.
-  // resumeId continues that Claude conversation instead of starting empty
+  // resumeId continues that Claude conversation instead of starting empty;
+  // no agent means Claude
   launch: (
     ws: Workspace,
     label: string | undefined,
     resumeId?: string,
+    agent?: AgentId,
   ) => Promise<{
     ok: boolean;
     key?: string;
@@ -58,6 +63,8 @@ export interface OrchestrateDeps {
   waitQuiet: (key: string) => Promise<boolean>;
   // ms since the PTY last printed anything; Infinity = no output seen
   msSinceOutput: (key: string) => number;
+  // a Codex session's gate state; undefined for a Claude session
+  readyState: (key: string) => ReadyState | undefined;
   markDelegated: (key: string, by: string) => void;
   // pins the tab's topic so the session's own title cannot replace it
   nameSession: (key: string, word: string) => void;
@@ -95,6 +102,7 @@ export interface FleetEntry {
   message: string;
   live: boolean;
   delegatedBy: string;
+  agent: AgentId;
   ended?: TurnEnd;
   error?: string;
   // a session that has closed and can be resumed with jarvis_launch
@@ -130,6 +138,8 @@ export interface SendOptions {
   fresh?: boolean;
   // names a fresh session's tab; ignored without `fresh`
   label?: string;
+  // the fresh session's agent; ignored without `fresh`
+  agent?: AgentId;
 }
 
 // the trust prompt opens on "No, exit": Down moves to "Yes", Enter confirms
@@ -383,8 +393,9 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     label: string | undefined,
     topic = "",
     resumeId?: string,
+    agent?: AgentId,
   ) {
-    const out = await deps.launch(ws, label, resumeId);
+    const out = await deps.launch(ws, label, resumeId, agent);
     if (!out.ok || !out.key) {
       return out.error === "cap"
         ? capError(ws)
@@ -399,7 +410,9 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     // chunk, as the settle needs.
     const quiet = deps.waitQuiet(out.key);
     const folder = out.worktree ?? ws.rootPath;
-    const trusted = await deps.isTrusted(folder);
+    const trusted = agentById(agent).features.trustCheck
+      ? await deps.isTrusted(folder)
+      : null;
     const settled = await quiet;
     return {
       ok: true as const,
@@ -526,12 +539,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           kind: w.kind,
           message: row?.message ?? "",
           delegatedBy: row?.delegatedBy ?? "",
+          agent: "claude" as const,
         };
         const closed = deps.closedOf(w.id).map((c): FleetEntry => ({
           name: w.name,
           kind: w.kind,
           message: "",
           delegatedBy: "",
+          agent: "claude",
           session: c.label,
           worktree: "",
           topic: c.topic,
@@ -569,6 +584,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             status: own?.kind ?? "none",
             call: own?.call ?? "",
             live: true,
+            agent: s.agent ?? "claude",
             ...endingOf(own),
           };
         });
@@ -604,6 +620,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           ws,
           undefined,
           word === MAIN_LABEL ? "" : word,
+          undefined,
+          opts.agent,
         );
         if (!opened.ok) return opened;
         const where = {
@@ -652,6 +670,20 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session "${s.label}" is ${kind}, waiting on the user — ask them to answer it, or send with fresh: true`,
         };
       }
+      // after its first prompt, a Codex session takes a send only once its
+      // turn has ended
+      if (deps.readyState(s.key) === "used") {
+        const row = deps
+          .snapshot()
+          .find((r) => r.workspaceId === ws.id)
+          ?.sessions.find((r) => r.key === s.key);
+        if (row?.kind !== "idle" || !row.ended) {
+          return {
+            ok: false,
+            error: `${ws.name}'s Codex session "${s.label}" has not ended its turn — wait for its finish, or send with fresh: true`,
+          };
+        }
+      }
       const command = commandWord(prompt);
       const ran = command ? deps.waitCommand(s.key, command) : null;
       if (!deliver(s.key, prompt)) {
@@ -677,6 +709,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       target: string,
       label?: string,
       resume = false,
+      agent?: AgentId,
     ): Promise<LaunchResult> {
       const ws = delegate(target);
       if ("ok" in ws) return ws;
@@ -727,7 +760,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name} already has a live session "${wanted}" — jarvis_send to it`,
         };
       }
-      const opened = await open(ws, wanted, "", resumeId);
+      // a resume reopens a Claude conversation, so it ignores agent
+      const opened = await open(
+        ws,
+        wanted,
+        "",
+        resumeId,
+        resume ? undefined : agent,
+      );
       if (!opened.ok) return opened;
       if (resumeId && (await deps.resumeMenuLikely(opened.key, resumeId)))
         askResumeMenu(ws.id, opened.key);

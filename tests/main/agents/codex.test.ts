@@ -11,6 +11,7 @@ import { buildWorkspaces } from "../../../src/main/workspaces";
 
 const UUID = "01a1df64-396f-7b43-ac5b-879d211c3ee2";
 const SANDBOX_FLAG = "--dangerously-bypass-approvals-and-sandbox";
+const HOOK_TRUST_FLAG = "--dangerously-bypass-hook-trust";
 
 const fixture = (name: string): Record<string, unknown> =>
   JSON.parse(
@@ -243,9 +244,27 @@ describe("codex command", () => {
     const cmd = await adapter.command({ ...opts, model: "opus" });
     expect(cmd?.file).toBe("C:/x/codex.exe");
     expect(cmd?.args).not.toContain("--model");
-    expect(cmd?.args).not.toContain("--dangerously-bypass-hook-trust");
     expect(cmd?.args).not.toContain(SANDBOX_FLAG);
-    expect(cmd?.args).toEqual(codexHookFlags(opts.forwardPath, true));
+    expect(cmd?.args).toEqual([
+      HOOK_TRUST_FLAG,
+      ...codexHookFlags(opts.forwardPath, true),
+    ]);
+  });
+
+  it("passes the hook trust flag on every launch, before the first -c", async () => {
+    for (const dangerous of [false, true]) {
+      for (const resume of [false, UUID]) {
+        const args =
+          (await adapter.command({ ...opts, dangerous, resume }))?.args ?? [];
+        expect(args.filter((a) => a === HOOK_TRUST_FLAG)).toHaveLength(1);
+        expect(args.indexOf(HOOK_TRUST_FLAG)).toBeLessThan(args.indexOf("-c"));
+        if (dangerous)
+          expect(args.indexOf(SANDBOX_FLAG)).toBeLessThan(
+            args.indexOf(HOOK_TRUST_FLAG),
+          );
+        if (resume) expect(args.slice(-2)).toEqual(["resume", UUID]);
+      }
+    }
   });
 
   it("adds the sandbox flag when dangerous", async () => {

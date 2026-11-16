@@ -5,6 +5,16 @@
 const PORT = process.env.JARVIS_PORT ?? 4599;
 const BASE = `http://127.0.0.1:${PORT}`;
 
+const AGENT_PROPERTY = {
+  type: "string",
+  enum: ["codex"],
+  description:
+    "Pass only when the user asks for Codex; without it the session runs Claude Code. With jarvis_send it applies only with fresh: true.",
+};
+
+// only the literal "codex" is forwarded; anything else means Claude
+const agentField = (agent) => (agent === "codex" ? { agent } : {});
+
 const TOOLS = [
   {
     name: "jarvis_list",
@@ -176,6 +186,7 @@ const TOOLS = [
           description:
             "With fresh: one word naming the task, shown as the new tab's name from the start. The session label stays the order word. Ignored without fresh.",
         },
+        agent: AGENT_PROPERTY,
       },
       required: ["workspace", "prompt"],
     },
@@ -216,6 +227,7 @@ const TOOLS = [
           description:
             "true to continue this label's closed session, only when the user's request continues that session's work.",
         },
+        agent: AGENT_PROPERTY,
       },
       required: ["workspace"],
     },
@@ -382,6 +394,7 @@ async function callTool(name, args) {
           fresh,
           session: args?.session,
           label: args?.label,
+          ...agentField(args?.agent),
         },
         fresh || slash ? 65000 : undefined,
       );
@@ -416,6 +429,7 @@ async function callTool(name, args) {
           workspace: args?.workspace,
           label: args?.label,
           ...(args?.resume === true ? { resume: true } : {}),
+          ...agentField(args?.agent),
         },
         30000,
       );

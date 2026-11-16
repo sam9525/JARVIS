@@ -143,6 +143,8 @@ export function createCodexAdapter(
       // The recording proved the flags first, then `resume <id>`.
       const args = [
         ...(dangerous ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
+        // without it Codex holds the session on its "Hooks need review" screen
+        "--dangerously-bypass-hook-trust",
         ...codexHookFlags(forwardPath, WITH_INTERRUPT),
         ...(typeof resume === "string" && isSessionId(resume)
           ? ["resume", resume]

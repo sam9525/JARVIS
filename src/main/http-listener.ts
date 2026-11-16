@@ -11,7 +11,12 @@ import type {
   SendOptions,
   SendResult,
 } from "./orchestrate";
-import type { StatusEvent, ToolEvent, Workspace } from "../shared/types";
+import type {
+  AgentId,
+  StatusEvent,
+  ToolEvent,
+  Workspace,
+} from "../shared/types";
 import { agentById } from "./agents";
 
 export const DEFAULT_PORT = 4599;
@@ -33,6 +38,10 @@ const ORCHESTRATE = [
 
 const optionalString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined;
+
+// only the literal "codex" picks another agent; anything else means Claude
+const optionalAgent = (v: unknown): "codex" | undefined =>
+  v === "codex" ? v : undefined;
 
 // Over the cap we destroy the socket, so "end" never fires and done() never runs.
 function readBody(
@@ -123,6 +132,7 @@ export interface OrchestratorLike {
     target: string,
     label?: string,
     resume?: boolean,
+    agent?: AgentId,
   ): Promise<LaunchResult>;
   trust(target: string, accept: boolean, session?: string): Promise<SendResult>;
   /** Ends the named session; refuses one whose turn is in flight. */
@@ -317,11 +327,13 @@ export function startListener(
           let target: string;
           let label: string | undefined;
           let resume: boolean;
+          let agent: AgentId | undefined;
           try {
             const p = parse();
             target = String(p.workspace ?? "");
             label = optionalString(p.label);
             resume = p.resume === true;
+            agent = optionalAgent(p.agent);
           } catch (err) {
             const out = {
               ok: false,
@@ -331,7 +343,7 @@ export function startListener(
             return;
           }
           orchestrator
-            .launch(target, label, resume)
+            .launch(target, label, resume, agent)
             .then((out) => {
               if (res.writableEnded || res.destroyed) return;
               res.writeHead(200).end(JSON.stringify(out));
@@ -419,6 +431,8 @@ export function startListener(
               fresh: p.fresh === true,
               label: optionalString(p.label),
             };
+            const agent = optionalAgent(p.agent);
+            if (agent) opts.agent = agent;
           } catch (err) {
             const out = {
               ok: false,

@@ -601,7 +601,7 @@ app.whenReady().then(async () => {
     // the terminal's own defaults — Opus, permissions on — at placeholder
     // geometry the panel resizes when it attaches, as with the main agent.
     // The orchestrator waits for the new TUI to go quiet itself.
-    launch: (ws, label, resumeId) =>
+    launch: (ws, label, resumeId, agent) =>
       launchSession(ws, {
         label,
         cols: 80,
@@ -610,9 +610,11 @@ app.whenReady().then(async () => {
         model: "opus",
         resumeId,
         delegated: true,
+        agent,
       }),
     close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
+    readyState: (key) => readyGate.state(key),
     waitQuiet: (key) => settle.wait(key, LAUNCH_SETTLE_DEADLINE_MS),
     waitCommand: (key, word) => commandWait.expect(key, word),
     // Only a key whose hooks are heard has its feed followed, so only it can clear.

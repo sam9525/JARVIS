@@ -191,6 +191,29 @@ describe("mcp.mjs", () => {
     listener.close();
   });
 
+  it("tools/call jarvis_send forwards agent only when it is codex", async () => {
+    const listener = await fakeListener({ ok: true, session: "1" });
+    const { request } = startMcp(listener.port);
+    for (const [id, agent] of [
+      [9011, "codex"],
+      [9012, "gpt"],
+    ] as const) {
+      await request({
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: {
+          name: "jarvis_send",
+          arguments: { workspace: "A", prompt: "p", fresh: true, agent },
+        },
+      });
+    }
+    const bodies = listener.hits.map((h) => JSON.parse(h.body));
+    expect(bodies[0].agent).toBe("codex");
+    expect(bodies[1]).not.toHaveProperty("agent");
+    listener.close();
+  });
+
   it("jarvis_launch takes an optional label and jarvis_trust a session", async () => {
     const { request } = startMcp(1);
     const res = await request({ jsonrpc: "2.0", id: 24, method: "tools/list" });
@@ -578,6 +601,52 @@ describe("mcp.mjs", () => {
       { workspace: "FinPulse", label: "main" },
     ]);
     listener.close();
+  });
+
+  it("tools/call jarvis_launch forwards agent only when it is codex", async () => {
+    const listener = await fakeListener({ ok: true, session: "main" });
+    const { request } = startMcp(listener.port);
+    for (const [id, agent] of [
+      [9001, "codex"],
+      [9002, "claude"],
+      [9003, "Codex"],
+      [9004, true],
+    ] as const) {
+      await request({
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: {
+          name: "jarvis_launch",
+          arguments: { workspace: "FinPulse", agent },
+        },
+      });
+    }
+    expect(listener.hits.map((h) => JSON.parse(h.body))).toEqual([
+      { workspace: "FinPulse", agent: "codex" },
+      { workspace: "FinPulse" },
+      { workspace: "FinPulse" },
+      { workspace: "FinPulse" },
+    ]);
+    listener.close();
+  });
+
+  it("jarvis_launch and jarvis_send offer agent as codex only", async () => {
+    const { request } = startMcp(1);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 9005,
+      method: "tools/list",
+    });
+    const tools: Array<{
+      name: string;
+      inputSchema: { properties: Record<string, { enum?: string[] }> };
+    }> = res.result.tools;
+    for (const name of ["jarvis_launch", "jarvis_send"]) {
+      const agent = tools.find((t) => t.name === name)?.inputSchema.properties
+        .agent;
+      expect(agent?.enum).toEqual(["codex"]);
+    }
   });
 
   it("a refused launch comes back as a tool error", async () => {
