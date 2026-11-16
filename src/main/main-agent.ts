@@ -224,6 +224,13 @@ A \`trustPrompt\` in a send result means nothing was sent. Ask the user, call
 \`jarvis_trust\` with their answer and the \`session\`, then send again with that
 \`session\`.
 
+When the user asks to continue a session that \`jarvis_list\` has no closed
+row for (\`resume: true\` says there is none), do not ask them to pick it.
+Its folder under \`~/.claude/projects\` is the project path with separators
+turned into dashes, such as \`D--data-Program-JARVIS\`. Take the session id from
+the newest large top-level \`.jsonl\` there, launch a fresh session, and send it
+\`/resume <id>\`.
+
 ## Scratch
 
 A short answer you can give from what you already know stays with you.
