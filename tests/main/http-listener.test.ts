@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import * as textQuestion from "../../src/main/text-question-mapper";
 import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
@@ -1191,5 +1192,101 @@ describe("the auto-answer reply", () => {
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
     expect(statuses).toHaveLength(1);
+  });
+});
+
+describe("startListener with an agent tag", () => {
+  const codexRead = {
+    ...(JSON.parse(
+      readFileSync("tests/fixtures/codex/pre-bash-read.json", "utf8"),
+    ) as Record<string, unknown>),
+    cwd: "D:\\vault",
+    jarvis_session: workspaces[0].id,
+    jarvis_agent: "codex",
+  };
+  const codexStop = {
+    ...(JSON.parse(
+      readFileSync("tests/fixtures/codex/stop.json", "utf8"),
+    ) as Record<string, unknown>),
+    cwd: "D:\\vault",
+    jarvis_session: workspaces[0].id,
+    jarvis_agent: "codex",
+    last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+  };
+
+  async function startTagged(autoAnswer?: (raw: unknown) => unknown) {
+    const events: ToolEvent[] = [];
+    const statuses: StatusEvent[] = [];
+    const asks: unknown[] = [];
+    const hooks: Array<[string, string]> = [];
+    const server = startListener(
+      0,
+      (e) => events.push(e),
+      (s) => statuses.push(s),
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => asks.push(p),
+      undefined,
+      undefined,
+      autoAnswer,
+      (key, name) => hooks.push([key, name]),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return { port, events, statuses, asks, hooks, close: () => server.close() };
+  }
+
+  it("maps a Codex shell read to a read event", async () => {
+    const s = await startTagged();
+    await post(s.port, codexRead);
+    await vi.waitFor(() => expect(s.events).toHaveLength(1));
+    s.close();
+    expect(s.events[0]).toMatchObject({ tool: "Read", nodeIds: ["README"] });
+  });
+
+  it("reports a Codex Stop that ends on a question without opening a panel", async () => {
+    const s = await startTagged();
+    await post(s.port, codexStop);
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+    expect(s.asks).toHaveLength(0);
+  });
+
+  it("opens the panel for the same Stop without an agent tag", async () => {
+    const s = await startTagged();
+    const claudeStop: Record<string, unknown> = { ...codexStop };
+    delete claudeStop.jarvis_agent;
+    await post(s.port, claudeStop);
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+    expect(s.asks).toHaveLength(1);
+  });
+
+  it("never asks autoAnswer about a Codex body", async () => {
+    const autoAnswer = vi.fn(() => ({ a: 1 }));
+    const s = await startTagged(autoAnswer);
+    const res = await post(s.port, codexRead);
+    expect(await res.text()).toBe("");
+    s.close();
+    expect(autoAnswer).not.toHaveBeenCalled();
+  });
+
+  it("hands onHook the session key and the event name", async () => {
+    const s = await startTagged();
+    await post(s.port, codexRead);
+    await vi.waitFor(() => expect(s.hooks).toHaveLength(1));
+    s.close();
+    expect(s.hooks[0]).toEqual([workspaces[0].id, "PreToolUse"]);
+  });
+
+  it("maps nothing for a JSON body that is not an object", async () => {
+    const s = await startTagged();
+    const res = await postRaw(s.port, "[1,2]");
+    expect(res.status).toBe(200);
+    await postRaw(s.port, "null");
+    s.close();
+    expect(s.events).toHaveLength(0);
+    expect(s.statuses).toHaveLength(0);
+    expect(s.hooks).toHaveLength(0);
   });
 });

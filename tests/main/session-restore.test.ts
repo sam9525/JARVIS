@@ -61,6 +61,22 @@ describe("sessionsToResume", () => {
     expect(sessionsToResume(s, NOW, rootOf)).toEqual(s.sessions);
   });
 
+  it("round-trips a Codex session with its agent", () => {
+    const s = {
+      closedAt: NOW,
+      sessions: {
+        "d:/r#3": { sessionId: SID, label: "3", cwd: ROOT, agent: "codex" },
+      },
+    };
+    expect(sessionsToResume(s, NOW, rootOf)).toEqual(s.sessions);
+  });
+
+  it("reads an entry without an agent with no agent field", () => {
+    const out = sessionsToResume(saved(NOW), NOW, rootOf);
+    expect(out.repo).toEqual({ sessionId: SID, label: "main", cwd: ROOT });
+    expect("agent" in out.repo).toBe(false);
+  });
+
   it("reads an old workspace → session id entry as that workspace's main session", () => {
     const s = { closedAt: NOW, sessions: { "d:/r": SID, gone: SID } };
     expect(sessionsToResume(s, NOW, rootOf)).toEqual({

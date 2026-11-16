@@ -90,6 +90,7 @@ const api = {
     rows: number,
     dangerous = false,
     model?: string,
+    agent?: string,
   ): Promise<{
     ok: boolean;
     hooksOk: boolean;
@@ -106,6 +107,7 @@ const api = {
       rows,
       dangerous,
       model,
+      agent,
     ),
   // `kept` names a worktree folder left on disk, and why; `damaged` names a
   // link target that lost entries during the removal

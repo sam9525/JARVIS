@@ -117,7 +117,10 @@ import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
 import { createNudgeGate } from "./nudge-gate";
 import { resumeMenuLikely } from "./resume-menu";
+import { agentById } from "./agents";
+import { createReadyGate } from "./agents/ready-gate";
 import type {
+  AgentId,
   CardLayout,
   LineChanges,
   Settings,
@@ -712,6 +715,14 @@ app.whenReady().then(async () => {
     send("transcript", key, [], true);
     send("statusline", key, null);
   }
+  // Codex sessions from launch until their first hook
+  const readyGate = createReadyGate();
+  // restored Codex sessions, keyed by session, with the time their resumed
+  // launch returned; an exit before the settle deadline means the resume failed
+  const codexResumes = new Map<
+    string,
+    { ws: Workspace; label: string; at: number }
+  >();
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
@@ -725,9 +736,24 @@ app.whenReady().then(async () => {
         pendingInput.clear(id);
         commandWait.forget(id);
         orchestrator.resumeMenuEnded(id);
+        readyGate.forget(id);
         // a crashed session's tab stays, and its screen with it
         if (id.includes("#") && code === 0) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
+        const resumed = codexResumes.get(id);
+        codexResumes.delete(id);
+        if (resumed && Date.now() - resumed.at < LAUNCH_SETTLE_DEADLINE_MS) {
+          console.error(`[jarvis] ${id}: Codex could not resume this session`);
+          // the fresh session has no conversation id until its first hook
+          resumedWith.delete(id);
+          void launchSession(resumed.ws, {
+            label: resumed.label,
+            cols: 80,
+            rows: 24,
+            dangerous: false,
+            agent: "codex",
+          });
+        }
       },
     },
   );
@@ -868,6 +894,7 @@ app.whenReady().then(async () => {
       feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
     },
     (raw) => (autoAnswerOn ? autoAnswerOutput(raw, workspaces) : null),
+    (key, hookEventName) => readyGate.note(key, hookEventName),
   );
 
   // Claude Code spawns both of these as its own child processes, so they must
@@ -899,6 +926,7 @@ app.whenReady().then(async () => {
       model?: string;
       resumeId?: string;
       delegated?: boolean;
+      agent?: AgentId;
     },
   ): Promise<{
     ok: boolean;
@@ -963,18 +991,46 @@ app.whenReady().then(async () => {
         };
       }
     }
+    // a worktree made for this launch holds nothing yet, so a failed launch
+    // removes it
+    const dropCreatedWorktree = async (): Promise<void> => {
+      if (!created) return;
+      const removed = await removeWorktreeIfDone(ws.rootPath, cwd).catch(
+        (e) => {
+          console.error(`worktree remove failed in ${ws.rootPath}:`, e);
+          return null;
+        },
+      );
+      if (removed?.removed && removed.damaged)
+        console.error(
+          "worktree removal damaged a link target:",
+          removed.damaged,
+        );
+    };
+    const adapter = ws.isSelf ? agentById("claude") : agentById(opts.agent);
+    // absent on Claude's rows, so a Claude tab reads as it always has
+    const agent = adapter.id === "claude" ? undefined : adapter.id;
     // hooks go in the session's own folder: settings.local.json is untracked,
     // so a worktree does not inherit the main folder's
-    const hooksOk = await ensureHooks(cwd, forwardPath);
-    const mcpOk = await ensureMcp(ws, mcpPath);
+    const hooksOk = await adapter.prepare({ cwd, ws, forwardPath, mcpPath });
     // a boot starts fresh after a guide rewrite, but a relaunched main agent
     // always continues its conversation — /clear is the only reset, and it is
     // the user's
     const resume = ws.isSelf
       ? await hasTranscript(transcriptDir(os.homedir(), ws.rootPath))
       : (opts.resumeId ?? false);
+    const cmd = await adapter.command({
+      dangerous: opts.dangerous,
+      model: opts.model,
+      resume,
+      forwardPath,
+    });
+    if (cmd === null) {
+      await dropCreatedWorktree();
+      return { ok: false, hooksOk, key, label, error: "Codex not found" };
+    }
     const result = {
-      hooksOk: hooksOk && mcpOk,
+      hooksOk,
       key,
       label,
       ...(useWorktree ? { worktree: cwd } : {}),
@@ -988,36 +1044,27 @@ app.whenReady().then(async () => {
         opts.dangerous,
         opts.model,
         resume,
-        (await userStatusLine(os.homedir(), cwd)) ?? undefined,
+        adapter.features.statusLine
+          ? ((await userStatusLine(os.homedir(), cwd)) ?? undefined)
+          : undefined,
+        { id: adapter.id, ...cmd },
       );
+      if (adapter.id === "codex") readyGate.open(key);
       pendingInput.clear(key);
       if (ws.isSelf && resume === true) void followNewest(key, cwd);
-      if (opts.resumeId)
+      if (opts.resumeId && adapter.features.transcript)
         void feed.follow(
           key,
           path.join(transcriptDir(os.homedir(), cwd), `${opts.resumeId}.jsonl`),
         );
       const now = Date.now();
       const launched = status.ptyLaunched(key, now);
-      const opened = status.sessionOpened(key, useWorktree, now);
+      const opened = status.sessionOpened(key, useWorktree, now, agent);
       pushStatus(launched || opened);
     } catch (err) {
       // native load or spawn failure — the terminal reports it, app lives on
       console.error("pty launch failed:", err);
-      // a worktree made for this launch holds nothing yet, so it goes too
-      if (created) {
-        const removed = await removeWorktreeIfDone(ws.rootPath, cwd).catch(
-          (e) => {
-            console.error(`worktree remove failed in ${ws.rootPath}:`, e);
-            return null;
-          },
-        );
-        if (removed?.removed && removed.damaged)
-          console.error(
-            "worktree removal damaged a link target:",
-            removed.damaged,
-          );
-      }
+      await dropCreatedWorktree();
       return { ok: false, ...result, error: (err as Error).message };
     }
     sessions.add({
@@ -1027,6 +1074,7 @@ app.whenReady().then(async () => {
       cwd,
       worktree: useWorktree,
       delegated: opts.delegated === true,
+      ...(agent ? { agent } : {}),
     });
     // live again, so it is no longer offered as closed; matched by conversation
     // id because the session it replaced was just recorded under the same label
@@ -1040,6 +1088,8 @@ app.whenReady().then(async () => {
   // resume.
   function rememberClosed(key: string): void {
     const info = sessions.get(key);
+    // ponytail: a closed Codex tab is not offered for resume; add agent to ClosedSession when that is wanted
+    if (info && !agentById(info.agent).features.transcript) return;
     const sessionId = status.sessionId(key) || resumedWith.get(key);
     if (!info || !sessionId) return;
     const topic =
@@ -1087,6 +1137,8 @@ app.whenReady().then(async () => {
     rememberClosed(key);
     const info = sessions.remove(key);
     resumedWith.delete(key);
+    readyGate.forget(key);
+    codexResumes.delete(key);
     stopFeed(key);
     const killed = await ptyManager.kill(key);
     // a crashed session has nothing to kill, and this is what ends its tab
@@ -1119,6 +1171,7 @@ app.whenReady().then(async () => {
       rows: number,
       dangerous: boolean,
       model: string | undefined,
+      agent?: string,
     ) => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
@@ -1128,6 +1181,7 @@ app.whenReady().then(async () => {
         rows,
         dangerous,
         model,
+        agent: agentById(agent).id,
       });
     },
   );
@@ -1308,7 +1362,12 @@ app.whenReady().then(async () => {
       const info = sessions.get(key);
       const sid = status.sessionId(key) || resumedWith.get(key);
       if (info && sid)
-        live[key] = { sessionId: sid, label: info.label, cwd: info.cwd };
+        live[key] = {
+          sessionId: sid,
+          label: info.label,
+          cwd: info.cwd,
+          ...(info.agent ? { agent: info.agent } : {}),
+        };
     }
     writeSavedSessions(userData, live, Date.now());
   };
@@ -1322,17 +1381,26 @@ app.whenReady().then(async () => {
     const { workspaceId } = parseSessionKey(key, workspaceIds);
     const ws = workspaces.find((w) => w.id === workspaceId && !w.isSelf);
     if (!ws) continue;
+    const adapter = agentById(saved.agent);
     // transcripts are filed by folder, so a worktree session's is its own
     const dir = transcriptDir(os.homedir(), saved.cwd);
-    if (!(await hasSessionTranscript(dir, saved.sessionId))) continue;
+    if (
+      adapter.features.transcript &&
+      !(await hasSessionTranscript(dir, saved.sessionId))
+    )
+      continue;
     resumedWith.set(key, saved.sessionId);
     void launchSession(ws, {
       label: saved.label,
       cols: 80,
       rows: 24,
       dangerous: false,
-      model: "opus",
+      ...(adapter.id === "codex" ? {} : { model: "opus" }),
       resumeId: saved.sessionId,
+      agent: saved.agent,
+    }).then((r) => {
+      if (r.ok && adapter.id === "codex")
+        codexResumes.set(key, { ws, label: saved.label, at: Date.now() });
     });
   }
 
