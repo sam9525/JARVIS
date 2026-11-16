@@ -3,8 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import {
   RESUME_WINDOW_MS,
+  isFailedResume,
   sessionsToResume,
 } from "../../src/main/session-restore";
+import { LAUNCH_SETTLE_DEADLINE_MS } from "../../src/main/main-agent";
 
 const SID = "0b5e6c1a-7f3d-4e2b-9a8c-1d2e3f4a5b6c";
 const NOW = 1_800_000_000_000;
@@ -93,5 +95,23 @@ describe("sessionsToResume", () => {
       },
     };
     expect(sessionsToResume(s, NOW, rootOf)).toEqual({});
+  });
+});
+
+describe("isFailedResume", () => {
+  it("reads a silent non-zero exit inside the window as a failed resume", () => {
+    expect(isFailedResume("starting", 1, 100)).toBe(true);
+  });
+  it("leaves a clean exit alone", () => {
+    expect(isFailedResume("starting", 0, 100)).toBe(false);
+  });
+  it("leaves a session that sent a hook alone", () => {
+    expect(isFailedResume("ready", 1, 100)).toBe(false);
+    expect(isFailedResume("used", 1, 100)).toBe(false);
+  });
+  it("leaves an exit after the window alone", () => {
+    expect(isFailedResume("starting", 1, LAUNCH_SETTLE_DEADLINE_MS)).toBe(
+      false,
+    );
   });
 });

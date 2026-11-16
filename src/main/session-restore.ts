@@ -4,6 +4,8 @@ import { isSessionId } from "./pty-manager";
 import { MAIN_LABEL } from "../shared/session-key";
 import type { AgentId } from "../shared/types";
 import { agentById } from "./agents";
+import type { ReadyState } from "./agents/ready-gate";
+import { LAUNCH_SETTLE_DEADLINE_MS } from "./main-agent";
 
 /** A reopen this soon after the last close continues every project session
  * that was live; any later and they start fresh, as a first launch does. */
@@ -113,4 +115,18 @@ export async function hasSessionTranscript(
   } catch {
     return false;
   }
+}
+
+/** Whether a resumed session that just exited never got going: no hook was
+ * heard, the exit was not clean, and it came inside the settle window. */
+export function isFailedResume(
+  state: ReadyState | undefined,
+  exitCode: number,
+  msSinceLaunch: number,
+): boolean {
+  return (
+    state === "starting" &&
+    exitCode !== 0 &&
+    msSinceLaunch < LAUNCH_SETTLE_DEADLINE_MS
+  );
 }

@@ -106,6 +106,7 @@ import {
 import {
   HEARTBEAT_MS,
   hasSessionTranscript,
+  isFailedResume,
   readSavedSessions,
   sessionsToResume,
   writeSavedSessions,
@@ -718,7 +719,7 @@ app.whenReady().then(async () => {
   // Codex sessions from launch until their first hook
   const readyGate = createReadyGate();
   // restored Codex sessions, keyed by session, with the time their resumed
-  // launch returned; an exit before the settle deadline means the resume failed
+  // launch returned, which isFailedResume reads at exit
   const codexResumes = new Map<
     string,
     { ws: Workspace; label: string; at: number }
@@ -736,13 +737,18 @@ app.whenReady().then(async () => {
         pendingInput.clear(id);
         commandWait.forget(id);
         orchestrator.resumeMenuEnded(id);
+        // read before forget: "starting" means no hook was heard
+        const gateState = readyGate.state(id);
         readyGate.forget(id);
         // a crashed session's tab stays, and its screen with it
         if (id.includes("#") && code === 0) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
         const resumed = codexResumes.get(id);
         codexResumes.delete(id);
-        if (resumed && Date.now() - resumed.at < LAUNCH_SETTLE_DEADLINE_MS) {
+        if (
+          resumed &&
+          isFailedResume(gateState, code, Date.now() - resumed.at)
+        ) {
           console.error(`[jarvis] ${id}: Codex could not resume this session`);
           // the fresh session has no conversation id until its first hook
           resumedWith.delete(id);
