@@ -22,6 +22,7 @@ describe("agent registry", () => {
       model: "opus",
       resume: false,
       forwardPath: "x",
+      hooksRoot: "",
     });
     expect(cmd).toEqual(claudeCommand(true, "opus", false));
   });

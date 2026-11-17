@@ -19,6 +19,7 @@ export interface AgentCommandOpts {
   model?: string;
   resume: boolean | string;
   forwardPath: string;
+  hooksRoot: string;
 }
 
 export interface AgentAdapter {
@@ -34,8 +35,15 @@ export interface AgentAdapter {
     ws: Workspace;
     forwardPath: string;
     mcpPath: string;
+    hooksRoot: string;
   }): Promise<boolean>;
   normalize(raw: Record<string, unknown>): RawHookEvent[];
+  /** Adds what the hook body lacks; awaited after the reply, before normalize. */
+  enrich?(raw: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** The name the ready gate is noted with; absent means raw.hook_event_name. */
+  gateEvent?(raw: Record<string, unknown>): string | undefined;
+  /** false = the agent will ask its own trust question for this folder. */
+  trusted?(cwd: string): Promise<boolean>;
 }
 
 export const AGENTS: readonly AgentAdapter[] = [

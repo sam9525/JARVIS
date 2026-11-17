@@ -1020,7 +1020,13 @@ app.whenReady().then(async () => {
     const agent = adapter.id === "claude" ? undefined : adapter.id;
     // hooks go in the session's own folder: settings.local.json is untracked,
     // so a worktree does not inherit the main folder's
-    const hooksOk = await adapter.prepare({ cwd, ws, forwardPath, mcpPath });
+    const hooksOk = await adapter.prepare({
+      cwd,
+      ws,
+      forwardPath,
+      mcpPath,
+      hooksRoot: "",
+    });
     // a boot starts fresh after a guide rewrite, but a relaunched main agent
     // always continues its conversation — /clear is the only reset, and it is
     // the user's
@@ -1032,6 +1038,7 @@ app.whenReady().then(async () => {
       model: opts.model,
       resume,
       forwardPath,
+      hooksRoot: "",
     });
     if (cmd === null) {
       await dropCreatedWorktree();

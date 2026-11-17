@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import * as textQuestion from "../../src/main/text-question-mapper";
+import * as agents from "../../src/main/agents";
+import type { AgentAdapter } from "../../src/main/agents";
 import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
 import type { StatusEvent, ToolEvent, Workspace } from "../../src/shared/types";
@@ -1348,5 +1350,123 @@ describe("startListener with an agent tag", () => {
     expect(s.events).toHaveLength(0);
     expect(s.statuses).toHaveLength(0);
     expect(s.hooks).toHaveLength(0);
+  });
+});
+
+describe("startListener with an adapter's optional members", () => {
+  const key = workspaces[0].id;
+  const realAgentById = agents.agentById;
+
+  async function startStubbed(members: Partial<AgentAdapter>) {
+    const normalized: Array<Record<string, unknown>> = [];
+    const stub: AgentAdapter = {
+      id: "antigravity",
+      features: {
+        transcript: false,
+        askPanel: false,
+        permissionCard: false,
+        statusLine: false,
+        slashList: false,
+        trustCheck: false,
+        resume: false,
+      },
+      command: () => Promise.resolve(null),
+      prepare: () => Promise.resolve(true),
+      normalize: (raw) => {
+        normalized.push(raw);
+        return [];
+      },
+      ...members,
+    };
+    const spy = vi
+      .spyOn(agents, "agentById")
+      .mockImplementation((id) => (id === "stub" ? stub : realAgentById(id)));
+    const hooks: Array<[string, string]> = [];
+    const server = startListener(
+      0,
+      () => undefined,
+      () => undefined,
+      () => workspaces,
+      stubOrchestrator(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (sessionKey, name) => hooks.push([sessionKey, name]),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return {
+      port,
+      hooks,
+      normalized,
+      close: () => {
+        server.close();
+        spy.mockRestore();
+      },
+    };
+  }
+
+  it("notes the gate with the name gateEvent gives a body that has none", async () => {
+    const s = await startStubbed({ gateEvent: () => "UserPromptSubmit" });
+    await post(s.port, { jarvis_agent: "stub", jarvis_session: key });
+    await vi.waitFor(() => expect(s.hooks).toHaveLength(1));
+    s.close();
+    expect(s.hooks[0]).toEqual([key, "UserPromptSubmit"]);
+  });
+
+  it("hands normalize what enrich added", async () => {
+    const s = await startStubbed({
+      enrich: (raw) => Promise.resolve({ ...raw, extra: 1 }),
+    });
+    await post(s.port, { jarvis_agent: "stub", step: 4 });
+    await vi.waitFor(() => expect(s.normalized).toHaveLength(1));
+    s.close();
+    expect(s.normalized[0]).toEqual({
+      jarvis_agent: "stub",
+      step: 4,
+      extra: 1,
+    });
+  });
+
+  it("normalizes the original body when enrich rejects", async () => {
+    const s = await startStubbed({
+      enrich: () => Promise.reject(new Error("no transcript")),
+    });
+    await post(s.port, { jarvis_agent: "stub", step: 4 });
+    await vi.waitFor(() => expect(s.normalized).toHaveLength(1));
+    s.close();
+    expect(s.normalized[0]).toEqual({ jarvis_agent: "stub", step: 4 });
+  });
+
+  it("replies before enrich resolves", async () => {
+    let finish: (raw: Record<string, unknown>) => void = () => undefined;
+    const s = await startStubbed({
+      enrich: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    const res = await post(s.port, { jarvis_agent: "stub" });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+    expect(s.normalized).toHaveLength(0);
+    finish({ jarvis_agent: "stub", extra: 1 });
+    await vi.waitFor(() => expect(s.normalized).toHaveLength(1));
+    s.close();
+    expect(s.normalized[0]).toEqual({ jarvis_agent: "stub", extra: 1 });
+  });
+
+  it("notes the gate for a Codex body with its raw hook_event_name", async () => {
+    const s = await startStubbed({ gateEvent: () => "UserPromptSubmit" });
+    await post(s.port, {
+      hook_event_name: "Stop",
+      cwd: "D:\vault",
+      jarvis_session: key,
+      jarvis_agent: "codex",
+    });
+    await vi.waitFor(() => expect(s.hooks).toHaveLength(1));
+    s.close();
+    expect(s.hooks[0]).toEqual([key, "Stop"]);
   });
 });

@@ -233,6 +233,7 @@ describe("codex command", () => {
     dangerous: false,
     resume: false as boolean | string,
     forwardPath: "C:\\app\\src\\hook\\forward.mjs",
+    hooksRoot: "",
   };
 
   it("spawns the located program with hook flags only", async () => {

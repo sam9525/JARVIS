@@ -203,15 +203,15 @@ export function startListener(
         }
         const raw = parsed as RawHookEvent & Record<string, unknown>;
         const agent = agentById(raw.jarvis_agent);
-        if (
-          typeof raw.jarvis_session === "string" &&
-          typeof raw.hook_event_name === "string"
-        ) {
-          try {
-            onHook?.(raw.jarvis_session, raw.hook_event_name);
-          } catch {
-            /* the gate is best effort; mapping still runs */
-          }
+        try {
+          const gate = agent.gateEvent?.(raw) ?? raw.hook_event_name;
+          if (
+            typeof raw.jarvis_session === "string" &&
+            typeof gate === "string"
+          )
+            onHook?.(raw.jarvis_session, gate);
+        } catch {
+          /* the gate is best effort; mapping still runs */
         }
         // the answer is computed synchronously and the mappers run after the
         // reply, so the agent waits for nothing but the callback. Only Claude
@@ -226,17 +226,34 @@ export function startListener(
         }
         if (answer === null) res.writeHead(200).end();
         else res.writeHead(200).end(JSON.stringify(answer));
-        let payloads: RawHookEvent[];
-        try {
-          payloads = agent.normalize(raw);
-        } catch {
-          return; // a payload the adapter cannot read maps nothing
+        const mapBody = (body: Record<string, unknown>): void => {
+          let payloads: RawHookEvent[];
+          try {
+            payloads = agent.normalize(body);
+          } catch {
+            return; // a payload the adapter cannot read maps nothing
+          }
+          for (const p of payloads)
+            runMappers(p, sinks, {
+              askPanel: agent.features.askPanel,
+              offered: answer !== null,
+            });
+        };
+        const enrich = agent.enrich?.bind(agent);
+        // an adapter with no enrich maps in this same tick
+        if (!enrich) {
+          mapBody(raw);
+          return;
         }
-        for (const p of payloads)
-          runMappers(p, sinks, {
-            askPanel: agent.features.askPanel,
-            offered: answer !== null,
-          });
+        void (async () => {
+          let body: Record<string, unknown> = raw;
+          try {
+            body = await enrich(raw);
+          } catch {
+            /* a failing enrich maps the body as it arrived */
+          }
+          mapBody(body);
+        })();
       });
       return;
     }
