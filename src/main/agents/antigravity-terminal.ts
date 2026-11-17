@@ -1,5 +1,5 @@
 import type { RawHookEvent } from "../event-mapper";
-import type { AgentId } from "../../shared/types";
+import type { AgentId, StatusKind } from "../../shared/types";
 import { notificationPayload } from "./antigravity-notify";
 import { createOscScanner } from "./osc-notify";
 
@@ -12,6 +12,7 @@ export function createAntigravityTerminal(deps: {
   agentOf(id: string): AgentId | undefined;
   cwdOf(id: string): string | undefined;
   sessionIdOf(id: string): string;
+  statusKindOf(id: string): StatusKind | undefined;
   noteGate(id: string, hookEventName: string): void;
   map(payload: RawHookEvent): void;
 }): {
@@ -35,9 +36,14 @@ export function createAntigravityTerminal(deps: {
           sessionId: deps.sessionIdOf(id),
         });
         if (!payload) continue;
-        // Esc in the middle of a turn sends "ready for input" with no Stop
-        if (payload.notification_type === "idle_prompt")
+        if (payload.notification_type === "idle_prompt") {
+          // Tool output printed under an open permission prompt can carry the
+          // ready code; a send it unlocked would answer "1. Yes". Esc ends
+          // blocked through promptKeyed instead.
+          if (deps.statusKindOf(id) === "blocked") continue;
+          // Esc in the middle of a turn sends "ready for input" with no Stop
           deps.noteGate(id, "Interrupt");
+        }
         deps.map(payload);
       }
     },

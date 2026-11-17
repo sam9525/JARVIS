@@ -567,11 +567,13 @@ app.whenReady().then(async () => {
   const pendingInput = createPendingInput();
   // sessions whose session screen input holds text; only the renderer sees it
   const drafted = new Set<string>();
-  const promptOpen = (key: string): boolean => {
-    const kind = status
+  const statusKindOf = (key: string) =>
+    status
       .snapshot()
       .flatMap((w) => w.sessions)
       .find((s) => s.key === key)?.kind;
+  const promptOpen = (key: string): boolean => {
+    const kind = statusKindOf(key);
     return kind === "asking" || kind === "blocked";
   };
   const nudgeGate = createNudgeGate(
@@ -734,6 +736,7 @@ app.whenReady().then(async () => {
     agentOf: (id) => sessions.get(id)?.agent,
     cwdOf: (id) => sessions.get(id)?.cwd,
     sessionIdOf: (id) => status.sessionId(id),
+    statusKindOf,
     noteGate: (id, name) => readyGate.note(id, name),
     map: (payload) =>
       runMappers(payload, listenerSinks, { askPanel: false, offered: false }),

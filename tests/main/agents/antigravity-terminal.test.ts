@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { createAntigravityTerminal } from "../../../src/main/agents/antigravity-terminal";
 import type { RawHookEvent } from "../../../src/main/event-mapper";
-import type { AgentId } from "../../../src/shared/types";
+import type { AgentId, StatusKind } from "../../../src/shared/types";
 
 const READY = "\x07\x1b]9;Antigravity CLI is ready for input\x07";
 const NEEDS = "\x07\x1b]9;Antigravity CLI needs tool confirmation\x07";
 
-function setup(agent: AgentId | undefined, sessionId = "A") {
+function setup(
+  agent: AgentId | undefined,
+  sessionId = "A",
+  kind: StatusKind = "working",
+) {
   const notes: Array<[string, string]> = [];
   const mapped: RawHookEvent[] = [];
   const terminal = createAntigravityTerminal({
     agentOf: () => agent,
     cwdOf: () => "C:\\work\\demo",
     sessionIdOf: () => sessionId,
+    statusKindOf: () => kind,
     noteGate: (id, name) => notes.push([id, name]),
     map: (payload) => mapped.push(payload),
   });
@@ -39,6 +44,29 @@ describe("antigravity terminal output", () => {
     expect(s.mapped[0]?.notification_type).toBe("idle_prompt");
     expect(s.notes).toEqual([["k", "Interrupt"]]);
   });
+
+  it("ignores the ready code while a permission prompt is open", () => {
+    const s = setup("antigravity", "A", "blocked");
+    s.terminal.output("k", READY);
+    expect(s.mapped).toEqual([]);
+    expect(s.notes).toEqual([]);
+  });
+
+  it("still maps a permission code while blocked", () => {
+    const s = setup("antigravity", "A", "blocked");
+    s.terminal.output("k", NEEDS);
+    expect(s.mapped[0]?.notification_type).toBe("permission_prompt");
+  });
+
+  it.each(["working", "asking", "idle"] as const)(
+    "maps the ready code while the status is %s",
+    (kind) => {
+      const s = setup("antigravity", "A", kind);
+      s.terminal.output("k", READY);
+      expect(s.mapped[0]?.notification_type).toBe("idle_prompt");
+      expect(s.notes).toEqual([["k", "Interrupt"]]);
+    },
+  );
 
   it("ignores codes with texts agy does not send", () => {
     const s = setup("antigravity");
