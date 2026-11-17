@@ -35,6 +35,21 @@ what `agy` prints on exit and what was run).
 | `run_command`   | `CommandLine`, `WaitMsBeforeAsync`, `toolSummary` | shell parse, else `Bash` | Pre          | `pre-run-command.json` and the three below |
 | `call_mcp_tool` | `ServerName`, `ToolName`, `Arguments`             | passes through           | Pre          | `pre-mcp.json`                             |
 
+Notes on the table:
+
+- `read_file` also took `StartLine: 1` in one earlier run (2026-11-16); the
+  fixtures hold `Path` only, so treat `StartLine` as optional.
+- A `PostToolUse` body is the `PreToolUse` body plus `error`. It carries **no
+  tool result**: no file content, no matched files, no command output, no MCP
+  answer. Matched files and impact hits cannot come from it.
+- `call_mcp_tool` has no fixture for `PostToolUse`: print mode auto-denied the
+  call. The MCP server and tool are two args (`ServerName: "gitnexus"`,
+  `ToolName: "list_repos"`), not one `mcp__gitnexus__…` tool name.
+- `PostInvocation` fires after every model call (seen between each
+  `PreInvocation` pair) and carries nothing the other hooks lack.
+- `SessionStart` fires at the first prompt in the TUI too, not at launch
+  (`session-start.json` has `lastUserInput` set).
+
 `agy` has **no search tool of its own**. On Windows it searches through
 `run_command` with PowerShell:
 
@@ -107,7 +122,8 @@ With `--settings {"notifications":true}`:
 | `Antigravity CLI needs tool confirmation` | a permission prompt opens; also in `--mode plan` when a command needs approval          |
 | `Antigravity CLI is ready for input`      | a turn ends (with the `Stop` hook), and after Esc in the middle of a turn (without one) |
 
-Each is sent as `BEL`, then `ESC ] 9 ; <text> BEL`. A plan approval was not
+Each is sent as `BEL`, then `ESC ] 9 ; <text> BEL`. `terminal-codes.json` holds
+the four recorded byte sequences, cut from the PTY logs. A plan approval was not
 reached in the plan-mode run (the turn stopped at a command approval first), so
 its text is not recorded.
 
