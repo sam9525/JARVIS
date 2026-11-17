@@ -16,6 +16,11 @@ const VALUE_FLAGS = new Set(
     " ",
   ),
 );
+const SELECT_STRING = new Set(["select-string", "sls"]);
+// Select-String parameters (case-insensitive) whose next word is a path, not the pattern.
+const SELECT_STRING_PATH_PARAMS = new Set(
+  "-path -literalpath -include -exclude -filter".split(" "),
+);
 const FOLDER_CHANGERS = new Set(["cd", "chdir", "pushd", "set-location", "sl"]);
 const SHELLS = new Set(["powershell", "pwsh", "bash", "sh", "cmd"]);
 const COMMAND_FLAGS = new Set(["-command", "-c", "-lc", "/c"]);
@@ -124,7 +129,18 @@ export function parseShellCommand(command: unknown): ShellActivity {
       part[1] !== undefined &&
       commandName(part[1]) === "grep";
     const args = part.slice(isGitGrep ? 2 : 1).map(unquote);
-    if (isGitGrep || SEARCHERS.has(name)) {
+    if (SELECT_STRING.has(name)) {
+      const lower = args.map((word) => word.toLowerCase());
+      const named = lower.indexOf("-pattern");
+      const pattern =
+        named !== -1
+          ? args[named + 1]
+          : args.find(
+              (word, i) =>
+                !isFlag(word) && !SELECT_STRING_PATH_PARAMS.has(lower[i - 1]),
+            );
+      if (pattern !== undefined) push(searches, pattern);
+    } else if (isGitGrep || SEARCHERS.has(name)) {
       const pattern = args.find(
         (word, i) => !isFlag(word) && !VALUE_FLAGS.has(args[i - 1]),
       );

@@ -171,4 +171,43 @@ describe("parseShellCommand", () => {
       "foo",
     ]);
   });
+
+  it("takes the value of a named -Pattern as the Select-String search", () => {
+    expect(parseShellCommand('Select-String -Path * -Pattern "greet"')).toEqual(
+      { reads: [], searches: ["greet"] },
+    );
+    expect(parseShellCommand("sls -pattern foo -path src").searches).toEqual([
+      "foo",
+    ]);
+    expect(
+      parseShellCommand("select-string -PATTERN foo -Recurse").searches,
+    ).toEqual(["foo"]);
+  });
+
+  it("skips the path parameters of Select-String before a positional pattern", () => {
+    for (const param of [
+      "-Path",
+      "-LiteralPath",
+      "-Include",
+      "-Exclude",
+      "-Filter",
+      "-path",
+      "-LITERALPATH",
+    ])
+      expect(
+        parseShellCommand(`Select-String ${param} '*.js' greet`).searches,
+      ).toEqual(["greet"]);
+  });
+
+  it("keeps a positional Select-String pattern", () => {
+    expect(parseShellCommand("Select-String greet *.js").searches).toEqual([
+      "greet",
+    ]);
+  });
+
+  it("gives no search for a -Pattern with no value", () => {
+    expect(parseShellCommand("Select-String -Path a.js -Pattern")).toEqual(
+      none,
+    );
+  });
 });
