@@ -125,8 +125,7 @@ import { createNudgeGate } from "./nudge-gate";
 import { resumeMenuLikely } from "./resume-menu";
 import { agentById } from "./agents";
 import { createReadyGate } from "./agents/ready-gate";
-import { createOscScanner } from "./agents/osc-notify";
-import { notificationPayload } from "./agents/antigravity-notify";
+import { createAntigravityTerminal } from "./agents/antigravity-terminal";
 import { AGENT_LABELS } from "../shared/agent-labels";
 import type {
   AgentId,
@@ -729,7 +728,14 @@ app.whenReady().then(async () => {
   // each non-Claude session's turn state, from its launch or resume until its exit
   const readyGate = createReadyGate();
   // Antigravity reports its prompts only as terminal notification codes
-  const oscScanner = createOscScanner();
+  const antigravityTerminal = createAntigravityTerminal({
+    agentOf: (id) => sessions.get(id)?.agent,
+    cwdOf: (id) => sessions.get(id)?.cwd,
+    sessionIdOf: (id) => status.sessionId(id),
+    noteGate: (id, name) => readyGate.note(id, name),
+    map: (payload) =>
+      runMappers(payload, listenerSinks, { askPanel: false, offered: false }),
+  });
   // restored Codex sessions, keyed by session, with the time their resumed
   // launch returned, which isFailedResume reads at exit
   const codexResumes = new Map<
@@ -743,13 +749,12 @@ app.whenReady().then(async () => {
         send("pty-data", id, data);
         settle.bump(id);
         lastOutputAt.set(id, Date.now());
-        if (sessions.get(id)?.agent === "antigravity")
-          readNotifications(id, data);
+        antigravityTerminal.output(id, data);
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
         pendingInput.clear(id);
-        oscScanner.forget(id);
+        antigravityTerminal.forget(id);
         commandWait.forget(id);
         orchestrator.resumeMenuEnded(id);
         // read before forget: "starting" means no hook was heard
@@ -891,25 +896,6 @@ app.whenReady().then(async () => {
     },
     getWorkspaces: () => workspaces,
   };
-
-  // Each code is mapped as the hook Notification it stands for. Esc in the
-  // middle of a turn sends "ready for input" with no Stop, so that code also
-  // ends the gate's turn.
-  function readNotifications(id: string, data: string): void {
-    const cwd = sessions.get(id)?.cwd;
-    for (const text of oscScanner.feed(id, data)) {
-      if (!cwd) continue;
-      const payload = notificationPayload(text, {
-        key: id,
-        cwd,
-        sessionId: status.sessionId(id),
-      });
-      if (!payload) continue;
-      if (payload.notification_type === "idle_prompt")
-        readyGate.note(id, "Interrupt");
-      runMappers(payload, listenerSinks, { askPanel: false, offered: false });
-    }
-  }
 
   startListener(
     Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
@@ -1202,7 +1188,7 @@ app.whenReady().then(async () => {
     const info = sessions.remove(key);
     resumedWith.delete(key);
     readyGate.forget(key);
-    oscScanner.forget(key);
+    antigravityTerminal.forget(key);
     codexResumes.delete(key);
     stopFeed(key);
     const killed = await ptyManager.kill(key);
@@ -1293,10 +1279,7 @@ app.whenReady().then(async () => {
     if (written) {
       const keyed = status.promptKeyed(id, data, Date.now());
       pushStatus(keyed);
-      // Esc at agy's permission prompt sends no hook and no code, so the
-      // key that closed the prompt also ends the gate's turn
-      if (keyed && data === "\x1b" && sessions.get(id)?.agent === "antigravity")
-        readyGate.note(id, "Interrupt");
+      antigravityTerminal.keyed(id, data, keyed);
       orchestrator.resumeMenuKeyed(id, data);
     }
     return written;
