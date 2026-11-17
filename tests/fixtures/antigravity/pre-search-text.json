@@ -1,0 +1,20 @@
+{
+  "artifactDirectoryPath": "C:/Users/user/.gemini/antigravity-cli/brain/2a7c0719-cba9-406f-b559-da1ceb17dd75",
+  "conversationId": "2a7c0719-cba9-406f-b559-da1ceb17dd75",
+  "cwd": "C:\\work\\demo",
+  "hookEventName": "PreToolUse",
+  "lastUserInput": "Do these four steps one by one, each with its own tool call, and do not skip any: 1) search the file contents of this project for the text 'greet'. 2) find all files in this project whose name ends in .js. 3) list the files of this folder. 4) run the shell command: node missing-file.js . Then reply with one short line.",
+  "modelName": "gemini-4-argon-medium",
+  "stepIdx": 4,
+  "toolCall": {
+    "args": {
+      "CommandLine": "Select-String -Path * -Pattern \"greet\"",
+      "WaitMsBeforeAsync": 5000,
+      "toolSummary": "Search file contents for greet"
+    },
+    "id": "call_10539906714898142664",
+    "name": "run_command"
+  },
+  "transcriptPath": "C:/Users/user/.gemini/antigravity-cli/brain/2a7c0719-cba9-406f-b559-da1ceb17dd75/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": ["C:/work/demo", "C:/work/hooks"]
+}

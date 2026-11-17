@@ -1,0 +1,12 @@
+{
+  "artifactDirectoryPath": "C:/Users/user/.gemini/antigravity-cli/brain/ceda3445-c9db-4ba8-9f3f-4971079c008c",
+  "conversationId": "ceda3445-c9db-4ba8-9f3f-4971079c008c",
+  "cwd": "C:\\work\\demo",
+  "hookEventName": "PreInvocation",
+  "initialNumSteps": 1,
+  "invocationNum": 0,
+  "lastUserInput": "In greet.js change the word Hello to Hi. Then create a new file notes.txt with the single line: probe.",
+  "modelName": "gemini-4-argon-medium",
+  "transcriptPath": "C:/Users/user/.gemini/antigravity-cli/brain/ceda3445-c9db-4ba8-9f3f-4971079c008c/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": ["C:/work/demo", "C:/work/hooks"]
+}
