@@ -81,6 +81,33 @@ describe("createAntigravityEnrich", () => {
     expect(out.lastAssistantMessage).toBe("the answer");
   });
 
+  it("gives NO_FINAL_MESSAGE when the current turn has no answer yet", async () => {
+    await writeTranscript(
+      [
+        JSON.stringify({ type: "USER_INPUT", content: "first" }),
+        planner("an earlier turn's answer"),
+        JSON.stringify({ type: "USER_INPUT", content: "second" }),
+        planner(undefined, { tool_calls: [{ name: "read_file", args: {} }] }),
+        "",
+      ].join("\n"),
+    );
+    const out = await createAntigravityEnrich(home)(stopBody());
+    expect(out.lastAssistantMessage).toBe(NO_FINAL_MESSAGE);
+  });
+
+  it("reads the answer given after the last USER_INPUT", async () => {
+    await writeTranscript(
+      [
+        planner("an earlier turn's answer"),
+        JSON.stringify({ type: "USER_INPUT", content: "second" }),
+        planner("this turn's answer"),
+        "",
+      ].join("\n"),
+    );
+    const out = await createAntigravityEnrich(home)(stopBody());
+    expect(out.lastAssistantMessage).toBe("this turn's answer");
+  });
+
   it("skips a half-written last line", async () => {
     await writeTranscript(
       planner("complete") + "\n" + planner("partial").slice(0, 20),

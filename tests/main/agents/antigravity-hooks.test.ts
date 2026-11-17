@@ -50,21 +50,20 @@ describe("antigravityArgs", () => {
       "R",
       "--settings",
       SETTINGS,
-      "--conversation",
-      CONVERSATION,
+      `--conversation=${CONVERSATION}`,
     ]);
   });
 
   it("drops a resume value that is not a session id", () => {
     expect(
       antigravityArgs({ dangerous: false, resume: "x & calc", hooksRoot: "R" }),
-    ).not.toContain("--conversation");
+    ).not.toContainEqual(expect.stringMatching(/^--conversation/));
   });
 
   it("drops a resume without an id", () => {
     expect(
       antigravityArgs({ dangerous: false, resume: true, hooksRoot: "R" }),
-    ).not.toContain("--conversation");
+    ).not.toContainEqual(expect.stringMatching(/^--conversation/));
   });
 });
 

@@ -55,7 +55,7 @@ export function antigravityArgs(opts: {
     "--settings",
     JSON.stringify({ notifications: true }),
     ...(typeof resume === "string" && isSessionId(resume)
-      ? ["--conversation", resume]
+      ? [`--conversation=${resume}`]
       : []),
   ];
 }

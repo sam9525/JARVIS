@@ -263,6 +263,22 @@ describe("antigravity normalize", () => {
     ]);
   });
 
+  it("gives StopFailure a string error when the reason is not a string", () => {
+    expect(
+      normalizeBody(stopWith({ error: "", terminationReason: 7 })),
+    ).toEqual([
+      expect.objectContaining({ hook_event_name: "StopFailure", error: "7" }),
+    ]);
+  });
+
+  it("omits session_id when the body has no conversationId", () => {
+    const body = fixture("pre-read");
+    delete body.conversationId;
+    const out = adapter.normalize(body);
+    expect(out).not.toHaveLength(0);
+    for (const payload of out) expect(payload).not.toHaveProperty("session_id");
+  });
+
   it("gives nothing for a body with no event or no tool call, and never throws", () => {
     expect(adapter.normalize({})).toEqual([]);
     expect(adapter.normalize({ hookEventName: "PostInvocation" })).toEqual([]);

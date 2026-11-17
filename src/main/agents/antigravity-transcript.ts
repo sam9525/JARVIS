@@ -36,6 +36,8 @@ async function readTail(file: string): Promise<string> {
   }
 }
 
+// The scan stops at the last USER_INPUT, so an earlier turn's answer is never
+// returned for the current one.
 function lastAnswer(text: string): string | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -45,14 +47,15 @@ function lastAnswer(text: string): string | null {
     } catch {
       continue;
     }
+    if (typeof entry !== "object" || entry === null) continue;
+    const { type, content } = entry as Record<string, unknown>;
+    if (type === "USER_INPUT") return null;
     if (
-      typeof entry === "object" &&
-      entry !== null &&
-      (entry as Record<string, unknown>).type === "PLANNER_RESPONSE"
-    ) {
-      const content = (entry as Record<string, unknown>).content;
-      if (typeof content === "string" && content !== "") return content;
-    }
+      type === "PLANNER_RESPONSE" &&
+      typeof content === "string" &&
+      content !== ""
+    )
+      return content;
   }
   return null;
 }

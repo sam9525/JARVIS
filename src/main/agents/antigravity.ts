@@ -41,7 +41,10 @@ function normalizeStop(
   const reason = raw.terminationReason;
   if (error !== "" || (reason !== undefined && reason !== "NO_TOOL_CALL"))
     return [
-      payload({ hook_event_name: "StopFailure", error: error || reason }),
+      payload({
+        hook_event_name: "StopFailure",
+        error: error || String(reason),
+      }),
     ];
   const message = raw.lastAssistantMessage;
   return [
@@ -54,7 +57,8 @@ function normalizeStop(
 function normalizeAntigravity(raw: Record<string, unknown>): RawHookEvent[] {
   const event = raw.hookEventName;
   if (typeof event !== "string") return [];
-  const base: Record<string, unknown> = { session_id: raw.conversationId };
+  const base: Record<string, unknown> =
+    raw.conversationId === undefined ? {} : { session_id: raw.conversationId };
   for (const field of PASSED_FIELDS)
     if (raw[field] !== undefined) base[field] = raw[field];
   const payload = (fields: Record<string, unknown>) =>
