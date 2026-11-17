@@ -1357,7 +1357,10 @@ describe("startListener with an adapter's optional members", () => {
   const key = workspaces[0].id;
   const realAgentById = agents.agentById;
 
-  async function startStubbed(members: Partial<AgentAdapter>) {
+  async function startStubbed(
+    members: Partial<AgentAdapter>,
+    getWorkspaces: () => Workspace[] = () => workspaces,
+  ) {
     const normalized: Array<Record<string, unknown>> = [];
     const stub: AgentAdapter = {
       id: "antigravity",
@@ -1386,7 +1389,7 @@ describe("startListener with an adapter's optional members", () => {
       0,
       () => undefined,
       () => undefined,
-      () => workspaces,
+      getWorkspaces,
       stubOrchestrator(),
       undefined,
       undefined,
@@ -1437,6 +1440,34 @@ describe("startListener with an adapter's optional members", () => {
     await vi.waitFor(() => expect(s.normalized).toHaveLength(1));
     s.close();
     expect(s.normalized[0]).toEqual({ jarvis_agent: "stub", step: 4 });
+  });
+
+  it("keeps a throwing sink after enrich from rejecting unhandled", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const normalized: Array<Record<string, unknown>> = [];
+      const s = await startStubbed(
+        {
+          enrich: (raw) => Promise.resolve(raw),
+          normalize: (raw) => {
+            normalized.push(raw);
+            return [{ hook_event_name: "Stop" }];
+          },
+        },
+        () => {
+          throw new Error("no workspaces");
+        },
+      );
+      await post(s.port, { jarvis_agent: "stub" });
+      await vi.waitFor(() => expect(normalized).toHaveLength(1));
+      await new Promise((r) => setTimeout(r, 20));
+      s.close();
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
   });
 
   it("replies before enrich resolves", async () => {

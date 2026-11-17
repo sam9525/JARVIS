@@ -252,7 +252,11 @@ export function startListener(
           } catch {
             /* a failing enrich maps the body as it arrived */
           }
-          mapBody(body);
+          try {
+            mapBody(body);
+          } catch {
+            /* a failing sink after the reply has no one to report to */
+          }
         })();
       });
       return;

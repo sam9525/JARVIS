@@ -1,8 +1,13 @@
+import os from "node:os";
 import type { AgentId, Workspace } from "../../shared/types";
 import type { RawHookEvent } from "../event-mapper";
 import { claudeAdapter } from "./claude";
 import { createCodexAdapter } from "./codex";
 import { locateCodex } from "./codex-locate";
+import { createAntigravityAdapter } from "./antigravity";
+import { locateAntigravity } from "./antigravity-locate";
+import { createAntigravityEnrich } from "./antigravity-transcript";
+import { isAntigravityTrusted } from "./antigravity-trust";
 
 export interface AgentFeatures {
   transcript: boolean;
@@ -49,6 +54,11 @@ export interface AgentAdapter {
 export const AGENTS: readonly AgentAdapter[] = [
   claudeAdapter,
   createCodexAdapter(locateCodex),
+  createAntigravityAdapter({
+    locate: () => locateAntigravity(),
+    enrich: createAntigravityEnrich(os.homedir()),
+    trusted: (cwd) => isAntigravityTrusted(os.homedir(), cwd),
+  }),
 ];
 
 export function agentById(id: unknown): AgentAdapter {

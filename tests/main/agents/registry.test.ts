@@ -27,6 +27,10 @@ describe("agent registry", () => {
     expect(cmd).toEqual(claudeCommand(true, "opus", false));
   });
 
+  it("finds antigravity", () => {
+    expect(agentById("antigravity").id).toBe("antigravity");
+  });
+
   it("finds codex, which supports only resume", () => {
     const codex = agentById("codex");
     expect(codex.id).toBe("codex");

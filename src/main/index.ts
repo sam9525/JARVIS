@@ -11,7 +11,12 @@ import os from "node:os";
 import path from "node:path";
 import { existsSync, promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
-import { startListener, DEFAULT_PORT } from "./http-listener";
+import {
+  startListener,
+  runMappers,
+  DEFAULT_PORT,
+  type MapperSinks,
+} from "./http-listener";
 import { watchVault } from "./watcher";
 import { loadSettings, saveSettings } from "./settings";
 import {
@@ -120,6 +125,9 @@ import { createNudgeGate } from "./nudge-gate";
 import { resumeMenuLikely } from "./resume-menu";
 import { agentById } from "./agents";
 import { createReadyGate } from "./agents/ready-gate";
+import { createOscScanner } from "./agents/osc-notify";
+import { notificationPayload } from "./agents/antigravity-notify";
+import { AGENT_LABELS } from "../shared/agent-labels";
 import type {
   AgentId,
   CardLayout,
@@ -718,8 +726,10 @@ app.whenReady().then(async () => {
     send("transcript", key, [], true);
     send("statusline", key, null);
   }
-  // each Codex session's turn state, from its launch or resume until its exit
+  // each non-Claude session's turn state, from its launch or resume until its exit
   const readyGate = createReadyGate();
+  // Antigravity reports its prompts only as terminal notification codes
+  const oscScanner = createOscScanner();
   // restored Codex sessions, keyed by session, with the time their resumed
   // launch returned, which isFailedResume reads at exit
   const codexResumes = new Map<
@@ -733,10 +743,13 @@ app.whenReady().then(async () => {
         send("pty-data", id, data);
         settle.bump(id);
         lastOutputAt.set(id, Date.now());
+        if (sessions.get(id)?.agent === "antigravity")
+          readNotifications(id, data);
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
         pendingInput.clear(id);
+        oscScanner.forget(id);
         commandWait.forget(id);
         orchestrator.resumeMenuEnded(id);
         // read before forget: "starting" means no hook was heard
@@ -845,13 +858,13 @@ app.whenReady().then(async () => {
   // can be confirmed by its UserPromptSubmit
   const hooksHeardFrom = new Set<string>();
 
-  startListener(
-    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
-    (e) => {
+  // the listener's sinks, shared with the notification codes read from a pty
+  const listenerSinks: MapperSinks = {
+    onEvent: (e) => {
       send("tool-event", e);
       pushStatus(status.countTool(e));
     },
-    (s) => {
+    onStatus: (s) => {
       hooksHeardFrom.add(s.sessionKey);
       if (s.prompt !== undefined || s.ended !== undefined)
         commandWait.ran(s.sessionKey);
@@ -870,7 +883,39 @@ app.whenReady().then(async () => {
       if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
         onMainPrompt?.(s.prompt);
     },
-    () => workspaces,
+    onAsk: (p) => send("ask", p),
+    // a /resume or /clear switches files before the session's next hook
+    onSessionStart: (s) => {
+      hooksHeardFrom.add(s.sessionKey);
+      feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
+    },
+    getWorkspaces: () => workspaces,
+  };
+
+  // Each code is mapped as the hook Notification it stands for. Esc in the
+  // middle of a turn sends "ready for input" with no Stop, so that code also
+  // ends the gate's turn.
+  function readNotifications(id: string, data: string): void {
+    const cwd = sessions.get(id)?.cwd;
+    for (const text of oscScanner.feed(id, data)) {
+      if (!cwd) continue;
+      const payload = notificationPayload(text, {
+        key: id,
+        cwd,
+        sessionId: status.sessionId(id),
+      });
+      if (!payload) continue;
+      if (payload.notification_type === "idle_prompt")
+        readyGate.note(id, "Interrupt");
+      runMappers(payload, listenerSinks, { askPanel: false, offered: false });
+    }
+  }
+
+  startListener(
+    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
+    listenerSinks.onEvent,
+    listenerSinks.onStatus,
+    listenerSinks.getWorkspaces,
     {
       ...orchestrator,
       // opens the panel first: the answer is for the agent, the panel is for
@@ -881,7 +926,7 @@ app.whenReady().then(async () => {
         return { path: todosPath, text, malformed: parseTodos(text).malformed };
       },
     },
-    (p) => send("ask", p),
+    listenerSinks.onAsk,
     (key, raw) => {
       const cwd =
         (raw.workspace as { current_dir?: string } | undefined)?.current_dir ??
@@ -896,11 +941,7 @@ app.whenReady().then(async () => {
         })
         .catch((): void => undefined);
     },
-    // a /resume or /clear switches files before the session's next hook
-    (s) => {
-      hooksHeardFrom.add(s.sessionKey);
-      feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
-    },
+    listenerSinks.onSessionStart,
     (raw) => (autoAnswerOn ? autoAnswerOutput(raw, workspaces) : null),
     (key, hookEventName) => readyGate.note(key, hookEventName),
   );
@@ -913,6 +954,8 @@ app.whenReady().then(async () => {
     : path.join(app.getAppPath(), "src", "hook");
   const forwardPath = path.join(hookDir, "forward.mjs");
   const mcpPath = path.join(hookDir, "mcp.mjs");
+  // agy reads its hooks from a folder JARVIS owns, never from the user's repo
+  const hooksRoot = path.join(userData, "antigravity-hooks");
   const sessions = createSessionRegistry();
   // a resumed session reports no id until its first hook, so the id it was
   // resumed with stands in — otherwise a close before any prompt forgets it
@@ -1025,7 +1068,7 @@ app.whenReady().then(async () => {
       ws,
       forwardPath,
       mcpPath,
-      hooksRoot: "",
+      hooksRoot,
     });
     // a boot starts fresh after a guide rewrite, but a relaunched main agent
     // always continues its conversation — /clear is the only reset, and it is
@@ -1038,11 +1081,17 @@ app.whenReady().then(async () => {
       model: opts.model,
       resume,
       forwardPath,
-      hooksRoot: "",
+      hooksRoot,
     });
     if (cmd === null) {
       await dropCreatedWorktree();
-      return { ok: false, hooksOk, key, label, error: "Codex not found" };
+      return {
+        ok: false,
+        hooksOk,
+        key,
+        label,
+        error: `${AGENT_LABELS[adapter.id]} not found`,
+      };
     }
     const result = {
       hooksOk,
@@ -1064,7 +1113,7 @@ app.whenReady().then(async () => {
           : undefined,
         { id: adapter.id, ...cmd },
       );
-      if (adapter.id === "codex") readyGate.open(key);
+      if (adapter.id !== "claude") readyGate.open(key);
       pendingInput.clear(key);
       if (ws.isSelf && resume === true) void followNewest(key, cwd);
       if (opts.resumeId && adapter.features.transcript)
@@ -1153,6 +1202,7 @@ app.whenReady().then(async () => {
     const info = sessions.remove(key);
     resumedWith.delete(key);
     readyGate.forget(key);
+    oscScanner.forget(key);
     codexResumes.delete(key);
     stopFeed(key);
     const killed = await ptyManager.kill(key);
@@ -1241,7 +1291,12 @@ app.whenReady().then(async () => {
     if (pendingInput.note(id, data, promptOpen(id))) send("user-submitted", id);
     const written = ptyManager.write(id, data);
     if (written) {
-      pushStatus(status.promptKeyed(id, data, Date.now()));
+      const keyed = status.promptKeyed(id, data, Date.now());
+      pushStatus(keyed);
+      // Esc at agy's permission prompt sends no hook and no code, so the
+      // key that closed the prompt also ends the gate's turn
+      if (keyed && data === "\x1b" && sessions.get(id)?.agent === "antigravity")
+        readyGate.note(id, "Interrupt");
       orchestrator.resumeMenuKeyed(id, data);
     }
     return written;
@@ -1410,7 +1465,7 @@ app.whenReady().then(async () => {
       cols: 80,
       rows: 24,
       dangerous: false,
-      ...(adapter.id === "codex" ? {} : { model: "opus" }),
+      ...(adapter.id === "claude" ? { model: "opus" } : {}),
       resumeId: saved.sessionId,
       agent: saved.agent,
     }).then((r) => {
