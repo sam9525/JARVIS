@@ -4,6 +4,7 @@ import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
 import { AGENT_MARK, LBL_AM } from "../ui/hud";
+import { AGENT_LABELS } from "../../shared/agent-labels";
 import { PILL } from "./status-colours";
 import type { NoticeAction } from "./tab-actions";
 import {
@@ -302,9 +303,9 @@ export default function TerminalPanel({
       offMode();
     };
   }, [sessionKey]);
-  // a Codex session has no transcript, so it shows the terminal only
-  const codex = sessionStatus.agent === "codex";
-  const mode: ViewMode = codex ? "raw" : getViewMode(sessionKey);
+  // only a Claude session has a transcript; any other agent shows the terminal only
+  const otherAgent = (sessionStatus.agent ?? "claude") !== "claude";
+  const mode: ViewMode = otherAgent ? "raw" : getViewMode(sessionKey);
   const statusLine = statusLineFor(sessionKey);
 
   // Separate from the mount effect above, and keyed on visibility: the boot
@@ -465,7 +466,7 @@ export default function TerminalPanel({
           {/* mr-auto holds the mark on the left while the view switch
               stays on the right */}
           <span data-testid="agent-mark" className={AGENT_MARK + " mr-auto"}>
-            {codex ? "Codex" : "Claude"}
+            {AGENT_LABELS[sessionStatus.agent ?? "claude"]}
           </span>
           {reindexCommand && status.kind === "running" && (
             <button
@@ -480,7 +481,7 @@ export default function TerminalPanel({
               index stale
             </button>
           )}
-          {!codex && (
+          {!otherAgent && (
             <Segmented
               options={VIEW_OPTIONS}
               value={mode}
@@ -494,7 +495,7 @@ export default function TerminalPanel({
             disk. Close the tab when you are done with it.
           </div>
         )}
-        {!codex && mode === "raw" && wasAutoFlipped(sessionKey) && (
+        {!otherAgent && mode === "raw" && wasAutoFlipped(sessionKey) && (
           <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
             Close it here, then switch back to screen. Your next prompt also
             switches back.
@@ -508,7 +509,7 @@ export default function TerminalPanel({
             className="h-full w-full"
             data-testid="terminal-host"
           />
-          {!codex && (
+          {!otherAgent && (
             <div
               ref={screenRef}
               className="absolute inset-0 bg-panel"

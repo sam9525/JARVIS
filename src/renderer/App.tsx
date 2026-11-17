@@ -909,10 +909,12 @@ export default function App() {
     const { tabs } = shownTabs(ws, false);
     return cardTab(tabs, selectedTabs.get(ws.id)?.key).agent;
   };
-  // a Codex session's questions and permissions are answered in its terminal
-  const isCodexSession = (key: string | undefined): boolean =>
+  // a non-Claude session's questions and permissions are answered in its terminal
+  const isOtherAgentSession = (key: string | undefined): boolean =>
     statuses.some((s) =>
-      s.sessions.some((x) => x.key === key && x.agent === "codex"),
+      s.sessions.some(
+        (x) => x.key === key && !!x.agent && x.agent !== "claude",
+      ),
     );
 
   // The terminal panel's session and workspace. Its `@` picker offers the
@@ -1528,7 +1530,7 @@ export default function App() {
           setShowTodos(!showTodos);
         }}
       />
-      {!isCodexSession(terminalTab?.key) && (
+      {!isOtherAgentSession(terminalTab?.key) && (
         <AutoAnswerToggle
           on={autoAnswer}
           onToggle={() =>
@@ -2028,7 +2030,7 @@ export default function App() {
             ? terminalTab.key
             : undefined;
         const askable = new Map(
-          [...asks].filter(([key]) => !isCodexSession(key)),
+          [...asks].filter(([key]) => !isOtherAgentSession(key)),
         );
         const prompt = pickAsk(askable, ownKey ?? undefined, screenKey);
         const ws =

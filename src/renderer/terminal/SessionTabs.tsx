@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from "react";
 import Segmented from "../ui/Segmented";
 import { AGENT_MARK, LBL_DIM } from "../ui/hud";
+import { AGENT_LABELS } from "../../shared/agent-labels";
 import { MAX_SESSIONS } from "../../shared/session-key";
 import { PILL } from "./status-colours";
 import type { AgentId, StatusKind } from "../../shared/types";
@@ -91,9 +92,9 @@ export default function SessionTabs({
             >
               <Dot kind={t.kind} />
               <span className="truncate">{t.label}</span>
-              {t.agent === "codex" && (
+              {t.agent && t.agent !== "claude" && (
                 <span data-testid="codex-mark" className={AGENT_MARK}>
-                  Codex
+                  {AGENT_LABELS[t.agent]}
                 </span>
               )}
               {showHints && t.hint && (

@@ -15,6 +15,7 @@ import { hueOfWorkspace } from "../graph/workspace-color";
 import EmptyGraph, { canIndex, type IndexState } from "../graph/EmptyGraph";
 import { LIST_STEP_MS } from "../ui/boot-stage";
 import { AGENT_MARK } from "../ui/hud";
+import { AGENT_LABELS } from "../../shared/agent-labels";
 import { relativeTime } from "./relative-time";
 import { displayKind, endLabel } from "../../shared/turn-end";
 
@@ -132,6 +133,7 @@ export default function MissionControl({
           // or never analyzed at all. Only the second earns the button.
           const needsIndex = canIndex(ws) && !!g && g.nodes.length === 0;
           const idx = indexing[ws.id];
+          const agent = cardAgent?.(ws.id);
 
           return (
             <div
@@ -178,12 +180,12 @@ export default function MissionControl({
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${DOT[kind]}`} />
                 {LABEL[kind]}
-                {cardAgent?.(ws.id) === "codex" && (
+                {agent && agent !== "claude" && (
                   <span
                     data-testid={`codex-mark-${ws.id}`}
                     className={AGENT_MARK}
                   >
-                    Codex
+                    {AGENT_LABELS[agent]}
                   </span>
                 )}
                 {st?.delegatedBy && (

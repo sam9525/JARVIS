@@ -208,6 +208,19 @@ describe("SessionTabs Codex mark", () => {
     expect(m?.className).not.toContain("bloom");
   });
 
+  it("marks an Antigravity tab with its own word in the same style", () => {
+    render({
+      tabs: [tab("w", "main"), tab("w#1", "1", { agent: "antigravity" })],
+    });
+    const m = mark("w#1");
+    expect(m?.textContent).toBe("Antigravity");
+    expect(m?.previousElementSibling?.textContent).toBe("1");
+    expect(m?.className).toContain("border-ink-dim");
+    expect(m?.className).toContain("text-ink-muted");
+    expect(m?.className).toContain("tracking-[0.16em]");
+    expect(mark("w")).toBeNull();
+  });
+
   it("leaves a Claude tab unmarked", () => {
     render({
       tabs: [tab("w", "main"), tab("w#1", "1", { agent: "claude" })],

@@ -460,4 +460,23 @@ describe("App: Codex sessions", () => {
     );
     expect(claude.some((n: any) => n.props?.id === "ask")).toBe(true);
   });
+
+  it("hides the auto-answer button while the terminal shows an Antigravity session", async () => {
+    const { default: AutoAnswerToggle } =
+      await import("../src/renderer/ui/AutoAnswerToggle");
+    const antigravity = await renderRepo([
+      session("r", "main", { agent: "antigravity" }),
+    ]);
+    expect(antigravity.some((n: any) => n.type === AutoAnswerToggle)).toBe(
+      false,
+    );
+  });
+
+  it("shows no question panel for an Antigravity session", async () => {
+    const antigravity = await renderRepo(
+      [session("r", "main"), session("r#1", "1", { agent: "antigravity" })],
+      { 16: new Map([["r#1", ask("r#1")]]) },
+    );
+    expect(antigravity.some((n: any) => n.props?.id === "ask")).toBe(false);
+  });
 });

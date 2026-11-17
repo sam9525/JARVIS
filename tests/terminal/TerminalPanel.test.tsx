@@ -543,6 +543,17 @@ describe("TerminalPanel on a Codex session", () => {
     expect(byTestId(tree, "terminal-host")).toBeDefined();
   });
 
+  it("shows the terminal only for an Antigravity session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "antigravity" },
+    });
+    expect(viewSwitch(tree)).toBeUndefined();
+    expect(byTestId(tree, "session-screen-layer")).toBeUndefined();
+    expect(find(tree, (n) => n.type === SessionScreen)).toBeUndefined();
+    expect(byTestId(tree, "terminal-host")).toBeDefined();
+  });
+
   it("keeps the screen and its switch for a Claude session", () => {
     const tree = render({
       live: true,
@@ -584,5 +595,13 @@ describe("TerminalPanel agent mark", () => {
       sessionStatus: { kind: "idle", call: "", agent: "codex" },
     });
     expect(text(mark(tree))).toBe("Codex");
+  });
+
+  it("names Antigravity for an Antigravity session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "antigravity" },
+    });
+    expect(text(mark(tree))).toBe("Antigravity");
   });
 });
