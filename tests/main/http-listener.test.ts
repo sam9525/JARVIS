@@ -794,6 +794,19 @@ describe("/orchestrate/launch", () => {
     s.close();
   });
 
+  it("passes agent antigravity through and drops an unknown agent", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    for (const agent of ["antigravity", "gemini"]) {
+      await call(s.port, JSON.stringify({ workspace: "AeroGraph", agent }), {
+        "x-jarvis": "1",
+      });
+    }
+    expect(s.orch.agents).toEqual(["antigravity", undefined]);
+    s.close();
+  });
+
   it("needs the x-jarvis header like every orchestrate route", async () => {
     const s = await start(() => {
       /* no-op */

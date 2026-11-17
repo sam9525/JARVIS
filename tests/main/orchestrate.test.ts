@@ -144,6 +144,7 @@ function setup(
     closedSessions?: ClosedSession[]; // resumable closes, every workspace
     resumeMenu?: boolean; // resumeMenuLikely's answer
     readyStates?: Record<string, ReadyState>; // Codex sessions' gate states
+    agentTrusted?: boolean | null; // an agent's own trust list; null = it has none
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -158,6 +159,7 @@ function setup(
   const launchedAgents: Array<AgentId | undefined> = [];
   const closed: string[] = [];
   const trustChecked: string[] = [];
+  const agentTrustChecked: Array<[AgentId | undefined, string]> = [];
   const delivered: string[] = [];
   const asked: AskPrompt[] = [];
   const registered: Sess[] = [...(over.sessions ?? [mainOf("d:/aero")])];
@@ -244,6 +246,10 @@ function setup(
       trustChecked.push(folder);
       return over.trusted === undefined ? true : over.trusted;
     },
+    agentTrusted: async (agent, cwd) => {
+      agentTrustChecked.push([agent, cwd]);
+      return over.agentTrusted ?? null;
+    },
     waitQuiet: async (key) => {
       // a marker, so tests pin where the wait starts among the writes
       writes.push([key, "<wait>"]);
@@ -278,6 +284,7 @@ function setup(
     launchedAgents,
     closed,
     trustChecked,
+    agentTrustChecked,
     delivered,
     asked,
   };
@@ -2209,6 +2216,184 @@ describe("orchestrate after the final Codex fixes", () => {
       ok: false,
       error:
         "FinPulse's session failed to start — is the claude CLI on PATH? (spawn ENOENT)",
+    });
+  });
+});
+
+describe("orchestrate with an Antigravity session", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const TRUST = (ws: string, label: string) =>
+    `${ws}'s Antigravity session "${label}" shows its trust question — ask the user to answer it in the terminal, then send again`;
+
+  const liveAgy = (
+    over: {
+      state?: ReadyState;
+      row?: Partial<SessionStatus>;
+      agentTrusted?: boolean | null;
+    } = {},
+  ) =>
+    setup({
+      sessions: [{ ...mainOf("d:/aero"), agent: "antigravity" }],
+      readyStates: over.state === undefined ? {} : { "d:/aero": over.state },
+      agentTrusted: over.agentTrusted,
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          sessions: [
+            sessionRow({ key: "d:/aero", label: "main", ...over.row }),
+          ],
+        }),
+      ],
+    });
+
+  it("a launch into an untrusted folder opens the tab and writes nothing", async () => {
+    const { orch, attempted, launchedAgents, agentTrustChecked } = setup({
+      sessions: [],
+      agentTrusted: false,
+    });
+    const out = orch.launch("FinPulse", undefined, false, "antigravity");
+    await vi.runAllTimersAsync();
+    const res = await out;
+    expect(res).toEqual({ ok: false, error: TRUST("FinPulse", "main") });
+    expect(res).not.toHaveProperty("trustPrompt");
+    expect(launchedAgents).toEqual(["antigravity"]);
+    expect(agentTrustChecked).toEqual([["antigravity", "D:\\fin"]]);
+    expect(attempted).toEqual([]);
+  });
+
+  it("a fresh send into an untrusted folder does not type the prompt", async () => {
+    const { orch, attempted, launched, agentTrustChecked } = setup({
+      agentTrusted: false,
+    });
+    const out = orch.send("AeroGraph", "To-do task: x", {
+      fresh: true,
+      agent: "antigravity",
+    });
+    await vi.runAllTimersAsync();
+    const res = await out;
+    expect(res).toEqual({ ok: false, error: TRUST("AeroGraph", "1") });
+    expect(res).not.toHaveProperty("trustPrompt");
+    expect(launched).toEqual([["d:/aero", undefined]]);
+    expect(agentTrustChecked).toEqual([
+      ["antigravity", "D:\\aero\\.worktrees\\1"],
+    ]);
+    expect(attempted).toEqual([]);
+  });
+
+  it("a launch into a trusted folder succeeds as today", async () => {
+    const { orch, trustChecked } = setup({
+      sessions: [],
+      agentTrusted: true,
+    });
+    const out = orch.launch("FinPulse", undefined, false, "antigravity");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({ ok: true, session: "main" });
+    expect(trustChecked).toEqual([]);
+  });
+
+  it("a fresh send into a trusted folder types the prompt", async () => {
+    const { orch, writes } = setup({ agentTrusted: true });
+    const out = orch.send("AeroGraph", "go", {
+      fresh: true,
+      agent: "antigravity",
+    });
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({
+      ok: true,
+      session: "1",
+      worktree: "D:\\aero\\.worktrees\\1",
+    });
+    expect(writes).toEqual([
+      ["d:/aero#1", "<wait>"],
+      ["d:/aero#1", "go"],
+      ["d:/aero#1", "\r"],
+    ]);
+  });
+
+  it("a Claude launch reads Claude Code's trust record, not an agent list", async () => {
+    const { orch, trustChecked, agentTrustChecked } = setup({
+      sessions: [],
+      trusted: false,
+      agentTrusted: false,
+    });
+    const out = orch.launch("FinPulse");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({
+      ok: true,
+      session: "main",
+      trustPrompt: "D:\\fin",
+    });
+    expect(trustChecked).toEqual(["D:\\fin"]);
+    expect(agentTrustChecked).toEqual([]);
+  });
+
+  it("refuses a send to an open session still showing its trust question", async () => {
+    const { orch, attempted } = liveAgy({
+      agentTrusted: false,
+      row: { kind: "asking" },
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: false,
+      error: TRUST("AeroGraph", "main"),
+    });
+    expect(attempted).toEqual([]);
+  });
+
+  it("delivers to a trusted open session whose turn ended", async () => {
+    const { orch, writes } = liveAgy({
+      agentTrusted: true,
+      state: "used",
+      row: { kind: "idle", ended: "finished" },
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("refuses a used session that has not ended its turn, naming Antigravity", async () => {
+    const { orch, attempted } = liveAgy({
+      agentTrusted: true,
+      state: "used",
+      row: { kind: "working" },
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: false,
+      error:
+        'AeroGraph\'s Antigravity session "main" has not ended its turn — wait for its finish, or send with fresh: true',
+    });
+    expect(attempted).toEqual([]);
+  });
+
+  it("trust types nothing into an Antigravity session", async () => {
+    const { orch, attempted, trustChecked } = setup({
+      sessions: [{ ...mainOf("d:/fin"), agent: "antigravity" }],
+      trusted: false,
+    });
+    expect(await orch.trust("FinPulse", true)).toEqual({
+      ok: false,
+      error:
+        'FinPulse\'s session "main" runs Antigravity, which answers its own trust question in its terminal',
+    });
+    expect(attempted).toEqual([]);
+    expect(trustChecked).toEqual([]);
+  });
+
+  it("points a failed launch at the Antigravity CLI", async () => {
+    const { orch } = setup({
+      sessions: [],
+      launchFails: true,
+      launchError: "Antigravity not found",
+    });
+    expect(
+      await orch.launch("FinPulse", undefined, false, "antigravity"),
+    ).toEqual({
+      ok: false,
+      error:
+        "FinPulse's session failed to start — Antigravity not found: install the Antigravity CLI (agy)",
     });
   });
 });

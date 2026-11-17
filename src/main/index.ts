@@ -621,6 +621,8 @@ app.whenReady().then(async () => {
       }),
     close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
+    agentTrusted: async (agent, cwd) =>
+      (await agentById(agent).trusted?.(cwd)) ?? null,
     readyState: (key) => readyGate.state(key),
     waitQuiet: (key) => settle.wait(key, LAUNCH_SETTLE_DEADLINE_MS),
     waitCommand: (key, word) => commandWait.expect(key, word),

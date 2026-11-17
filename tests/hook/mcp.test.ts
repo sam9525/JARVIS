@@ -631,7 +631,54 @@ describe("mcp.mjs", () => {
     listener.close();
   });
 
-  it("jarvis_launch and jarvis_send offer agent as codex only", async () => {
+  it("tools/call jarvis_launch and jarvis_send forward agent antigravity", async () => {
+    const listener = await fakeListener({ ok: true, session: "main" });
+    const { request } = startMcp(listener.port);
+    await request({
+      jsonrpc: "2.0",
+      id: 9021,
+      method: "tools/call",
+      params: {
+        name: "jarvis_launch",
+        arguments: { workspace: "FinPulse", agent: "antigravity" },
+      },
+    });
+    await request({
+      jsonrpc: "2.0",
+      id: 9022,
+      method: "tools/call",
+      params: {
+        name: "jarvis_send",
+        arguments: {
+          workspace: "A",
+          prompt: "p",
+          fresh: true,
+          agent: "antigravity",
+        },
+      },
+    });
+    const bodies = listener.hits.map((h) => JSON.parse(h.body));
+    expect(bodies[0]).toEqual({ workspace: "FinPulse", agent: "antigravity" });
+    expect(bodies[1].agent).toBe("antigravity");
+    listener.close();
+  });
+
+  it("jarvis_list names every agent a row can show", async () => {
+    const { request } = startMcp(1);
+    const res = await request({
+      jsonrpc: "2.0",
+      id: 9023,
+      method: "tools/list",
+    });
+    const list = res.result.tools.find(
+      (t: { name: string }) => t.name === "jarvis_list",
+    );
+    expect(list.description).toContain(
+      'agent ("claude", "codex" or "antigravity")',
+    );
+  });
+
+  it("jarvis_launch and jarvis_send offer agent as codex or antigravity", async () => {
     const { request } = startMcp(1);
     const res = await request({
       jsonrpc: "2.0",
@@ -645,7 +692,7 @@ describe("mcp.mjs", () => {
     for (const name of ["jarvis_launch", "jarvis_send"]) {
       const agent = tools.find((t) => t.name === name)?.inputSchema.properties
         .agent;
-      expect(agent?.enum).toEqual(["codex"]);
+      expect(agent?.enum).toEqual(["codex", "antigravity"]);
     }
   });
 

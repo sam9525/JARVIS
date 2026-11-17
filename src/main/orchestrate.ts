@@ -12,6 +12,7 @@ import type {
   WorkspaceKind,
   WorkspaceStatus,
 } from "../shared/types";
+import { AGENT_LABELS } from "../shared/agent-labels";
 import { agentById } from "./agents";
 import type { ReadyState } from "./agents/ready-gate";
 import type { AskPrompt } from "./ask-mapper";
@@ -59,6 +60,11 @@ export interface OrchestrateDeps {
   ) => Promise<{ ok: boolean; kept?: string; damaged?: string }>;
   // Claude Code's own record of the folder-trust prompt; null = unreadable
   isTrusted: (folder: string) => Promise<boolean | null>;
+  // the agent's own trust list for the folder; null = the agent keeps none
+  agentTrusted: (
+    agent: AgentId | undefined,
+    cwd: string,
+  ) => Promise<boolean | null>;
   // resolves once the session's TUI has stopped painting (or a deadline passed)
   waitQuiet: (key: string) => Promise<boolean>;
   // ms since the PTY last printed anything; Infinity = no output seen
@@ -385,9 +391,49 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     };
   }
 
+  // An agent's trust question takes Enter as its answer, so no prompt may be
+  // typed into a session that still shows one.
+  function agentTrustError(
+    ws: Workspace,
+    agent: AgentId | undefined,
+    label: string,
+  ): Failure {
+    return {
+      ok: false,
+      error: `${ws.name}'s ${AGENT_LABELS[agentById(agent).id]} session "${label}" shows its trust question — ask the user to answer it in the terminal, then send again`,
+    };
+  }
+
+  // the agent's own trust list for the folder; null for an agent whose trust
+  // prompt Claude Code's record answers
+  const agentTrust = (agent: AgentId | undefined, cwd: string) =>
+    agentById(agent).features.trustCheck
+      ? Promise.resolve(null)
+      : deps.agentTrusted(agent, cwd);
+
+  function launchFailure(ws: Workspace, error: string | undefined): Failure {
+    const start = `${ws.name}'s session failed to start`;
+    if (error === "Codex not found")
+      return {
+        ok: false,
+        error: `${start} — Codex not found: install the Codex app or put codex.exe on PATH`,
+      };
+    if (error === "Antigravity not found")
+      return {
+        ok: false,
+        error: `${start} — Antigravity not found: install the Antigravity CLI (agy)`,
+      };
+    return {
+      ok: false,
+      error: `${start} — is the claude CLI on PATH? (${error ?? "unknown error"})`,
+    };
+  }
+
   // Opens a session and waits for its TUI to go quiet, since text written
   // before raw mode is dropped. Trust is read for the session's own folder,
-  // which for a worktree is not the workspace root.
+  // which for a worktree is not the workspace root. A session showing its
+  // agent's own trust question stays open and is reported as a failure, so
+  // no caller writes into it.
   async function open(
     ws: Workspace,
     label: string | undefined,
@@ -398,13 +444,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     const out = await deps.launch(ws, label, resumeId, agent);
     if (!out.ok || !out.key) {
       if (out.error === "cap") return capError(ws);
-      return {
-        ok: false as const,
-        error:
-          out.error === "Codex not found"
-            ? `${ws.name}'s session failed to start — Codex not found: install the Codex app or put codex.exe on PATH`
-            : `${ws.name}'s session failed to start — is the claude CLI on PATH? (${out.error ?? "unknown error"})`,
-      };
+      return launchFailure(ws, out.error);
     }
     if (topic) deps.nameSession(out.key, topic);
     // The spawn is synchronous and PTY output arrives as I/O callbacks, which
@@ -415,6 +455,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     const trusted = agentById(agent).features.trustCheck
       ? await deps.isTrusted(folder)
       : null;
+    if ((await agentTrust(agent, folder)) === false)
+      return agentTrustError(ws, agent, out.label ?? "");
     const settled = await quiet;
     return {
       ok: true as const,
@@ -664,6 +706,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session "${s.label}" may be showing Claude Code's resume menu — ask the user to answer it, or send with fresh: true`,
         };
       }
+      if ((await agentTrust(s.agent, s.cwd)) === false)
+        return agentTrustError(ws, s.agent, s.label);
       // the Enter would pick an option in the open prompt
       const kind = sessionKind(s.key, ws.id);
       if (kind === "asking" || kind === "blocked") {
@@ -672,7 +716,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session "${s.label}" is ${kind}, waiting on the user — ask them to answer it, or send with fresh: true`,
         };
       }
-      // after its first prompt, a Codex session takes a send only once its
+      // after its first prompt, a gated session takes a send only once its
       // turn has ended
       if (deps.readyState(s.key) === "used") {
         const row = deps
@@ -682,7 +726,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
         if (row?.kind !== "idle" || !row.ended) {
           return {
             ok: false,
-            error: `${ws.name}'s Codex session "${s.label}" has not ended its turn — wait for its finish, or send with fresh: true`,
+            error: `${ws.name}'s ${AGENT_LABELS[agentById(s.agent).id]} session "${s.label}" has not ended its turn — wait for its finish, or send with fresh: true`,
           };
         }
       }
@@ -830,10 +874,11 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       if ("ok" in ws) return ws;
       const s = pickSession(ws, session);
       if ("ok" in s) return s;
-      if (agentById(s.agent).features.trustCheck === false) {
+      const adapter = agentById(s.agent);
+      if (adapter.features.trustCheck === false) {
         return {
           ok: false,
-          error: `${ws.name}'s session "${s.label}" runs Codex, which answers its own trust question in its terminal`,
+          error: `${ws.name}'s session "${s.label}" runs ${AGENT_LABELS[adapter.id]}, which answers its own trust question in its terminal`,
         };
       }
       const trusted = await deps.isTrusted(s.cwd);

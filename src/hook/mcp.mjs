@@ -7,13 +7,14 @@ const BASE = `http://127.0.0.1:${PORT}`;
 
 const AGENT_PROPERTY = {
   type: "string",
-  enum: ["codex"],
+  enum: ["codex", "antigravity"],
   description:
-    "Pass only when the user asks for Codex; without it the session runs Claude Code. With jarvis_send it applies only with fresh: true.",
+    "Pass only when the user asks for Codex or Antigravity; without it the session runs Claude Code. With jarvis_send it applies only with fresh: true.",
 };
 
-// only the literal "codex" is forwarded; anything else means Claude
-const agentField = (agent) => (agent === "codex" ? { agent } : {});
+// only the literal "codex" or "antigravity" is forwarded; anything else means Claude
+const agentField = (agent) =>
+  agent === "codex" || agent === "antigravity" ? { agent } : {};
 
 const TOOLS = [
   {
@@ -24,7 +25,7 @@ const TOOLS = [
       "(vault/code), status (waiting/running/idle/none), current tool call, " +
       "last assistant message, whether a live session exists, who " +
       'delegated its current turn, the session label ("" when none), the ' +
-      'session topic ("" when none), agent ("claude" or "codex"), and the worktree folder of that session ("" when it shares the workspace ' +
+      'session topic ("" when none), agent ("claude", "codex" or "antigravity"), and the worktree folder of that session ("" when it shares the workspace ' +
       "folder), and, after a turn ends, `ended`: finished, question (it asked " +
       "the user something in plain text: relay it, don't answer it yourself) " +
       "or failed (an API error, named in `error`; the work is not done). " +

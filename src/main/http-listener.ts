@@ -39,9 +39,10 @@ const ORCHESTRATE = [
 const optionalString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined;
 
-// only the literal "codex" picks another agent; anything else means Claude
-const optionalAgent = (v: unknown): "codex" | undefined =>
-  v === "codex" ? v : undefined;
+// only the literal "codex" or "antigravity" picks another agent; anything else
+// means Claude
+const optionalAgent = (v: unknown): "codex" | "antigravity" | undefined =>
+  v === "codex" || v === "antigravity" ? v : undefined;
 
 // Over the cap we destroy the socket, so "end" never fires and done() never runs.
 function readBody(
