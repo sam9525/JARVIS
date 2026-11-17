@@ -1,6 +1,6 @@
 export type ReadyState = "starting" | "ready" | "used";
 
-/** Tracks each Codex session's turn: `starting` until its first hook, `ready`
+/** Tracks each gated (non-Claude) session's turn: `starting` until its first hook, `ready`
  * while no prompt of its own is in progress, `used` once a prompt is submitted.
  * An Interrupt ends the turn, so it makes a used session ready again. */
 export function createReadyGate() {

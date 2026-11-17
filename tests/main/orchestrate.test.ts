@@ -2256,7 +2256,11 @@ describe("orchestrate with an Antigravity session", () => {
     const out = orch.launch("FinPulse", undefined, false, "antigravity");
     await vi.runAllTimersAsync();
     const res = await out;
-    expect(res).toEqual({ ok: false, error: TRUST("FinPulse", "main") });
+    expect(res).toEqual({
+      ok: false,
+      error: TRUST("FinPulse", "main"),
+      session: "main",
+    });
     expect(res).not.toHaveProperty("trustPrompt");
     expect(launchedAgents).toEqual(["antigravity"]);
     expect(agentTrustChecked).toEqual([["antigravity", "D:\\fin"]]);
@@ -2273,7 +2277,12 @@ describe("orchestrate with an Antigravity session", () => {
     });
     await vi.runAllTimersAsync();
     const res = await out;
-    expect(res).toEqual({ ok: false, error: TRUST("AeroGraph", "1") });
+    expect(res).toEqual({
+      ok: false,
+      error: TRUST("AeroGraph", "1"),
+      session: "1",
+      worktree: "D:\\aero\\.worktrees\\1",
+    });
     expect(res).not.toHaveProperty("trustPrompt");
     expect(launched).toEqual([["d:/aero", undefined]]);
     expect(agentTrustChecked).toEqual([

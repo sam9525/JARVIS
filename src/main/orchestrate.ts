@@ -69,7 +69,7 @@ export interface OrchestrateDeps {
   waitQuiet: (key: string) => Promise<boolean>;
   // ms since the PTY last printed anything; Infinity = no output seen
   msSinceOutput: (key: string) => number;
-  // a Codex session's gate state; undefined for a Claude session
+  // a non-Claude session's gate state; undefined for a Claude session
   readyState: (key: string) => ReadyState | undefined;
   markDelegated: (key: string, by: string) => void;
   // pins the tab's topic so the session's own title cannot replace it
@@ -118,6 +118,9 @@ export interface FleetEntry {
 
 export type SendResult = { ok: true } | { ok: false; error: string };
 type Failure = { ok: false; error: string };
+// a new session left open on its agent's trust question, named so the caller
+// can point the user at its tab
+type TrustRefusal = Failure & { session: string; worktree?: string };
 
 /** `trustPrompt` is the folder a new session is asking the user to trust —
  * a send before jarvis_trust answers it would land on that prompt. */
@@ -130,11 +133,13 @@ export type DeliveredResult =
       // set for a slash command: false = the wait ran out before it showed
       finished?: boolean;
     }
-  | Failure;
+  | Failure
+  | TrustRefusal;
 
 export type LaunchResult =
   | { ok: true; session: string; worktree?: string; trustPrompt?: string }
-  | Failure;
+  | Failure
+  | TrustRefusal;
 
 export type CloseResult =
   { ok: true; kept?: string; damaged?: string } | Failure;
@@ -455,8 +460,15 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     const trusted = agentById(agent).features.trustCheck
       ? await deps.isTrusted(folder)
       : null;
-    if ((await agentTrust(agent, folder)) === false)
-      return agentTrustError(ws, agent, out.label ?? "");
+    if ((await agentTrust(agent, folder)) === false) {
+      const session = out.label ?? "";
+      const refusal: TrustRefusal = {
+        ...agentTrustError(ws, agent, session),
+        session,
+        ...(out.worktree ? { worktree: out.worktree } : {}),
+      };
+      return refusal;
+    }
     const settled = await quiet;
     return {
       ok: true as const,
