@@ -1,7 +1,7 @@
-import { posix } from "node:path";
 import type { AgentAdapter } from ".";
 import type { RawHookEvent } from "../event-mapper";
 import { isSessionId } from "../../shared/session-id";
+import { filePathOf } from "./hook-path";
 import { parsePatch } from "./patch-paths";
 import { parseShellCommand } from "./shell-reads";
 
@@ -43,14 +43,6 @@ const PASSED_FIELDS = [
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-// A `\\?\` prefix (resumed sessions) is dropped, and a relative path is joined to cwd.
-function filePathOf(raw: string, cwd: unknown): string {
-  const slashed = raw.replace(/^\\\\\?\\/, "").replace(/\\/g, "/");
-  const absolute = /^[A-Za-z]:/.test(slashed) || slashed.startsWith("/");
-  if (absolute || typeof cwd !== "string") return slashed;
-  return posix.join(cwd.replace(/\\/g, "/"), slashed);
-}
 
 function normalizeCodex(raw: Record<string, unknown>): RawHookEvent[] {
   const base: Record<string, unknown> = {};
