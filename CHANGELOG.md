@@ -2,7 +2,26 @@
 
 All notable changes to JARVIS are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-11-19
+
+### Added
+
+- Codex runs in a JARVIS tab: hooks reach `codex.exe` through `-c` flags with `--dangerously-bypass-hook-trust`, and its shell reads, searches and `apply_patch` edits light the graph (`dde24c4`, `f94fbd5`, `63b78c5`, `26f7866`, `468613a`, `72deecc`, `37fdecd`, `3652115`).
+- `codex.exe` is found at each launch in the Codex app folder or on `PATH` (`b375a17`).
+- `jarvis_send` refuses a Codex session whose turn is unfinished or whose plan choice is open, and a failed Codex resume starts a fresh session (`6f5581d`, `2ed5518`, `f54c99f`).
+- The Antigravity CLI (`agy`) runs in a JARVIS tab: hooks load from `<userData>/antigravity-hooks` through `--add-dir`, and its reads, edits and shell searches light the graph (`cc3f148`, `7190daf`, `070e1a6`, `3431fd7`, `42b6df3`).
+- An Antigravity session shows "waiting on you" from the OSC 9 notification code in its terminal stream, and its finish message comes from its transcript (`a7efcab`, `5c8912b`, `3233e1f`, `bc92b9b`).
+- `jarvis_launch` and `jarvis_send` take `agent: "codex"` or `agent: "antigravity"`, and `jarvis_list` rows carry `agent` (`6f5581d`, `5816383`).
+- A send never types into Antigravity's own folder-trust question; the refusal names the tab that stays open (`5816383`, `d9f5970`).
+- Codex and Antigravity tabs and cards wear an agent mark, and the terminal's view line names the open tab's agent (`7a3d516`, `72ca729`, `0360a01`).
+- The main agent guide resumes a session with no closed row through `/resume` and its transcript id (`3b70fcd`).
+
+### Fixed
+
+- A sent slash command runs before the next prompt is typed (`0552735`).
+- A sent `/model` that waits on its switch confirm opens the question panel, which answers with that confirm's own two rows (`c560874`, `68bdfe1`).
+- Sends are held, and Esc is offered, while a resumed session may show Claude Code's resume menu (`ca18d93`).
+- A JARVIS started inside a JARVIS terminal no longer passes its `JARVIS_AGENT` to new tabs (`73353e0`).
 
 ## [0.5.5] - 2026-11-13
 
