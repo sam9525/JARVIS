@@ -11,7 +11,12 @@ import os from "node:os";
 import path from "node:path";
 import { existsSync, promises as fs } from "node:fs";
 import started from "electron-squirrel-startup";
-import { startListener, DEFAULT_PORT } from "./http-listener";
+import {
+  startListener,
+  runMappers,
+  DEFAULT_PORT,
+  type MapperSinks,
+} from "./http-listener";
 import { watchVault } from "./watcher";
 import { loadSettings, saveSettings } from "./settings";
 import {
@@ -35,6 +40,7 @@ import { ensureHooks } from "./hook-install";
 import { ensureMcp } from "./mcp-install";
 import { loginShellPath, windowsPath } from "./shell-path";
 import { createOrchestrator } from "./orchestrate";
+import { createCommandWait } from "./command-wait";
 import { createPendingInput } from "./pending-input";
 import { createSettle } from "./settle";
 import { deliverBriefing } from "./brief-delivery";
@@ -105,6 +111,7 @@ import {
 import {
   HEARTBEAT_MS,
   hasSessionTranscript,
+  isFailedResume,
   readSavedSessions,
   sessionsToResume,
   writeSavedSessions,
@@ -115,7 +122,13 @@ import { autoAnswerOutput } from "./auto-answer";
 import { createTodoStore, fileTodoIO, parseTodos } from "./todos";
 import { lineChanges } from "./git-diff";
 import { createNudgeGate } from "./nudge-gate";
+import { resumeMenuLikely } from "./resume-menu";
+import { agentById } from "./agents";
+import { createReadyGate } from "./agents/ready-gate";
+import { createAntigravityTerminal } from "./agents/antigravity-terminal";
+import { AGENT_LABELS } from "../shared/agent-labels";
 import type {
+  AgentId,
   CardLayout,
   LineChanges,
   Settings,
@@ -554,11 +567,13 @@ app.whenReady().then(async () => {
   const pendingInput = createPendingInput();
   // sessions whose session screen input holds text; only the renderer sees it
   const drafted = new Set<string>();
-  const promptOpen = (key: string): boolean => {
-    const kind = status
+  const statusKindOf = (key: string) =>
+    status
       .snapshot()
       .flatMap((w) => w.sessions)
       .find((s) => s.key === key)?.kind;
+  const promptOpen = (key: string): boolean => {
+    const kind = statusKindOf(key);
     return kind === "asking" || kind === "blocked";
   };
   const nudgeGate = createNudgeGate(
@@ -571,6 +586,7 @@ app.whenReady().then(async () => {
     closedSessions = next;
     writeClosed(userData, next);
   };
+  const commandWait = createCommandWait();
   const orchestrator = createOrchestrator({
     getWorkspaces: () => workspaces,
     snapshot: () => status.snapshot(),
@@ -594,7 +610,7 @@ app.whenReady().then(async () => {
     // the terminal's own defaults — Opus, permissions on — at placeholder
     // geometry the panel resizes when it attaches, as with the main agent.
     // The orchestrator waits for the new TUI to go quiet itself.
-    launch: (ws, label, resumeId) =>
+    launch: (ws, label, resumeId, agent) =>
       launchSession(ws, {
         label,
         cols: 80,
@@ -603,10 +619,31 @@ app.whenReady().then(async () => {
         model: "opus",
         resumeId,
         delegated: true,
+        agent,
       }),
     close: (key) => closeSession(key, true),
     isTrusted: (folder) => isTrusted(folder),
+    agentTrusted: async (agent, cwd) =>
+      (await agentById(agent).trusted?.(cwd)) ?? null,
+    readyState: (key) => readyGate.state(key),
     waitQuiet: (key) => settle.wait(key, LAUNCH_SETTLE_DEADLINE_MS),
+    waitCommand: (key, word) => commandWait.expect(key, word),
+    // Only a key whose hooks are heard has its feed followed, so only it can clear.
+    noteDelivered: (key) => {
+      if (hooksHeardFrom.has(key)) commandWait.delivered(key);
+    },
+    ask: (p) => send("ask", p),
+    resumeMenuLikely: async (key, resumeId) => {
+      const cwd = sessions.get(key)?.cwd;
+      if (!cwd) return false;
+      const file = path.join(
+        transcriptDir(os.homedir(), cwd),
+        `${resumeId}.jsonl`,
+      );
+      // an unreadable transcript is resumed with no guess, as before
+      const text = await fs.readFile(file, "utf8").catch(() => "");
+      return resumeMenuLikely(text, Date.now());
+    },
     msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
     // markDelegated is a status change like any other — push it to the rail
     markDelegated: (key, by) =>
@@ -680,9 +717,10 @@ app.whenReady().then(async () => {
   // set only while a typed briefing waits for its UserPromptSubmit
   let onMainPrompt: ((prompt: string) => void) | null = null;
   // one feed for every session: the screen reads the transcript, never the pty
-  const feed = createTranscriptFeed((key, entries, reset) =>
-    send("transcript", key, entries, reset),
-  );
+  const feed = createTranscriptFeed((key, entries, reset) => {
+    send("transcript", key, entries, reset);
+    commandWait.seen(key, entries, reset);
+  });
   const lastStatusLine = new Map<string, StatusLineView>();
   // the renderer caches per key, so a key that may be reused is cleared there too
   function stopFeed(key: string): void {
@@ -691,6 +729,24 @@ app.whenReady().then(async () => {
     send("transcript", key, [], true);
     send("statusline", key, null);
   }
+  // each non-Claude session's turn state, from its launch or resume until its exit
+  const readyGate = createReadyGate();
+  // Antigravity reports its prompts only as terminal notification codes
+  const antigravityTerminal = createAntigravityTerminal({
+    agentOf: (id) => sessions.get(id)?.agent,
+    cwdOf: (id) => sessions.get(id)?.cwd,
+    sessionIdOf: (id) => status.sessionId(id),
+    statusKindOf,
+    noteGate: (id, name) => readyGate.note(id, name),
+    map: (payload) =>
+      runMappers(payload, listenerSinks, { askPanel: false, offered: false }),
+  });
+  // restored Codex sessions, keyed by session, with the time their resumed
+  // launch returned, which isFailedResume reads at exit
+  const codexResumes = new Map<
+    string,
+    { ws: Workspace; label: string; at: number }
+  >();
   const ptyManager = createPtyManager(
     (file, args, opts) => loadPtySpawn()(file, args, opts),
     {
@@ -698,13 +754,37 @@ app.whenReady().then(async () => {
         send("pty-data", id, data);
         settle.bump(id);
         lastOutputAt.set(id, Date.now());
+        antigravityTerminal.output(id, data);
       },
       onExit: (id, code) => {
         send("pty-exit", id, code);
         pendingInput.clear(id);
+        antigravityTerminal.forget(id);
+        commandWait.forget(id);
+        orchestrator.resumeMenuEnded(id);
+        // read before forget: "starting" means no hook was heard
+        const gateState = readyGate.state(id);
+        readyGate.forget(id);
         // a crashed session's tab stays, and its screen with it
         if (id.includes("#") && code === 0) stopFeed(id);
         pushStatus(status.ptyExited(id, Date.now(), code));
+        const resumed = codexResumes.get(id);
+        codexResumes.delete(id);
+        if (
+          resumed &&
+          isFailedResume(gateState, code, Date.now() - resumed.at)
+        ) {
+          console.error(`[jarvis] ${id}: Codex could not resume this session`);
+          // the fresh session has no conversation id until its first hook
+          resumedWith.delete(id);
+          void launchSession(resumed.ws, {
+            label: resumed.label,
+            cols: 80,
+            rows: 24,
+            dangerous: false,
+            agent: "codex",
+          });
+        }
       },
     },
   );
@@ -769,6 +849,7 @@ app.whenReady().then(async () => {
           workspaces,
           (id) => sessions.forWorkspace(id),
           (key) => ptyManager.has(key),
+          (key) => commandWait.unconfirmed(key),
         ),
       msSinceOutput: (key) => Date.now() - (lastOutputAt.get(key) ?? -Infinity),
       // orchestrator.close forces past worktreeCheck, so check it here
@@ -787,14 +868,16 @@ app.whenReady().then(async () => {
   // can be confirmed by its UserPromptSubmit
   const hooksHeardFrom = new Set<string>();
 
-  startListener(
-    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
-    (e) => {
+  // the listener's sinks, shared with the notification codes read from a pty
+  const listenerSinks: MapperSinks = {
+    onEvent: (e) => {
       send("tool-event", e);
       pushStatus(status.countTool(e));
     },
-    (s) => {
+    onStatus: (s) => {
       hooksHeardFrom.add(s.sessionKey);
+      if (s.prompt !== undefined || s.ended !== undefined)
+        commandWait.ran(s.sessionKey);
       pushStatus(status.applyStatus(s));
       feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
       if (s.prompt !== undefined) send("prompt-submitted", s.sessionKey);
@@ -810,7 +893,20 @@ app.whenReady().then(async () => {
       if (s.sessionKey === mainAgent.id && s.prompt !== undefined)
         onMainPrompt?.(s.prompt);
     },
-    () => workspaces,
+    onAsk: (p) => send("ask", p),
+    // a /resume or /clear switches files before the session's next hook
+    onSessionStart: (s) => {
+      hooksHeardFrom.add(s.sessionKey);
+      feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
+    },
+    getWorkspaces: () => workspaces,
+  };
+
+  startListener(
+    Number(process.env.JARVIS_PORT ?? DEFAULT_PORT),
+    listenerSinks.onEvent,
+    listenerSinks.onStatus,
+    listenerSinks.getWorkspaces,
     {
       ...orchestrator,
       // opens the panel first: the answer is for the agent, the panel is for
@@ -821,7 +917,7 @@ app.whenReady().then(async () => {
         return { path: todosPath, text, malformed: parseTodos(text).malformed };
       },
     },
-    (p) => send("ask", p),
+    listenerSinks.onAsk,
     (key, raw) => {
       const cwd =
         (raw.workspace as { current_dir?: string } | undefined)?.current_dir ??
@@ -836,12 +932,9 @@ app.whenReady().then(async () => {
         })
         .catch((): void => undefined);
     },
-    // a /resume or /clear switches files before the session's next hook
-    (s) => {
-      hooksHeardFrom.add(s.sessionKey);
-      feedStatusEvent(feed, s, ptyManager.has(s.sessionKey));
-    },
+    listenerSinks.onSessionStart,
     (raw) => (autoAnswerOn ? autoAnswerOutput(raw, workspaces) : null),
+    (key, hookEventName) => readyGate.note(key, hookEventName),
   );
 
   // Claude Code spawns both of these as its own child processes, so they must
@@ -852,6 +945,8 @@ app.whenReady().then(async () => {
     : path.join(app.getAppPath(), "src", "hook");
   const forwardPath = path.join(hookDir, "forward.mjs");
   const mcpPath = path.join(hookDir, "mcp.mjs");
+  // agy reads its hooks from a folder JARVIS owns, never from the user's repo
+  const hooksRoot = path.join(userData, "antigravity-hooks");
   const sessions = createSessionRegistry();
   // a resumed session reports no id until its first hook, so the id it was
   // resumed with stands in — otherwise a close before any prompt forgets it
@@ -873,6 +968,7 @@ app.whenReady().then(async () => {
       model?: string;
       resumeId?: string;
       delegated?: boolean;
+      agent?: AgentId;
     },
   ): Promise<{
     ok: boolean;
@@ -937,18 +1033,59 @@ app.whenReady().then(async () => {
         };
       }
     }
+    // a worktree made for this launch holds nothing yet, so a failed launch
+    // removes it
+    const dropCreatedWorktree = async (): Promise<void> => {
+      if (!created) return;
+      const removed = await removeWorktreeIfDone(ws.rootPath, cwd).catch(
+        (e) => {
+          console.error(`worktree remove failed in ${ws.rootPath}:`, e);
+          return null;
+        },
+      );
+      if (removed?.removed && removed.damaged)
+        console.error(
+          "worktree removal damaged a link target:",
+          removed.damaged,
+        );
+    };
+    const adapter = ws.isSelf ? agentById("claude") : agentById(opts.agent);
+    // absent on Claude's rows, so a Claude tab reads as it always has
+    const agent = adapter.id === "claude" ? undefined : adapter.id;
     // hooks go in the session's own folder: settings.local.json is untracked,
     // so a worktree does not inherit the main folder's
-    const hooksOk = await ensureHooks(cwd, forwardPath);
-    const mcpOk = await ensureMcp(ws, mcpPath);
+    const hooksOk = await adapter.prepare({
+      cwd,
+      ws,
+      forwardPath,
+      mcpPath,
+      hooksRoot,
+    });
     // a boot starts fresh after a guide rewrite, but a relaunched main agent
     // always continues its conversation — /clear is the only reset, and it is
     // the user's
     const resume = ws.isSelf
       ? await hasTranscript(transcriptDir(os.homedir(), ws.rootPath))
       : (opts.resumeId ?? false);
+    const cmd = await adapter.command({
+      dangerous: opts.dangerous,
+      model: opts.model,
+      resume,
+      forwardPath,
+      hooksRoot,
+    });
+    if (cmd === null) {
+      await dropCreatedWorktree();
+      return {
+        ok: false,
+        hooksOk,
+        key,
+        label,
+        error: `${AGENT_LABELS[adapter.id]} not found`,
+      };
+    }
     const result = {
-      hooksOk: hooksOk && mcpOk,
+      hooksOk,
       key,
       label,
       ...(useWorktree ? { worktree: cwd } : {}),
@@ -962,36 +1099,27 @@ app.whenReady().then(async () => {
         opts.dangerous,
         opts.model,
         resume,
-        (await userStatusLine(os.homedir(), cwd)) ?? undefined,
+        adapter.features.statusLine
+          ? ((await userStatusLine(os.homedir(), cwd)) ?? undefined)
+          : undefined,
+        { id: adapter.id, ...cmd },
       );
+      if (adapter.id !== "claude") readyGate.open(key);
       pendingInput.clear(key);
       if (ws.isSelf && resume === true) void followNewest(key, cwd);
-      if (opts.resumeId)
+      if (opts.resumeId && adapter.features.transcript)
         void feed.follow(
           key,
           path.join(transcriptDir(os.homedir(), cwd), `${opts.resumeId}.jsonl`),
         );
       const now = Date.now();
       const launched = status.ptyLaunched(key, now);
-      const opened = status.sessionOpened(key, useWorktree, now);
+      const opened = status.sessionOpened(key, useWorktree, now, agent);
       pushStatus(launched || opened);
     } catch (err) {
       // native load or spawn failure — the terminal reports it, app lives on
       console.error("pty launch failed:", err);
-      // a worktree made for this launch holds nothing yet, so it goes too
-      if (created) {
-        const removed = await removeWorktreeIfDone(ws.rootPath, cwd).catch(
-          (e) => {
-            console.error(`worktree remove failed in ${ws.rootPath}:`, e);
-            return null;
-          },
-        );
-        if (removed?.removed && removed.damaged)
-          console.error(
-            "worktree removal damaged a link target:",
-            removed.damaged,
-          );
-      }
+      await dropCreatedWorktree();
       return { ok: false, ...result, error: (err as Error).message };
     }
     sessions.add({
@@ -1001,6 +1129,7 @@ app.whenReady().then(async () => {
       cwd,
       worktree: useWorktree,
       delegated: opts.delegated === true,
+      ...(agent ? { agent } : {}),
     });
     // live again, so it is no longer offered as closed; matched by conversation
     // id because the session it replaced was just recorded under the same label
@@ -1014,6 +1143,8 @@ app.whenReady().then(async () => {
   // resume.
   function rememberClosed(key: string): void {
     const info = sessions.get(key);
+    // ponytail: a closed Codex tab is not offered for resume; add agent to ClosedSession when that is wanted
+    if (info && !agentById(info.agent).features.transcript) return;
     const sessionId = status.sessionId(key) || resumedWith.get(key);
     if (!info || !sessionId) return;
     const topic =
@@ -1061,6 +1192,9 @@ app.whenReady().then(async () => {
     rememberClosed(key);
     const info = sessions.remove(key);
     resumedWith.delete(key);
+    readyGate.forget(key);
+    antigravityTerminal.forget(key);
+    codexResumes.delete(key);
     stopFeed(key);
     const killed = await ptyManager.kill(key);
     // a crashed session has nothing to kill, and this is what ends its tab
@@ -1093,6 +1227,7 @@ app.whenReady().then(async () => {
       rows: number,
       dangerous: boolean,
       model: string | undefined,
+      agent?: string,
     ) => {
       const ws = workspaces.find((w) => w.id === workspaceId);
       if (!ws) return { ok: false, hooksOk: false };
@@ -1102,6 +1237,7 @@ app.whenReady().then(async () => {
         rows,
         dangerous,
         model,
+        agent: agentById(agent).id,
       });
     },
   );
@@ -1145,7 +1281,12 @@ app.whenReady().then(async () => {
     // a session asking or blocked shows a picker, where a key is a choice
     if (pendingInput.note(id, data, promptOpen(id))) send("user-submitted", id);
     const written = ptyManager.write(id, data);
-    if (written) pushStatus(status.promptKeyed(id, data, Date.now()));
+    if (written) {
+      const keyed = status.promptKeyed(id, data, Date.now());
+      pushStatus(keyed);
+      antigravityTerminal.keyed(id, data, keyed);
+      orchestrator.resumeMenuKeyed(id, data);
+    }
     return written;
   });
   ipcMain.on("draft-state", (_e, key: string, has: boolean) => {
@@ -1279,7 +1420,12 @@ app.whenReady().then(async () => {
       const info = sessions.get(key);
       const sid = status.sessionId(key) || resumedWith.get(key);
       if (info && sid)
-        live[key] = { sessionId: sid, label: info.label, cwd: info.cwd };
+        live[key] = {
+          sessionId: sid,
+          label: info.label,
+          cwd: info.cwd,
+          ...(info.agent ? { agent: info.agent } : {}),
+        };
     }
     writeSavedSessions(userData, live, Date.now());
   };
@@ -1293,17 +1439,26 @@ app.whenReady().then(async () => {
     const { workspaceId } = parseSessionKey(key, workspaceIds);
     const ws = workspaces.find((w) => w.id === workspaceId && !w.isSelf);
     if (!ws) continue;
+    const adapter = agentById(saved.agent);
     // transcripts are filed by folder, so a worktree session's is its own
     const dir = transcriptDir(os.homedir(), saved.cwd);
-    if (!(await hasSessionTranscript(dir, saved.sessionId))) continue;
+    if (
+      adapter.features.transcript &&
+      !(await hasSessionTranscript(dir, saved.sessionId))
+    )
+      continue;
     resumedWith.set(key, saved.sessionId);
     void launchSession(ws, {
       label: saved.label,
       cols: 80,
       rows: 24,
       dangerous: false,
-      model: "opus",
+      ...(adapter.id === "claude" ? { model: "opus" } : {}),
       resumeId: saved.sessionId,
+      agent: saved.agent,
+    }).then((r) => {
+      if (r.ok && adapter.id === "codex")
+        codexResumes.set(key, { ws, label: saved.label, at: Date.now() });
     });
   }
 

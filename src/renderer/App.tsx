@@ -110,6 +110,7 @@ import {
   type PreviewTarget,
 } from "./preview/preview-target";
 import type {
+  AgentId,
   CodeGraphLevel,
   HomeView,
   PanelId,
@@ -901,6 +902,21 @@ export default function App() {
     return storeFor(cardTab(tabs, selectedTabs.get(ws.id)?.key).key);
   };
 
+  // the agent of the session a card shows, the same one selectedStoreOf draws
+  const cardAgentOf = (workspaceId: string): AgentId | undefined => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return undefined;
+    const { tabs } = shownTabs(ws, false);
+    return cardTab(tabs, selectedTabs.get(ws.id)?.key).agent;
+  };
+  // a non-Claude session's questions and permissions are answered in its terminal
+  const isOtherAgentSession = (key: string | undefined): boolean =>
+    statuses.some((s) =>
+      s.sessions.some(
+        (x) => x.key === key && !!x.agent && x.agent !== "claude",
+      ),
+    );
+
   // The terminal panel's session and workspace. Its `@` picker offers the
   // workspace's files, read from the card graph cache that the cards and the
   // open graph already fill, so a workspace's graph loads at most once.
@@ -1514,15 +1530,17 @@ export default function App() {
           setShowTodos(!showTodos);
         }}
       />
-      <AutoAnswerToggle
-        on={autoAnswer}
-        onToggle={() =>
-          window.jarvis
-            .setAutoAnswer(!autoAnswer)
-            .then(setAutoAnswer)
-            .catch(console.error)
-        }
-      />
+      {!isOtherAgentSession(terminalTab?.key) && (
+        <AutoAnswerToggle
+          on={autoAnswer}
+          onToggle={() =>
+            window.jarvis
+              .setAutoAnswer(!autoAnswer)
+              .then(setAutoAnswer)
+              .catch(console.error)
+          }
+        />
+      )}
       <button
         className={BTN_IDLE + " text-[13px]"}
         title="Refresh graph (F5)"
@@ -1609,6 +1627,7 @@ export default function App() {
                     statuses={statuses}
                     graphs={cardGraphs}
                     getStore={selectedStoreOf}
+                    cardAgent={cardAgentOf}
                     groups={settings.groups}
                     view={settings.views["2d"]}
                     filters={{
@@ -1819,7 +1838,10 @@ export default function App() {
             notify,
           });
         const newTab = () =>
-          openSessionTab(owner.id, terminalSize(tab.key), { select, notify });
+          void openSessionTab(owner.id, terminalSize(tab.key), {
+            select,
+            notify,
+          });
         return (
           <Panel
             id="terminal"
@@ -2007,7 +2029,10 @@ export default function App() {
           !panelState("terminal").collapsed
             ? terminalTab.key
             : undefined;
-        const prompt = pickAsk(asks, ownKey ?? undefined, screenKey);
+        const askable = new Map(
+          [...asks].filter(([key]) => !isOtherAgentSession(key)),
+        );
+        const prompt = pickAsk(askable, ownKey ?? undefined, screenKey);
         const ws =
           prompt && workspaces.find((w) => w.id === prompt.workspaceId);
         if (!ws || !prompt) return null;

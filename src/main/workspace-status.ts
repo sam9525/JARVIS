@@ -1,5 +1,6 @@
 import { MAIN_LABEL, parseSessionKey } from "../shared/session-key";
 import type {
+  AgentId,
   PipelineStage,
   SessionStatus,
   StatusEvent,
@@ -53,6 +54,7 @@ interface Entry {
   ended: TurnEnd | "";
   // the API error name behind a failed ending
   error: string;
+  agent?: AgentId;
 }
 
 export interface StatusStore {
@@ -64,7 +66,12 @@ export interface StatusStore {
   promptKeyed(key: string, data: string, now: number): boolean;
   markDelegated(key: string, by: string, now: number): boolean;
   ptyLaunched(key: string, now: number): boolean;
-  sessionOpened(key: string, worktree: boolean, now: number): boolean;
+  sessionOpened(
+    key: string,
+    worktree: boolean,
+    now: number,
+    agent?: AgentId,
+  ): boolean;
   setTopic(key: string, topic: string, pinned?: boolean): boolean;
   ptyExited(key: string, now: number, exitCode: number): boolean;
   /** `msSinceOutput` reads a session's terminal: one that still prints is
@@ -320,15 +327,17 @@ export function createStatusStore(
       return !wasOwned;
     },
 
-    sessionOpened(key, worktree, now) {
+    sessionOpened(key, worktree, now, agent) {
       const e = entry(key, now);
       // a reopened label is a new conversation, so the old topic is dropped
       const changed =
         e.worktree !== worktree ||
+        e.agent !== agent ||
         e.topic !== "" ||
         e.step !== "" ||
         e.stage !== "";
       e.worktree = worktree;
+      e.agent = agent;
       e.step = "";
       e.stage = "";
       e.topic = "";
@@ -429,6 +438,7 @@ export function createStatusStore(
           ...(e.topic ? { topic: e.topic } : {}),
           ...(e.ended ? { ended: e.ended } : {}),
           ...(e.ended === "failed" && e.error ? { error: e.error } : {}),
+          ...(e.agent ? { agent: e.agent } : {}),
         }));
         // idle sessions tie in urgency, so one unended idle session (a
         // staleness demotion) vetoes a finished marker; a question or failure

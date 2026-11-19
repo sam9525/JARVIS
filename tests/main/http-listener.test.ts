@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import * as textQuestion from "../../src/main/text-question-mapper";
+import * as agents from "../../src/main/agents";
+import type { AgentAdapter } from "../../src/main/agents";
 import type { AddressInfo } from "node:net";
 import { startListener } from "../../src/main/http-listener";
 import type { StatusEvent, ToolEvent, Workspace } from "../../src/shared/types";
@@ -40,9 +43,11 @@ function stubOrchestrator() {
     },
     launches: [] as Array<[string, string | undefined]>,
     resumes: [] as boolean[],
-    launch(workspace: string, label?: string, resume = false) {
+    agents: [] as Array<string | undefined>,
+    launch(workspace: string, label?: string, resume = false, agent?: string) {
       this.launches.push([workspace, label]);
       this.resumes.push(resume);
+      this.agents.push(agent);
       return Promise.resolve({ ok: true as const, session: "1" });
     },
     trusts: [] as Array<[string, boolean, string | undefined]>,
@@ -315,6 +320,25 @@ describe("orchestrate routes", () => {
       worktree: "D:\\a\\.wt\\2",
     });
     expect(orch.sends).toEqual([["A", "p", { session: "2", fresh: true }]]);
+    close();
+  });
+
+  it("send passes agent codex through and drops any other value", async () => {
+    const { port, orch, close } = await start(() => {
+      /* no-op */
+    });
+    for (const agent of ["codex", "claude", "Codex", 1]) {
+      await post(
+        port,
+        "/orchestrate/send",
+        JSON.stringify({ workspace: "A", prompt: "p", fresh: true, agent }),
+        { "x-jarvis": "1" },
+      );
+    }
+    const agents = orch.sends.map(([, , opts]) => opts);
+    expect(agents[0]).toHaveProperty("agent", "codex");
+    for (const opts of agents.slice(1))
+      expect(opts).not.toHaveProperty("agent");
     close();
   });
 
@@ -757,6 +781,32 @@ describe("/orchestrate/launch", () => {
     s.close();
   });
 
+  it("passes agent codex through and drops any other value", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    for (const agent of ["codex", "claude", "CODEX", null]) {
+      await call(s.port, JSON.stringify({ workspace: "AeroGraph", agent }), {
+        "x-jarvis": "1",
+      });
+    }
+    expect(s.orch.agents).toEqual(["codex", undefined, undefined, undefined]);
+    s.close();
+  });
+
+  it("passes agent antigravity through and drops an unknown agent", async () => {
+    const s = await start(() => {
+      /* no-op */
+    });
+    for (const agent of ["antigravity", "gemini"]) {
+      await call(s.port, JSON.stringify({ workspace: "AeroGraph", agent }), {
+        "x-jarvis": "1",
+      });
+    }
+    expect(s.orch.agents).toEqual(["antigravity", undefined]);
+    s.close();
+  });
+
   it("needs the x-jarvis header like every orchestrate route", async () => {
     const s = await start(() => {
       /* no-op */
@@ -1191,5 +1241,276 @@ describe("the auto-answer reply", () => {
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
     expect(statuses).toHaveLength(1);
+  });
+});
+
+describe("startListener with an agent tag", () => {
+  const codexRead = {
+    ...(JSON.parse(
+      readFileSync("tests/fixtures/codex/pre-bash-read.json", "utf8"),
+    ) as Record<string, unknown>),
+    cwd: "D:\\vault",
+    jarvis_session: workspaces[0].id,
+    jarvis_agent: "codex",
+  };
+  const codexStop = {
+    ...(JSON.parse(
+      readFileSync("tests/fixtures/codex/stop.json", "utf8"),
+    ) as Record<string, unknown>),
+    cwd: "D:\\vault",
+    jarvis_session: workspaces[0].id,
+    jarvis_agent: "codex",
+    last_assistant_message: "Which one?\n\n1. Fast\n2. Safe",
+  };
+
+  async function startTagged(autoAnswer?: (raw: unknown) => unknown) {
+    const events: ToolEvent[] = [];
+    const statuses: StatusEvent[] = [];
+    const asks: unknown[] = [];
+    const hooks: Array<[string, string]> = [];
+    const server = startListener(
+      0,
+      (e) => events.push(e),
+      (s) => statuses.push(s),
+      () => workspaces,
+      stubOrchestrator(),
+      (p) => asks.push(p),
+      undefined,
+      undefined,
+      autoAnswer,
+      (key, name) => hooks.push([key, name]),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return { port, events, statuses, asks, hooks, close: () => server.close() };
+  }
+
+  it("maps a Codex shell read to a read event", async () => {
+    const s = await startTagged();
+    await post(s.port, codexRead);
+    await vi.waitFor(() => expect(s.events).toHaveLength(1));
+    s.close();
+    expect(s.events[0]).toMatchObject({ tool: "Read", nodeIds: ["README"] });
+  });
+
+  it("reports a Codex Stop that ends on a question without opening a panel", async () => {
+    const s = await startTagged();
+    await post(s.port, codexStop);
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+    expect(s.asks).toHaveLength(0);
+  });
+
+  it("opens the panel for the same Stop without an agent tag", async () => {
+    const s = await startTagged();
+    const claudeStop: Record<string, unknown> = { ...codexStop };
+    delete claudeStop.jarvis_agent;
+    await post(s.port, claudeStop);
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+    expect(s.asks).toHaveLength(1);
+  });
+
+  it("never asks autoAnswer about a Codex body", async () => {
+    const autoAnswer = vi.fn(() => ({ a: 1 }));
+    const s = await startTagged(autoAnswer);
+    const res = await post(s.port, codexRead);
+    expect(await res.text()).toBe("");
+    s.close();
+    expect(autoAnswer).not.toHaveBeenCalled();
+  });
+
+  it("asks autoAnswer about a body tagged claude, as about an untagged one", async () => {
+    const answer = { hookSpecificOutput: { permissionDecision: "allow" } };
+    const autoAnswer = vi.fn(() => answer);
+    const s = await startTagged(autoAnswer);
+    const res = await post(s.port, {
+      session_id: "s1",
+      cwd: "D:\\vault",
+      hook_event_name: "PreToolUse",
+      tool_name: "Read",
+      tool_input: { file_path: "D:\\vault\\notes\\beta.md" },
+      jarvis_agent: "claude",
+    });
+    expect(JSON.parse(await res.text())).toEqual(answer);
+    s.close();
+    expect(autoAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the panel for the same Stop tagged claude", async () => {
+    const s = await startTagged();
+    await post(s.port, { ...codexStop, jarvis_agent: "claude" });
+    await vi.waitFor(() => expect(s.statuses).toHaveLength(1));
+    s.close();
+    expect(s.asks).toHaveLength(1);
+    expect((s.asks[0] as { source: string }).source).toBe("text");
+  });
+
+  it("hands onHook the session key and the event name", async () => {
+    const s = await startTagged();
+    await post(s.port, codexRead);
+    await vi.waitFor(() => expect(s.hooks).toHaveLength(1));
+    s.close();
+    expect(s.hooks[0]).toEqual([workspaces[0].id, "PreToolUse"]);
+  });
+
+  it("maps nothing for a JSON body that is not an object", async () => {
+    const s = await startTagged();
+    const res = await postRaw(s.port, "[1,2]");
+    expect(res.status).toBe(200);
+    await postRaw(s.port, "null");
+    s.close();
+    expect(s.events).toHaveLength(0);
+    expect(s.statuses).toHaveLength(0);
+    expect(s.hooks).toHaveLength(0);
+  });
+});
+
+describe("startListener with an adapter's optional members", () => {
+  const key = workspaces[0].id;
+  const realAgentById = agents.agentById;
+
+  async function startStubbed(
+    members: Partial<AgentAdapter>,
+    getWorkspaces: () => Workspace[] = () => workspaces,
+  ) {
+    const normalized: Array<Record<string, unknown>> = [];
+    const stub: AgentAdapter = {
+      id: "antigravity",
+      features: {
+        transcript: false,
+        askPanel: false,
+        permissionCard: false,
+        statusLine: false,
+        slashList: false,
+        trustCheck: false,
+        resume: false,
+      },
+      command: () => Promise.resolve(null),
+      prepare: () => Promise.resolve(true),
+      normalize: (raw) => {
+        normalized.push(raw);
+        return [];
+      },
+      ...members,
+    };
+    const spy = vi
+      .spyOn(agents, "agentById")
+      .mockImplementation((id) => (id === "stub" ? stub : realAgentById(id)));
+    const hooks: Array<[string, string]> = [];
+    const server = startListener(
+      0,
+      () => undefined,
+      () => undefined,
+      getWorkspaces,
+      stubOrchestrator(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (sessionKey, name) => hooks.push([sessionKey, name]),
+    );
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    return {
+      port,
+      hooks,
+      normalized,
+      close: () => {
+        server.close();
+        spy.mockRestore();
+      },
+    };
+  }
+
+  it("notes the gate with the name gateEvent gives a body that has none", async () => {
+    const s = await startStubbed({ gateEvent: () => "UserPromptSubmit" });
+    await post(s.port, { jarvis_agent: "stub", jarvis_session: key });
+    await vi.waitFor(() => expect(s.hooks).toHaveLength(1));
+    s.close();
+    expect(s.hooks[0]).toEqual([key, "UserPromptSubmit"]);
+  });
+
+  it("hands normalize what enrich added", async () => {
+    const s = await startStubbed({
+      enrich: (raw) => Promise.resolve({ ...raw, extra: 1 }),
+    });
+    await post(s.port, { jarvis_agent: "stub", step: 4 });
+    await vi.waitFor(() => expect(s.normalized).toHaveLength(1));
+    s.close();
+    expect(s.normalized[0]).toEqual({
+      jarvis_agent: "stub",
+      step: 4,
+      extra: 1,
+    });
+  });
+
+  it("normalizes the original body when enrich rejects", async () => {
+    const s = await startStubbed({
+      enrich: () => Promise.reject(new Error("no transcript")),
+    });
+    await post(s.port, { jarvis_agent: "stub", step: 4 });
+    await vi.waitFor(() => expect(s.normalized).toHaveLength(1));
+    s.close();
+    expect(s.normalized[0]).toEqual({ jarvis_agent: "stub", step: 4 });
+  });
+
+  it("keeps a throwing sink after enrich from rejecting unhandled", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const normalized: Array<Record<string, unknown>> = [];
+      const s = await startStubbed(
+        {
+          enrich: (raw) => Promise.resolve(raw),
+          normalize: (raw) => {
+            normalized.push(raw);
+            return [{ hook_event_name: "Stop" }];
+          },
+        },
+        () => {
+          throw new Error("no workspaces");
+        },
+      );
+      await post(s.port, { jarvis_agent: "stub" });
+      await vi.waitFor(() => expect(normalized).toHaveLength(1));
+      await new Promise((r) => setTimeout(r, 20));
+      s.close();
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
+
+  it("replies before enrich resolves", async () => {
+    let finish: (raw: Record<string, unknown>) => void = () => undefined;
+    const s = await startStubbed({
+      enrich: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    const res = await post(s.port, { jarvis_agent: "stub" });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+    expect(s.normalized).toHaveLength(0);
+    finish({ jarvis_agent: "stub", extra: 1 });
+    await vi.waitFor(() => expect(s.normalized).toHaveLength(1));
+    s.close();
+    expect(s.normalized[0]).toEqual({ jarvis_agent: "stub", extra: 1 });
+  });
+
+  it("notes the gate for a Codex body with its raw hook_event_name", async () => {
+    const s = await startStubbed({ gateEvent: () => "UserPromptSubmit" });
+    await post(s.port, {
+      hook_event_name: "Stop",
+      cwd: "D:\vault",
+      jarvis_session: key,
+      jarvis_agent: "codex",
+    });
+    await vi.waitFor(() => expect(s.hooks).toHaveLength(1));
+    s.close();
+    expect(s.hooks[0]).toEqual([key, "Stop"]);
   });
 });

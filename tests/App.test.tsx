@@ -366,3 +366,117 @@ describe("App shell", () => {
     });
   });
 });
+
+describe("App: Codex sessions", () => {
+  const repo = {
+    id: "r",
+    name: "Repo",
+    rootPath: "/r",
+    kind: "vault",
+    sourceId: "unknown",
+  };
+  const session = (key: string, label: string, extra: any = {}) => ({
+    key,
+    label,
+    kind: "idle",
+    live: true,
+    call: "",
+    since: 0,
+    worktree: false,
+    ...extra,
+  });
+  const row = (sessions: any[]) => ({
+    workspaceId: "r",
+    kind: "idle",
+    call: "",
+    since: 0,
+    reads: 0,
+    edits: 0,
+    sessions,
+  });
+  const ask = (sessionKey: string) => ({
+    workspaceId: "r",
+    sessionKey,
+    sessionId: `s-${sessionKey}`,
+    ts: 1,
+    questions: [
+      {
+        question: "Which?",
+        header: "",
+        multiSelect: false,
+        options: [{ label: "A", description: "" }],
+      },
+    ],
+  });
+  // workspaces, active, statuses, showHome (12th) and asks (17th useState);
+  // `extra` overrides any other state by index
+  const renderRepo = async (
+    sessions: any[],
+    extra: Record<number, any> = {},
+  ) => {
+    const { default: App } = await import("../src/renderer/App");
+    stateOverrides = {
+      0: [repo],
+      1: repo,
+      2: [row(sessions)],
+      11: false,
+      ...extra,
+    };
+    stateCall = 0;
+    return walk((App as any)({}));
+  };
+  const terminal = async (nodes: any[]) => {
+    const { default: TerminalPanel } =
+      await import("../src/renderer/terminal/TerminalPanel");
+    return nodes.find((n: any) => n.type === TerminalPanel);
+  };
+
+  it("passes the session row's agent to the terminal", async () => {
+    const panel = await terminal(
+      await renderRepo([session("r", "main", { agent: "codex" })]),
+    );
+    expect(panel.props.sessionStatus.agent).toBe("codex");
+  });
+
+  it("hides the auto-answer button while the terminal shows a Codex session", async () => {
+    const { default: AutoAnswerToggle } =
+      await import("../src/renderer/ui/AutoAnswerToggle");
+    const codex = await renderRepo([session("r", "main", { agent: "codex" })]);
+    expect(codex.some((n: any) => n.type === AutoAnswerToggle)).toBe(false);
+    const claude = await renderRepo([session("r", "main")]);
+    expect(claude.some((n: any) => n.type === AutoAnswerToggle)).toBe(true);
+  });
+
+  it("shows no question panel for a Codex session", async () => {
+    const asks = (key: string) => ({ 16: new Map([[key, ask(key)]]) });
+    const codex = await renderRepo(
+      [session("r", "main"), session("r#1", "1", { agent: "codex" })],
+      asks("r#1"),
+    );
+    expect(codex.some((n: any) => n.props?.id === "ask")).toBe(false);
+    const claude = await renderRepo(
+      [session("r", "main"), session("r#1", "1")],
+      asks("r#1"),
+    );
+    expect(claude.some((n: any) => n.props?.id === "ask")).toBe(true);
+  });
+
+  it("hides the auto-answer button while the terminal shows an Antigravity session", async () => {
+    const { default: AutoAnswerToggle } =
+      await import("../src/renderer/ui/AutoAnswerToggle");
+    const antigravity = await renderRepo([
+      session("r", "main", { agent: "antigravity" }),
+    ]);
+    expect(antigravity.some((n: any) => n.type === AutoAnswerToggle)).toBe(
+      false,
+    );
+  });
+
+  it("shows no question panel for an Antigravity session", async () => {
+    const antigravity = await renderRepo(
+      [session("r", "main"), session("r#1", "1", { agent: "antigravity" })],
+      { 16: new Map([["r#1", ask("r#1")]]) },
+    );
+    expect(antigravity.some((n: any) => n.props?.id === "ask")).toBe(false);
+  });
+});

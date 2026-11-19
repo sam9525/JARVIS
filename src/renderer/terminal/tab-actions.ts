@@ -36,11 +36,14 @@ export function closeSessionTab(
     .catch((err) => deps.notify(`Could not close the session: ${err}`));
 }
 
-/** Opens the owner's next numbered session and selects its tab. */
+/** Opens the owner's next numbered Claude session and selects its tab. */
 export function openSessionTab(
   ownerId: string,
   size: { cols: number; rows: number },
-  deps: { select(key: string): void; notify(text: string): void },
+  deps: {
+    select(key: string): void;
+    notify(text: string, action?: NoticeAction): void;
+  },
 ): Promise<void> {
   return window.jarvis
     .ptyLaunch(ownerId, null, size.cols, size.rows)

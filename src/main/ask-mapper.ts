@@ -9,6 +9,8 @@ export interface AskOption {
   description: string;
   // text questions only: the words typed into the terminal when picked
   reply?: string;
+  // app-raised confirms only: the exact keys typed when picked, with no Enter
+  keys?: string;
 }
 
 export interface AskQuestion {
@@ -33,8 +35,9 @@ export interface AskPrompt {
   ts: number;
   // main answered this question through the hook reply; the renderer holds its panel
   offered?: true;
-  // "text" marks a question read from a plain reply, not an AskUserQuestion call
-  source?: "text";
+  // "text" marks a question read from a plain reply, not an AskUserQuestion
+  // call; "confirm" marks a TUI confirm that lists only its own options
+  source?: "text" | "confirm";
   // the renderer fills this from the session's writes; main never sets it
   docs?: Partial<Record<"spec" | "plan", string>>;
 }

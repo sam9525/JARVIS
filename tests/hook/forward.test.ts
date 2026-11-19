@@ -34,6 +34,7 @@ function runForwardWithOutput(
       ...extraEnv,
     };
     if (!("JARVIS_SESSION" in extraEnv)) delete env.JARVIS_SESSION;
+    if (!("JARVIS_AGENT" in extraEnv)) delete env.JARVIS_AGENT;
     const child = spawn(process.execPath, [FORWARD], { env });
     let stdout = "";
     child.stdout.on("data", (c) => (stdout += c));
@@ -212,6 +213,32 @@ describe("forward.mjs", () => {
     await withReply("", async (port) => {
       const r = await runForwardWithOutput(port, '{"tool_name":"Read"}');
       expect(r.code).toBe(0);
+      expect(r.stdout).toBe("");
+    });
+  });
+
+  it("adds jarvis_agent from JARVIS_AGENT in a session", async () => {
+    const body = await captureBody('{"tool_name":"Read"}', {
+      JARVIS_SESSION: "s",
+      JARVIS_AGENT: "codex",
+    });
+    expect(JSON.parse(body).jarvis_agent).toBe("codex");
+  });
+
+  it("adds no jarvis_agent key without JARVIS_AGENT", async () => {
+    const body = await captureBody('{"tool_name":"Read"}', {
+      JARVIS_SESSION: "s",
+    });
+    expect(JSON.parse(body)).not.toHaveProperty("jarvis_agent");
+  });
+
+  it("prints nothing for a Bash PreToolUse from codex", async () => {
+    await withReply(reply, async (port) => {
+      const r = await runForwardWithOutput(
+        port,
+        '{"hook_event_name":"PreToolUse","tool_name":"Bash"}',
+        { JARVIS_SESSION: "s", JARVIS_AGENT: "codex" },
+      );
       expect(r.stdout).toBe("");
     });
   });

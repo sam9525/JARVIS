@@ -1,3 +1,5 @@
+import type { AgentId } from "../shared/types";
+
 export interface SessionInfo {
   key: string;
   workspaceId: string;
@@ -6,6 +8,8 @@ export interface SessionInfo {
   worktree: boolean;
   /** Opened by the orchestrator's jarvis_launch; only these idle-close. */
   delegated: boolean;
+  /** The agent running in the tab; absent means Claude. */
+  agent?: AgentId;
 }
 
 export type Reservation = Pick<SessionInfo, "key" | "workspaceId" | "label">;

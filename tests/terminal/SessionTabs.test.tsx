@@ -188,3 +188,51 @@ describe("SessionTabs", () => {
     expect(container.textContent).toContain("shared folder");
   });
 });
+
+describe("SessionTabs Codex mark", () => {
+  const mark = (key: string) =>
+    container.querySelector<HTMLElement>(
+      `[data-tab="${key}"] [data-testid="codex-mark"]`,
+    );
+
+  it("marks a Codex tab right after its label", () => {
+    render({
+      tabs: [tab("w", "main"), tab("w#1", "1", { agent: "codex" })],
+    });
+    const m = mark("w#1");
+    expect(m?.textContent).toBe("Codex");
+    expect(m?.previousElementSibling?.textContent).toBe("1");
+    expect(m?.className).toContain("border-ink-dim");
+    expect(m?.className).toContain("text-ink-muted");
+    expect(m?.className).toContain("tracking-[0.16em]");
+    expect(m?.className).not.toContain("bloom");
+  });
+
+  it("marks an Antigravity tab with its own word in the same style", () => {
+    render({
+      tabs: [tab("w", "main"), tab("w#1", "1", { agent: "antigravity" })],
+    });
+    const m = mark("w#1");
+    expect(m?.textContent).toBe("Antigravity");
+    expect(m?.previousElementSibling?.textContent).toBe("1");
+    expect(m?.className).toContain("border-ink-dim");
+    expect(m?.className).toContain("text-ink-muted");
+    expect(m?.className).toContain("tracking-[0.16em]");
+    expect(mark("w")).toBeNull();
+  });
+
+  it("leaves a Claude tab unmarked", () => {
+    render({
+      tabs: [tab("w", "main"), tab("w#1", "1", { agent: "claude" })],
+    });
+    expect(mark("w")).toBeNull();
+    expect(mark("w#1")).toBeNull();
+  });
+
+  it("redraws the mark when a tab's agent changes", () => {
+    render({ tabs: [tab("w", "main"), tab("w#1", "1")] });
+    expect(mark("w#1")).toBeNull();
+    render({ tabs: [tab("w", "main"), tab("w#1", "1", { agent: "codex" })] });
+    expect(mark("w#1")).not.toBeNull();
+  });
+});

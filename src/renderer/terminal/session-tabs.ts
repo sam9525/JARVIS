@@ -1,5 +1,6 @@
 import { MAIN_LABEL, sessionKey, shownName } from "../../shared/session-key";
 import type {
+  AgentId,
   SessionStatus,
   StatusKind,
   Workspace,
@@ -15,6 +16,8 @@ export type SessionTab = {
   // the panel owner's main-folder session: always a tab, never closable
   main?: boolean;
   hint?: string;
+  // absent means Claude
+  agent?: AgentId;
 };
 
 function sessionsOf(
@@ -23,6 +26,9 @@ function sessionsOf(
 ): SessionStatus[] {
   return statuses.find((s) => s.workspaceId === workspaceId)?.sessions ?? [];
 }
+
+const agentOf = (s: SessionStatus | undefined) =>
+  s?.agent ? { agent: s.agent } : {};
 
 // a crashed session keeps its tab, so its output can still be read
 const hasTab = (s: SessionStatus): boolean => s.live || s.kind === "crashed";
@@ -33,10 +39,15 @@ function mainTab(
   statuses: WorkspaceStatus[],
 ): SessionTab {
   const key = sessionKey(ws.id, MAIN_LABEL);
-  const kind = displayKind(
-    sessionsOf(ws.id, statuses).find((s) => s.key === key) ?? { kind: "none" },
-  );
-  return { key, label, kind, workspaceId: ws.id, main: true };
+  const row = sessionsOf(ws.id, statuses).find((s) => s.key === key);
+  return {
+    key,
+    label,
+    kind: displayKind(row ?? { kind: "none" }),
+    workspaceId: ws.id,
+    main: true,
+    ...agentOf(row),
+  };
 }
 
 /** Home: the main agent, then Scratch's live sessions numbered by position. */
@@ -55,6 +66,7 @@ export function homeTabs(
       label: live.length === 1 ? "SCRATCH" : `SCRATCH ${i + 1}`,
       kind: displayKind(s),
       workspaceId: scratch.id,
+      ...agentOf(s),
     })),
   ];
 }
@@ -78,6 +90,7 @@ export function projectTabs(
       label: shownName(s, others),
       kind: displayKind(s),
       workspaceId: ws.id,
+      ...agentOf(s),
       // a code folder that is not a git repo gets no worktree, so this session
       // edits the same files as main
       ...(s.worktree

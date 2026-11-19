@@ -7,16 +7,17 @@ export const IDLE_CLOSE_MS =
 
 /** Keys of live sessions the orchestrator launched, in non-main-agent
  * workspaces. A hand-opened tab and a session without a terminal are left
- * alone. */
+ * alone. A session whose delivered prompt has not run yet is left open. */
 export function idleCloseKeys(
   workspaces: Workspace[],
   sessionsOf: (workspaceId: string) => SessionInfo[],
   hasPty: (key: string) => boolean,
+  unconfirmed: (key: string) => boolean,
 ): string[] {
   return workspaces
     .filter((w) => !w.isSelf)
     .flatMap((w) => sessionsOf(w.id))
-    .filter((s) => s.delegated && hasPty(s.key))
+    .filter((s) => s.delegated && hasPty(s.key) && !unconfirmed(s.key))
     .map((s) => s.key);
 }
 

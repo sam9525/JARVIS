@@ -3,7 +3,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Inbox from "./Inbox";
 import { renderNote } from "../preview/markdown";
 import { relativeTime } from "../home/relative-time";
-import { LBL_AM } from "../ui/hud";
+import { AGENT_MARK, LBL_AM } from "../ui/hud";
+import { AGENT_LABELS } from "../../shared/agent-labels";
 import { PILL } from "./status-colours";
 import type { NoticeAction } from "./tab-actions";
 import {
@@ -15,6 +16,7 @@ import {
 import { MAIN_LABEL, sessionKey as keyOf } from "../../shared/session-key";
 import { displayKind } from "../../shared/turn-end";
 import type {
+  AgentId,
   StatusKind,
   TurnEnd,
   Workspace,
@@ -150,7 +152,12 @@ export default function TerminalPanel({
   visible?: boolean;
   // the session's open question, answered inline on the screen
   ask?: AskPrompt;
-  sessionStatus?: { kind: StatusKind; call: string; ended?: TurnEnd };
+  sessionStatus?: {
+    kind: StatusKind;
+    call: string;
+    ended?: TurnEnd;
+    agent?: AgentId;
+  };
   // what the composer's `@` offers: the workspace's graph files
   files?: string[];
   // resolves false when the session has no terminal to write to
@@ -296,7 +303,9 @@ export default function TerminalPanel({
       offMode();
     };
   }, [sessionKey]);
-  const mode = getViewMode(sessionKey);
+  // only a Claude session has a transcript; any other agent shows the terminal only
+  const otherAgent = (sessionStatus.agent ?? "claude") !== "claude";
+  const mode: ViewMode = otherAgent ? "raw" : getViewMode(sessionKey);
   const statusLine = statusLineFor(sessionKey);
 
   // Separate from the mount effect above, and keyed on visibility: the boot
@@ -454,6 +463,11 @@ export default function TerminalPanel({
         hidden={inboxOnly}
       >
         <div className="flex flex-none items-center justify-end gap-3 border-b border-accent/20 px-2.5 py-1">
+          {/* mr-auto holds the mark on the left while the view switch
+              stays on the right */}
+          <span data-testid="agent-mark" className={AGENT_MARK + " mr-auto"}>
+            {AGENT_LABELS[sessionStatus.agent ?? "claude"]}
+          </span>
           {reindexCommand && status.kind === "running" && (
             <button
               className={LBL_AM + " cursor-pointer"}
@@ -467,11 +481,13 @@ export default function TerminalPanel({
               index stale
             </button>
           )}
-          <Segmented
-            options={VIEW_OPTIONS}
-            value={mode}
-            onChange={(next) => setViewMode(sessionKey, next)}
-          />
+          {!otherAgent && (
+            <Segmented
+              options={VIEW_OPTIONS}
+              value={mode}
+              onChange={(next) => setViewMode(sessionKey, next)}
+            />
+          )}
         </div>
         {!isMain && status.kind === "exited" && (
           <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
@@ -479,7 +495,7 @@ export default function TerminalPanel({
             disk. Close the tab when you are done with it.
           </div>
         )}
-        {mode === "raw" && wasAutoFlipped(sessionKey) && (
+        {!otherAgent && mode === "raw" && wasAutoFlipped(sessionKey) && (
           <div className="mx-3 mt-2 flex-none border-l-2 border-warm pl-2 text-[12px] text-ink-muted">
             Close it here, then switch back to screen. Your next prompt also
             switches back.
@@ -493,47 +509,49 @@ export default function TerminalPanel({
             className="h-full w-full"
             data-testid="terminal-host"
           />
-          <div
-            ref={screenRef}
-            className="absolute inset-0 bg-panel"
-            data-testid="session-screen-layer"
-            hidden={mode === "raw"}
-          >
-            <SessionScreen
-              sessionKey={sessionKey}
-              items={itemsFor(sessionKey)}
-              status={sessionStatus}
-              ask={ask}
-              onAskAnswer={(writes) => {
-                const written = onAskAnswer?.(writes);
-                // a text reply that is refused stays in the caller's hands
-                if (ask?.source !== "text") reportWrite(written);
-                return written;
-              }}
-              onOpenDoc={onOpenDoc}
-              onWrite={(data) =>
-                reportWrite(window.jarvis.ptyInput(sessionKey, data))
-              }
-              onShowRaw={() => setViewMode(sessionKey, "raw")}
-              footer={
-                <>
-                  <Composer
-                    sessionKey={sessionKey}
-                    files={files}
-                    currentModel={modelOf(statusLine)}
-                    history={historyEntries(itemsFor(sessionKey))}
-                    awaitingAnswer={
-                      (!!ask && ask.source !== "text") ||
-                      sessionStatus.kind === "blocked" ||
-                      sessionStatus.kind === "asking"
-                    }
-                    onError={setComposerError}
-                  />
-                  <StatusLine view={statusLine} now={Date.now()} />
-                </>
-              }
-            />
-          </div>
+          {!otherAgent && (
+            <div
+              ref={screenRef}
+              className="absolute inset-0 bg-panel"
+              data-testid="session-screen-layer"
+              hidden={mode === "raw"}
+            >
+              <SessionScreen
+                sessionKey={sessionKey}
+                items={itemsFor(sessionKey)}
+                status={sessionStatus}
+                ask={ask}
+                onAskAnswer={(writes) => {
+                  const written = onAskAnswer?.(writes);
+                  // a text reply that is refused stays in the caller's hands
+                  if (ask?.source !== "text") reportWrite(written);
+                  return written;
+                }}
+                onOpenDoc={onOpenDoc}
+                onWrite={(data) =>
+                  reportWrite(window.jarvis.ptyInput(sessionKey, data))
+                }
+                onShowRaw={() => setViewMode(sessionKey, "raw")}
+                footer={
+                  <>
+                    <Composer
+                      sessionKey={sessionKey}
+                      files={files}
+                      currentModel={modelOf(statusLine)}
+                      history={historyEntries(itemsFor(sessionKey))}
+                      awaitingAnswer={
+                        (!!ask && ask.source !== "text") ||
+                        sessionStatus.kind === "blocked" ||
+                        sessionStatus.kind === "asking"
+                      }
+                      onError={setComposerError}
+                    />
+                    <StatusLine view={statusLine} now={Date.now()} />
+                  </>
+                }
+              />
+            </div>
+          )}
         </div>
         {isMain && status.kind !== "running" && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-panel/80">

@@ -148,7 +148,9 @@ tool's description, routed to the project's main tab first:
 
 When the task relates to the main tab's current conversation, send on top of
 it. When it is unrelated, first \`jarvis_send\` \`/clear\` to \`session: "main"\`,
-then the task. A freshly launched main tab needs no \`/clear\`. This rule
+then the task. A slash command send returns once it has run; if it says it had
+not finished, do not send the task — check the tab first. A freshly launched
+main tab needs no \`/clear\`. This rule
 overrides any older text that says every task gets a fresh session or that
 \`main\` belongs to the user. A follow-up to what a session already did goes to
 that session with \`jarvis_send\` and its \`session\` label, never to a new one.
@@ -221,6 +223,13 @@ which one to close, and call \`jarvis_close\` only on their word.
 A \`trustPrompt\` in a send result means nothing was sent. Ask the user, call
 \`jarvis_trust\` with their answer and the \`session\`, then send again with that
 \`session\`.
+
+When the user asks to continue a session that \`jarvis_list\` has no closed
+row for (\`resume: true\` says there is none), do not ask them to pick it.
+Its folder under \`~/.claude/projects\` is the project path with separators
+turned into dashes, such as \`D--data-Program-JARVIS\`. Take the session id from
+the newest large top-level \`.jsonl\` there, launch a fresh session, and send it
+\`/resume <id>\`.
 
 ## Scratch
 

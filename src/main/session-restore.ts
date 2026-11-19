@@ -2,6 +2,10 @@ import { existsSync, promises as fs, writeFileSync } from "node:fs";
 import path from "node:path";
 import { isSessionId } from "./pty-manager";
 import { MAIN_LABEL } from "../shared/session-key";
+import type { AgentId } from "../shared/types";
+import { agentById } from "./agents";
+import type { ReadyState } from "./agents/ready-gate";
+import { LAUNCH_SETTLE_DEADLINE_MS } from "./main-agent";
 
 /** A reopen this soon after the last close continues every project session
  * that was live; any later and they start fresh, as a first launch does. */
@@ -16,12 +20,14 @@ export const HEARTBEAT_MS = 60 * 1000;
 export const sessionsPath = (userData: string): string =>
   path.join(userData, "jarvis-sessions.json");
 
-/** What one live session needs to come back: Claude's id to `--resume`, the
- * label to relaunch it under, and the folder its transcript is filed by. */
+/** What one live session needs to come back: the agent's id to resume, the
+ * label to relaunch it under, the folder its transcript is filed by, and the
+ * agent that ran it (absent means Claude). */
 export interface SavedSession {
   sessionId: string;
   label: string;
   cwd: string;
+  agent?: AgentId;
 }
 
 /** A saved entry in either shape. A bare string is the older one-session
@@ -40,6 +46,7 @@ function readEntry(
     sessionId: typeof r.sessionId === "string" ? r.sessionId : undefined,
     label: typeof r.label === "string" ? r.label : undefined,
     cwd: typeof r.cwd === "string" ? r.cwd : undefined,
+    agent: agentById(r.agent).id === r.agent ? (r.agent as AgentId) : undefined,
   };
 }
 
@@ -62,11 +69,11 @@ export function sessionsToResume(
   const out: Record<string, SavedSession> = {};
   if (typeof p.sessions !== "object" || p.sessions === null) return out;
   for (const [key, raw] of Object.entries(p.sessions)) {
-    const { sessionId, label, cwd } = readEntry(key, raw, rootOf);
+    const { sessionId, label, cwd, agent } = readEntry(key, raw, rootOf);
     // the id becomes a path segment and a command-line argument
     if (!sessionId || !isSessionId(sessionId)) continue;
     if (!label || !cwd || !existsSync(cwd)) continue;
-    out[key] = { sessionId, label, cwd };
+    out[key] = { sessionId, label, cwd, ...(agent ? { agent } : {}) };
   }
   return out;
 }
@@ -108,4 +115,18 @@ export async function hasSessionTranscript(
   } catch {
     return false;
   }
+}
+
+/** Whether a resumed session that just exited never got going: no hook was
+ * heard, the exit was not clean, and it came inside the settle window. */
+export function isFailedResume(
+  state: ReadyState | undefined,
+  exitCode: number,
+  msSinceLaunch: number,
+): boolean {
+  return (
+    state === "starting" &&
+    exitCode !== 0 &&
+    msSinceLaunch < LAUNCH_SETTLE_DEADLINE_MS
+  );
 }

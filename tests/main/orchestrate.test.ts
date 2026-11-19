@@ -3,11 +3,18 @@ import {
   createOrchestrator,
   CLOSE_QUIET_MS,
   MAX_SAY,
+  MODEL_CONFIRM_MS,
   QUEUE_MAX,
   sendPayload,
 } from "../../src/main/orchestrate";
 import type { ClosedSession } from "../../src/main/closed-sessions";
+import type { AskPrompt } from "../../src/main/ask-mapper";
+import {
+  createReadyGate,
+  type ReadyState,
+} from "../../src/main/agents/ready-gate";
 import type {
+  AgentId,
   SessionStatus,
   Workspace,
   WorkspaceStatus,
@@ -62,6 +69,7 @@ interface Sess {
   cwd: string;
   worktree: boolean;
   delegated: boolean;
+  agent?: AgentId;
 }
 
 const mainOf = (id: string): Sess => {
@@ -122,9 +130,11 @@ function setup(
     writeFails?: boolean; // PTY died between the probe and the write
     sayFails?: boolean; // no renderer window listening
     launchFails?: boolean; // spawn threw — no claude on PATH
+    launchError?: string; // the failed launch's error; "spawn ENOENT" if unset
     trusted?: boolean | null; // ~/.claude.json's answer for every folder
     exitsOnKeys?: boolean; // the session exits while JARVIS waits on it
     settles?: boolean; // waitQuiet's result; false = the deadline passed
+    commandFinishes?: boolean | Promise<boolean>; // waitCommand's result
     outputAgoMs?: number; // msSinceOutput's answer; Infinity = no output seen
     kept?: string; // the folder close leaves on disk
     damaged?: string; // the link target the removal emptied
@@ -132,6 +142,9 @@ function setup(
     pendingInput?: string[]; // keys whose terminal holds text the user typed
     drafts?: string[]; // keys whose session screen input holds a draft
     closedSessions?: ClosedSession[]; // resumable closes, every workspace
+    resumeMenu?: boolean; // resumeMenuLikely's answer
+    readyStates?: Record<string, ReadyState>; // Codex sessions' gate states
+    agentTrusted?: boolean | null; // an agent's own trust list; null = it has none
   } = {},
 ) {
   const writes: Array<[string, string]> = [];
@@ -143,8 +156,12 @@ function setup(
   const namedAtWrites: number[] = [];
   const launched: Array<[string, string | undefined]> = [];
   const resumedIds: Array<string | undefined> = [];
+  const launchedAgents: Array<AgentId | undefined> = [];
   const closed: string[] = [];
   const trustChecked: string[] = [];
+  const agentTrustChecked: Array<[AgentId | undefined, string]> = [];
+  const delivered: string[] = [];
+  const asked: AskPrompt[] = [];
   const registered: Sess[] = [...(over.sessions ?? [mainOf("d:/aero")])];
   const live = new Set(
     registered.map((s) => s.key).filter((k) => !over.dead?.includes(k)),
@@ -180,10 +197,12 @@ function setup(
     // refused as "cap" at four live sessions
     closedOf: (id) =>
       (over.closedSessions ?? []).filter((c) => c.workspaceId === id),
-    launch: async (ws, label, resumeId) => {
+    launch: async (ws, label, resumeId, agent) => {
       launched.push([ws.id, label]);
       resumedIds.push(resumeId);
-      if (over.launchFails) return { ok: false, error: "spawn ENOENT" };
+      launchedAgents.push(agent);
+      if (over.launchFails)
+        return { ok: false, error: over.launchError ?? "spawn ENOENT" };
       const mine = registered.filter((s) => s.workspaceId === ws.id);
       if (mine.filter((s) => live.has(s.key)).length >= 4)
         return { ok: false, error: "cap" };
@@ -227,6 +246,10 @@ function setup(
       trustChecked.push(folder);
       return over.trusted === undefined ? true : over.trusted;
     },
+    agentTrusted: async (agent, cwd) => {
+      agentTrustChecked.push([agent, cwd]);
+      return over.agentTrusted ?? null;
+    },
     waitQuiet: async (key) => {
       // a marker, so tests pin where the wait starts among the writes
       writes.push([key, "<wait>"]);
@@ -234,6 +257,18 @@ function setup(
       return over.settles ?? true;
     },
     msSinceOutput: () => over.outputAgoMs ?? Infinity,
+    readyState: (key) => over.readyStates?.[key],
+    waitCommand: async (key) => {
+      writes.push([key, "<cmd-wait>"]);
+      return over.commandFinishes ?? true;
+    },
+    noteDelivered: (key) => {
+      delivered.push(key);
+    },
+    ask: (p) => {
+      asked.push(p);
+    },
+    resumeMenuLikely: async () => over.resumeMenu ?? false,
   });
   return {
     orch,
@@ -246,8 +281,12 @@ function setup(
     nudges,
     launched,
     resumedIds,
+    launchedAgents,
     closed,
     trustChecked,
+    agentTrustChecked,
+    delivered,
+    asked,
   };
 }
 
@@ -297,6 +336,7 @@ describe("orchestrate.list", () => {
       message: "",
       live: false,
       delegatedBy: "",
+      agent: "claude",
     });
   });
 
@@ -335,6 +375,7 @@ describe("orchestrate.list", () => {
         message: "hi",
         live: true,
         delegatedBy: "JARVIS",
+        agent: "claude",
       },
       {
         name: "AeroGraph",
@@ -347,6 +388,7 @@ describe("orchestrate.list", () => {
         message: "hi",
         live: true,
         delegatedBy: "JARVIS",
+        agent: "claude",
       },
     ]);
   });
@@ -581,6 +623,112 @@ describe("orchestrate.send", () => {
     expect(out.ok).toBe(false);
     expect(writes).toEqual([]);
     expect(delegated).toEqual([]);
+  });
+});
+
+describe("orchestrate.send with a slash command", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("waits for a slash command before returning", async () => {
+    let finish!: (done: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => (finish = resolve));
+    const { orch, writes } = setup({ commandFinishes: gate });
+    let settled = false;
+    const out = orch
+      .send("AeroGraph", "/model claude-fable-5-2", { session: "main" })
+      .then((r) => {
+        settled = true;
+        return r;
+      });
+    await vi.runAllTimersAsync();
+    expect(writes.map((w) => w[1])).toContain("/model claude-fable-5-2");
+    expect(settled).toBe(false);
+    finish(true);
+    expect(await out).toEqual({ ok: true, session: "main", finished: true });
+  });
+
+  it("opens the question panel while /model sits on its confirm", async () => {
+    let finish!: (done: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => (finish = resolve));
+    const { orch, asked } = setup({ commandFinishes: gate });
+    const out = orch.send("AeroGraph", "/model claude-fable-5-2", {
+      session: "main",
+    });
+    await vi.advanceTimersByTimeAsync(MODEL_CONFIRM_MS);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({
+      workspaceId: "d:/aero",
+      sessionKey: "d:/aero",
+      source: "confirm",
+      questions: [
+        {
+          question: "Switch model?",
+          multiSelect: false,
+          options: [
+            { label: "Yes, switch to claude-fable-5-2" },
+            { label: "No, go back" },
+          ],
+        },
+      ],
+    });
+    finish(true);
+    await out;
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toMatchObject({ sessionKey: "d:/aero", questions: [] });
+  });
+
+  it("opens no panel when /model runs at once", async () => {
+    const { orch, asked } = setup({ commandFinishes: true });
+    await orch.send("AeroGraph", "/model claude-fable-5-2");
+    await vi.advanceTimersByTimeAsync(MODEL_CONFIRM_MS);
+    expect(asked).toEqual([]);
+  });
+
+  it("opens no panel for another slash command", async () => {
+    const gate = new Promise<boolean>(vi.fn());
+    const { orch, asked } = setup({ commandFinishes: gate });
+    void orch.send("AeroGraph", "/compact");
+    await vi.advanceTimersByTimeAsync(MODEL_CONFIRM_MS);
+    expect(asked).toEqual([]);
+  });
+
+  it("registers the wait before the write", async () => {
+    const { orch, writes } = setup();
+    await orch.send("AeroGraph", "/model claude-fable-5-2");
+    expect(writes.map((w) => w[1])).toEqual([
+      "<cmd-wait>",
+      "/model claude-fable-5-2",
+    ]);
+  });
+
+  it("returns finished false at the deadline", async () => {
+    const { orch } = setup({ commandFinishes: false });
+    const out = await orch.send("AeroGraph", "/compact");
+    expect(out).toEqual({ ok: true, session: "main", finished: false });
+  });
+
+  it("does not wait for a plain prompt", async () => {
+    const { orch, writes } = setup();
+    const out = await orch.send("AeroGraph", "run the fix");
+    expect(writes.map((w) => w[1])).not.toContain("<cmd-wait>");
+    expect(out).toEqual({ ok: true, session: "main" });
+    expect("finished" in out).toBe(false);
+  });
+
+  it("waits for a slash command sent to a fresh session too", async () => {
+    const { orch, writes } = setup();
+    const out = orch.send("AeroGraph", "/clear", { fresh: true });
+    await vi.runAllTimersAsync();
+    const result = await out;
+    expect(writes.map((w) => w[1])).toContain("<cmd-wait>");
+    expect(result).toMatchObject({ ok: true, finished: true });
+  });
+
+  it("marks the delivery", async () => {
+    const { orch, delivered } = setup();
+    await orch.send("AeroGraph", "run the fix");
+    expect(delivered).toEqual(["d:/aero"]);
   });
 });
 
@@ -1777,6 +1925,73 @@ describe("closed sessions", () => {
       error: `FinPulse's live session "auto" is holding unsent text — it was not replaced`,
     });
   });
+
+  describe("resume menu", () => {
+    const resumed = async (resumeMenu: boolean) => {
+      const t = setup({
+        sessions: [],
+        closedSessions: [closedMain],
+        resumeMenu,
+      });
+      expect((await t.orch.launch("FinPulse", "main", true)).ok).toBe(true);
+      return t;
+    };
+
+    it("raises an Esc-only panel when the menu is likely", async () => {
+      const { asked } = await resumed(true);
+      expect(asked).toHaveLength(1);
+      expect(asked[0]).toMatchObject({
+        sessionKey: "d:/fin",
+        source: "confirm",
+        questions: [{ options: [{ label: "Resume as-is", keys: "\x1b" }] }],
+      });
+    });
+
+    it("raises nothing when the menu is unlikely", async () => {
+      const { orch, asked } = await resumed(false);
+      expect(asked).toEqual([]);
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(true);
+    });
+
+    it("raises nothing for a launch without resume", async () => {
+      const t = setup({ sessions: [], resumeMenu: true });
+      expect((await t.orch.launch("FinPulse", "main")).ok).toBe(true);
+      expect(t.asked).toEqual([]);
+    });
+
+    it("refuses a send while the menu may be open", async () => {
+      const { orch, attempted } = await resumed(true);
+      const out = await orch.send("FinPulse", "hi");
+      expect(out.ok).toBe(false);
+      expect(attempted).toEqual([]);
+    });
+
+    it("an arrow key leaves the gate shut", async () => {
+      const { orch, asked } = await resumed(true);
+      orch.resumeMenuKeyed("d:/fin", "\x1b[B");
+      expect(asked).toHaveLength(1);
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(false);
+    });
+
+    it("any other key closes the panel and opens the gate", async () => {
+      const { orch, asked } = await resumed(true);
+      orch.resumeMenuKeyed("d:/fin", "\x1b");
+      expect(asked[1]).toMatchObject({ sessionKey: "d:/fin", questions: [] });
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(true);
+    });
+
+    it("a key in another session changes nothing", async () => {
+      const { orch, asked } = await resumed(true);
+      orch.resumeMenuKeyed("d:/aero", "\r");
+      expect(asked).toHaveLength(1);
+    });
+
+    it("the session's exit opens the gate", async () => {
+      const { orch } = await resumed(true);
+      orch.resumeMenuEnded("d:/fin");
+      expect((await orch.send("FinPulse", "hi")).ok).toBe(true);
+    });
+  });
 });
 
 describe("sendPayload control characters", () => {
@@ -1786,5 +2001,408 @@ describe("sendPayload control characters", () => {
     expect(out).toContain("x\ny");
     expect(out).not.toContain("\x00");
     expect(out).not.toContain("\x7f");
+  });
+});
+
+describe("orchestrate with a Codex session", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const UNFINISHED =
+    'AeroGraph\'s Codex session "main" has not ended its turn — wait for its finish, or send with fresh: true';
+
+  const liveCodex = (
+    state: ReadyState | undefined,
+    row: Partial<SessionStatus>,
+  ) =>
+    setup({
+      sessions: [{ ...mainOf("d:/aero"), agent: "codex" }],
+      readyStates: state === undefined ? {} : { "d:/aero": state },
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          sessions: [sessionRow({ key: "d:/aero", label: "main", ...row })],
+        }),
+      ],
+    });
+
+  it("a fresh send launches Codex, skips the trust check and writes the prompt", async () => {
+    const { orch, writes, launchedAgents, trustChecked } = setup({
+      trusted: false,
+    });
+    const out = orch.send("AeroGraph", "To-do task: x", {
+      fresh: true,
+      agent: "codex",
+    });
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({
+      ok: true,
+      session: "1",
+      worktree: "D:\\aero\\.worktrees\\1",
+    });
+    expect(launchedAgents).toEqual(["codex"]);
+    expect(trustChecked).toEqual([]);
+    expect(writes).toEqual([
+      ["d:/aero#1", "<wait>"],
+      ["d:/aero#1", "To-do task: x"],
+      ["d:/aero#1", "\r"],
+    ]);
+  });
+
+  it.each(["starting", "ready"] as const)(
+    "delivers to a live session that is %s",
+    async (state) => {
+      const { orch, writes } = liveCodex(state, { kind: "working" });
+      expect(await orch.send("AeroGraph", "go")).toEqual({
+        ok: true,
+        session: "main",
+      });
+      expect(writes).toEqual([["d:/aero", "go"]]);
+    },
+  );
+
+  it("refuses a used session that is still working", async () => {
+    const { orch, writes } = liveCodex("used", { kind: "working" });
+    const out = await orch.send("AeroGraph", "go");
+    expect(out).toEqual({ ok: false, error: UNFINISHED });
+    expect(out.ok === false && out.error).toContain("fresh: true");
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a used session that is idle without an ending", async () => {
+    const { orch, writes } = liveCodex("used", { kind: "idle" });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: false,
+      error: UNFINISHED,
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it("delivers to a used session whose turn finished", async () => {
+    const { orch, writes } = liveCodex("used", {
+      kind: "idle",
+      ended: "finished",
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("keeps the asking refusal first", async () => {
+    const { orch } = liveCodex("used", { kind: "asking" });
+    const out = await orch.send("AeroGraph", "go");
+    expect(out.ok === false && out.error).toContain("is asking");
+  });
+
+  it("sends to a working Claude session as before", async () => {
+    const { orch, writes } = liveCodex(undefined, { kind: "working" });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("lists each session's agent, Claude when none is recorded", () => {
+    const { orch } = setup({
+      sessions: [
+        mainOf("d:/aero"),
+        { ...worktreeOf("d:/aero", "1"), agent: "codex" },
+      ],
+    });
+    const aero = orch.list().filter((r) => r.name === "AeroGraph");
+    expect(aero.map((r) => [r.session, r.agent])).toEqual([
+      ["main", "claude"],
+      ["1", "codex"],
+    ]);
+  });
+
+  it("launches Codex, and a resume ignores the agent", async () => {
+    const fresh = setup({ sessions: [], trusted: false });
+    const out = fresh.orch.launch("FinPulse", undefined, false, "codex");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({ ok: true, session: "main" });
+    expect(fresh.launchedAgents).toEqual(["codex"]);
+    expect(fresh.trustChecked).toEqual([]);
+
+    const resumed = setup({
+      sessions: [],
+      closedSessions: [
+        {
+          workspaceId: "d:/fin",
+          label: "main",
+          sessionId: "0c6f0e4e-6b8c-4a43-9d39-0f1d6b2c3a10",
+          cwd: "D:\\fin",
+          topic: "",
+          closedAt: 0,
+        },
+      ],
+    });
+    const back = resumed.orch.launch("FinPulse", "main", true, "codex");
+    await vi.runAllTimersAsync();
+    expect((await back).ok).toBe(true);
+    expect(resumed.launchedAgents).toEqual([undefined]);
+  });
+});
+
+describe("orchestrate after the final Codex fixes", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("delivers to a Codex session interrupted mid-turn, idle without an ending", async () => {
+    const gate = createReadyGate();
+    gate.open("d:/aero");
+    gate.note("d:/aero", "UserPromptSubmit");
+    gate.note("d:/aero", "Interrupt");
+    const state = gate.state("d:/aero");
+    const { orch, writes } = setup({
+      sessions: [{ ...mainOf("d:/aero"), agent: "codex" }],
+      readyStates: state === undefined ? {} : { "d:/aero": state },
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          sessions: [sessionRow({ key: "d:/aero", kind: "idle" })],
+        }),
+      ],
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("trust types nothing into a Codex session", async () => {
+    const { orch, writes, trustChecked } = setup({
+      sessions: [{ ...mainOf("d:/fin"), agent: "codex" }],
+      trusted: false,
+    });
+    expect(await orch.trust("FinPulse", true)).toEqual({
+      ok: false,
+      error:
+        'FinPulse\'s session "main" runs Codex, which answers its own trust question in its terminal',
+    });
+    expect(writes).toEqual([]);
+    expect(trustChecked).toEqual([]);
+  });
+
+  it("trust answers a Claude session as before", async () => {
+    const { orch, writes } = setup({
+      sessions: [{ ...mainOf("d:/fin"), agent: "claude" }],
+      trusted: false,
+    });
+    expect(await orch.trust("FinPulse", false)).toEqual({ ok: true });
+    expect(writes).toEqual([["d:/fin", "\r"]]);
+  });
+
+  it("points a failed Codex launch at the Codex app or codex.exe", async () => {
+    const { orch } = setup({
+      sessions: [],
+      launchFails: true,
+      launchError: "Codex not found",
+    });
+    expect(await orch.launch("FinPulse", undefined, false, "codex")).toEqual({
+      ok: false,
+      error:
+        "FinPulse's session failed to start — Codex not found: install the Codex app or put codex.exe on PATH",
+    });
+  });
+
+  it("keeps the claude CLI advice for every other launch failure", async () => {
+    const { orch } = setup({ sessions: [], launchFails: true });
+    expect(await orch.launch("FinPulse")).toEqual({
+      ok: false,
+      error:
+        "FinPulse's session failed to start — is the claude CLI on PATH? (spawn ENOENT)",
+    });
+  });
+});
+
+describe("orchestrate with an Antigravity session", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const TRUST = (ws: string, label: string) =>
+    `${ws}'s Antigravity session "${label}" shows its trust question — ask the user to answer it in the terminal, then send again`;
+
+  const liveAgy = (
+    over: {
+      state?: ReadyState;
+      row?: Partial<SessionStatus>;
+      agentTrusted?: boolean | null;
+    } = {},
+  ) =>
+    setup({
+      sessions: [{ ...mainOf("d:/aero"), agent: "antigravity" }],
+      readyStates: over.state === undefined ? {} : { "d:/aero": over.state },
+      agentTrusted: over.agentTrusted,
+      statuses: [
+        status({
+          workspaceId: "d:/aero",
+          sessions: [
+            sessionRow({ key: "d:/aero", label: "main", ...over.row }),
+          ],
+        }),
+      ],
+    });
+
+  it("a launch into an untrusted folder opens the tab and writes nothing", async () => {
+    const { orch, attempted, launchedAgents, agentTrustChecked } = setup({
+      sessions: [],
+      agentTrusted: false,
+    });
+    const out = orch.launch("FinPulse", undefined, false, "antigravity");
+    await vi.runAllTimersAsync();
+    const res = await out;
+    expect(res).toEqual({
+      ok: false,
+      error: TRUST("FinPulse", "main"),
+      session: "main",
+    });
+    expect(res).not.toHaveProperty("trustPrompt");
+    expect(launchedAgents).toEqual(["antigravity"]);
+    expect(agentTrustChecked).toEqual([["antigravity", "D:\\fin"]]);
+    expect(attempted).toEqual([]);
+  });
+
+  it("a fresh send into an untrusted folder does not type the prompt", async () => {
+    const { orch, attempted, launched, agentTrustChecked } = setup({
+      agentTrusted: false,
+    });
+    const out = orch.send("AeroGraph", "To-do task: x", {
+      fresh: true,
+      agent: "antigravity",
+    });
+    await vi.runAllTimersAsync();
+    const res = await out;
+    expect(res).toEqual({
+      ok: false,
+      error: TRUST("AeroGraph", "1"),
+      session: "1",
+      worktree: "D:\\aero\\.worktrees\\1",
+    });
+    expect(res).not.toHaveProperty("trustPrompt");
+    expect(launched).toEqual([["d:/aero", undefined]]);
+    expect(agentTrustChecked).toEqual([
+      ["antigravity", "D:\\aero\\.worktrees\\1"],
+    ]);
+    expect(attempted).toEqual([]);
+  });
+
+  it("a launch into a trusted folder succeeds as today", async () => {
+    const { orch, trustChecked } = setup({
+      sessions: [],
+      agentTrusted: true,
+    });
+    const out = orch.launch("FinPulse", undefined, false, "antigravity");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({ ok: true, session: "main" });
+    expect(trustChecked).toEqual([]);
+  });
+
+  it("a fresh send into a trusted folder types the prompt", async () => {
+    const { orch, writes } = setup({ agentTrusted: true });
+    const out = orch.send("AeroGraph", "go", {
+      fresh: true,
+      agent: "antigravity",
+    });
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({
+      ok: true,
+      session: "1",
+      worktree: "D:\\aero\\.worktrees\\1",
+    });
+    expect(writes).toEqual([
+      ["d:/aero#1", "<wait>"],
+      ["d:/aero#1", "go"],
+      ["d:/aero#1", "\r"],
+    ]);
+  });
+
+  it("a Claude launch reads Claude Code's trust record, not an agent list", async () => {
+    const { orch, trustChecked, agentTrustChecked } = setup({
+      sessions: [],
+      trusted: false,
+      agentTrusted: false,
+    });
+    const out = orch.launch("FinPulse");
+    await vi.runAllTimersAsync();
+    expect(await out).toEqual({
+      ok: true,
+      session: "main",
+      trustPrompt: "D:\\fin",
+    });
+    expect(trustChecked).toEqual(["D:\\fin"]);
+    expect(agentTrustChecked).toEqual([]);
+  });
+
+  it("refuses a send to an open session still showing its trust question", async () => {
+    const { orch, attempted } = liveAgy({
+      agentTrusted: false,
+      row: { kind: "asking" },
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: false,
+      error: TRUST("AeroGraph", "main"),
+    });
+    expect(attempted).toEqual([]);
+  });
+
+  it("delivers to a trusted open session whose turn ended", async () => {
+    const { orch, writes } = liveAgy({
+      agentTrusted: true,
+      state: "used",
+      row: { kind: "idle", ended: "finished" },
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: true,
+      session: "main",
+    });
+    expect(writes).toEqual([["d:/aero", "go"]]);
+  });
+
+  it("refuses a used session that has not ended its turn, naming Antigravity", async () => {
+    const { orch, attempted } = liveAgy({
+      agentTrusted: true,
+      state: "used",
+      row: { kind: "working" },
+    });
+    expect(await orch.send("AeroGraph", "go")).toEqual({
+      ok: false,
+      error:
+        'AeroGraph\'s Antigravity session "main" has not ended its turn — wait for its finish, or send with fresh: true',
+    });
+    expect(attempted).toEqual([]);
+  });
+
+  it("trust types nothing into an Antigravity session", async () => {
+    const { orch, attempted, trustChecked } = setup({
+      sessions: [{ ...mainOf("d:/fin"), agent: "antigravity" }],
+      trusted: false,
+    });
+    expect(await orch.trust("FinPulse", true)).toEqual({
+      ok: false,
+      error:
+        'FinPulse\'s session "main" runs Antigravity, which answers its own trust question in its terminal',
+    });
+    expect(attempted).toEqual([]);
+    expect(trustChecked).toEqual([]);
+  });
+
+  it("points a failed launch at the Antigravity CLI", async () => {
+    const { orch } = setup({
+      sessions: [],
+      launchFails: true,
+      launchError: "Antigravity not found",
+    });
+    expect(
+      await orch.launch("FinPulse", undefined, false, "antigravity"),
+    ).toEqual({
+      ok: false,
+      error:
+        "FinPulse's session failed to start — Antigravity not found: install the Antigravity CLI (agy)",
+    });
   });
 });

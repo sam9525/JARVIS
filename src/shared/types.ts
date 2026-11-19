@@ -44,6 +44,7 @@ export interface SessionStatus {
   topic?: string; // one word for what the last turn was about; absent until a Stop sets it
   ended?: TurnEnd; // how the idle session's last turn ended; absent while working
   error?: string; // the API error type when ended is "failed"
+  agent?: AgentId; // the agent running in the tab; absent means Claude
 }
 
 // what the rail badge and the mission-control cards read: the aggregate of the
@@ -135,6 +136,8 @@ export const SOURCE_LABELS: Record<string, string> = {
   graphify: "Graphify",
   unknown: "Unknown",
 };
+
+export type AgentId = "claude" | "codex" | "antigravity";
 
 export interface Workspace {
   id: string; // normalized absolute root path (lowercased, POSIX separators)

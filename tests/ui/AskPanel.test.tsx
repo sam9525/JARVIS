@@ -94,6 +94,44 @@ describe("AskPanel", () => {
     expect(onAnswer).toHaveBeenCalledWith([answerKeys(1, 3), "\r"]);
   });
 
+  it("homes over a confirm's own rows only, so No lands on No", () => {
+    const onAnswer = vi.fn();
+    const confirm: AskPrompt = { ...prompt(), source: "confirm" };
+    const tree = (
+      <AskPanel prompt={confirm} workspaceName="jarvis" onAnswer={onAnswer} />
+    ) as any;
+    const nodes = walk(tree.type(tree.props));
+    nodes
+      .filter((n: any) =>
+        n?.props?.["data-testid"]?.startsWith?.("ask-option-"),
+      )[1]
+      .props.onClick();
+    // Claude Code's confirm wraps and has no "Type something." row: a third
+    // Up would step from Yes to No, and the Down would then land on Yes
+    expect(onAnswer).toHaveBeenCalledWith([answerKeys(1, 2), "\r"]);
+    expect(
+      nodes.some((n: any) => n?.props?.["data-testid"] === "ask-typed"),
+    ).toBe(false);
+  });
+
+  it("types an option's own keys, with no Enter after them", () => {
+    const onAnswer = vi.fn();
+    const p: AskPrompt = { ...prompt(), source: "confirm" };
+    p.questions = [
+      {
+        ...p.questions[0],
+        options: [{ label: "Resume as-is", description: "", keys: "\x1b" }],
+      },
+    ];
+    const tree = (
+      <AskPanel prompt={p} workspaceName="jarvis" onAnswer={onAnswer} />
+    ) as any;
+    walk(tree.type(tree.props))
+      .find((n: any) => n?.props?.["data-testid"] === "ask-option-0")
+      .props.onClick();
+    expect(onAnswer).toHaveBeenCalledWith(["\x1b"]);
+  });
+
   it("types a free answer into the Type something row", () => {
     const onAnswer = vi.fn();
     seeded.push(0, false, "  use JWT\n");

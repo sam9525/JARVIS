@@ -11,7 +11,13 @@ import type {
   SendOptions,
   SendResult,
 } from "./orchestrate";
-import type { StatusEvent, ToolEvent, Workspace } from "../shared/types";
+import type {
+  AgentId,
+  StatusEvent,
+  ToolEvent,
+  Workspace,
+} from "../shared/types";
+import { agentById } from "./agents";
 
 export const DEFAULT_PORT = 4599;
 
@@ -33,6 +39,11 @@ const ORCHESTRATE = [
 const optionalString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined;
 
+// only the literal "codex" or "antigravity" picks another agent; anything else
+// means Claude
+const optionalAgent = (v: unknown): "codex" | "antigravity" | undefined =>
+  v === "codex" || v === "antigravity" ? v : undefined;
+
 // Over the cap we destroy the socket, so "end" never fires and done() never runs.
 function readBody(
   req: http.IncomingMessage,
@@ -49,6 +60,65 @@ function readBody(
   req.on("end", () => done(body));
 }
 
+export interface MapperSinks {
+  onEvent(e: ToolEvent): void;
+  onStatus(e: StatusEvent): void;
+  onAsk?(p: AskPrompt): void;
+  onSessionStart?(s: SessionStart): void;
+  getWorkspaces(): Workspace[];
+}
+
+/** Runs every mapper on one Claude-shaped payload. `offered` marks a question
+ * the reply already answered; `askPanel` false skips the text-question panel. */
+export function runMappers(
+  raw: RawHookEvent,
+  sinks: MapperSinks,
+  opts: { askPanel: boolean; offered: boolean },
+): void {
+  const ws = sinks.getWorkspaces();
+  // the two mappers are independent: one rejecting must not affect the
+  // other, so they get a try each rather than sharing one
+  try {
+    const e = mapHookEvent(raw, ws);
+    if (e) sinks.onEvent(e);
+  } catch {
+    /* highlight mapping failed — status may still be fine */
+  }
+  // the reply is an offer Claude Code may not take, so every event still maps
+  try {
+    const s = mapStatusEvent(raw, ws);
+    if (s) sinks.onStatus(s);
+  } catch {
+    /* status mapping failed — highlights already went out */
+  }
+  // independent mappers, a try block each: one rejecting must never
+  // take another's output with it
+  try {
+    const a = mapAskEvent(raw, ws);
+    // undefined = not about questions; no questions = that one is over
+    if (a !== undefined)
+      sinks.onAsk?.(
+        opts.offered && a.questions.length > 0 ? { ...a, offered: true } : a,
+      );
+  } catch {
+    /* ask mapping failed — highlights and status already went out */
+  }
+  if (opts.askPanel) {
+    try {
+      const t = mapTextQuestion(raw, ws);
+      if (t) sinks.onAsk?.(t);
+    } catch {
+      /* text question mapping failed — the other mappers already ran */
+    }
+  }
+  try {
+    const started = mapSessionStart(raw, ws);
+    if (started) sinks.onSessionStart?.(started);
+  } catch {
+    /* a missed switch is caught up by the session's next hook */
+  }
+}
+
 // structural, not the concrete Orchestrator — lets tests inject stubs
 export interface OrchestratorLike {
   list(): unknown;
@@ -63,6 +133,7 @@ export interface OrchestratorLike {
     target: string,
     label?: string,
     resume?: boolean,
+    agent?: AgentId,
   ): Promise<LaunchResult>;
   trust(target: string, accept: boolean, session?: string): Promise<SendResult>;
   /** Ends the named session; refuses one whose turn is in flight. */
@@ -85,7 +156,15 @@ export function startListener(
   // the hook output to print for this event, or null to leave the prompt to
   // the user; the reply to /event carries it back to forward.mjs
   autoAnswer?: (raw: RawHookEvent) => unknown | null,
+  onHook?: (sessionKey: string, hookEventName: string) => void,
 ): http.Server {
+  const sinks: MapperSinks = {
+    onEvent,
+    onStatus,
+    onAsk,
+    onSessionStart,
+    getWorkspaces,
+  };
   const server = http.createServer((req, res) => {
     if (req.method !== "POST") {
       res.writeHead(404).end(); // includes OPTIONS: we never answer preflights
@@ -108,65 +187,78 @@ export function startListener(
         return;
       }
       readBody(req, (body) => {
-        let raw: RawHookEvent;
+        let parsed: unknown;
         try {
-          raw = JSON.parse(body) as RawHookEvent;
+          parsed = JSON.parse(body);
         } catch {
           res.writeHead(200).end(); // malformed hook payload → ack and ignore
           return;
         }
-        // the answer is computed synchronously and the mappers run after the
-        // reply, so Claude Code waits for nothing but the callback
-        let answer: unknown = null;
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          Array.isArray(parsed)
+        ) {
+          res.writeHead(200).end();
+          return;
+        }
+        const raw = parsed as RawHookEvent & Record<string, unknown>;
+        const agent = agentById(raw.jarvis_agent);
         try {
-          answer = autoAnswer?.(raw) ?? null;
+          const gate = agent.gateEvent?.(raw) ?? raw.hook_event_name;
+          if (
+            typeof raw.jarvis_session === "string" &&
+            typeof gate === "string"
+          )
+            onHook?.(raw.jarvis_session, gate);
         } catch {
-          /* a failing answerer leaves the prompt to the user */
+          /* the gate is best effort; mapping still runs */
+        }
+        // the answer is computed synchronously and the mappers run after the
+        // reply, so the agent waits for nothing but the callback. Only Claude
+        // reads the reply as hook output.
+        let answer: unknown = null;
+        if (agent.id === "claude") {
+          try {
+            answer = autoAnswer?.(raw) ?? null;
+          } catch {
+            /* a failing answerer leaves the prompt to the user */
+          }
         }
         if (answer === null) res.writeHead(200).end();
         else res.writeHead(200).end(JSON.stringify(answer));
-        const ws = getWorkspaces();
-        // the two mappers are independent: one rejecting must not affect the
-        // other, so they get a try each rather than sharing one
-        try {
-          const e = mapHookEvent(raw, ws);
-          if (e) onEvent(e);
-        } catch {
-          /* highlight mapping failed — status may still be fine */
+        const mapBody = (body: Record<string, unknown>): void => {
+          let payloads: RawHookEvent[];
+          try {
+            payloads = agent.normalize(body);
+          } catch {
+            return; // a payload the adapter cannot read maps nothing
+          }
+          for (const p of payloads)
+            runMappers(p, sinks, {
+              askPanel: agent.features.askPanel,
+              offered: answer !== null,
+            });
+        };
+        const enrich = agent.enrich?.bind(agent);
+        // an adapter with no enrich maps in this same tick
+        if (!enrich) {
+          mapBody(raw);
+          return;
         }
-        // the reply is an offer Claude Code may not take, so every event still maps
-        try {
-          const s = mapStatusEvent(raw, ws);
-          if (s) onStatus(s);
-        } catch {
-          /* status mapping failed — highlights already went out */
-        }
-        // independent mappers, a try block each: one rejecting must never
-        // take another's output with it
-        try {
-          const a = mapAskEvent(raw, ws);
-          // undefined = not about questions; no questions = that one is over
-          if (a !== undefined)
-            onAsk?.(
-              answer !== null && a.questions.length > 0
-                ? { ...a, offered: true }
-                : a,
-            );
-        } catch {
-          /* ask mapping failed — highlights and status already went out */
-        }
-        try {
-          const t = mapTextQuestion(raw, ws);
-          if (t) onAsk?.(t);
-        } catch {
-          /* text question mapping failed — the other mappers already ran */
-        }
-        try {
-          const started = mapSessionStart(raw, ws);
-          if (started) onSessionStart?.(started);
-        } catch {
-          /* a missed switch is caught up by the session's next hook */
-        }
+        void (async () => {
+          let body: Record<string, unknown> = raw;
+          try {
+            body = await enrich(raw);
+          } catch {
+            /* a failing enrich maps the body as it arrived */
+          }
+          try {
+            mapBody(body);
+          } catch {
+            /* a failing sink after the reply has no one to report to */
+          }
+        })();
       });
       return;
     }
@@ -257,11 +349,13 @@ export function startListener(
           let target: string;
           let label: string | undefined;
           let resume: boolean;
+          let agent: AgentId | undefined;
           try {
             const p = parse();
             target = String(p.workspace ?? "");
             label = optionalString(p.label);
             resume = p.resume === true;
+            agent = optionalAgent(p.agent);
           } catch (err) {
             const out = {
               ok: false,
@@ -271,7 +365,7 @@ export function startListener(
             return;
           }
           orchestrator
-            .launch(target, label, resume)
+            .launch(target, label, resume, agent)
             .then((out) => {
               if (res.writableEnded || res.destroyed) return;
               res.writeHead(200).end(JSON.stringify(out));
@@ -359,6 +453,8 @@ export function startListener(
               fresh: p.fresh === true,
               label: optionalString(p.label),
             };
+            const agent = optionalAgent(p.agent);
+            if (agent) opts.agent = agent;
           } catch (err) {
             const out = {
               ok: false,

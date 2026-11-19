@@ -520,3 +520,88 @@ describe("TerminalPanel turn endings", () => {
     ).toBe(true);
   });
 });
+
+describe("TerminalPanel on a Codex session", () => {
+  const codex = { kind: "idle" as const, call: "", agent: "codex" as const };
+  const byTestId = (tree: any, id: string) =>
+    find(tree, (n) => n.props?.["data-testid"] === id);
+  const viewSwitch = (tree: any) =>
+    find(
+      tree,
+      (n) =>
+        n.type === Segmented &&
+        n.props.options.some((o: any) => o.value === "raw"),
+    );
+
+  beforeEach(() => setViewMode(workspace.id, "screen"));
+
+  it("shows the terminal only: no view switch and no session screen", () => {
+    const tree = render({ live: true, sessionStatus: codex });
+    expect(viewSwitch(tree)).toBeUndefined();
+    expect(byTestId(tree, "session-screen-layer")).toBeUndefined();
+    expect(find(tree, (n) => n.type === SessionScreen)).toBeUndefined();
+    expect(byTestId(tree, "terminal-host")).toBeDefined();
+  });
+
+  it("shows the terminal only for an Antigravity session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "antigravity" },
+    });
+    expect(viewSwitch(tree)).toBeUndefined();
+    expect(byTestId(tree, "session-screen-layer")).toBeUndefined();
+    expect(find(tree, (n) => n.type === SessionScreen)).toBeUndefined();
+    expect(byTestId(tree, "terminal-host")).toBeDefined();
+  });
+
+  it("keeps the screen and its switch for a Claude session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "claude" },
+    });
+    expect(viewSwitch(tree)).toBeDefined();
+    expect(find(tree, (n) => n.type === SessionScreen)).toBeDefined();
+  });
+});
+
+describe("TerminalPanel agent mark", () => {
+  const mark = (tree: any) =>
+    find(tree, (n) => n.props?.["data-testid"] === "agent-mark");
+
+  it("names Claude on the left of the screen | raw line", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "claude" },
+    });
+    const m = mark(tree);
+    expect(text(m)).toBe("Claude");
+    expect(m.props.className).toContain("mr-auto");
+    const row = find(
+      tree,
+      (n) =>
+        Array.isArray(n.props?.children) &&
+        n.props.children.some(
+          (c: any) => c?.props?.["data-testid"] === "agent-mark",
+        ),
+    );
+    expect(
+      find(row, (n) => n.type === Segmented && n.props.value === "screen"),
+    ).toBeDefined();
+  });
+
+  it("names Codex for a Codex session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "codex" },
+    });
+    expect(text(mark(tree))).toBe("Codex");
+  });
+
+  it("names Antigravity for an Antigravity session", () => {
+    const tree = render({
+      live: true,
+      sessionStatus: { kind: "idle", call: "", agent: "antigravity" },
+    });
+    expect(text(mark(tree))).toBe("Antigravity");
+  });
+});

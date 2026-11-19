@@ -590,3 +590,48 @@ describe("boot stagger", () => {
     expect(out).toContain("animation-delay:60ms");
   });
 });
+
+describe("MissionControl Codex mark", () => {
+  it("marks a card whose session is Codex, right after its status label", () => {
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [status({ workspaceId: "w2", kind: "working" })],
+          cardAgent: (id: string) => (id === "w2" ? "codex" : undefined),
+        }) as any)}
+      />,
+    );
+    const row = screen.byTestId("status-w2");
+    expect(row.text).toContain("workingCodex");
+    const m = screen.byTestId("codex-mark-w2");
+    expect(m.text).toBe("Codex");
+    expect(m.className).toContain("border-ink-dim");
+    expect(m.className).toContain("text-ink-muted");
+    expect(screen.byTestId("card-w2").className).toContain("border-accent");
+    expect(() => screen.byTestId("codex-mark-w1")).toThrow();
+  });
+
+  it("marks an Antigravity card with its own word in the same style", () => {
+    render(
+      <MissionControl
+        {...(props({
+          statuses: [status({ workspaceId: "w2", kind: "working" })],
+          cardAgent: (id: string) =>
+            id === "w2" ? "antigravity" : id === "w1" ? "claude" : undefined,
+        }) as any)}
+      />,
+    );
+    expect(screen.byTestId("status-w2").text).toContain("workingAntigravity");
+    const m = screen.byTestId("codex-mark-w2");
+    expect(m.text).toBe("Antigravity");
+    expect(m.className).toContain("border-ink-dim");
+    expect(m.className).toContain("text-ink-muted");
+    expect(() => screen.byTestId("codex-mark-w1")).toThrow();
+  });
+
+  it("marks no card without an agent", () => {
+    render(<MissionControl {...(props() as any)} />);
+    expect(() => screen.byTestId("codex-mark-w1")).toThrow();
+    expect(() => screen.byTestId("codex-mark-w2")).toThrow();
+  });
+});

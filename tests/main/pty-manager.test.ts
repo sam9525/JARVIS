@@ -1,9 +1,8 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { describe, expect, it, vi } from "vitest";
+import { CLAUDE_MODELS, claudeCommand } from "../../src/main/agents/claude";
 import {
-  CLAUDE_MODELS,
   KILL_WAIT_MS,
-  claudeCommand,
   createPtyManager,
   type PtyLike,
   type SpawnOpts,
@@ -346,5 +345,45 @@ describe("claudeCommand model flag", () => {
     expect(claudeCommand(false, undefined, "x & calc").args).not.toContain(
       "--resume",
     );
+  });
+});
+
+describe("launch with an agent", () => {
+  it("spawns the given file and args and sets JARVIS_AGENT", () => {
+    const calls: { file: string; args: string[]; opts: SpawnOpts }[] = [];
+    const spawn: SpawnFn = (file, args, opts) => {
+      calls.push({ file, args, opts });
+      return fakePty();
+    };
+    const mgr = createPtyManager(spawn, { onData: () => {}, onExit: () => {} });
+    mgr.launch(
+      "a",
+      ws("a").rootPath,
+      80,
+      24,
+      false,
+      undefined,
+      false,
+      undefined,
+      {
+        id: "codex",
+        file: "codex.exe",
+        args: ["-c", "x"],
+      },
+    );
+    expect(calls[0].file).toBe("codex.exe");
+    expect(calls[0].args).toEqual(["-c", "x"]);
+    expect(calls[0].opts.env.JARVIS_AGENT).toBe("codex");
+  });
+
+  it("sets no JARVIS_AGENT without an agent", () => {
+    const calls: SpawnOpts[] = [];
+    const spawn: SpawnFn = (_f, _a, opts) => {
+      calls.push(opts);
+      return fakePty();
+    };
+    const mgr = createPtyManager(spawn, { onData: () => {}, onExit: () => {} });
+    mgr.launch("a", ws("a").rootPath, 80, 24);
+    expect("JARVIS_AGENT" in calls[0].env).toBe(false);
   });
 });

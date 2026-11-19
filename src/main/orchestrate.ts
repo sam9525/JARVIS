@@ -5,13 +5,19 @@ import {
   shownName,
 } from "../shared/session-key";
 import type {
+  AgentId,
   StatusKind,
   TurnEnd,
   Workspace,
   WorkspaceKind,
   WorkspaceStatus,
 } from "../shared/types";
+import { AGENT_LABELS } from "../shared/agent-labels";
+import { agentById } from "./agents";
+import type { ReadyState } from "./agents/ready-gate";
+import type { AskPrompt } from "./ask-mapper";
 import type { ClosedSession } from "./closed-sessions";
+import { commandWord } from "./command-wait";
 import { PASTE_END, PASTE_START } from "./pending-input";
 import type { SessionInfo } from "./sessions";
 import { topicWord } from "./transcript-title";
@@ -34,11 +40,13 @@ export interface OrchestrateDeps {
   write: (key: string, data: string) => boolean;
   // the launch the tab bar's `+` makes; no label means the next free number.
   // error "cap" means the workspace already has its four live sessions.
-  // resumeId continues that Claude conversation instead of starting empty
+  // resumeId continues that Claude conversation instead of starting empty;
+  // no agent means Claude
   launch: (
     ws: Workspace,
     label: string | undefined,
     resumeId?: string,
+    agent?: AgentId,
   ) => Promise<{
     ok: boolean;
     key?: string;
@@ -52,10 +60,17 @@ export interface OrchestrateDeps {
   ) => Promise<{ ok: boolean; kept?: string; damaged?: string }>;
   // Claude Code's own record of the folder-trust prompt; null = unreadable
   isTrusted: (folder: string) => Promise<boolean | null>;
+  // the agent's own trust list for the folder; null = the agent keeps none
+  agentTrusted: (
+    agent: AgentId | undefined,
+    cwd: string,
+  ) => Promise<boolean | null>;
   // resolves once the session's TUI has stopped painting (or a deadline passed)
   waitQuiet: (key: string) => Promise<boolean>;
   // ms since the PTY last printed anything; Infinity = no output seen
   msSinceOutput: (key: string) => number;
+  // a non-Claude session's gate state; undefined for a Claude session
+  readyState: (key: string) => ReadyState | undefined;
   markDelegated: (key: string, by: string) => void;
   // pins the tab's topic so the session's own title cannot replace it
   nameSession: (key: string, word: string) => void;
@@ -64,7 +79,22 @@ export interface OrchestrateDeps {
   // types the nudge naming the workspace and tab into the main agent's own
   // session, so a finish reaches it without anyone having parked on jarvis_watch first
   nudgeMain: (workspace: string, tab: string) => void;
+  // registers before the write; true when the transcript shows the command ran
+  waitCommand: (key: string, word: string) => Promise<boolean>;
+  noteDelivered: (key: string) => void;
+  // shows or (no questions) clears the question panel for a session
+  ask: (prompt: AskPrompt) => void;
+  // whether resuming this transcript likely opens Claude Code's resume menu
+  resumeMenuLikely: (key: string, resumeId: string) => Promise<boolean>;
 }
+
+// An arrow only moves the resume menu's cursor; any other key answers it.
+const ARROWS = new Set(["\x1b[A", "\x1b[B"]);
+
+// "/model <name>" in a conversation with history stops on Claude Code's own
+// "Switch model?" confirm, which no hook reports. A transcript that stays
+// silent this long after the write is read as that confirm being open.
+export const MODEL_CONFIRM_MS = 1500;
 
 // one jarvis_list row per live session, or one per workspace that has none
 export interface FleetEntry {
@@ -78,6 +108,7 @@ export interface FleetEntry {
   message: string;
   live: boolean;
   delegatedBy: string;
+  agent: AgentId;
   ended?: TurnEnd;
   error?: string;
   // a session that has closed and can be resumed with jarvis_launch
@@ -87,6 +118,9 @@ export interface FleetEntry {
 
 export type SendResult = { ok: true } | { ok: false; error: string };
 type Failure = { ok: false; error: string };
+// a new session left open on its agent's trust question, named so the caller
+// can point the user at its tab
+type TrustRefusal = Failure & { session: string; worktree?: string };
 
 /** `trustPrompt` is the folder a new session is asking the user to trust —
  * a send before jarvis_trust answers it would land on that prompt. */
@@ -96,12 +130,16 @@ export type DeliveredResult =
       session?: string;
       worktree?: string;
       trustPrompt?: string;
+      // set for a slash command: false = the wait ran out before it showed
+      finished?: boolean;
     }
-  | Failure;
+  | Failure
+  | TrustRefusal;
 
 export type LaunchResult =
   | { ok: true; session: string; worktree?: string; trustPrompt?: string }
-  | Failure;
+  | Failure
+  | TrustRefusal;
 
 export type CloseResult =
   { ok: true; kept?: string; damaged?: string } | Failure;
@@ -111,6 +149,8 @@ export interface SendOptions {
   fresh?: boolean;
   // names a fresh session's tab; ignored without `fresh`
   label?: string;
+  // the fresh session's agent; ignored without `fresh`
+  agent?: AgentId;
 }
 
 // the trust prompt opens on "No, exit": Down moves to "Yes", Enter confirms
@@ -356,23 +396,60 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     };
   }
 
+  // An agent's trust question takes Enter as its answer, so no prompt may be
+  // typed into a session that still shows one.
+  function agentTrustError(
+    ws: Workspace,
+    agent: AgentId | undefined,
+    label: string,
+  ): Failure {
+    return {
+      ok: false,
+      error: `${ws.name}'s ${AGENT_LABELS[agentById(agent).id]} session "${label}" shows its trust question — ask the user to answer it in the terminal, then send again`,
+    };
+  }
+
+  // the agent's own trust list for the folder; null for an agent whose trust
+  // prompt Claude Code's record answers
+  const agentTrust = (agent: AgentId | undefined, cwd: string) =>
+    agentById(agent).features.trustCheck
+      ? Promise.resolve(null)
+      : deps.agentTrusted(agent, cwd);
+
+  function launchFailure(ws: Workspace, error: string | undefined): Failure {
+    const start = `${ws.name}'s session failed to start`;
+    if (error === "Codex not found")
+      return {
+        ok: false,
+        error: `${start} — Codex not found: install the Codex app or put codex.exe on PATH`,
+      };
+    if (error === "Antigravity not found")
+      return {
+        ok: false,
+        error: `${start} — Antigravity not found: install the Antigravity CLI (agy)`,
+      };
+    return {
+      ok: false,
+      error: `${start} — is the claude CLI on PATH? (${error ?? "unknown error"})`,
+    };
+  }
+
   // Opens a session and waits for its TUI to go quiet, since text written
   // before raw mode is dropped. Trust is read for the session's own folder,
-  // which for a worktree is not the workspace root.
+  // which for a worktree is not the workspace root. A session showing its
+  // agent's own trust question stays open and is reported as a failure, so
+  // no caller writes into it.
   async function open(
     ws: Workspace,
     label: string | undefined,
     topic = "",
     resumeId?: string,
+    agent?: AgentId,
   ) {
-    const out = await deps.launch(ws, label, resumeId);
+    const out = await deps.launch(ws, label, resumeId, agent);
     if (!out.ok || !out.key) {
-      return out.error === "cap"
-        ? capError(ws)
-        : {
-            ok: false as const,
-            error: `${ws.name}'s session failed to start — is the claude CLI on PATH? (${out.error ?? "unknown error"})`,
-          };
+      if (out.error === "cap") return capError(ws);
+      return launchFailure(ws, out.error);
     }
     if (topic) deps.nameSession(out.key, topic);
     // The spawn is synchronous and PTY output arrives as I/O callbacks, which
@@ -380,7 +457,18 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     // chunk, as the settle needs.
     const quiet = deps.waitQuiet(out.key);
     const folder = out.worktree ?? ws.rootPath;
-    const trusted = await deps.isTrusted(folder);
+    const trusted = agentById(agent).features.trustCheck
+      ? await deps.isTrusted(folder)
+      : null;
+    if ((await agentTrust(agent, folder)) === false) {
+      const session = out.label ?? "";
+      const refusal: TrustRefusal = {
+        ...agentTrustError(ws, agent, session),
+        session,
+        ...(out.worktree ? { worktree: out.worktree } : {}),
+      };
+      return refusal;
+    }
     const settled = await quiet;
     return {
       ok: true as const,
@@ -392,6 +480,90 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     };
   }
 
+  // A fresh session has no history, so only a send to a live one can hit the
+  // confirm. The panel closes when the transcript shows /model ran; a confirm
+  // left past the command deadline keeps its panel until the user types in
+  // the terminal or the session ends.
+  function askModelConfirm(
+    workspaceId: string,
+    key: string,
+    model: string,
+    ran: Promise<boolean>,
+  ): void {
+    const base = { workspaceId, sessionKey: key, sessionId: "" };
+    let shown = false;
+    const timer = setTimeout(() => {
+      shown = true;
+      deps.ask({
+        ...base,
+        ts: Date.now(),
+        source: "confirm",
+        questions: [
+          {
+            question: "Switch model?",
+            header: "",
+            multiSelect: false,
+            options: [
+              { label: `Yes, switch to ${model}`, description: "" },
+              { label: "No, go back", description: "" },
+            ],
+          },
+        ],
+      });
+    }, MODEL_CONFIRM_MS);
+    void ran.then((confirmed) => {
+      clearTimeout(timer);
+      if (shown && confirmed)
+        deps.ask({ ...base, ts: Date.now(), questions: [] });
+    });
+  }
+
+  // sessions whose resume menu may be open: an Enter there picks a row, and
+  // the focused row can be "Resume from summary", which runs /compact
+  // session key → workspace id
+  const resumeMenus = new Map<string, string>();
+
+  // Esc is the only key that means the same in every resume menu: resume the
+  // full session as-is. The other rows are left to the terminal.
+  function askResumeMenu(workspaceId: string, key: string): void {
+    resumeMenus.set(key, workspaceId);
+    deps.ask({
+      workspaceId,
+      sessionKey: key,
+      sessionId: "",
+      ts: Date.now(),
+      source: "confirm",
+      questions: [
+        {
+          question: "Resume this session?",
+          header: "",
+          multiSelect: false,
+          options: [
+            {
+              label: "Resume as-is",
+              description:
+                "Keeps the full session. For a summary, pick it in the terminal.",
+              keys: "\x1b",
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  function closeResumeMenu(key: string): void {
+    const workspaceId = resumeMenus.get(key);
+    if (workspaceId === undefined) return;
+    resumeMenus.delete(key);
+    deps.ask({
+      workspaceId,
+      sessionKey: key,
+      sessionId: "",
+      ts: Date.now(),
+      questions: [],
+    });
+  }
+
   function deliver(key: string, prompt: string): boolean {
     // the caller sends no identity — it can only be the one workspace that
     // has the tools, which mcp-install pins to isSelf
@@ -400,6 +572,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
     // delegation only once the prompt is actually in the PTY
     if (!deps.write(key, sendPayload(prompt))) return false;
     deps.markDelegated(key, by);
+    deps.noteDelivered(key);
     // Claude Code's TUI treats one arriving chunk as a paste, so a trailing
     // "\r" lands as a newline in the composer instead of submitting. Send the
     // CR as its own write a beat later, after the end marker of a paste block —
@@ -422,12 +595,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           kind: w.kind,
           message: row?.message ?? "",
           delegatedBy: row?.delegatedBy ?? "",
+          agent: "claude" as const,
         };
         const closed = deps.closedOf(w.id).map((c): FleetEntry => ({
           name: w.name,
           kind: w.kind,
           message: "",
           delegatedBy: "",
+          agent: "claude",
           session: c.label,
           worktree: "",
           topic: c.topic,
@@ -465,11 +640,21 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             status: own?.kind ?? "none",
             call: own?.call ?? "",
             live: true,
+            agent: s.agent ?? "claude",
             ...endingOf(own),
           };
         });
         return [...rows, ...closed];
       });
+    },
+
+    /** A key the user typed into a session, from the terminal or the panel. */
+    resumeMenuKeyed(key: string, data: string): void {
+      if (!ARROWS.has(data)) closeResumeMenu(key);
+    },
+
+    resumeMenuEnded(key: string): void {
+      closeResumeMenu(key);
     },
 
     /** `fresh` opens a new session and sends there; otherwise the prompt goes
@@ -491,6 +676,8 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           ws,
           undefined,
           word === MAIN_LABEL ? "" : word,
+          undefined,
+          opts.agent,
         );
         if (!opened.ok) return opened;
         const where = {
@@ -506,13 +693,15 @@ export function createOrchestrator(deps: OrchestrateDeps) {
             error: `${ws.name}'s new session "${opened.session}" did not settle — prompt not sent`,
           };
         }
+        const command = commandWord(prompt);
+        const ran = command ? deps.waitCommand(opened.key, command) : null;
         if (!deps.hasPty(opened.key) || !deliver(opened.key, prompt)) {
           return {
             ok: false,
             error: `${ws.name}'s new session "${opened.session}" ended before the prompt`,
           };
         }
-        return { ok: true, ...where };
+        return { ok: true, ...where, ...(ran ? { finished: await ran } : {}) };
       }
       const s = pickSession(ws, opts.session);
       if ("ok" in s) return s;
@@ -523,6 +712,14 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session "${s.label}" has text the user has not sent — send with fresh: true instead`,
         };
       }
+      if (resumeMenus.has(s.key)) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session "${s.label}" may be showing Claude Code's resume menu — ask the user to answer it, or send with fresh: true`,
+        };
+      }
+      if ((await agentTrust(s.agent, s.cwd)) === false)
+        return agentTrustError(ws, s.agent, s.label);
       // the Enter would pick an option in the open prompt
       const kind = sessionKind(s.key, ws.id);
       if (kind === "asking" || kind === "blocked") {
@@ -531,16 +728,36 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name}'s session "${s.label}" is ${kind}, waiting on the user — ask them to answer it, or send with fresh: true`,
         };
       }
+      // after its first prompt, a gated session takes a send only once its
+      // turn has ended
+      if (deps.readyState(s.key) === "used") {
+        const row = deps
+          .snapshot()
+          .find((r) => r.workspaceId === ws.id)
+          ?.sessions.find((r) => r.key === s.key);
+        if (row?.kind !== "idle" || !row.ended) {
+          return {
+            ok: false,
+            error: `${ws.name}'s ${AGENT_LABELS[agentById(s.agent).id]} session "${s.label}" has not ended its turn — wait for its finish, or send with fresh: true`,
+          };
+        }
+      }
+      const command = commandWord(prompt);
+      const ran = command ? deps.waitCommand(s.key, command) : null;
       if (!deliver(s.key, prompt)) {
         return {
           ok: false,
           error: `${ws.name}'s session ended before delivery`,
         };
       }
+      const model = prompt.trim().split(/\s+/);
+      if (ran && command === "/model" && model.length === 2)
+        askModelConfirm(ws.id, s.key, model[1], ran);
       return {
         ok: true,
         session: s.label,
         ...(s.worktree ? { worktree: s.cwd } : {}),
+        ...(ran ? { finished: await ran } : {}),
       };
     },
 
@@ -550,6 +767,7 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       target: string,
       label?: string,
       resume = false,
+      agent?: AgentId,
     ): Promise<LaunchResult> {
       const ws = delegate(target);
       if ("ok" in ws) return ws;
@@ -600,8 +818,17 @@ export function createOrchestrator(deps: OrchestrateDeps) {
           error: `${ws.name} already has a live session "${wanted}" — jarvis_send to it`,
         };
       }
-      const opened = await open(ws, wanted, "", resumeId);
+      // a resume reopens a Claude conversation, so it ignores agent
+      const opened = await open(
+        ws,
+        wanted,
+        "",
+        resumeId,
+        resume ? undefined : agent,
+      );
       if (!opened.ok) return opened;
+      if (resumeId && (await deps.resumeMenuLikely(opened.key, resumeId)))
+        askResumeMenu(ws.id, opened.key);
       return {
         ok: true,
         session: opened.session,
@@ -659,6 +886,13 @@ export function createOrchestrator(deps: OrchestrateDeps) {
       if ("ok" in ws) return ws;
       const s = pickSession(ws, session);
       if ("ok" in s) return s;
+      const adapter = agentById(s.agent);
+      if (adapter.features.trustCheck === false) {
+        return {
+          ok: false,
+          error: `${ws.name}'s session "${s.label}" runs ${AGENT_LABELS[adapter.id]}, which answers its own trust question in its terminal`,
+        };
+      }
       const trusted = await deps.isTrusted(s.cwd);
       if (trusted === null) {
         return {

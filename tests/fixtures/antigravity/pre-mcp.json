@@ -1,0 +1,20 @@
+{
+  "artifactDirectoryPath": "C:/Users/user/.gemini/antigravity-cli/brain/45f8f2e9-4c63-4354-aba5-1c71094343c2",
+  "conversationId": "45f8f2e9-4c63-4354-aba5-1c71094343c2",
+  "cwd": "C:\\work\\demo",
+  "hookEventName": "PreToolUse",
+  "lastUserInput": "Call the gitnexus MCP tool that lists the indexed repositories (list_repos). Then call the gitnexus impact tool for the symbol greet with direction upstream. Reply with one short line.",
+  "modelName": "gemini-4-argon-medium",
+  "stepIdx": 5,
+  "toolCall": {
+    "args": {
+      "Arguments": {},
+      "ServerName": "gitnexus",
+      "ToolName": "list_repos"
+    },
+    "id": "call_9097653160077115848",
+    "name": "call_mcp_tool"
+  },
+  "transcriptPath": "C:/Users/user/.gemini/antigravity-cli/brain/45f8f2e9-4c63-4354-aba5-1c71094343c2/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": ["C:/work/demo", "C:/work/hooks"]
+}

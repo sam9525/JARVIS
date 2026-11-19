@@ -1,0 +1,18 @@
+[
+  {
+    "when": "permission prompt opens (toolPermission strict)",
+    "data": "\u0007\u001b]9;Antigravity CLI needs tool confirmation\u0007"
+  },
+  {
+    "when": "turn ends",
+    "data": "\u0007\u001b]9;Antigravity CLI is ready for input\u0007"
+  },
+  {
+    "when": "Esc in the middle of a turn",
+    "data": "\u0007\u001b]9;Antigravity CLI is ready for input\u0007"
+  },
+  {
+    "when": "command approval in --mode plan",
+    "data": "\u0007\u001b]9;Antigravity CLI needs tool confirmation\u0007"
+  }
+]

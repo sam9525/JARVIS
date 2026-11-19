@@ -325,6 +325,8 @@ describe("ensureMainAgent", () => {
       'session: "main"',
       'jarvis_launch` with `label: "main"',
       "/clear",
+      "/resume <id>",
+      "~/.claude/projects",
     ]) {
       expect(AGENT_GUIDE).toContain(needle);
     }
