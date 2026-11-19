@@ -2,20 +2,21 @@
 
 **Before editing an existing function, class or method, run GitNexus `impact` on it, passing `repo`.** New files, tests and docs are exempt. Details are in the GitNexus section below.
 
-Electron desktop app — a cockpit for N workspaces (vault + indexed repos), each with its own force-graph and embedded Claude Code terminal (PTY). Live-highlights nodes as Claude Code reads/searches files via hooks. Feature overview, MCP tools, gestures and configuration are in `README.md`; GitNexus rules are in `AGENTS.md`.
+Electron desktop app — a cockpit for N workspaces (vault + indexed repos), each with its own force-graph and embedded agent terminals (PTY) running Claude Code, Codex or the Antigravity CLI. Live-highlights nodes as the agent reads/searches files via hooks. Feature overview, MCP tools, gestures and configuration are in `README.md`.
 
 ## Commands
 
 - Dev: `npm start` (Electron Forge dev)
 - Build/Package: `npm run make`
 - Voice assets: `npm run voice:assets` — fetches the whisper model, the ONNX WASM runtime and `face_landmarker.task` into the gitignored `public/voice/`. Voice fails to start on a fresh clone until this runs, and the mouth-detection tier is silently unavailable.
-- Test: `npm test` (vitest). Fixtures: `tests/fixtures/{vault,hook,gitnexus,graphify}/`.
+- Test: `npm test` (vitest). Fixtures: `tests/fixtures/`.
 - Lint/Format: `npx eslint . --fix` / `npx prettier --write .`
 
 ## Architecture & Core Decisions
 
-- **Passive observer that owns the Claude Code sessions.** The app writes no AI/search logic. It reacts to hook events POSTed by `src/hook/forward.mjs` to a localhost listener on port 4599, and runs one `claude` CLI per workspace in a PTY (node-pty + xterm.js). Hooks registered in `src/hook/merge.mjs`: `PreToolUse` (matcher `*`), `PostToolUse` (matcher `Read|Grep|Glob|Edit|Write|AskUserQuestion|mcp__gitnexus__impact` — kept narrow on purpose, since a wider matcher would ship every Bash command's full output), `UserPromptSubmit`, `Notification`, `Stop`, `SessionStart`.
-- **Four independent mappers read the same payload.** `event-mapper.ts` decides which nodes light up; `status-mapper.ts` decides what the workspace is doing; `ask-mapper.ts` tracks the open question; `session-start.ts` follows a new transcript. `http-listener.ts` gives each its own `try`.
+- **Passive observer that owns the agent sessions.** The app writes no AI/search logic. It reacts to hook events POSTed by `src/hook/forward.mjs` to a localhost listener on port 4599, and runs each session's agent CLI in a PTY (node-pty + xterm.js). Claude hooks are registered in `src/hook/merge.mjs`: `PreToolUse` (matcher `*`), `PostToolUse` (matcher `Read|Grep|Glob|Edit|Write|AskUserQuestion|mcp__gitnexus__impact` — kept narrow on purpose, since a wider matcher would ship every Bash command's full output), `UserPromptSubmit`, `Notification`, `Stop`, `StopFailure`, `SessionStart`.
+- **Agents are a registry** (`src/main/agents/`): `claude`, `codex`, `antigravity`. An adapter gives the command line, the launch preparation and a `normalize` that turns its hook body into Claude-shaped payloads, so the mappers never see another agent's shape; optional `enrich`, `gateEvent` and `trusted` serve agents whose hooks lack something. Codex gets its hooks as `-c` flags; Antigravity loads `<userData>/antigravity-hooks/.agents/hooks.json` through `--add-dir`, reports "waiting on you" only through its OSC 9 notification code (`osc-notify.ts`, `antigravity-terminal.ts`), and gives its final message from its transcript at `Stop`. A non-Claude tab shows the terminal only, and `+` always opens Claude; the main agent opens the others with `agent`.
+- **Five independent mappers read the same payload.** `event-mapper.ts` decides which nodes light up; `status-mapper.ts` decides what the workspace is doing; `ask-mapper.ts` tracks the open question; `text-question-mapper.ts` opens the panel for a question asked in plain text; `session-start.ts` follows a new transcript. `http-listener.ts` gives each its own `try`.
 - **`tool_response` is read for three things only:** the files a `PostToolUse` Grep/Glob matched (`response-paths.ts` `extractPaths`), gitnexus impact hits (`impact-paths.ts`), and `AskUserQuestion` answers (`ask-mapper.ts`). Every other reaction comes from `tool_input`.
 - **`/event` replies with an auto-answer's hook output** for an answered `AskUserQuestion` (`auto-answer.ts`, when the button is on) and acks every other event at once.
 - **Status lives in main** (`workspace-status.ts`), the only process that sees both hooks and PTY lifecycle. `Notification`'s `notification_type` separates `permission_prompt` (waiting on you) from `idle_prompt`. `Stop` does not fire on an Esc interrupt: a 60s staleness rule demotes Running to Idle, and must never promote to Waiting. No hook reports a permission answer, so `promptKeyed` ends `blocked` from the user's keys; a question ends on its `PostToolUse` or on Esc. On each hook `countTool` runs before `applyStatus`, so it keeps its own `countedSessionId` and must not touch the `sessionId` that `applyStatus` compares.
@@ -36,11 +37,11 @@ Electron desktop app — a cockpit for N workspaces (vault + indexed repos), eac
 - **Nothing types Enter into an open prompt.** While a session is `asking` or `blocked`, Enter picks an option, normally "Yes". The composer keeps its draft, `jarvis_send` refuses, the finish nudge waits in `nudge-gate.ts`, and the briefing waits for its next round. Only an answer control (`PermissionCard`, `AskPanel`) or the raw terminal may answer. The auto-answer button answers through a `PreToolUse` hook reply and types no keys.
 - **Worktrees keep what cannot be rebuilt.** `worktreeCheck` refuses a close for uncommitted changes, unmerged commits, or a gitignored path outside `REBUILDABLE` (`worktrees.ts`). In this repo that includes `docs/`, so a merged tab holding a spec stays open until the user closes it. `closeIfIdle` also leaves a session with unsent terminal text or a composer draft (`draft-state` IPC). `.worktrees/` is excluded from git, prettier and vitest.
 - **Tabs:** a clean exit drops a numbered session's tab and frees its terminal, draft and view mode. A crashed session keeps its tab, output and label until the user closes it; `closeSession` is what ends its status.
-- **Launch waits for quiet.** `jarvis_launch` and the boot briefing wait for `SETTLE_MS` of PTY silence (`settle.ts`, capped by a deadline), because text written before raw mode is dropped. For an untrusted folder, `launch` answers `trustPrompt` (read from `~/.claude.json` via `folder-trust.ts`); `jarvis_trust` types the user's answer only while the config still says untrusted.
+- **Launch waits for quiet.** `jarvis_launch` and the boot briefing wait for `SETTLE_MS` of PTY silence (`settle.ts`, capped by a deadline), because text written before raw mode is dropped. For an untrusted folder, `launch` answers `trustPrompt` (read from `~/.claude.json` via `folder-trust.ts`); `jarvis_trust` types the user's answer only while the config still says untrusted. Codex and Antigravity ask their own trust question in their terminal: `jarvis_trust` refuses them, and an Antigravity folder missing from `~/.gemini/antigravity-cli/settings.json` gets no typed prompt.
 - **A finish wakes the agent exactly once:** a parked `jarvis_watch` waiter is resolved, otherwise `publishFinish` types `finishNudge(workspace, tab)`.
 - **Daily briefing** gate: `notesDir !== null && hasHistory && lastBriefed !== todayLocal() && hour >= 7`. The nudge delegates the note path to the vault workspace (the non-`isSelf` one with `kind === "vault"`, never matched by name). The app reads no note itself.
 - **To-dos:** `TODO.md` in the main-agent folder, one task per line: `- [ ] text @project YYYY-MM-DD`. The panel never writes the whole list; `todo-op` sends one op naming `line` + `raw`, and the store refuses a changed line as `stale`. Only `ENOENT` reads as empty. The app rewrites the main-agent `CLAUDE.md` when `AGENT_GUIDE` changes (`.guide-hash`), and that boot starts the main agent without `--continue`.
-- **The app composes no prompt text**, with bounded exceptions: the `AGENT_GUIDE` file, the `finishNudge` line (which names the workspace and the tab and quotes no message), the `dailyBriefNudge` text, and the pipeline prompts in the `jarvis_send` description (`mcp.mjs`). Also out of scope: editing notes from the app, persisting events, non-Claude backends, and parsing terminal output (`jarvis_list` is built from hooks). The inbox is read-only.
+- **The app composes no prompt text**, with bounded exceptions: the `AGENT_GUIDE` file, the `finishNudge` line (which names the workspace and the tab and quotes no message), the `dailyBriefNudge` text, and the pipeline prompts in the `jarvis_send` description (`mcp.mjs`). Also out of scope: editing notes from the app, persisting events, and parsing terminal screen text (`jarvis_list` is built from hooks; Antigravity's OSC 9 code is the one terminal signal read). The inbox is read-only.
 
 ### Renderer traps
 
@@ -79,7 +80,7 @@ Electron desktop app — a cockpit for N workspaces (vault + indexed repos), eac
 ## Layout
 
 ```
-src/main/      Electron main: listener, mappers, status, graph-sources/, pty, orchestrate, main-agent, todos, tts
+src/main/      Electron main: listener, mappers, status, agents/, graph-sources/, pty, orchestrate, main-agent, todos, tts
 src/renderer/  App.tsx + feature folders: graph/ hands/ voice/ home/ preview/ terminal/ session-screen/ todos/ session/ ui/
 src/shared/    types.ts, wikilink.ts
 src/hook/      forward.mjs, install.mjs, merge.mjs, mcp.mjs
@@ -89,7 +90,7 @@ tests/         vitest, mirroring src folders + fixtures/
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **JARVIS** (6490 symbols, 14723 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **JARVIS** (6919 symbols, 15699 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
